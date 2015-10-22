@@ -1,0 +1,124 @@
+# -*- sh -*-
+
+# =-=-=-=-=-=
+# sedinplace
+# =-=-=-=-=-=
+
+##
+## Declarations
+##
+typeset sedopts=''		## Options to the sed command
+typeset sedopt_inplace='-i'	## Particular option typeset sedopts
+typeset opt_confirm=0
+typeset opt_backup=0
+typeset opt_verbose=0
+typeset GETOPTEVAL
+typeset status
+typeset sedcmdfile="/tmp/sedcmdfile.$$"
+typeset arg
+typeset exitstatus=0
+declare -a files
+typeset f
+
+##
+## OPTS and ARGS
+##
+
+## Read the args and options from the command line
+GETOPTEVAL=`getopt -o cbv -l confirm,backup,verbose -n $0 -- "$@"`
+status=$?
+if [ $status != 0 ]
+then
+    exit $status
+fi
+
+## reset the command line ($@)
+eval set -- "$GETOPTEVAL"
+
+## process options
+while true ; do
+    case "$1" in
+	    -c|--confirm)
+	        opt_confirm=1
+	        sedopt_inplace='-i.sip'
+	        opt_backup=1
+	        shift
+	        ;;
+	    -b|--backup)
+	        sedopt_inplace='-i.sip'
+	        opt_backup=1
+	        echo "Backups in .sip files"
+	        shift
+	        ;;
+	    -v|--verbose)
+	        opt_verbose=1
+	        shift
+	        ;;
+	    --)
+	        shift
+	        break
+	        ;;
+	    *) echo "Internal error!" ; byebye 1 ;;
+    esac
+done
+
+## process args
+\rm -f $sedcmdfile
+for arg in $*
+do
+    ## Need -e and -f. -e makes it a file system object. -f alone
+    ## could confuse a directory with a sed command.
+    ## Pathological? Yes. But that's how I roll.
+    if [ -e $arg ] && [ -f $arg ]
+    then
+	    files+=($arg)
+    else
+	    echo "$arg" >> $sedcmdfile
+    fi
+done
+
+if [ $opt_verbose = 1 ]
+then
+    echo "Processing these files: ${files[@]}"
+fi
+
+sedopts="$sedopt_inplace"
+sed $sedopts -f $sedcmdfile ${files[@]}
+status=$?
+if [ $status != 0 ]
+then
+    exitstatus=$status
+    echo "Sed editor. Status $status."
+fi
+
+for f in ${files[@]}
+do
+    if [ -e ${f}.sip ]
+    then
+	    diff --text ${f}.sip $f 1>/tmp/sedinplace.diff.$$
+	    status=$?
+	    if [ $status = 0 ]
+	    then
+            rmopt=''
+            if ((opt_verbose))
+            then
+		        echo "No changes in $f"
+            fi
+		    \rm ${f}.sip
+        elif ((opt_confirm))
+        then
+            echo
+            echo diff --text ${f}.sip $f
+            cat /tmp/sedinplace.diff.$$
+		    resp=$(yesno "Keep edits? ('n' reverts the edits)")
+		    if [ "$resp" = 'n' ]
+		    then
+		        mv -v ${f}.sip $f
+		    else
+		        \rm ${f}.sip
+	        fi
+        fi
+    fi
+done
+
+exit $exitstatus

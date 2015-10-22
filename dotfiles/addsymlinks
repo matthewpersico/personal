@@ -1,0 +1,46 @@
+# -*- sh -*-
+############################
+# addsymlinks
+
+# This script converts real files into dortfiles-based symlinks. Use this to
+# add new files to be controlled.
+
+############################
+
+########## Variables
+dotfile_dir=~/personal/dotfiles            # dotfiles directory
+dotfile_olddir=~/personal/dotfiles_old     # old dotfiles backup directory
+. ~/personal/dotfiles/makesymlinks.manifest
+                                           # declares dotfiles as an assoc
+                                           # array and fills is with names and
+                                           # locations of files/folders to
+                                           # symlink
+
+##########
+
+# change to the dotfiles directory
+echo -n "Changing to the $dotfile_dir directory ..."
+cd $dotfile_dir
+echo "done"
+
+# move any existing dotfiles in homedir to dotfiles_old directory, then create symlinks from the homedir to any files in the ~/dotfiles directory specified in $files
+for src in ${!dotfiles[@]}; do
+    fullsrc=$dotfile_dir/$src
+    link=${dotfiles[$src]}
+    if [ -f $fullsrc ]
+    then
+        echo "'$fullsrc' already exists. Skipping processing of '$link'."
+    elif [ ! -e $link ]
+    then
+        echo "'$link' does not exist to be copied and linked. Skipping processing of '$link'."
+    elif [ ! -f $link ]
+    then
+        echo "'$link' is not a file that can be copied and linked. Skipping processing of '$link'."
+    else
+        echo "Moving real file '$link' to '$fullsrc'"
+        mv $link $fullsrc
+        git add ${fullsrc##$(pwd)/}
+        echo "Creating symlink '$link' to '$fullsrc'"
+        ln -s $fullsrc $link
+    fi
+done

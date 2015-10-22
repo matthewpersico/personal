@@ -1,0 +1,83 @@
+# -*- sh -*-
+
+# vmfuncs
+
+VMFUNCS_FILE=${BASH_SOURCE[0]}
+
+vmfuncs_edit ()
+{
+    xo $VMFUNCS_FILE
+}
+alias vmfuncs-edit=vmfuncs_edit
+
+vmfuncs_reload ()
+{
+    . $VMFUNCS_FILE
+}
+alias vmfuncs-reload=vmfuncs_reload
+
+MOP_vmroot_MBIG=${HOME}/MBIG
+MOP_vmroot=${HOME}/vms
+MOP_vmhook_root=${HOME}/.vm_template
+MOP_vmhook_dir=${HOME}/.vm_template/hooks
+
+vmgo ()
+{
+    . ~/personal/bin/.bcpcvms
+    vmname=${1:-undef}
+
+    if [ "${vmips[$vmname]}" = '' ]
+    then
+        select vmname in ${!vmips[@]}
+        do
+            if [ -n "$vmname" ]
+            then
+                break
+            fi
+        done
+    fi
+    vmip=${vmips[$vmname]}
+    ssh -i ~/.ssh/id_rsa.toolkit $vmip
+}
+
+vmshow ()
+{
+    cat ~/personal/bin/.bcpcvms | grep -v 'declare -A vmips'
+}
+
+vmadd ()
+{
+    if [ $# != '2' ]
+    then
+        echo usage vmadd name ip
+        return 1
+    fi
+
+    echo "vmips[$1]=$2" >> ~/personal/bin/.bcpcvms
+    sort -u ~/personal/bin/.bcpcvms | grep -v 'declare -A vmips' > ~/personal/bin/.bcpcvms.$$
+
+    echo 'declare -A vmips' >  ~/personal/bin/.bcpcvms
+    cat ~/personal/bin/.bcpcvms.$$ >> ~/personal/bin/.bcpcvms
+    rm -f ~/personal/bin/.bcpcvms.$$
+    vmshow
+}
+
+vmdel ()
+{
+    . ~/personal/bin/.bcpcvms
+    vmname=${1:-undef}
+
+    if [ "${vmips[$vmname]}" = '' ]
+    then
+        select vmname in ${!vmips[@]}
+        do
+            if [ -n "$vmname" ]
+            then
+                break
+            fi
+        done
+    fi
+    cat ~/personal/bin/.bcpcvms | grep -v "vmips\[$vmname\]=${vmips[$vmname]}" > ~/personal/bin/.bcpcvms.$$
+    mv ~/personal/bin/.bcpcvms.$$ ~/personal/bin/.bcpcvms
+    vmshow
+}

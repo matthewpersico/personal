@@ -1,0 +1,95 @@
+# -*- sh -*-
+
+# snapshot_funcs
+
+SNAPSHOTFUNCS_FILE=${BASH_SOURCE[0]}
+
+snapshotfuncs_edit ()
+{
+    xo $SNAPSHOTFUNCS_FILE
+}
+alias snapshotfuncs-edit=snapshotfuncs_edit
+
+snapshotfuncs_reload ()
+{
+    . $SNAPSHOTFUNCS_FILE
+}
+alias snapshotfuncs-reload=snapshotfuncs_reload
+
+snapshot_go ()
+{
+    local tgtspec=$(pwd)
+    tgtspec=${tgtspec#$HOME}
+    tgtspec=${tgtspec#/}
+
+    local snapmirrors=$(ls -c1 ~/.snapshot | sort | grep -v snap)
+    select snapmirror in $snapmirrors
+    do
+        if [ -n "$snapmirror" ]
+        then
+            cd ${HOME}/.snapshot/${snapmirror}/$tgtspec
+            break;
+        fi
+    done
+}
+alias snapshot-go='snapshot_go '
+
+snapshot_diff ()
+{
+    local tgt=$1
+    shift
+    local tgtdir=$(builtin cd $(dirname $tgt);pwd)
+    local tgtspec=$tgtdir/$(basename $tgt)
+    tgtspec=${tgtspec#$HOME}
+    tgtspec=${tgtspec#/}
+
+    local snapmirrors=$(ls -c1 ~/.snapshot | sort | grep -v snap)
+    select snapmirror in $snapmirrors
+    do
+        if [ -n "$snapmirror" ]
+        then
+            diff -s $* ${HOME}/.snapshot/${snapmirror}/$tgtspec ${HOME}/$tgtspec
+        fi
+    done
+}
+alias snapshot-diff='snapshot_diff '
+
+snapshot_restore ()
+{
+    local tgt=$1
+    shift
+    if [ -z "$tgt" ]
+    then
+        echo "usage: snapshot_restore filepath"
+        echo "       where 'filepath' is a complete"
+        echo "       path to the file to restore OR"
+        echo "       a file in the current directory"
+        return 1
+    fi
+    local tgtdir=$(builtin cd $(dirname $tgt);pwd)
+    local tgtspec=$tgtdir/$(basename $tgt)
+    tgtspec=${tgtspec#$HOME}
+    tgtspec=${tgtspec#/}
+
+    local snapmirrors=$(ls -c1 ~/.snapshot | sort | grep -v snap)
+    PS3='Pick a snapshot dir: '
+    select snapmirror in $snapmirrors
+    do
+        if [ -n "$snapmirror" ]
+        then
+            ls -la ${HOME}/.snapshot/${snapmirror}/$tgtspec ${HOME}/$tgtspec
+            resp=$(yesno "Continue" n)
+            if [ "$resp" == 'y' ]
+            then
+                diff -s $* ${HOME}/.snapshot/${snapmirror}/$tgtspec ${HOME}/$tgtspec
+                resp=$(yesno "Restore from snapshot" n)
+                if [ "$resp" == 'y' ]
+                then
+                    cp -v ${HOME}/.snapshot/${snapmirror}/$tgtspec ${HOME}/$tgtspec
+                    break
+                fi
+            fi
+        fi
+    done
+}
+alias snapshot-restore='snapshot_restore '

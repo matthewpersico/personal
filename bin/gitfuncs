@@ -1,0 +1,442 @@
+# -*- sh -*-
+
+# gitfuncs
+
+GITFUNCS_FILE=${BASH_SOURCE[0]}
+
+gitfuncs_edit ()
+{
+    xo $GITFUNCS_FILE
+}
+alias gitfuncs-edit=gitfuncs_edit
+
+gitfuncs_reload ()
+{
+    . $GITFUNCS_FILE
+}
+alias gitfuncs-reload=gitfuncs_reload
+
+MOP_gitroot_MBIG=${HOME}/MBIG
+MOP_gitroot=${HOME}/gits
+MOP_githook_root=${HOME}/.git_template
+MOP_githook_dir=${HOME}/.git_template/hooks
+
+_git_st_strip_usage ()
+{
+    echo "Usage: git-st-strip [arg ...]"
+    echo "       git-st-strip [--help|-h]"
+    echo
+    echo "       Runs 'git status -s' and removes the leading"
+    echo "       status indicators"
+    echo
+    echo "       'arg' is any argument you would normally"
+    echo "       pass to 'git status'. If you pass options,"
+    echo "       behavior is undefined."
+}
+alias _git-st-strip-usage=_git_st_strip_usage
+
+git_st_strip ()
+{
+    typeset OPTSARGS=$(getopt -o h --long help -n 'git-st-strip' -- "$@")
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) _git-st-strip-usage; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; git-st-strip-usage; return 1 ;;
+        esac
+    done
+
+    git status -s "$@" | sed 's/.* //'
+}
+alias git-st-strip=git_st_strip
+
+git_find ()
+{
+    if [ -n "$1" ]
+    then
+        find . -type f -name "$1" | grep -v .git
+    else
+        find . -type f | grep -v .git
+    fi
+}
+alias git-find=git_find
+alias gitfind=git_find
+
+git_grep ()
+{
+    git_find | xargs grep $*
+}
+alias git-grep=git_grep
+alias gitgrep=git_grep
+
+git_commit_changelog () ## COmit CHangelog
+{
+    typeset f=git.commit.$$
+    echo "## Delete all lines if you want to abort - :q! won't work:" > $f
+    if [ -e ChangeLog ]
+    then
+	    cat ChangeLog | grep -v mpersico5 >> $f
+    else
+	    echo "## No ChangeLog found" >> $f
+    fi
+    git commit -F $f --edit "$@"
+    typeset status=$?
+    if ((status==0))
+    then
+	    \rm ChangeLog $f
+    fi
+}
+alias git-commit-changelog=git_commit_changelog
+
+git_strip_repo ()
+{
+    echo $1 | sed 's/(repo)//'
+}
+
+git_add_repo ()
+{
+    echo "$1(repo)"
+}
+
+git_go_set ()
+{
+    echo "Regenerating .git-go ($MOP_git_go_file)..." >&2
+    typeset repo_tops=$(find ${HOME}/gits ${HOME}/MBIG -maxdepth 1 -mindepth 1 -type d -follow)
+    typeset repo_tops_re=":$(echo $repo_tops | sed 's/ /:/g'):"
+    typeset repos=$(find $repo_tops -name .git -type d | sed 's|/.git||g' | sort -u)
+    #echo $repos
+    typeset repo_roots=$(typeset i j
+                         for i in $repos
+			             do
+                             git_add_repo $i
+			                 j=$i
+			                 while [ -n "$j" ] && [ "$j" != 'done' ]
+			                 do
+                                 if [ "$j" != "$i" ]
+                                 then
+                                     echo $j
+                                 fi
+				                 if [[ $repo_tops_re =~ ":$j:" ]]
+				                 then
+				                     j='done'
+				                 else
+				                     j=$(dirname $j)
+				                 fi
+			                 done
+			             done)
+    echo $repo_roots $repo_tops | tr ' ' '\n' | sort -u | sed "s|${HOME}/||" > $MOP_git_go_file
+    echo .git_template >> $MOP_git_go_file
+    ls ${HOME}/gits/.git-go* | grep -v $MOP_git_go_file | xargs rm -f
+}
+alias git-go-set=git_go_set
+
+git_go_set_filename ()
+{
+    MOP_git_go_file=${HOME}/gits/.git-go.$(date +%Y%m%d)
+}
+alias git-go-set-filename=git_go_set_filename
+
+_git_go_get()
+{
+    ## no, we don't need getopt processing here. This is an internal func so we
+    ## just have to GET IT RIGHT when we call it.
+    typeset update=$1
+    shift
+    typeset roots=$1
+    shift
+    typeset mbig=$1
+    shift
+    typeset filter=$1
+    shift
+    git-go-set-filename
+    if [ ! -e $MOP_git_go_file ] || ((update))
+    then
+	    git-go-set
+    fi
+
+    local tmpfile=$(mktemp)
+    cp $MOP_git_go_file $tmpfile
+
+    if ((roots==0))
+    then
+        cat $tmpfile | grep '(repo)' | sed 's/(repo)//' > ${tmpfile}.001
+        mv ${tmpfile}.001 ${tmpfile}
+    fi
+
+    if ((mbig==0))
+    then
+        cat $tmpfile | grep -v 'MBIG' > ${tmpfile}.001
+        mv ${tmpfile}.001 ${tmpfile}
+    fi
+
+    if [ -n "$filter" ]
+    then
+        cat $tmpfile | grep $filter > ${tmpfile}.001
+        mv ${tmpfile}.001 ${tmpfile}
+    fi
+
+    cat $tmpfile
+    rm -f $tmpfile
+}
+
+git_go_usage ()
+{
+    echo "Usage: git-go [--update|-u] [--roots|-r] [--mbig|-m] [dirmatch]"
+    echo "       git-go [-h|--help]"
+    echo
+    echo "       Presents a list of all git repos"
+    echo "       in ${HOME}/gits"
+    echo "       for you to choose and then cd to."
+    echo
+    echo "       --roots will add the non-git directories"
+    echo "           where gits live so you can add new repos"
+    echo
+    echo "       --mbig will add the directories in MBIG"
+    echo
+    echo "       'dirmatch' will filter the list"
+    echo
+}
+alias git-go-usage=git_go_usage
+
+git_go ()
+{
+    typeset PS3="Choose by number, CTRL-C to quit: "
+    typeset opt_update=0
+    typeset opt_roots=0
+    typeset opt_mbig=0
+    typeset OPTSARGS=$(getopt -o urmh --long update,roots,mbig,help -n 'git-go' -- "$@")
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -m|--mbig) opt_mbig=1; shift ;;
+            -r|--roots) opt_roots=1; shift ;;
+            -u|--update) opt_update=1; shift ;;
+            -h|--help) git-go-usage; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; git-go-usage; return 1 ;;
+        esac
+    done
+
+    typeset REPOS REPO
+    REPOS=$(_git_go_get $opt_update $opt_roots $opt_mbig "$1")
+    if [ -z "$REPOS" ]
+    then
+        echo $1 does not match any repo
+        git_go_usage
+        return
+    fi
+    select REPO in $REPOS
+    do
+	    if [ -n "$REPO" ]
+	    then
+            ## cd, not builtin cd to take advantage of any cd enhancements that
+            ## are in effect (via a cd alias or a cd script in PATH)
+	        cd ${HOME}/$(git_strip_repo $REPO)
+	        return
+	    fi
+    done
+}
+alias git-go=git_go
+alias gitgo=git_go
+
+git_get_current_branch ()
+{
+    ( if [ -n "$1" ]
+      then
+          ## cd, not builtin cd to take advantage of any cd enhancements that
+          ## are in effect (via a cd alias or a cd script in PATH)
+          cd $1
+      fi
+      git rev-parse --abbrev-ref HEAD
+    )
+}
+export -f git_get_current_branch
+alias git-get-current-branch=git_get_current_branch
+
+git_help ()
+{
+    local tmpfile=$(mktemp)
+    ls -c1 $PERSONALBIN/*bbgh* 2>/dev/null | sed 's|.*/|script |' > ${tmpfile}.gh1
+    ls -c1 $PERSONALBIN/*git* 2>/dev/null| sed 's|.*/|script |' > ${tmpfile}.gh2
+    declare -F | grep git | grep -v _git > ${tmpfile}.gh3
+
+    sort -u ${tmpfile}.gh*
+    \rm -f ${tmpfile}.gh*
+}
+alias git-help=git_help
+
+git_rename_branch ()
+{
+    typeset old_branch=$1
+    shift
+    typeset new_branch=$2
+    shift
+    if (($#))
+    then
+        echo "Usage: git-rename-branch old_branch new_branch=$2"
+        echo "       argument(s) '$*' are illegal"
+        return 1
+    fi
+
+    git branch -m $old_branch $new_branch        || return $? # Rename branch locally.
+
+    git push origin :$old_branch                 || return $? # Delete the old
+                                                              # branch. DON'T
+                                                              # DO THIS IF YOU
+                                                              # HAVE AN OPEN
+                                                              # PULL REQUEST!!!
+
+    git push --set-upstream origin $new_branch                # Push the new
+                                                              # branch, set
+                                                              # local branch to
+                                                              # track the new
+                                                              # remote.
+    return $?
+}
+alias git-rename-branch=git_rename_branch
+
+git_close_branch ()
+{
+    typeset old_branch=$1
+    typeset new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
+    git-rename-branch $old_branch $new_branch
+    return $?
+}
+alias git-close-branch=git_close_branch
+
+git_delete_branch ()
+{
+    typeset branch=$1;
+    if [ -z "$branch" ]
+    then
+        typeset PS3="Choose by number, CTRL-C to quit: "
+        typeset selected
+        select selected in $(git branch --list | sed 's/.* //')
+        do
+            if [ -n "$selected" ]
+            then
+                branch=$selected
+                break;
+            fi
+        done
+    fi
+    if [ -n "$branch" ]
+    then
+        ## it was either $1 or we did not ctrl-c out of the select
+        git branch    -d $branch || return $?;
+        git branch -r -d origin/$branch
+        return $?
+    fi
+    return 0
+}
+alias git-delete-branch=git_delete_branch
+
+git_set_locals ()
+{
+    typeset localgitpaths='/home/mpersico5/gits/bbgithub/bbgh/bin
+                           /home/mpersico5/gits/bbgithub/glow/bin'
+    typeset lgp
+    for lgp in ${localgitpaths}
+    do
+        addpath -f -p PATH $lgp
+        echo "Using $lgp ($(git-get-current-branch $lgp))"
+    done
+}
+alias git-set-locals=git_set_locals
+
+git_hook_update ()
+{
+    typeset hooks="$@"
+    if [ -z "$hooks" ]
+    then
+        hooks=$(ls ${MOP_githook_dir}/* | grep -v README.md)
+    else
+        typeset h
+        typeset newh
+        for h in $hooks
+        do
+            newh="$newh ${MOP_githook_dir}/$h"
+        done
+        hooks="$newh"
+    fi
+    typeset REPOS REPO
+    REPOS=$(_git_go_get 0 0 1)
+    for REPO in $REPOS
+    do
+        for h in $hooks
+        do
+           typeset hookdir="${HOME}/$(git_strip_repo $REPO)/.git/hooks"
+           if [ -e "$hookdir/$(basename $h)" ]
+           then
+               cp -v $h $hookdir
+           fi
+        done
+    done
+}
+alias git-hook-update='git_hook_update '
+
+git_hook_add ()
+{
+    git init --template=${MOP_githook_root}
+    typeset hooks="$@"
+    if [ -z "$hooks" ]
+    then
+        hooks=$(ls ${MOP_githook_dir}/*)
+    else
+        typeset h
+        typeset newh
+        for h in $hooks
+        do
+            newh="$newh ${MOP_githook_dir}/$h"
+        done
+        hooks="$newh"
+    fi
+    typeset REPOS REPO
+    REPOS=$(_git_go_get 0 0 1)
+    for REPO in $REPOS
+    do
+        for h in $hooks
+        do
+           typeset hookdir="${HOME}/$(git_strip_repo $REPO)/.git/hooks"
+           if [ -e "$hookdir/$(basename $h)" ]
+           then
+               cp -v $h $hookdir
+               chmod +x $hookdir/$h
+           fi
+        done
+    done
+}
+
+git_checkout ()
+{
+    local newbranch=$1
+    if [ -z "$newbranch" ]
+    then
+        local tmpfile=$(mktemp)
+        git branch | sed 's|\* |*|' > $tmpfile
+        typeset branch
+        typeset current_branch=$(grep '*' $tmpfile)
+        select branch in $(cat $tmpfile)
+        do
+            if [ -n "$branch" ]
+            then
+                if [ "$branch" == "$current_branch" ]
+                then
+                    echo $branch is current.
+                else
+                    newbranch=$(echo $branch | sed 's|\*||')
+                fi
+                break
+            fi
+        done
+    fi
+    if [ -n "$newbranch" ]
+    then
+        git checkout $newbranch
+    fi
+}
+alias git-checkout='git_checkout '
+alias git-branches='git_checkout '

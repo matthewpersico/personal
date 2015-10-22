@@ -1,0 +1,258 @@
+# -*- sh -*-
+
+# cdfuncs
+
+## I chose to use 'local' because it is more semantically correct for what we
+## are doing than 'declare' and 'typeset' is deprecated except for ksh
+## compatibility.
+
+CDFUNCS_FILE=${BASH_SOURCE[0]}
+DIRLIST_FILE=~/.dirlist
+DIRLIST_LOCK=~/.dirlist.lck
+DIRLIST_CONTEXT=''
+DIRLIST_PWD_INDIC='==>'
+
+cdfuncs_edit ()
+{
+    xo $CDFUNCS_FILE
+}
+alias cdfuncs-edit=cdfuncs_edit
+
+cdfuncs_reload ()
+{
+    . $CDFUNCS_FILE
+}
+alias cdfuncs-reload=cdfuncs_reload
+
+## Remove the current dir marker
+cleandirlist ()
+{
+	DIRLIST=$(echo "${DIRLIST}" | sed "s|$DIRLIST_PWD_INDIC||g")
+}
+
+## Remove all the intermediate directories
+prunedirlist ()
+{
+	cleandirlist
+    local tmplist=$(echo ${DIRLIST} | tr ' ' '\n' | sort -ur)
+    local lastdir
+    local newlist
+    local i
+    for i in $tmplist
+    do
+        if [[ "${lastdir}" != "${i}"* ]]
+        then
+            newlist="$newlist $i"
+        fi
+        lastdir=$i
+    done
+    DIRLIST="$newlist"
+    setdirlist
+}
+
+# Maintain the list of visited directories
+setdirlist ()
+{
+    cleandirlist
+    local p=$(pwd)
+    ## Pull out ~...
+	DIRLISTTMP=$(echo $p ${DIRLIST} | sed "s|\~|$HOME|g" | tr ' ' '\n' | sort -u | grep -v "^${HOME}$")
+    local d
+    DIRLIST=''
+    ## ...so we can always make it #1
+    for d in $HOME $DIRLISTTMP
+    do
+        if [ -d $d ]
+        then
+            if [ $d == $p ]
+            then
+                d="${DIRLIST_PWD_INDIC}$d"
+            fi
+            DIRLIST="$DIRLIST $d"
+        else
+            echo Pruned non-existant $d from DIRLIST
+        fi
+    done
+	DIRLIST=$(echo ${DIRLIST} | sed "s|$HOME|\~|g" )
+
+}
+
+# Read list of dirs off the disk. You can have different lists if you use the
+# context arg.
+readdirlist ()
+{
+    local context=$1
+    local dirlistfile=$DIRLIST_FILE
+    local lockfile=$DIRLIST_LOCK
+    local tmpfile=/tmp/cdfuncs.$$
+    if [ -z "$context" ]
+    then
+        context=$DIRLIST_CONTEXT
+    else
+        DIRLIST_CONTEXT=$context
+    fi
+    if [ -n "$context" ]
+    then
+        dirlistfile="${dirlistfile}.${context}"
+        lockfile="${lockfile}.${context}"
+    fi
+    (
+        ## lock, exclusive, 60 second timeout, file descriptor 200 (0 is stdin,
+        ## 1 is stout, 2 is stderr)
+        flock -e -w 60 200
+        if [ -e $dirlistfile ]
+        then
+            cat $dirlistfile
+        else
+            echo "[readdirlist] WARNING: $dirlistfile not found.">&2
+        fi
+    ) 200>$DIRLIST_LOCK 1>$tmpfile
+    DIRLIST=$(cat $tmpfile)
+    \rm $tmpfile
+    setdirlist
+}
+
+# Write the list of dirs to the disk. You can have different lists if you use
+# the context arg.
+writedirlist ()
+{
+    local context=$1
+    local dirlistfile=$DIRLIST_FILE
+    local lockfile=$DIRLIST_LOCK
+    if [ -z "$context" ]
+    then
+        context=$DIRLIST_CONTEXT
+    else
+        DIRLIST_CONTEXT=$context
+    fi
+    if [ -n "$context" ]
+    then
+        dirlistfile="${dirlistfile}.${context}"
+        lockfile="${lockfile}.${context}"
+    fi
+    cleandirlist
+    (
+        ## lock, exclusive, 60 second timeout, file descriptor 200 (0 is stdin,
+        ## 1 is stout, 2 is stderr)
+        flock -e -w 60 200
+        echo $DIRLIST > $dirlistfile
+    ) 200>$DIRLIST_LOCK
+    readdirlist
+}
+
+dirlist ()
+{
+    ## The major input handling points are noted with ## ------
+    setdirlist
+    if [ -z "$1" ]
+    then
+        ## ----
+        ## Menu
+        ## ----
+        ## No args; present the menu and read choice.
+        ## Note: If you
+        ##    alias cd=dirlist
+        ## you lose cd == cd ~. Oh well.
+        local PS3="Choose by number, CTRL-C to quit: "
+        local d
+        select d in $DIRLIST
+        do
+            if [ -n "$d" ]
+            then
+                d=$(echo $d | sed "s|$DIRLIST_PWD_INDIC||" | sed "s|\~|$HOME|")
+                if [ -d "$d" ]
+                then
+                    builtin cd $d
+                    break
+                else
+                    echo "$d no longer exists"
+                fi
+            fi
+        done
+    else
+        ## --------------
+        ## Parse the args
+        ## --------------
+        if (($#==2))
+        then
+            ## ---------
+            ## Text swap
+            ## ---------
+            ## 'dirlist x y' changes /a/b/x/f to /a/b/y/f and cd's to the later.
+            ## Some 'cd' commands support this intrinsically (cd x y). However,
+            ## we're not going to bother trying to figure out if this
+            ## version does or not.
+            builtin cd $(pwd | sed "s|$1|$2|")
+        else
+            local tgt=$1;shift
+	        is_int $tgt
+	        if (( $? ))
+	        then
+	            is_neg $tgt
+	            if (( $? ))
+	            then
+                    ## --------------------
+                    ## Negative integer arg
+                    ## --------------------
+                    ## Argument was a negative number. If you are in /a/b/c/d/e and
+                    ## you cd -2, you end up in /a/b/c.
+		            local i=$tgt
+                    local src=$(pwd)
+		            while (( i < 0 ))
+		            do
+		                builtin cd ..
+		                (( i=i+1 ))
+		            done
+                else
+                    ## --------------------
+                    ## Positive integer arg
+                    ## --------------------
+                    ## Argument was a positive number. If you haven't changed your
+                    ## stack and you remember your number from the select menu,
+                    ## just go there.
+	                local DIRLISTA=($DIRLIST)
+                    if ((tgt>${#DIRLISTA[@]})) || ((tgt==0))
+                    then
+                        echo $tgt is not a valid choice
+                    else
+                        local d=$(echo ${DIRLISTA[(tgt-1)]} |
+                                  sed "s|$DIRLIST_PWD_INDIC||" |
+                                  sed "s|~|${HOME}|")
+                        builtin cd $d
+	                fi
+	            fi
+            else
+                ## -------------------
+                ## Arg should be a dir
+                ## -------------------
+                builtin cd $tgt
+            fi
+        fi
+    fi
+    setdirlist
+}
+
+alias go='dirlist '
+alias cd='dirlist '
+
+up () {
+    local tgt=$1
+    if [ -z "$tgt" ]
+    then
+        tgt=1
+    fi
+	is_int $tgt
+	if (( $? ))
+	then
+	    is_neg $tgt
+	    if (( $? ))
+	    then
+            echo 'up takes positive numbers. We will convert for you.'
+        else
+            ((tgt=tgt*-1))
+        fi
+        dirlist $tgt
+    else
+        echo 'up takes positive numbers.'
+    fi
+}

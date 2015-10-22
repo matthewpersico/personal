@@ -1,0 +1,106 @@
+###############################################################################
+#
+# Name:         delpath
+#
+# Description:
+#
+# remove the path elements matching a directory specifier from a
+# path variable
+#
+# Usage: delpath [-h] [-e] [-n] [-p <pathvar>] <dirspec>
+#
+#    -e: <dirspec> is used as a regexp
+#    -n: removes non-existent directories from <pathvar>
+#    -p: removes <dirspec> from <pathvar> (default $PATH)
+#    -h: gives usage message
+#
+# e.g. delpath -p MANPATH -e "b.n"
+#      removes all path elements matching the regexp "b.n"
+#      from MANPATH
+#
+# Author:      Stephen Collyer (scollyer@netspinner.co.uk)
+#
+# Copyright:   Netspinner Ltd 2000-2003
+#
+###############################################################################
+
+delpath()
+{
+    ###########################################################################
+    # local variables
+    ###########################################################################
+
+    typeset options_shift_val options_missing_arg options_unknown_opt
+    typeset options_num_args_left
+    typeset opt_h opt_e opt_p opt_n
+
+    typeset pathvar new_path MATCH
+    typeset USAGE="delpath [-e] [-n] [-p <pathvar>] <dirspec>"
+    typeset USAGE1="deletes <dirname> from <pathvar> (default: PATH)"
+    typeset USAGE2="-e: <dirname> is interpreted as an egrep regexp "
+    typeset USAGE3="-n: delete non-existent path elements from <pathvar> "
+
+    ###########################################################################
+    # handle options
+    ###########################################################################
+
+    options henp: "$@"
+    shift $options_shift_val
+
+    if [ -n "$opt_h" ]
+    then
+        Usage "$USAGE" "$USAGE1" "$USAGE2" "$USAGE3"
+        return
+    fi
+    if [ -n "$options_missing_arg" ]
+    then
+        Usage "$USAGE" "Missing argument for -$options_missing_arg"
+        return
+    fi
+    if [ -n "$options_unknown_option" ]
+    then
+        Usage "$USAGE" "Unknown option -$options_unknown_option"
+        return
+    fi
+    if [ $options_num_args_left -eq 0 ] && [ -z "$opt_n" ]
+    then
+        Usage "$USAGE" "No directory specified"
+        return
+    fi
+
+    pathvar=PATH                      # default - exact match
+    [ -n "$opt_p" ] && pathvar=$opt_p # use specified pathvar
+
+    MATCH="-x"
+    [ -n "$opt_e" ] && MATCH=         # make grep use regexps
+
+    FILTER=                           # default
+    [ -n "$opt_n" ] && FILTER="| realpath_filter"
+
+    ###########################################################################
+    # main
+    ###########################################################################
+
+    # pass the path to makepath on the command line - long paths
+    # may overflow arg list limits on some Unices
+
+#    new_path=$(eval listpath -p $pathvar $FILTER | grep -v -E $MATCH "$1")
+#    eval $pathvar=$(makepath "$new_path")
+
+    # use a temporary file to store the path to reconstruct - this
+    # approach keeps command lines short
+
+    eval listpath -p $pathvar $FILTER | grep -v -E $MATCH "$1" > \
+    /tmp/makepath_in.$$
+    eval $pathvar=$(makepath < /tmp/makepath_in.$$)
+    rm /tmp/makepath_in.$$
+}
+
+if [ "$1" = 'export' ]
+then
+    export -f delpath
+fi
+# emacs
+# Local Variables:
+# mode: sh
+# End:
