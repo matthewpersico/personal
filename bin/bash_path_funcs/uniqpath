@@ -1,0 +1,87 @@
+###############################################################################
+#
+# Name:         uniqpath
+#
+# Description:
+#
+# make the elements of a path variable unique
+#
+# e.g. if APATH=/abc:/def:/ghi:/abc:/ghi:/123 then after:
+#
+#    uniqpath -p APATH
+#
+# we have APATH=/abc:/def:/ghi:/123
+#
+# Usage: uniqpath [-h] [-p <pathvar>]
+#
+# e.g. uniqpath            - uniquifies $PATH
+#      uniqpath -p LIBPATH - uniquifies $LIBPATH
+#
+# Author:      Stephen Collyer (scollyer@netspinner.co.uk)
+#
+# Copyright:   Netspinner Ltd 2000-2003
+#
+###############################################################################
+
+uniqpath()
+{
+    ###########################################################################
+    # local variables
+    ###########################################################################
+
+    typeset options_shift_val options_missing_arg options_unknown_opt
+    typeset options_num_args_left
+    typeset opt_h opt_p
+
+    typeset pathvar npath
+    typeset USAGE="uniqpath [-p <pathvar>]"
+    typeset USAGE1="Remove duplicate elements of <pathvar>"
+    typeset USAGE2="-p: operate on <pathvar> (default: PATH)"
+
+    ###########################################################################
+    # handle options
+    ###########################################################################
+
+    options hp: "$@"
+    shift $options_shift_val
+
+    if [ -n "$opt_h" ]
+    then
+        Usage "$USAGE" "$USAGE1" "$USAGE2"
+        return
+    fi
+    if [ -n "$options_missing_arg" ]
+    then
+        Usage "$USAGE" "Missing argument for -$options_missing_arg"
+        return
+    fi
+    if [ -n "$options_unknown_option" ]
+    then
+        Usage "$USAGE" "Unknown option -$options_unknown_option"
+        return
+    fi
+    if [ $options_num_args_left -ne 0 ]
+    then
+        Usage "$USAGE" "No additional arguments required"
+        return
+    fi
+
+    pathvar=PATH                        # default
+    [ -n "$opt_p" ] && pathvar=$opt_p # use specified pathvar
+
+    ###########################################################################
+    # main
+    ###########################################################################
+
+    npath=$(listpath -p $pathvar | awk '{seen[$0]++; if (seen[$0]==1){print}}')
+    eval $pathvar=$(makepath "$npath")
+}
+
+if [ "$1" = 'export' ]
+then
+    export -f uniqpath
+fi
+# emacs
+# Local Variables:
+# mode: sh
+# End:

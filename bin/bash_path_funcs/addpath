@@ -1,0 +1,137 @@
+# -*- sh -*-
+###############################################################################
+#
+# Name:         addpath
+#
+# Description:
+#
+# addpath performs an idempotent add of a directory to path variable.
+# ($PATH by default)
+# e.g.
+#      $ addpath /abc
+#      $ addpath /abc
+#
+# adds at most one copy of /abc to $PATH.
+#
+#     $ addpath -p MANPATH /abc
+#
+# adds to $MANPATH
+#
+# Usage: addpath [-h] [-p pathvar] [-f|-b] [-v] dirname
+#
+#     -p variable to set (default is PATH if -p not specified)
+#     -f adds to front of pathvar
+#     -b add to back of pathvar (default behavior)
+#     -v executes listpath after assignment
+#     -h gives usage message
+#
+# Author:      Stephen Collyer (scollyer@netspinner.co.uk)
+#
+# Copyright:   Netspinner Ltd 2000-2003
+#
+###############################################################################
+
+addpath()
+{
+    ###########################################################################
+    # local variables
+    ###########################################################################
+
+    typeset options_shift_val options_missing_arg options_unknown_opt
+    typeset options_num_args_left
+    typeset opt_h opt_f opt_b opt_p opt_v
+
+    typeset pathvar sep COMMAND dirname tmp element
+    typeset USAGE="addpath [-h] [-p pathvar] [-f|-b] [-v] dirname"
+    typeset USAGE1="Idempotently adds 'dirname' to 'pathvar' (default is PATH if -p not specified)"
+    typeset USAGE2="-p variable to set (default is PATH if -p not specified)"
+    typeset USAGE3="-f adds to front of pathvar"
+    typeset USAGE4="-b add to back of pathvar (default behavior)"
+    typeset USAGE5="-v executes listpath after assignment"
+    typeset USAGE6="-h gives usage message"
+
+
+    ###########################################################################
+    # handle options
+    ###########################################################################
+
+    options hfbvp: "$@"
+    shift $options_shift_val
+
+    if [ -n "$opt_h" ]
+    then
+        Usage "$USAGE" "$USAGE1" "$USAGE2" "$USAGE3"
+        return
+    fi
+    if [ -n "$options_missing_arg" ]
+    then
+        Usage "$USAGE" "Missing argument for -$options_missing_arg"
+        return
+    fi
+    if [ -n "$options_unknown_option" ]
+    then
+        Usage "$USAGE" "Unknown option -$options_unknown_option"
+        return
+    fi
+    if [ $options_num_args_left -eq 0 ]
+    then
+        Usage "$USAGE" "No directory specified"
+        return
+    fi
+
+    # NB the painful default COMMAND variable is required in the case
+    # that the pathvar is initially empty. If it is, then $sep is set
+    # to null rather than : so as to avoid putting a trailing colon on
+    # the path - however, this means that "addpath -p NEWPATH abc"
+    # ends up with a COMMAND like "COMMAND=$NEWPATHabc" which looks like
+    # an undefined variable - so we add braces to make it look like
+    # "COMMAND=${NEWPATH}abc. Phew.
+
+    COMMAND='\$\{${pathvar}\}${sep}${dirname}'  # default
+    pathvar=PATH                                # default
+
+    [ -n "$opt_f" ] && COMMAND='${dirname}${sep}\$${pathvar}'
+    [ -n "$opt_p" ] && pathvar=$opt_p
+
+    # check to see if we're defining a new pathvar. If so we clear
+    # the separator so as to avoid leading or trailing :'s
+
+    sep=:                       # default
+    eval tmp=\$$pathvar
+    [ "$tmp" = "" ] && sep=
+
+    dirname=$1
+
+    ###########################################################################
+    # main
+    ###########################################################################
+
+    # see if $1 is present in the path. Note use of -x with
+    # grep. This forces a match of the entire line. Without this
+    #     $ addpath /abc
+    #     $ addpath /ab
+    # would only add /abc
+    #
+    # NB we need the eval inside the $() to expand the $pathvar
+    # - it seems to have no effect inside $() when put at the
+    # start of line
+
+    element=$(eval echo \$$pathvar | colon2line | grep -x "$dirname")
+    if [ "$element" = "" ]
+    then
+         #
+         # $dirname is not currently in pathvar so add it
+         #
+         eval eval $pathvar=$COMMAND
+    fi
+    [ -n "$opt_v" ] && listpath -p $pathvar
+}
+
+if [ "$1" = 'export' ]
+then
+    export -f addpath
+fi
+# emacs
+# Local Variables:
+# mode: sh
+# End:

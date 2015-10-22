@@ -1,0 +1,89 @@
+###############################################################################
+#
+# Name:         edpath
+#
+# Description:
+#
+# edit path variables in an editor
+#
+# Usage: edpath [-h] [-p <pathvar>]
+#
+# e.g. edpath            - edits $PATH
+#      edpath -p LIBPATH - edits $LIBPATH
+#
+# Author:      Stephen Collyer (scollyer@netspinner.co.uk)
+#
+# Copyright:   Netspinner Ltd 2000-2003
+#
+###############################################################################
+
+edpath()
+{
+    ###########################################################################
+    # local variables
+    ###########################################################################
+
+    typeset options_shift_val options_missing_arg options_unknown_opt
+    typeset options_num_args_left
+    typeset opt_h opt_p    
+
+    typeset pathvar VAR TEMP
+    typeset USAGE="edpath [-p <pathvar>]"
+    typeset USAGE1="uses \$EDITOR (default: vi) to edit <pathvar>"
+    typeset USAGE2="-p: edit <pathvar> (default: PATH)"
+
+    ###########################################################################
+    # handle options
+    ###########################################################################
+
+    options hp: "$@"
+    shift $options_shift_val
+
+    if [ -n "$opt_h" ]
+    then
+        Usage "$USAGE" "$USAGE1" "$USAGE2"
+        return
+    fi
+    if [ -n "$options_missing_arg" ]
+    then
+        Usage "$USAGE" "Missing argument for -$options_missing_arg"
+        return
+    fi
+    if [ -n "$options_unknown_option" ]
+    then
+        Usage "$USAGE" "Unknown option -$options_unknown_option"
+        return
+    fi
+    if [ $options_num_args_left -ne 0 ]
+    then
+        Usage "$USAGE" "No additional arguments required"
+        return
+    fi
+
+    pathvar=PATH                      # default
+    [ -n "$opt_p" ] && pathvar=$opt_p # use specified pathvar
+
+    ###########################################################################
+    # main
+    ###########################################################################
+
+    TEMP=/tmp/edpath.out.$$
+
+    VAR=\$$pathvar                      # VAR="$LIBPATH" for example
+    eval export OLD$pathvar=$VAR        # store old path in e.g OLDPATH
+
+    listpath -p $pathvar  > $TEMP       # write path elements to file
+    ${EDITOR:-vi} $TEMP                 # edit the file
+    eval $pathvar=$(makepath < $TEMP)   # reconstruct path
+
+    /bin/rm -f $TEMP                    # remove temporary file
+}
+
+if [ "$1" = 'export' ]
+then
+    export -f edpath
+fi	   
+# emacs
+# Local Variables:
+# mode: sh
+# End:

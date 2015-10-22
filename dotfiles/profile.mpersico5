@@ -1,0 +1,356 @@
+# -*- sh -*-
+# ~/.profile.mpersico5
+# Isolates my stuff.
+
+echo "$(date): ~/.profile.mpersico5 is running..."
+
+PROFILE_FILE=${BASH_SOURCE[0]}
+profile_edit ()
+{
+    xo $PROFILE_FILE
+}
+alias profile-edit=profile_edit
+
+profile_reload ()
+{
+    . $PROFILE_FILE
+}
+alias profile-reload=profile_reload
+
+# =-=- PATH =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+# Setup before *path functions are available
+export PERSONALBIN=~/personal/bin
+export personalpath=$(echo $PATH | grep $PERSONALBIN)
+if [ -z "$personalpath" ]
+then
+    export PATH="$PERSONALBIN:$PATH"
+fi
+
+securepath ()
+{
+    if [ -z "$INSECUREPATH" ]
+    then
+        export INSECUREPATH=$PATH
+        delpath -p PATH /sbin
+        delpath -p PATH /usr/sbin
+    else
+        echo "Already secure:"
+        echo PATH=$PATH
+        echo INSECUREPATH=$INSECUREPATH
+    fi
+}
+
+unsecurepath ()
+{
+    if [ -n "$INSECUREPATH" ]
+    then
+        export PATH=$INSECUREPATH
+        unset $INSECUREPATH
+    else
+        echo "Already insecure:"
+        echo PATH=$PATH
+        echo INSECUREPATH=$INSECUREPATH
+    fi
+}
+alias insecurepath=unsecurepath
+
+# =-=- HISTORY =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+HISTSIZE=9000
+HISTFILESIZE=$HISTSIZE
+HISTTIMEFORMAT="%m/%d - %H:%M:%S "
+HISTFILE=~/.bash_histories/$(hostname).$$
+if [ ! -d ~/.bash_histories ]
+then
+    mkdir -p ~/.bash_histories
+fi
+##HISTCONTROL=ignorespace:ignoredups
+
+history()
+{
+  _bash_history_sync
+  builtin history "$@"
+}
+
+stash_history()
+{
+    cp -v $HISTFILE $(dirname $HISTFILE)/$1
+}
+alias stash_hist='stash_history '
+alias stash-hist='stash_history '
+alias hist-stash='stash_history '
+alias hist_stash='stash_history '
+
+show_history()
+{
+    ls -lrt $(dirname $HISTFILE) | sed "s/$$/$$ <=current/"
+}
+alias show_hist='show_history '
+alias show-hist='show_history '
+alias hist-show='show_history '
+alias hist_show='show_history '
+
+grep_history()
+{
+    grep "$1" $(ls $(dirname $HISTFILE)/*)
+}
+alias grep_hist='grep_history '
+alias grep-hist='grep_history '
+alias hist-grep='grep_history '
+alias hist_grep='grep_history '
+
+#add_history()
+#{
+#    perl -ane 'BEGIN{ $i=0 };
+#               chomp;
+#               if($i%2){
+#                 $o[-1] .= " $_"
+#               } else {
+#                 push @o, $_
+#               };
+#               $i++;
+#               END{sort @o;
+#                   map{ substr($_,11,1)="\n"; print("$_\n") }@o
+#               }' into some temp then swap
+#}
+
+_bash_history_sync()
+{
+  builtin history -a         #1
+  HISTFILESIZE=$HISTSIZE     #2
+  builtin history -c         #3
+  builtin history -r         #4
+}
+
+PROMPT_COMMAND=_bash_history_sync
+
+alias hist='history '
+alias histg='history | grep '
+
+# =-=- FUNCTIONS =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+# PATH manipulation functions
+for i in colon2line space2line Usage options makepath addpath delpath\
+         listpath uniqpath edpath realpath_filter
+do
+    . ${PERSONALBIN}/bash_path_funcs/$i
+    export -f $i
+done
+
+add_bb ()
+{
+    addpath -f /bb/bin
+}
+
+is_int ()
+{
+    [[ $1 =~ ^-?[0-9]+$ ]] && return 1
+    return 0
+
+}
+is_neg ()
+{
+    is_int $1 || (( $1 < 0 )) && return 1
+    return 0
+}
+
+is_pos ()
+{
+    is_int $1 || (( $1 > -1 )) && return 1
+    return 0
+}
+
+pause ()
+{
+    read -p "$*"
+}
+export -f pause
+
+yesno ()
+{
+
+    declare prompt_text=$1;shift
+    declare prompt="$prompt_text (y/n)"
+    declare default=$1;shift
+    default=$(echo $default| tr [:upper:] [:lower:] | tr -d [:blank:] )
+
+    declare cmd
+    cmd="$@"
+
+    if [ -n "$default" ]
+    then
+	    prompt="$prompt[$default]"
+    fi
+    prompt="$prompt? "
+
+    declare resp
+    while true
+    do
+	    read -p "$prompt" resp
+	    resp=$(echo ${resp:0:1} | tr [:upper:] [:lower:] )
+	    if [ -n "$default" ] && [ -z "$resp" ]
+	    then
+	        resp=$default
+	    fi
+	    if [ "$resp" = 'y' ] || [ "$resp" = 'n' ]
+	    then
+            if [ -z "$cmd" ]
+            then
+                ## No command, give response
+	            echo $resp
+	            return 0
+            elif  [ "$resp" = 'y' ]
+            then
+                $cmd
+                return $?
+            else
+                return 0
+            fi
+	    fi
+    done
+}
+export -f yesno
+
+dowhich ()
+{
+    declare file=$1;shift
+    declare action="$@"
+
+    declare foundit=$(which $file)
+    if [ -z "$foundit" ]
+    then
+        echo "$file not found on PATH"
+        return 1
+    elif [ -z "$action" ]
+    then
+        echo $foundit
+        return 0
+    else
+        yesno "Use $foundit" 'n' $action $foundit
+        return $?
+    fi
+}
+
+tarcopy ()
+{
+    echo 'tar cf - * | ( cd $tgtdir; tar xvfp -)'
+    echo 'also consider cp -a src[ src...] tgtdir'
+}
+
+# =-=- DISTINCT SETTINGS =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+. $PERSONALBIN/cdfuncs
+. $PERSONALBIN/gitfuncs
+. $PERSONALBIN/svnfuncs
+. $PERSONALBIN/snapshotfuncs
+. $PERSONALBIN/vmfuncs
+
+# =-=- PERL =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+alias pd='perldoc '
+tkpod ()
+{
+    declare realtkpod="$(which tkpod) -I /bbsrc/bin/builddeb/prod/lib/site_perl/ -I /bbsrc/bin/builddeb/prod/lib/perl/"
+    if (($#==0))
+    then
+        echo $realtkpod --tree amperansd
+        $realtkpod --tree &
+    else
+        echo $realtkpod "$@" ampersand
+        $realtkpod "$@" &
+    fi
+}
+
+aptperl ()
+{
+    local module=$1
+    local pkg="lib$(echo $module | sed 's/::/-/g' | tr '[:upper:]' '[:lower:]')-perl"
+    echo "Installing $pkg..."
+    apt-get install $pkg
+}
+
+alias perltidy='/bbs/opt/bin/csperl5.12 -Mlib=/bbsrc/bin/cstools/cstools_cpan-trunk-2013.10.31-r87/lib/site_perl/ /bbsrc/bin/cstools/cstools_cpan-trunk-2013.10.31-r87/bin/perltidy '
+
+# =-=- PYTHON =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+python_dbg ()
+{
+    echo Do these
+    echo ipython
+    echo run -d script arg arg...
+    echo s - step in
+    echo n - next
+    echo up - up one stack level. Use this instead
+    echo      of run-till-return
+    echo type a variable to print it, with overloads
+    echo      do not know the raw print yet
+}
+
+# =-=- ALIASES =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+# Conveniences
+alias cvs='echo cvs? Are you KIDDING ME???? - Try again!'
+alias dir='ls -la '
+alias envg='env | grep '
+alias setg='set | grep '
+alias psme='ps lxf -U ${USER}'
+alias rm='rm -i '
+alias mopdiff='diff -w --side-by-side --suppress-common-lines '
+alias mydiff='diff -w --side-by-side --suppress-common-lines '
+alias mopquota='df -h '
+
+# Fat finger protection
+alias vf='echo cd, you moron; cd '
+alias eopro="eo ~/.profile.${USER}"
+alias redopro=". ~/.profile.${USER}"
+
+# =-=- PERL =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+addpath -f -p PERL5LIB ~/personal/share/perl5/site_perl/5.16
+
+addcsperlpath ()
+{
+    addpath -f -p PERL5LIB ~/personal/csperl/lib/5.12.2
+    addpath -f -p PERL5LIB ~/personal/csperl/lib/site_perl
+}
+
+delcsperlpath ()
+{
+    delpath -p PERL5LIB ~/personal/csperl/lib/site_perl
+    delpath -p PERL5LIB ~/personal/csperl/lib/5.12.2
+}
+
+# =-=- BLOOMBERG =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+# if chimera generated aliases exist, pull them into the current ENV
+[ -f ~/.bbalias ] && . ~/.bbalias
+
+# =-=- POST-CHIMERA =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=
+
+# Override prompt (assuming git stuff set in chimera)
+PS1='\n\[\e]0;\u@\h:\w\a\]\u@\h\n\w\n$(__git_ps1 "(%s)")\$ '
+export PS1
+
+# Useful in subshells
+export -f __git_ps1
+export -f __gitdir
+
+# =-=- MISC -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+
+# STOP clearing the screen!!!
+LESS="-X"
+export LESS
+
+# Setup completion for plink - more for the example than the usage.
+complete -f -X '!*.mk' plink
+
+# for silencing emacs 24.4 dbus warning message
+export NO_AT_BRIDGE=1
+
+# new xterms
+. ~/personal/bin/.xterminit
+
+# AD stuff
+alias authinfo='/opt/quest/bin/vastool search CN=mpersico5'
+
+echo "$(date): ~/.profile.mpersico5 has run"
