@@ -16,10 +16,31 @@ gitfuncs_reload ()
 }
 alias gitfuncs-reload=gitfuncs_reload
 
-MOP_gitroot_MBIG=${HOME}/MBIG
-MOP_gitroot=${HOME}/gits
-MOP_githook_root=${HOME}/.git_template
-MOP_githook_dir=${HOME}/.git_template/hooks
+mpersico5_gitroot_MBIG=${HOME}/MBIG
+mpersico5_gitroot=${HOME}/gits
+mpersico5_githook_root=${HOME}/.git_template
+mpersico5_githook_dir=${HOME}/.git_template/hooks
+
+## This will be checked on each login and any time gitfuncs_reload is run. It's
+## only ever executed when logging into a vm just after creation.
+if [ ! -e $mpersico5_gitroot ]
+then
+    echo "gits dir not set up. Setting up..."
+
+    mkdir -vp $mpersico5_gitroot/devgit
+    mkdir -vp $mpersico5_gitroot/bbgithub
+    cat <<EOF >>$mpersico5_gitroot/README
+This directory level indicates which git system is being used.  Currently, only
+devgit and bbgithub should be here.
+EOF
+
+    mkdir -vp $mpersico5_gitroot/bbgithub/mpersico5
+    cat <<EOF >>$mpersico5_gitroot//bbgithub/README
+This directory level indicates git repo organization.  If we are using the
+fork/clone methodology, then the only 'organization' at this level should
+be mpersico5, unless you have directly cloned a 'master' repo.
+EOF
+fi
 
 _git_st_strip_usage ()
 {
@@ -102,7 +123,7 @@ git_add_repo ()
 
 git_go_set ()
 {
-    echo "Regenerating .git-go ($MOP_git_go_file)..." >&2
+    echo "Regenerating .git-go ($mpersico5_git_go_file)..." >&2
     typeset repo_tops=$(find ${HOME}/gits ${HOME}/MBIG -maxdepth 1 -mindepth 1 -type d -follow)
     typeset repo_tops_re=":$(echo $repo_tops | sed 's/ /:/g'):"
     typeset repos=$(find $repo_tops -name .git -type d | sed 's|/.git||g' | sort -u)
@@ -126,15 +147,15 @@ git_go_set ()
 				                 fi
 			                 done
 			             done)
-    echo $repo_roots $repo_tops | tr ' ' '\n' | sort -u | sed "s|${HOME}/||" > $MOP_git_go_file
-    echo .git_template >> $MOP_git_go_file
-    ls ${HOME}/gits/.git-go* | grep -v $MOP_git_go_file | xargs rm -f
+    echo $repo_roots $repo_tops | tr ' ' '\n' | sort -u | sed "s|${HOME}/||" > $mpersico5_git_go_file
+    echo .git_template >> $mpersico5_git_go_file
+    ls ${HOME}/gits/.git-go* | grep -v $mpersico5_git_go_file | xargs rm -f
 }
 alias git-go-set=git_go_set
 
 git_go_set_filename ()
 {
-    MOP_git_go_file=${HOME}/gits/.git-go.$(date +%Y%m%d)
+    mpersico5_git_go_file=${HOME}/gits/.git-go.$(date +%Y%m%d)
 }
 alias git-go-set-filename=git_go_set_filename
 
@@ -151,13 +172,13 @@ _git_go_get()
     typeset filter=$1
     shift
     git-go-set-filename
-    if [ ! -e $MOP_git_go_file ] || ((update))
+    if [ ! -e $mpersico5_git_go_file ] || ((update))
     then
 	    git-go-set
     fi
 
     local tmpfile=$(mktemp)
-    cp $MOP_git_go_file $tmpfile
+    cp $mpersico5_git_go_file $tmpfile
 
     if ((roots==0))
     then
@@ -352,13 +373,13 @@ git_hook_update ()
     typeset hooks="$@"
     if [ -z "$hooks" ]
     then
-        hooks=$(ls ${MOP_githook_dir}/* | grep -v README.md)
+        hooks=$(ls ${mpersico5_githook_dir}/* | grep -v README.md)
     else
         typeset h
         typeset newh
         for h in $hooks
         do
-            newh="$newh ${MOP_githook_dir}/$h"
+            newh="$newh ${mpersico5_githook_dir}/$h"
         done
         hooks="$newh"
     fi
@@ -380,17 +401,17 @@ alias git-hook-update='git_hook_update '
 
 git_hook_add ()
 {
-    git init --template=${MOP_githook_root}
+    git init --template=${mpersico5_githook_root}
     typeset hooks="$@"
     if [ -z "$hooks" ]
     then
-        hooks=$(ls ${MOP_githook_dir}/*)
+        hooks=$(ls ${mpersico5_githook_dir}/*)
     else
         typeset h
         typeset newh
         for h in $hooks
         do
-            newh="$newh ${MOP_githook_dir}/$h"
+            newh="$newh ${mpersico5_githook_dir}/$h"
         done
         hooks="$newh"
     fi
