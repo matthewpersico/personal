@@ -15,43 +15,77 @@ vmfuncs_reload ()
     . $VMFUNCS_FILE
 }
 alias vmfuncs-reload=vmfuncs_reload
+alias vmfuncs-load=vmfuncs_reload
 
 VMFUNCS_TOOLKIT_FILE=~/.ssh/id_rsa.toolkit
+VMFUNCS_TOOLKIT_EXPIRE_FILE=~/.ssh/id_rsa.toolkit.expires
+VMFUNCS_BCPCVMS_FILE=~/personal/bin/.bcpcvms
 
 vm_toolkit_file_maint ()
 {
-    now=$(date +%s)
-    filetime=$(stat -c %Y ../.ssh/id_rsa.toolkit)
-    oneday=86400 ## seconds in a day
-    if ((filetime < now - oneday))
+    local msg=''
+    local expiretime=0
+    if [ ! -r $VMFUNCS_TOOLKIT_FILE ]
     then
-        ~/personal/bin/toolkit-login
+        msg="Toolkit credential file $VMFUNCS_TOOLKIT_FILE not found. Generating..."
+    elif [ ! -r $VMFUNCS_TOOLKIT_EXPIRE_FILE ]
+    then
+        msg="Toolkit credential file $VMFUNCS_TOOLKIT_FILE not found. Generating..."
+    else
+        expiretime=$(cat $VMFUNCS_TOOLKIT_EXPIRE_FILE | grep -v '#')
+        expiremsg=$(cat $VMFUNCS_TOOLKIT_EXPIRE_FILE | grep '#' | sed 's/#//g' | sed 's/ //g' )
+        msg="Toolkit credential has expired ($expiremsg). Regenerating..."
     fi
+    now=$(date +%s)
+    if ((expiretime < now))
+    then
+        echo $msg
+        ## Backups
+        if [ -r $VMFUNCS_TOOLKIT_FILE ]
+        then
+            cp -pvf ${VMFUNCS_TOOLKIT_FILE} ${VMFUNCS_TOOLKIT_FILE}.${now}
+        fi
+        if [ -r $VMFUNCS_TOOLKIT_EXPIRE_FILE ]
+        then
+            cp -pvf ${VMFUNCS_TOOLKIT_EXPIRE_FILE} ${VMFUNCS_TOOLKIT_EXPIRE_FILE}.${now}
+        fi
+        ## Create
+        ~/personal/bin/toolkit-login $VMFUNCS_TOOLKIT_FILE $USER
+    fi
+}
+
+vmchoose ()
+{
+    local PS3='Pick a machine:'
+    select vmname in ${!vmips[@]}
+    do
+        if [ -n "$vmname" ]
+        then
+            break
+        fi
+    done
+    echo $vmname
 }
 
 vmgo ()
 {
-    . ~/personal/bin/.bcpcvms
+    vm_toolkit_file_maint
+
+    . $VMFUNCS_BCPCVMS_FILE
     vmname=${1:-undef}
 
     if [ "${vmips[$vmname]}" = '' ]
     then
-        select vmname in ${!vmips[@]}
-        do
-            if [ -n "$vmname" ]
-            then
-                break
-            fi
-        done
+        vmname=$(vmchoose)
     fi
     vmip=${vmips[$vmname]}
-    ssh -i ~/.ssh/id_rsa.toolkit $vmip
+    ssh -i $VMFUNCS_TOOLKIT_FILE $vmip
 }
 alias govm='vmgo '
 
 vmshow ()
 {
-    cat ~/personal/bin/.bcpcvms | grep -v 'declare -A vmips'
+    cat $VMFUNCS_BCPCVMS_FILE | grep -v 'declare -A vmips'
 }
 alias showvm='vmshow '
 
@@ -63,33 +97,27 @@ vmadd ()
         return 1
     fi
 
-    echo "vmips[$1]=$2" >> ~/personal/bin/.bcpcvms
-    sort -u ~/personal/bin/.bcpcvms | grep -v 'declare -A vmips' > ~/personal/bin/.bcpcvms.$$
+    echo "vmips[$1]=$2" >> $VMFUNCS_BCPCVMS_FILE
+    sort -u $VMFUNCS_BCPCVMS_FILE | grep -v 'declare -A vmips' > $VMFUNCS_BCPCVMS_FILE.$$
 
-    echo 'declare -A vmips' >  ~/personal/bin/.bcpcvms
-    cat ~/personal/bin/.bcpcvms.$$ >> ~/personal/bin/.bcpcvms
-    rm -f ~/personal/bin/.bcpcvms.$$
+    echo 'declare -A vmips' >  $VMFUNCS_BCPCVMS_FILE
+    cat $VMFUNCS_BCPCVMS_FILE.$$ >> $VMFUNCS_BCPCVMS_FILE
+    rm -f $VMFUNCS_BCPCVMS_FILE.$$
     vmshow
 }
 alias addvm='vmadd '
 
 vmdel ()
 {
-    . ~/personal/bin/.bcpcvms
+    . $VMFUNCS_BCPCVMS_FILE
     vmname=${1:-undef}
 
     if [ "${vmips[$vmname]}" = '' ]
     then
-        select vmname in ${!vmips[@]}
-        do
-            if [ -n "$vmname" ]
-            then
-                break
-            fi
-        done
+        vmname=$(vmchoose)
     fi
-    cat ~/personal/bin/.bcpcvms | grep -v "vmips\[$vmname\]=${vmips[$vmname]}" > ~/personal/bin/.bcpcvms.$$
-    mv ~/personal/bin/.bcpcvms.$$ ~/personal/bin/.bcpcvms
+    cat $VMFUNCS_BCPCVMS_FILE | grep -v "vmips\[$vmname\]=${vmips[$vmname]}" > $VMFUNCS_BCPCVMS_FILE.$$
+    mv $VMFUNCS_BCPCVMS_FILE.$$ $VMFUNCS_BCPCVMS_FILE
     vmshow
 }
 alias delvm='vmdel '
