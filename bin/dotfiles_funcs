@@ -1,0 +1,168 @@
+# -*- sh -*-
+
+# dotfiles_funcs
+
+DOTFUNCS_FILE=${BASH_SOURCE[0]}
+
+dotfuncs_edit ()
+{
+    xo $DOTFUNCS_FILE
+}
+alias dotfuncs-edit=dotfuncs_edit
+
+dotfuncs_reload ()
+{
+    . $DOTFUNCS_FILE
+}
+alias dotfuncs-reload=dotfuncs_reload
+alias dotfuncs-load=dotfuncs_reload
+
+DOTFILES_DIR=~/personal/dotfiles         # dotfiles directory
+DOTFILES_OLDDIR=~/personal/dotfiles_old  # old dotfiles backup directory
+DOTFILES_MANIFEST=$DOTFILES_DIR/dotfiles.manifest
+                                         # declares dotfiles as an assoc array
+                                         # and fills is with names and
+                                         # locations of files/folders to
+                                         # symlink
+if [ ! $(basename "$SHELL") = 'bash' ]
+then
+    echo "We are using associative arrays. I can't tell if this is bash so caveat programmer."
+fi
+
+dotfuncs_help()
+{
+    local tmpfile=$(mktemp)
+    declare -F | grep dot | sed 's|.* ||' > ${tmpfile}.df1
+    declare -F | grep syml | sed 's|.* ||' >> ${tmpfile}.df1
+    alias | grep dot | sed 's|.* ||' >> ${tmpfile}.df1
+    cat ${tmpfile}.df1 | sort -u | grep -v '^_'
+    \rm -f ${tmpfile}.df1
+}
+alias dotfuncs-help='dotfuncs_help '
+
+_load_dotfile_manifest()
+{
+    . $DOTFILES_MANIFEST
+}
+
+_save_dotfile_entry()
+{
+    local key=$1
+    local link=$2
+    local tmp=${DOTFILES_MANIFEST}.$$
+
+    cp -f $DOTFILES_MANIFEST $tmp
+    echo "dotfiles[$key]=$link" >> $tmp
+    _load_dotfile_manifest
+}
+
+# Converts real files into dotfiles-based symlinks. Use this to add new files
+# to be controlled.
+adddotfile ()
+{
+    if [ "$1" = '' ]
+    then
+        echo "usage: adddotfile fileToSymlink"
+        return 1
+    fi
+
+    local link="$(cd $(dirname $1);pwd)/$(basename $1)"
+    local fullsrc=$(basename $1)
+    ## Strip the dot from the stored version.
+    fullsrc=$DOTFILES_DIR/${fullsrc##.}
+    ## All - to _
+    fullsrc=$(echo ${fullsrc} | tr '-' '_')
+    _load_dotfile_manifest
+
+    # change to the dotfiles directory
+    echo -n "Changing to the $DOTFILES_DIR directory ..."
+    buildtin cd $DOTFILES_DIR
+    echo "done"
+
+    # Move the requested dotfile to the dotfiles directory, add it to the git
+    # repo, link it and add it to the manifest.
+    if [ -f $fullsrc ]
+    then
+        echo "'$fullsrc' already exists. Skipping processing of '$link'."
+    elif [ ! -e $link ]
+    then
+        echo "'$link' does not exist to be copied and linked. Skipping processing of '$link'."
+    elif [ ! -f $link ]
+    then
+        echo "'$link' is not a file that can be copied and linked. Skipping processing of '$link'."
+    else
+        echo "Moving real file '$link' to '$fullsrc'"
+        mv $link $fullsrc
+        echo "Adding to local dotfiles repo. Don't forget to commit and push."
+        git add ${fullsrc##$(pwd)/}
+        echo "Creating symlink '$link' to '$fullsrc'"
+        ln -s $fullsrc $link
+        _save_dotfile_manifest $(basename $fullsrc) $link
+    fi
+}
+alias dotfileadd='adddotfile '
+
+# creates symlinks from any target file to the git-controlled source in
+# ~/personal/dotfiles. Use this when initing a new vm.
+makesymlinks ()
+{
+    # create DOTFILES_OLDDIR
+    if [ ! -d $DOTFILES_OLDDIR ]
+    then
+        echo -n "Creating $olddir for backup of any existing dotfiles in ~..."
+        mkdir -p $DOTFILES_OLDDIR
+        echo "done"
+    fi
+
+    _load_dotfile_manifest
+
+    # change to the dotfiles directory
+    echo -n "Changing to the $DOTFILES_DIR directory ..."
+    builtin cd $DOTFILES_DIR
+    echo "done"
+
+    # Move any existing dotfiles in to dotfiles_old directory, then create
+    # symlinks from the original location to the corresponding files in the
+    # ~/dotfiles directory.
+    for src in ${!dotfiles[@]}; do
+        local fullsrc=$DOTFILES_DIR/$src
+        local link=${dotfiles[$src]}
+        if [ ! -f $fullsrc ]
+        then
+            echo "'$fullsrc' not found. Skipping processing of '$link'."
+        elif [ -h $link ]
+        then
+            echo "'$link' is already a link. Skipping processing of '$link'."
+        elif [ -f $link ]
+        then
+            echo "Moving existing file '$link' to $DOTFILES_OLDDIR so we can link it to '$fullsrc'."
+            mv $link $DOTFILES_OLDDIR/$(basename $link).$(date '+%Y%m%d%H%M%S')
+        else
+            echo "Creating symlink '$link' to '$fullsrc'."
+            ln -s $fullsrc $link
+        fi
+    done
+}
+alias dotfilessync='makesymlinks '
+alias syncdotfiles='makesymlinks '
+
+showdotfiles ()
+{
+    _load_dotfile_manifest
+
+    for src in ${!dotfiles[@]}; do
+        fullsrc=$DOTFILES_DIR/$src
+        link=${dotfiles[$src]}
+        echo
+        echo "******"
+        echo "$link"
+        echo "******"
+        ls -la $link $fullsrc
+    done
+}
+
+gitcheck_dotfiles()
+{
+    builtin cd $DOTFILES_DIR
+    git status
+}
