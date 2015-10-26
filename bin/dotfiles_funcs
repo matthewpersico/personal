@@ -1,4 +1,4 @@
-# -*- sh -*-
+ -*- sh -*-
 
 # dotfiles_funcs
 
@@ -72,7 +72,7 @@ adddotfile ()
 
     # change to the dotfiles directory
     echo -n "Changing to the $DOTFILES_DIR directory ..."
-    buildtin cd $DOTFILES_DIR
+    builtin cd $DOTFILES_DIR
     echo "done"
 
     # Move the requested dotfile to the dotfiles directory, add it to the git
@@ -90,13 +90,7 @@ adddotfile ()
     then
         echo "'$link' is not a file or directory that can be copied and linked. Skipping processing of '$link'."
     else
-        if [ -f $link ]
-        then
-            srctype='file'
-        elif [  -d $link ]
-        then
-            srctype='directory'
-        fi
+        srctype='directory'; if [ -f $link ]; then srctype='file'; fi
 
         echo "Moving real $srctype '$link' to '$fullsrc'"
         mv $link $fullsrc
@@ -137,15 +131,16 @@ makesymlinks ()
     for src in ${!dotfiles[@]}; do
         local fullsrc=$DOTFILES_DIR/$src
         local link=${dotfiles[$src]}
-        if [ ! -f $fullsrc ]
+        if [ ! -e $fullsrc ]
         then
             echo "'$fullsrc' not found. Skipping processing of '$link'."
         elif [ -h $link ]
         then
             echo "'$link' is already a link. Skipping processing of '$link'."
-        elif [ -f $link ]
+        elif [ -f $link ] || [ -d $link ]
         then
-            echo "Moving existing file '$link' to $DOTFILES_OLDDIR so we can link it to '$fullsrc'."
+            srctype='directory'; if [ -f $link ]; then srctype='file'; fi
+            echo "Moving existing $srctype '$link' to $DOTFILES_OLDDIR so we can link it to '$fullsrc'."
             mv $link $DOTFILES_OLDDIR/$(basename $link).$(date '+%Y%m%d%H%M%S')
         else
             echo "Creating symlink '$link' to '$fullsrc'."
