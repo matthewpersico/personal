@@ -330,12 +330,19 @@ alias git-close-branch=git_close_branch
 
 git_delete_branch ()
 {
-    typeset branch=$1;
+    local branch=$1;
+    local current_branch=$(git_get_current_branch)
     if [ -z "$branch" ]
     then
+        local branchesa=($(git branch --list | sed 's/.* //' ))
+        if [ ${#branchesa[@]} == '0' ]
+        then
+            echo "No branches found. Are you in a git repo?"
+            return
+        fi
         typeset PS3="Choose by number, CTRL-C to quit: "
         typeset selected
-        select selected in $(git branch --list | sed 's/.* //')
+        select selected in $branches
         do
             if [ -n "$selected" ]
             then
@@ -347,9 +354,23 @@ git_delete_branch ()
     if [ -n "$branch" ]
     then
         ## it was either $1 or we did not ctrl-c out of the select
+        if [ "$branch" = "$current_branch" ]
+        then
+            echo "Nope, you can't delete the current branch."
+            return
+        fi
         git branch    -d $branch || return $?;
-        git branch -r -d origin/$branch
-        return $?
+        remotes=$(git remote)
+        for remote in $remotes
+        do
+            local resp=$(yesno "Try deleting in remote $remote" n)
+            if [ "$resp" == 'y' ]
+            then
+                git branch -r -d $remote/$branch ## This can fail if we never
+                                                 ## pushed this branch to the
+                                                 ## remote in question
+            fi
+        done
     fi
     return 0
 }
