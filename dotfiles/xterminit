@@ -1,0 +1,55 @@
+# -*- sh -*-
+if [ -z "$XTERMINIT_GUARD" ]
+then
+    XTERMINIT_GUARD=1
+    export XTERMINIT_GUARD=1
+
+    RXCmd()
+    {
+	    HOST="${1}"
+	    if [ -z ${HOST} ]
+	    then
+		    echo "Error: hostname not specified."
+	    else
+		    shift 1
+		    XARGS="${*}"
+		    if [ -z "${XARGS}" ]
+		    then
+			    XARGS="-geometry 80x24+200+200"
+		    fi
+		    if [ "${HOST}" = "${HOSTNAME}" ]
+		    then
+			    ${XTERM} -display ${DISPLAY} -name ${HOST} ${XARGS} &
+		    else
+			    XCOOKIE=`/usr/bin/X11/xauth list ${DISPLAY}`
+                #					${XARGS} >/dev/null 2>&1 &
+                ssh ${HOST} "(
+				PATH=$PATH:/usr/bin/X11
+				DISPLAY=$DISPLAY
+				export PATH DISPLAY
+				xauth add ${XCOOKIE} >> ~/inlog 2>&1
+				/usr/bin/nohup ${XTERM} -name ${HOST} \
+					${XARGS} >> ~/inlog 2>&1 &
+			)" &
+		    fi
+	    fi
+    }
+
+    ####
+    ## Start xterm clients
+    ####
+    case ${HOSTNAME} in
+        * )
+	        xtermcolors='-fg wheat -bg darkblue' ;;
+    esac
+
+    newx()
+    {
+        if [ -n "$*" ]
+        then
+            RXCmd ${HOSTNAME} $*
+        else
+            RXCmd ${HOSTNAME} $xtermcolors
+        fi
+    }
+fi
