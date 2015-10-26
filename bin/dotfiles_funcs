@@ -2,20 +2,20 @@
 
 # dotfiles_funcs
 
-DOTFUNCS_FILE=${BASH_SOURCE[0]}
+DOTFILESFUNCS_FILE=${BASH_SOURCE[0]}
 
-dotfuncs_edit ()
+dotfilesfuncs_edit ()
 {
-    xo $DOTFUNCS_FILE
+    xo $DOTFILESFUNCS_FILE
 }
-alias dotfuncs-edit=dotfuncs_edit
+alias dotfilesfuncs-edit=dotfilesfuncs_edit
 
-dotfuncs_reload ()
+dotfilesfuncs_reload ()
 {
-    . $DOTFUNCS_FILE
+    . $DOTFILESFUNCS_FILE
 }
-alias dotfuncs-reload=dotfuncs_reload
-alias dotfuncs-load=dotfuncs_reload
+alias dotfilesfuncs-reload=dotfilesfuncs_reload
+alias dotfilesfuncs-load=dotfilesfuncs_reload
 
 DOTFILES_DIR=~/personal/dotfiles         # dotfiles directory
 DOTFILES_OLDDIR=~/personal/dotfiles_old  # old dotfiles backup directory
@@ -29,7 +29,7 @@ then
     echo "We are using associative arrays. I can't tell if this is bash so caveat programmer."
 fi
 
-dotfuncs_help()
+dotfilesfuncs_help()
 {
     local tmpfile=$(mktemp)
     declare -F | grep dot | sed 's|.* ||' > ${tmpfile}.df1
@@ -38,14 +38,9 @@ dotfuncs_help()
     cat ${tmpfile}.df1 | sort -u | grep -v '^_'
     \rm -f ${tmpfile}.df1
 }
-alias dotfuncs-help='dotfuncs_help '
+alias dotfilesfuncs-help='dotfilesfuncs_help '
 
-_load_dotfile_manifest()
-{
-    . $DOTFILES_MANIFEST
-}
-
-_save_dotfile_entry()
+_dotfile_entry()
 {
     local key=$1
     local link=$2
@@ -53,7 +48,8 @@ _save_dotfile_entry()
 
     cp -f $DOTFILES_MANIFEST $tmp
     echo "dotfiles[$key]=$link" >> $tmp
-    _load_dotfile_manifest
+    mv $tmp $DOTFILES_MANIFEST
+    . $DOTFILES_MANIFEST
 }
 
 # Converts real files into dotfiles-based symlinks. Use this to add new files
@@ -72,7 +68,7 @@ adddotfile ()
     fullsrc=$DOTFILES_DIR/${fullsrc##.}
     ## All - to _
     fullsrc=$(echo ${fullsrc} | tr '-' '_')
-    _load_dotfile_manifest
+    . $DOTFILES_MANIFEST
 
     # change to the dotfiles directory
     echo -n "Changing to the $DOTFILES_DIR directory ..."
@@ -97,7 +93,7 @@ adddotfile ()
         git add ${fullsrc##$(pwd)/}
         echo "Creating symlink '$link' to '$fullsrc'"
         ln -s $fullsrc $link
-        _save_dotfile_manifest $(basename $fullsrc) $link
+        _save_dotfile_entry $(basename $fullsrc) $link
     fi
 }
 alias dotfileadd='adddotfile '
@@ -114,7 +110,7 @@ makesymlinks ()
         echo "done"
     fi
 
-    _load_dotfile_manifest
+    . $DOTFILES_MANIFEST
 
     # change to the dotfiles directory
     echo -n "Changing to the $DOTFILES_DIR directory ..."
@@ -148,9 +144,12 @@ alias syncdotfiles='makesymlinks '
 
 showdotfiles ()
 {
-    _load_dotfile_manifest
+    . $DOTFILES_MANIFEST
 
-    for src in ${!dotfiles[@]}; do
+    echo foo
+    echo ${!dotfiles[@]}
+    for src in ${!dotfiles[@]}
+    do
         fullsrc=$DOTFILES_DIR/$src
         link=${dotfiles[$src]}
         echo
