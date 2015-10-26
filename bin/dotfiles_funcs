@@ -40,7 +40,7 @@ dotfilesfuncs_help()
 }
 alias dotfilesfuncs-help='dotfilesfuncs_help '
 
-_dotfile_entry()
+_save_dotfile_entry()
 {
     local key=$1
     local link=$2
@@ -79,19 +79,33 @@ adddotfile ()
     # repo, link it and add it to the manifest.
     if [ -f $fullsrc ]
     then
-        echo "'$fullsrc' already exists. Skipping processing of '$link'."
+        echo "File '$fullsrc' already exists. Skipping processing of '$link'."
+    elif [ -d $fullsrc ]
+    then
+        echo "Directory '$fullsrc' already exists. Skipping processing of '$link'."
     elif [ ! -e $link ]
     then
         echo "'$link' does not exist to be copied and linked. Skipping processing of '$link'."
-    elif [ ! -f $link ]
+    elif [ ! -f $link ] && [ ! -d $link ]
     then
-        echo "'$link' is not a file that can be copied and linked. Skipping processing of '$link'."
+        echo "'$link' is not a file or directory that can be copied and linked. Skipping processing of '$link'."
     else
-        echo "Moving real file '$link' to '$fullsrc'"
+        if [ -f $link ]
+        then
+            srctype='file'
+        elif [  -d $link ]
+        then
+            srctype='directory'
+        fi
+
+        echo "Moving real $srctype '$link' to '$fullsrc'"
         mv $link $fullsrc
         echo "Adding to local dotfiles repo. Don't forget to commit and push."
-        git add ${fullsrc##$(pwd)/}
-        echo "Creating symlink '$link' to '$fullsrc'"
+        (
+            cd $DOTFILES_DIR
+            git add ${fullsrc##$(pwd)/}
+        )
+        echo "Creating symlink '$link' to $srctype '$fullsrc'"
         ln -s $fullsrc $link
         _save_dotfile_entry $(basename $fullsrc) $link
     fi
