@@ -144,6 +144,26 @@ writedirlist ()
     readdirlist
 }
 
+_dirlist_select()
+{
+    local PS3="Choose by number, CTRL-C to quit: "
+    local d
+    select d in $*
+    do
+        if [ -n "$d" ]
+        then
+            d=$(echo $d | sed "s|$DIRLIST_PWD_INDIC||" | sed "s|\~|$HOME|")
+            if [ -d "$d" ]
+            then
+                builtin cd $d
+                break
+            else
+                stderrcho "$d no longer exists"
+            fi
+        fi
+    done
+}
+
 dirlist ()
 {
     ## The major input handling points are noted with ## ------
@@ -153,26 +173,11 @@ dirlist ()
         ## ----
         ## Menu
         ## ----
-        ## No args; present the menu and read choice.
+        ## No args given; present the menu and read choice.
         ## Note: If you
         ##    alias cd=dirlist
         ## you lose cd == cd ~. Oh well.
-        local PS3="Choose by number, CTRL-C to quit: "
-        local d
-        select d in $DIRLIST
-        do
-            if [ -n "$d" ]
-            then
-                d=$(echo $d | sed "s|$DIRLIST_PWD_INDIC||" | sed "s|\~|$HOME|")
-                if [ -d "$d" ]
-                then
-                    builtin cd $d
-                    break
-                else
-                    stderrcho "$d no longer exists"
-                fi
-            fi
-        done
+        _dirlist_select $DIRLIST
     else
         ## --------------
         ## Parse the args
@@ -225,11 +230,17 @@ dirlist ()
                         builtin cd $d
 	                fi
 	            fi
-            else
-                ## -------------------
-                ## Arg should be a dir
-                ## -------------------
+            elif [ -d $tgt ]
+            then
                 builtin cd $tgt
+            else
+                local FILTERED_DIRLIST=$(echo $DIRLIST | tr ' ' '\n' | grep $tgt )
+                if [ -n "$FILTERED_DIRLIST" ]
+                then
+                    _dirlist_select $FILTERED_DIRLIST
+                else
+                    echo "$tgt not found"
+                fi
             fi
         fi
     fi
