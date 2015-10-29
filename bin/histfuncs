@@ -1,0 +1,89 @@
+# -*- sh -*-
+
+# histfuncs
+
+HISTFUNCS_FILE=${BASH_SOURCE[0]}
+
+histfuncs_edit ()
+{
+    xo $HISTFUNCS_FILE
+}
+alias histfuncs-edit=histfuncs_edit
+
+histfuncs_reload ()
+{
+    . $HISTFUNCS_FILE
+}
+alias histfuncs-reload=histfuncs_reload
+
+HISTSIZE=9000
+HISTFILESIZE=$HISTSIZE
+HISTTIMEFORMAT="%m/%d - %H:%M:%S "
+HISTFILE=~/.bash_histories/$(hostname).$(date +%Y_%m_%d_%H_%M_%S).$$
+if [ ! -d ~/.bash_histories ]
+then
+    echo "Initializing bash command history setup..."
+    mkdir -p ~/.bash_histories
+fi
+
+history()
+{
+  _bash_history_sync
+  builtin history "$@"
+}
+
+stash_history()
+{
+    cp -v $HISTFILE $(dirname $HISTFILE)/$1
+}
+alias stash_hist='stash_history '
+alias stash-hist='stash_history '
+alias hist-stash='stash_history '
+alias hist_stash='stash_history '
+
+show_history()
+{
+    ls -lrt $(dirname $HISTFILE) | sed "s/\.$$$/.$$ <=current/"
+}
+alias show_hist='show_history '
+alias show-hist='show_history '
+alias hist-show='show_history '
+alias hist_show='show_history '
+
+grep_history()
+{
+    grep "$1" $(ls $(dirname $HISTFILE)/*)
+}
+alias grep_hist='grep_history '
+alias grep-hist='grep_history '
+alias hist-grep='grep_history '
+alias hist_grep='grep_history '
+
+#add_history()
+#{
+#    perl -ane 'BEGIN{ $i=0 };
+#               chomp;
+#               if($i%2){
+#                 $o[-1] .= " $_"
+#               } else {
+#                 push @o, $_
+#               };
+#               $i++;
+#               END{sort @o;
+#                   map{ substr($_,11,1)="\n"; print("$_\n") }@o
+#               }' into some temp then swap
+#}
+
+_bash_history_sync()
+{
+  builtin history -a         #1
+  HISTFILESIZE=$HISTSIZE     #2
+  builtin history -c         #3
+  builtin history -r         #4
+}
+
+PROMPT_COMMAND=_bash_history_sync
+
+alias hist='history '
+alias histg='history | grep '
+alias histgf='grep_history '
