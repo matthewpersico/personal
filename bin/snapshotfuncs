@@ -67,6 +67,7 @@ snapshot_restore ()
         return 1
     fi
     local tgtdir=$(builtin cd $(dirname $tgt);pwd)
+    local tgtfile=$(basename $tgt)
     local tgtspec=$tgtdir/$(basename $tgt)
     tgtspec=${tgtspec#$HOME}
     tgtspec=${tgtspec#/}
@@ -77,11 +78,39 @@ snapshot_restore ()
     do
         if [ -n "$snapmirror" ]
         then
-            ls -la ${HOME}/.snapshot/${snapmirror}/$tgtspec ${HOME}/$tgtspec
+            local mirrorfile=${HOME}/.snapshot/${snapmirror}/$tgtspec
+                 local tgtfile=${HOME}/$tgtspec
+            local lsfiles
+            local difffiles
+            local catfiles
+
+            if [ ! -e $mirrorfile ]
+            then
+                echo "No $tgtspec found in this snapshot"
+            else
+                lsfiles="$lsfiles $mirrorfile"
+                difffiles="$difffiles $mirrorfile"
+            fi
+
+            if [ ! -e $tgtspec ]
+            then
+                echo "$tgtspec is gone."
+                catfiles="$catfiles $mirrorfile"
+            else
+                lsfiles="$lsfiles $tgtspec"
+                difffiles="$difffiles $tgtspec"
+            fi
+
+            ls -la $lsfiles
             resp=$(yesno "Continue" n)
             if [ "$resp" == 'y' ]
             then
-                diff -s $* ${HOME}/.snapshot/${snapmirror}/$tgtspec ${HOME}/$tgtspec
+                if [ -n "$catfiles" ]
+                then
+                    cat $catfiles
+                else
+                    diff -s $* $difffiles
+                fi
                 resp=$(yesno "Restore from snapshot" n)
                 if [ "$resp" == 'y' ]
                 then
