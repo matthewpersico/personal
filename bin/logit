@@ -1,0 +1,71 @@
+# -*- sh -*-
+
+#
+# logit
+#
+
+# Take args, treat as a command + args and run all output to a file.
+
+# Inits
+logfile=''
+teeit=0
+
+# Read the options and args from command line. Note that the long and short
+# don't have to match up.
+TEMP=`getopt -o l:t --long log:,tee -n 'logit' -- "$@"`
+
+# Reset the command line ($@).
+eval set -- "$TEMP"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+while true ; do
+    case "$1" in
+        -l|--log)
+            logfile="$2"
+            shift 2 ;;
+
+        -t|--tee)
+            teeit=1
+            shift ;;
+        --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
+        *) echo "Internal error!" ; exit 1 ;;
+    esac
+done
+
+command=$1
+shift
+args="$@"
+
+if [ ! -x $command ]
+then
+    echo $command not found or not executable
+    exit 1
+fi
+
+if [ -z "$logfile" ]
+then
+    logfile=$(basename $command)
+fi
+logfile="${logfile}.logit.$(date +%Y_%m_%d_%H_%M_%S)"
+
+if [ -d ./logit ]
+then
+    logdir=./logit
+else
+    logdir=$(pwd)
+fi
+
+logspec="$logdir/$logfile"
+
+if ((teeit))
+then
+    $command $args 2>&1 | tee $logfile
+    status=$?
+else
+    echo "Logfile is '$logfile'..."
+    $command $args 1>$logfile 2>&1
+    status=$?
+fi
+echo "Command exited wirth status $status."
+echo "Logfile is '$logfile'."
