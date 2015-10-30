@@ -151,6 +151,46 @@ makesymlinks ()
 alias dotfilessync='makesymlinks '
 alias syncdotfiles='makesymlinks '
 
+makesshconfig()
+{
+    local config=~/.ssh/config
+    local newconfig=${config}.new
+    if [ -e $config ]
+    then
+        local bkup=${config}.$(date +%Y%m%d%H%M%S)
+        echo "Backing up existing $config to $bkup"
+        cp $config $bkup
+        status=$?
+        if ((status!=0))
+        then
+            echo "Backup did not succeed: $status. Bailing..."
+            return 1
+        fi
+    fi
+    is_vm=$(hostname | grep bcpc | wc -l)
+    echo "# Generated from $DOTFILES_DIR on $(date)" > $newconfig
+    for i in $DOTFILES_DIR/ssh.*
+    do
+        local include=0
+        if [ -n "$(echo $i | grep '.all')" ] ||
+               ( [ -n "$(echo $i | grep '.vm')" ] && ((is_vm)) )
+        then
+            echo '' >> $newconfig
+            cat $i >> $newconfig
+        fi
+    done
+    mv $newconfig $config
+    status=$?
+    if ((status!=0))
+    then
+        echo "mv $newconfig $config did not succeed: $status. Bailing..."
+        return 1
+    else
+        echo "$config created"
+    fi
+    return 0
+}
+
 showdotfiles ()
 {
     . $DOTFILES_MANIFEST
