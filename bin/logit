@@ -56,17 +56,51 @@ else
 fi
 
 logspec="$logdir/$logfile"
+touch $logspec
+echo "Logfile is '$logspec'..."
 
 if ((teeit))
 then
-    echo "Logfile is '$logspec'..."
-    echo "Working. Output is buffered..."
-    $command $args 2>&1 | tee $logspec
-    status=$?
-else
-    echo "Logfile is '$logspec'..."
-    $command $args 1>$logspec 2>&1
-    status=$?
+    termer=''
+    for i in xterm rxvt mrxvt
+    do
+        if [ -z "$termer" ] && [ -n "$(which $i 2>/dev/null)" ]
+        then
+            termer=$(which $i)
+        fi
+    done
+    $termer -e tail -f $logspec &
+    sleep 2
 fi
-echo "Command exited wirth status $status."
+
+(
+    if [ -d .git ] || [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]
+    then
+        echo "********************"
+        echo "      git info      "
+        echo "********************"
+        git log -1
+        git status
+        echo
+    fi
+
+    echo "********************"
+    echo "Command is '$command $args'"
+    echo "********************"
+    echo
+    echo "********************"
+    echo "       Output       "
+    echo "********************"
+    $command $args
+    status=$?
+    echo
+    echo "********************"
+    echo "Logfile is '$logspec'."
+    echo "Exit status: $status"
+    echo "********************"
+    exit $status
+) >> $logspec 2>&1
+status=$?
 echo "Logfile is '$logspec'."
+echo "Exit status: $status"
+exit $status
