@@ -16,15 +16,28 @@ histfuncs_reload ()
 }
 alias histfuncs-reload=histfuncs_reload
 
-HISTSIZE=9000
-HISTFILESIZE=$HISTSIZE
-HISTTIMEFORMAT="%m/%d - %H:%M:%S "
-HISTFILE=~/.bash_histories/$(hostname).$(date +%Y_%m_%d_%H_%M_%S).$$
-if [ ! -d ~/.bash_histories ]
-then
-    echo "Initializing bash command history setup..."
-    mkdir -p ~/.bash_histories
-fi
+#so that histfuncs-reload just reload the funcs, not the history itself
+histinit ()
+{
+    if [ -z "$histinited" ] ||  [ "$1" = '--force' ]
+    then
+        histinited=1
+        HISTSIZE=9000
+        HISTFILESIZE=$HISTSIZE
+        HISTTIMEFORMAT="%m/%d - %H:%M:%S "
+        HISTFILE=~/.bash_histories/$(hostname).$(date +%Y_%m_%d_%H_%M_%S).$$
+        if [ ! -d ~/.bash_histories ]
+        then
+            echo "Initializing bash command history setup..."
+            mkdir -p ~/.bash_histories
+        fi
+        if [ "$1" = '--force' ]
+        then
+           echo "History inited."
+        fi
+    fi
+}
+histinit
 
 history()
 {
@@ -43,8 +56,11 @@ alias hist_stash='stash_history '
 
 show_history()
 {
-    ls -lrt $(dirname $HISTFILE) | sed "s/\.$$$/.$$ <=current/"
+    set +x
+    local hf=$(basename $HISTFILE)
+    ls -lrt $(dirname $HISTFILE) | sed "s|$hf|$hf <= current|"
 }
+
 alias show_hist='show_history '
 alias show-hist='show_history '
 alias hist-show='show_history '
@@ -52,12 +68,54 @@ alias hist_show='show_history '
 
 grep_history()
 {
-    grep "$1" $(ls $(dirname $HISTFILE)/*)
+    grep "$1" $(ls -rt $(dirname $HISTFILE)/*)
 }
 alias grep_hist='grep_history '
 alias grep-hist='grep_history '
 alias hist-grep='grep_history '
 alias hist_grep='grep_history '
+
+cat_history()
+{
+    local cathist=$1
+    if [ -z "$1" ]
+    then
+        select cathist in $(ls -rt $(dirname $HISTFILE)/*)
+        do
+            if [ -n "$cathist" ]
+            then
+                break
+            fi
+        done
+    fi
+    if [ -n "$cathist" ]
+    then
+        cathist=$(dirname $HISTFILE)/$(basename $cathist)
+        cat $cathist
+    fi
+}
+
+alias cat_hist='cat_history '
+alias cat-hist='cat_history '
+alias hist-cat='cat_history '
+alias hist_cat='cat_history '
+
+rename_history ()
+{
+    if [ -z "$1" ]
+    then
+        echo usage: rename_history suffix
+    else
+        cp $HISTFILE "${HISTFILE}.$1"
+        HISTFILE="${HISTFILE}.$1"
+    fi
+    echo "Done"
+}
+
+alias rename_hist='rename_history '
+alias rename-hist='rename_history '
+alias hist-rename='rename_history '
+alias hist_rename='rename_history '
 
 #add_history()
 #{
