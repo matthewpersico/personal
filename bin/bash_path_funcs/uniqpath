@@ -1,21 +1,6 @@
 ###############################################################################
 #
-# Name:         uniqpath
-#
-# Description:
-#
-# make the elements of a path variable unique
-#
-# e.g. if APATH=/abc:/def:/ghi:/abc:/ghi:/123 then after:
-#
-#    uniqpath -p APATH
-#
-# we have APATH=/abc:/def:/ghi:/123
-#
-# Usage: uniqpath [-h] [-p <pathvar>]
-#
-# e.g. uniqpath            - uniquifies $PATH
-#      uniqpath -p LIBPATH - uniquifies $LIBPATH
+# Name:        uniqpath
 #
 # Author:      Stephen Collyer (scollyer@netspinner.co.uk)
 #
@@ -31,23 +16,33 @@ uniqpath()
 
     typeset options_shift_val options_missing_arg options_unknown_opt
     typeset options_num_args_left
-    typeset opt_h opt_p
+    typeset opt_h opt_p opt_x opt_v
 
     typeset pathvar npath
-    typeset USAGE="uniqpath [-p <pathvar>]"
-    typeset USAGE1="Remove duplicate elements of <pathvar>"
-    typeset USAGE2="-p: operate on <pathvar> (default: PATH)"
+
+    usage_init
+    typeset -a USAGE
+    i=0; USAGE[i]="uniqpath [-h] [-x] [-v] [[-p] pathvar] "
+    ((i+=1)); USAGE[i]="Removes subsequent occurrances of path elements."
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P1"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P2"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P3"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P4O"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P5"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_X"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_V"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_H"
 
     ###########################################################################
     # handle options
     ###########################################################################
 
-    options hp: "$@"
+    options "hp:xv" "$@"
     shift $options_shift_val
 
     if [ -n "$opt_h" ]
     then
-        Usage "$USAGE" "$USAGE1" "$USAGE2"
+        Usage "${USAGE[@]}"
         return
     fi
     if [ -n "$options_missing_arg" ]
@@ -60,14 +55,13 @@ uniqpath()
         Usage "$USAGE" "Unknown option -$options_unknown_option"
         return
     fi
-    if [ $options_num_args_left -ne 0 ]
+    if [ $options_num_args_left -eq 1 ]
     then
-        Usage "$USAGE" "No additional arguments required"
-        return
+        pathvar=$1
     fi
 
-    pathvar=PATH                        # default
     [ -n "$opt_p" ] && pathvar=$opt_p # use specified pathvar
+    [ -z "$pathvar" ] && pathvar=PATH  # default
 
     ###########################################################################
     # main
@@ -75,6 +69,8 @@ uniqpath()
 
     npath=$(listpath -p $pathvar | awk '{seen[$0]++; if (seen[$0]==1){print}}')
     eval $pathvar=$(makepath "$npath")
+    [ -n "$opt_v" ] && listpath -p $pathvar
+    [ -n "$opt_x" ] && export $pathvar
 }
 
 if [ "$1" = 'export' ]

@@ -1,34 +1,6 @@
-# -*- sh -*-
 ###############################################################################
 #
-# Name:         addpath
-#
-# Description:
-#
-# addpath performs an idempotent add of a directory to path variable.
-# ($PATH by default)
-# e.g.
-#      $ addpath /abc
-#      $ addpath /abc
-#
-# adds at most one copy of /abc to $PATH.
-#
-#     $ addpath -p MANPATH /abc
-#
-# adds to $MANPATH
-#
-# Usage: addpath [-h] [-p pathvar] [-f|-b|-i:n] [-v] dirname
-#
-#     -p variable to set (default is PATH if -p not specified)
-#     -f adds to front of pathvar
-#     -b add to back of pathvar (default behavior)
-#     -i:n
-#        add to path in position 'n'. Indexing starts
-#        at 1. Elements are moved down to make room for the
-#        added dirname. If you try to add beyond the end index.
-#        dirname is appended to the end.
-#     -v executes listpath after assignment
-#     -h gives usage message
+# Name:        addpath
 #
 # Author:      Stephen Collyer (scollyer@netspinner.co.uk)
 #
@@ -44,39 +16,40 @@ addpath()
 
     typeset options_shift_val options_missing_arg options_unknown_opt
     typeset options_num_args_left
-    typeset opt_h opt_f opt_b opt_p opt_v opt_i
+    typeset opt_h opt_p
+    typeset opt_x opt_v
+    typeset opt_f opt_b opt_i
     typeset sep=:
 
     typeset pathvar COMMAND dirname tmp element
-    typeset  USAGE="addpath [-h] [-p pathvar] [-f|-b-i:n] [-v] dirname"
-    typeset  USAGE1="Idempotently adds 'dirname' to 'pathvar' (default is PATH if -p not specified)"
-    typeset  USAGE2="-p variable to set (default is PATH if -p not specified)"
-    typeset  USAGE3="-f adds to front of pathvar"
-    typeset  USAGE4="-b add to back of pathvar (default behavior)"
-    typeset  USAGE5="-i:n"
-    typeset  USAGE6="   add to path in position 'n'. Indexing starts"
-    typeset  USAGE7="   at 1. Elements are moved down to make room for the"
-    typeset  USAGE8="   added dirname."
-    typeset  USAGE9="-v executes listpath after assignment"
-    typeset USAGE10="-h gives usage message"
+
+    usage_init
+    typeset -a USAGE
+    i=0; USAGE[i]="addpath [-h] [-f|-b|-i n] [-x] [-v] [[-p] pathvar] dirname"
+    ((i+=1)); USAGE[i]="Idempotently adds 'dirname' to 'pathvar'."
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P1"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P2"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P3"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P4"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P5"
+    ((i+=1)); USAGE[i]="-f - Add to front of 'pathvar'."
+    ((i+=1)); USAGE[i]="-b - Add to back of 'pathvar' (default behavior)."
+    ((i+=1)); USAGE[i]="-i n - Add to 'pathvar' in position 'n'. Indexing starts"
+    ((i+=1)); USAGE[i]="   at 1. Elements are moved down to make room for the"
+    ((i+=1)); USAGE[i]="   added 'dirname'."
+    ((i+=1)); USAGE[i]="$USAGE_OPT_X"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_V"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_H"
 
     ###########################################################################
     # handle options
     ###########################################################################
 
-    options hfbvp:i: "$@"
+    options "hp:xvfbi:" "$@"
     shift $options_shift_val
-
     if [ -n "$opt_h" ]
     then
-        Usage "$USAGE" "$USAGE1" "$USAGE2" "$USAGE3" \
-        "$USAGE4"\
-        "$USAGE5"\
-        "$USAGE6"\
-        "$USAGE7"\
-        "$USAGE8"\
-        "$USAGE9"\
-        "$USAGE10"
+        Usage "${USAGE[@]}"
         return
     fi
     if [ -n "$options_missing_arg" ]
@@ -93,8 +66,17 @@ addpath()
     then
         Usage "$USAGE" "No directory specified"
         return
+    elif [ $options_num_args_left -eq 1 ]
+    then
+        dirname=$1
+    elif [ $options_num_args_left -eq 2 ]
+    then
+        pathvar=$1
+        dirname=$2
+    else
+        Usage "$USAGE" "Too many arguments"
+        return
     fi
-    dirname=$1
 
     # NB the painful default COMMAND variable is required in the case
     # that the pathvar is initially empty. If it is, then $sep is set
@@ -104,17 +86,18 @@ addpath()
     # an undefined variable - so we add braces to make it look like
     # "COMMAND=${NEWPATH}abc. Phew.
     COMMAND='\$\{${pathvar}\}${sep}${dirname}'  # default
-    pathvar=PATH                                # default
 
     [ -n "$opt_f" ] && COMMAND='${dirname}${sep}\$${pathvar}'
+
     [ -n "$opt_p" ] && pathvar=$opt_p
+    [ -s "$pathvar" ] && pathvar=PATH           # default
+
     if [ -n "$opt_i" ]
     then
         idx=0
         ((opt_i-=1))
         eval tmp=\$$pathvar
         local tmpa=($(echo $tmp | sed "s|${sep}| |g"))
-        echo ${tmpa[@]}
         local newa=()
         while ((idx<opt_i))
         do
@@ -158,6 +141,7 @@ addpath()
          eval eval $pathvar=$COMMAND
     fi
     [ -n "$opt_v" ] && listpath -p $pathvar
+    [ -n "$opt_x" ] && export $pathvar
 }
 
 if [ "$1" = 'export' ]
