@@ -17,15 +17,11 @@ profile_reload ()
 }
 alias profile-reload=profile_reload
 
-# =-=- PATH =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-
-# Setup before *path functions are available
+# =-=- PATH
 export PERSONALBIN=~/personal/bin
-export personalpath=$(echo $PATH | grep $PERSONALBIN)
-if [ -z "$personalpath" ]
-then
-    export PATH="$PERSONALBIN:$PATH"
-fi
+. $PERSONALBIN/pathfuncs
+pathfuncs_load
+addpath -f PATH $PERSONALBIN
 
 securepath ()
 {
@@ -34,6 +30,7 @@ securepath ()
         export INSECUREPATH=$PATH
         delpath -p PATH /sbin
         delpath -p PATH /usr/sbin
+        export PATH
     else
         echo "Already secure:"
         echo PATH=$PATH
@@ -55,93 +52,13 @@ unsecurepath ()
 }
 alias insecurepath=unsecurepath
 
-# =-=- HISTORY =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# =-=- HISTORY
+. $PERSONALBIN/histfuncs
 
-HISTSIZE=9000
-HISTFILESIZE=$HISTSIZE
-HISTTIMEFORMAT="%m/%d - %H:%M:%S "
-HISTFILE=~/.bash_histories/$(hostname).$(date +%Y_%m_%d_%H_%M_%S).$$
-if [ ! -d ~/.bash_histories ]
-then
-    echo "Initializing bash command history setup..."
-    mkdir -p ~/.bash_histories
-fi
-##HISTCONTROL=ignorespace:ignoredups
-
-history()
-{
-  _bash_history_sync
-  builtin history "$@"
-}
-
-stash_history()
-{
-    cp -v $HISTFILE $(dirname $HISTFILE)/$1
-}
-alias stash_hist='stash_history '
-alias stash-hist='stash_history '
-alias hist-stash='stash_history '
-alias hist_stash='stash_history '
-
-show_history()
-{
-    ls -lrt $(dirname $HISTFILE) | sed "s/\.$$$/.$$ <=current/"
-}
-alias show_hist='show_history '
-alias show-hist='show_history '
-alias hist-show='show_history '
-alias hist_show='show_history '
-
-grep_history()
-{
-    grep "$1" $(ls $(dirname $HISTFILE)/*)
-}
-alias grep_hist='grep_history '
-alias grep-hist='grep_history '
-alias hist-grep='grep_history '
-alias hist_grep='grep_history '
-
-#add_history()
-#{
-#    perl -ane 'BEGIN{ $i=0 };
-#               chomp;
-#               if($i%2){
-#                 $o[-1] .= " $_"
-#               } else {
-#                 push @o, $_
-#               };
-#               $i++;
-#               END{sort @o;
-#                   map{ substr($_,11,1)="\n"; print("$_\n") }@o
-#               }' into some temp then swap
-#}
-
-_bash_history_sync()
-{
-  builtin history -a         #1
-  HISTFILESIZE=$HISTSIZE     #2
-  builtin history -c         #3
-  builtin history -r         #4
-}
-
-PROMPT_COMMAND=_bash_history_sync
-
-alias hist='history '
-alias histg='history | grep '
-
-# =-=- FUNCTIONS =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-
-# PATH manipulation functions
-for i in colon2line space2line Usage options makepath addpath delpath\
-         listpath uniqpath edpath realpath_filter searchpath
-do
-    . ${PERSONALBIN}/bash_path_funcs/$i
-    export -f $i
-done
-
+# =-=- UTILITY FUNCTIONS
 add_bb ()
 {
-    addpath -f /bb/bin
+    addpath -x -f /bb/bin
 }
 
 is_int ()
@@ -239,7 +156,7 @@ tarcopy ()
     echo 'also consider cp -a src[ src...] tgtdir'
 }
 
-# =-=- DISTINCT SETTINGS =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# =-=- DISTINCT SETTINGS
 
 . $PERSONALBIN/cdfuncs
 . $PERSONALBIN/gitfuncs
@@ -249,15 +166,25 @@ tarcopy ()
 . $PERSONALBIN/dotfiles_funcs
 . $PERSONALBIN/.xterminit
 
-# =-=- PERL =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# =-=- PERL
+addpath -x -f -p PERL5LIB ~/personal/share/perl5/site_perl/5.16
 
 alias pd='perldoc '
 tkpod ()
 {
-    declare realtkpod="$(which tkpod) -I /bbsrc/bin/builddeb/prod/lib/site_perl/ -I /bbsrc/bin/builddeb/prod/lib/perl/"
+    local tkpodI
+    for i in /bbsrc/bin/builddeb/prod/lib/site_perl/ \
+                 /bbsrc/bin/builddeb/prod/lib/perl/
+    do
+        if [ -d $i ]
+        then
+            tkpodI="$tkpodI -I $i"
+        fi
+    done
+    declare realtkpod="$(which tkpod) $tkpodI"
     if (($#==0))
     then
-        echo $realtkpod --tree amperansd
+        echo $realtkpod --tree ampersand
         $realtkpod --tree &
     else
         echo $realtkpod "$@" ampersand
@@ -267,15 +194,33 @@ tkpod ()
 
 aptperl ()
 {
-    local module=$1
-    local pkg="lib$(echo $module | sed 's/::/-/g' | tr '[:upper:]' '[:lower:]')-perl"
-    echo "Installing $pkg..."
-    apt-get install $pkg
+    local module
+    for module in $*
+    do
+        local pkg="lib$(echo $module | sed 's/::/-/g' | tr '[:upper:]' '[:lower:]')-perl"
+        echo "Installing $pkg..."
+        sudo apt-get install $pkg
+    done
 }
 
 alias perltidy='/bbs/opt/bin/csperl5.12 -Mlib=/bbsrc/bin/cstools/cstools_cpan-trunk-2013.10.31-r87/lib/site_perl/ /bbsrc/bin/cstools/cstools_cpan-trunk-2013.10.31-r87/bin/perltidy '
 
-# =-=- PYTHON =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+addcsperlpath ()
+{
+    addpath -f -p PERL5LIB ~/personal/csperl/lib/5.12.2
+    addpath -f -p PERL5LIB ~/personal/csperl/lib/site_perl
+    export PERL5LIB
+}
+
+delcsperlpath ()
+{
+    delpath -p PERL5LIB ~/personal/csperl/lib/site_perl
+    delpath -p PERL5LIB ~/personal/csperl/lib/5.12.2
+    export PERL5LIB
+}
+
+
+# =-=- PYTHON
 python_dbg ()
 {
     echo Do these
@@ -289,13 +234,14 @@ python_dbg ()
     echo      do not know the raw print yet
 }
 
-# =-=- ALIASES =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# =-=- ALIASES
 
 # Conveniences
 alias cvs='echo cvs? Are you KIDDING ME???? - Try again!'
 alias dir='ls -la '
 alias envg='env | grep '
 alias setg='set | grep '
+alias allg='(env && set) | grep '
 alias psme='ps lxf -U ${USER}'
 alias rm='rm -i '
 alias mopdiff='diff -w --side-by-side --suppress-common-lines '
@@ -304,50 +250,53 @@ alias mopquota='df -h '
 
 # Fat finger protection
 alias vf='echo cd, you moron; cd '
-alias eopro="eo ~/.profile.${USER}"
-alias redopro=". ~/.profile.${USER}"
 
-# =-=- PERL =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-
-addpath -f -p PERL5LIB ~/personal/share/perl5/site_perl/5.16
-
-addcsperlpath ()
-{
-    addpath -f -p PERL5LIB ~/personal/csperl/lib/5.12.2
-    addpath -f -p PERL5LIB ~/personal/csperl/lib/site_perl
-}
-
-delcsperlpath ()
-{
-    delpath -p PERL5LIB ~/personal/csperl/lib/site_perl
-    delpath -p PERL5LIB ~/personal/csperl/lib/5.12.2
-}
-
-# =-=- BLOOMBERG =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# =-=- BLOOMBERG
 
 # if chimera generated aliases exist, pull them into the current ENV
 [ -f ~/.bbalias ] && . ~/.bbalias
 
-# =-=- POST-CHIMERA =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=--=-=-=-=-=-=-=
+# =-=- NO-CHIMERA
+## Things to do if we're on a vm w/o Chimera
 git_pr_loaded=$(declare -F | grep __git_ps1)
-
 if [ -z "$git_pr_loaded" ]
 then
     if [ -e ~/.git-prompt.sh ]
     then
         . ~/.git-prompt.sh
+        echo loaded git-prompt.sh
     fi
 fi
+
+# =-=- POST-CHIMERA
 
 # Override prompt (assuming git stuff is loaded, either in chimera or locally)
 PS1='\n\[\e]0;\u@\h:\w\a\]\u@\h\n\w\n$(__git_ps1 "(%s)")\$ '
 export PS1
 
 # Useful in subshells
-export -f __git_ps1
-export -f __gitdir
+for i in $(declare -F | grep __git | grep -v fx | sed 's/.* //')
+do
+    export -f $i
+done
 
-# =-=- MISC -=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+# =-=- YUM/APT
+apt_install ()
+{
+    sudo apt-get install "$@"
+}
+
+yum_group_list ()
+{
+    sudo yum group list
+}
+
+yum_group_install ()
+{
+    sudo yum group install "$@"
+}
+
+# =-=- MISC
 
 # STOP clearing the screen!!!
 LESS="-X"
@@ -374,13 +323,20 @@ then
     ## Find our path
     pb=$(searchpath -n "^$PERSONALBIN$")
     pbi=$(echo $pb | sed 's|:.*||')
+    ## Adjust for 0 vs 1 counting
     ((pbi+=1))
     for p in /opt/bb/sbin /opt/bb/bin
     do
+        ## Delete if exists
         delpath $p
+
+        ## Add just after ours
         addpath -i${pbi} $p
     done
+    export PATH
 fi
 
+export LC_ALL=C
+export LANG=C
 
 echo "$(date): ~/.profile.mpersico5 has run"
