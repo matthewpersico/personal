@@ -3,7 +3,7 @@
 # cdfuncs
 
 ## I chose to use 'local' because it is more semantically correct for what we
-## are doing than 'declare' and 'typeset' is deprecated except for ksh
+## are doing than 'declare' is, and 'typeset' is deprecated except for ksh
 ## compatibility.
 
 CDFUNCS_FILE=${BASH_SOURCE[0]}
@@ -33,6 +33,11 @@ cleandirlist ()
 stderrcho ()
 {
     echo $* >&2
+}
+
+eddirlist ()
+{
+    writedirlist --edit
 }
 
 ## Remove all the intermediate directories
@@ -74,8 +79,8 @@ setdirlist ()
                 d="${DIRLIST_PWD_INDIC}$d"
             fi
             DIRLIST="$DIRLIST $d"
-        else
-            stderrcho Pruned non-existant $d from DIRLIST
+        ## verbose else
+            ## verbose stderrcho Pruned non-existant $d from DIRLIST
         fi
     done
 	DIRLIST=$(echo ${DIRLIST} | sed "s|$HOME|\~|g" )
@@ -120,14 +125,21 @@ readdirlist ()
 # the context arg.
 writedirlist ()
 {
-    local context=$1
+    local edit=0
+    local context=$DIRLIST_CONTEXT
     local dirlistfile=$DIRLIST_FILE
     local lockfile=$DIRLIST_LOCK
-    if [ -z "$context" ]
+    if [ "$1" = '--edit' ]
+    then
+        edit=1
+        shift
+    fi
+    if [ -z "$1" ]
     then
         context=$DIRLIST_CONTEXT
     else
-        DIRLIST_CONTEXT=$context
+        DIRLIST_CONTEXT=$1
+        context=$1
     fi
     if [ -n "$context" ]
     then
@@ -139,7 +151,17 @@ writedirlist ()
         ## lock, exclusive, 60 second timeout, file descriptor 200 (0 is stdin,
         ## 1 is stout, 2 is stderr)
         flock -e -w 60 200
-        echo $DIRLIST > $dirlistfile
+        if [ "$edit" = 0 ]
+        then
+            echo $DIRLIST > $dirlistfile
+        else
+            echo > $dirlistfile
+            for i in $DIRLIST
+            do
+                echo $i >> $dirlistfile
+            done
+            $EDITOR vi $DIRLIST_FILE
+        fi
     ) 200>$DIRLIST_LOCK
     readdirlist
 }
