@@ -2,9 +2,12 @@
 #
 # Name:        addpath
 #
-# Author:      Stephen Collyer (scollyer@netspinner.co.uk)
+# Author:      Matthew Persico (matthew.persico@gmail.com)
 #
-# Copyright:   Netspinner Ltd 2000-2003
+# Copyright:   Matthew Persico (matthew.persico@gmail.com)
+#
+# Derived from work by Stephen Collyer (scollyer@netspinner.co.uk),
+#                      Copyright: Netspinner Ltd 2000-2003
 #
 ###############################################################################
 
@@ -16,7 +19,7 @@ addpath()
 
     typeset options_shift_val options_missing_arg options_unknown_opt
     typeset options_num_args_left
-    typeset opt_h opt_p
+    typeset opt_h opt_p opt_s
     typeset opt_x opt_v
     typeset opt_f opt_b opt_i
     typeset sep=:
@@ -25,13 +28,14 @@ addpath()
 
     usage_init
     typeset -a USAGE
-    i=0; USAGE[i]="addpath [-h] [-f|-b|-i n] [-x] [-v] [[-p] pathvar] dirname"
+    i=0; USAGE[i]="addpath [-h] [-s separator] [-f|-b|-i n] [-x] [-v] [[-p] pathvar] dirname"
     ((i+=1)); USAGE[i]="Idempotently adds 'dirname' to 'pathvar'."
     ((i+=1)); USAGE[i]="$USAGE_OPT_P1"
     ((i+=1)); USAGE[i]="$USAGE_OPT_P2"
     ((i+=1)); USAGE[i]="$USAGE_OPT_P3"
     ((i+=1)); USAGE[i]="$USAGE_OPT_P4"
     ((i+=1)); USAGE[i]="$USAGE_OPT_P5"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_S"
     ((i+=1)); USAGE[i]="-f - Add to front of 'pathvar'."
     ((i+=1)); USAGE[i]="-b - Add to back of 'pathvar' (default behavior)."
     ((i+=1)); USAGE[i]="-i n - Add to 'pathvar' in position 'n'. Indexing starts"
@@ -45,7 +49,7 @@ addpath()
     # handle options
     ###########################################################################
 
-    options "hp:xvfbi:" "$@"
+    options "hp:s:xvfbi:" "$@"
     shift $options_shift_val
     if [ -n "$opt_h" ]
     then
@@ -78,11 +82,11 @@ addpath()
         return
     fi
 
-    # NB the painful default COMMAND variable is required in the case
-    # that the pathvar is initially empty. If it is, then $sep is set
-    # to null rather than : so as to avoid putting a trailing colon on
-    # the path - however, this means that "addpath -p NEWPATH abc"
-    # ends up with a COMMAND like "COMMAND=$NEWPATHabc" which looks like
+    # NB the painful default COMMAND variable is required in the case that the
+    # pathvar is initially empty. If it is, then $sep is set to null rather
+    # than : (or whatever was requested with -s) so as to avoid putting a
+    # trailing colon on the path - however, this means that "addpath -p NEWPATH
+    # abc" ends up with a COMMAND like "COMMAND=$NEWPATHabc" which looks like
     # an undefined variable - so we add braces to make it look like
     # "COMMAND=${NEWPATH}abc. Phew.
     COMMAND='\$\{${pathvar}\}${sep}${dirname}'  # default
@@ -91,6 +95,8 @@ addpath()
 
     [ -n "$opt_p" ] && pathvar=$opt_p
     [ -z "$pathvar" ] && pathvar=PATH           # default
+
+    [ -n "$opt_s" ] && sep=$opt_s;
 
     if [ -n "$opt_i" ]
     then
@@ -132,7 +138,7 @@ addpath()
     # - it seems to have no effect inside $() when put at the
     # start of line
 
-    element=$(eval echo \$$pathvar | colon2line | grep -x "$dirname")
+    element=$(eval echo \$$pathvar | sep2line "${sep}" | grep -x "$dirname")
     if [ "$element" = "" ]
     then
          #
@@ -140,7 +146,7 @@ addpath()
          #
          eval eval $pathvar=$COMMAND
     fi
-    [ -n "$opt_v" ] && listpath -p $pathvar
+    [ -n "$opt_v" ] && listpath -s "${sep}" -p $pathvar
     [ -n "$opt_x" ] && export $pathvar
 }
 
