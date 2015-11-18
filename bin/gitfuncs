@@ -75,23 +75,46 @@ alias git-st-strip=git_st_strip
 
 git_find ()
 {
-    git ls-files | grep "${1:-.}"
+    if [ "$#" = '0' ]
+    then
+        git ls-files
+    else
+        git ls-files | grep "$@"
+    fi
 }
 alias git-find=git_find
 alias gitfind=git_find
 
 git_grep ()
 {
+    local grepargs
+    local findargs
+    local doargs='grep'
+    for arg in "$@"
+    do
+        if [ "$arg" = '--find' ]
+        then
+            doargs=find
+        else
+            if [ "$doargs" = 'grep' ]
+            then
+                grepargs="$grepargs $arg"
+            elif [ "$doargs" = 'find' ]
+            then
+                findargs="$findargs $arg"
+            fi
+        fi
+    done
     local files
     local entry
-    for entry in $(git_find)
+    for entry in $(git_find $findargs)
     do
         if [ ! -d $entry ]
         then
             files="$files $entry"
         fi
     done
-    grep "$@" $files
+    echo grep "$grepargs" $files
 }
 alias git-grep=git_grep
 alias gitgrep=git_grep
@@ -286,6 +309,7 @@ git_go ()
             ## cd, not builtin cd to take advantage of any cd enhancements that
             ## are in effect (via a cd alias or a cd script in PATH)
 	        cd ${HOME}/$(git_strip_repo $REPO)
+            git_hook_check
 	        return
 	    fi
     done
@@ -451,7 +475,7 @@ git_hook_update ()
 }
 alias git-hook-update='git_hook_update '
 
-git_hook_add ()
+git_hook_push ()
 {
     git init --template=${mpersico5_githook_root}
     typeset hooks="$@"
@@ -467,20 +491,56 @@ git_hook_add ()
         done
         hooks="$newh"
     fi
+
     typeset REPOS REPO
     REPOS=$(_git_go_get 0 0 1)
     for REPO in $REPOS
     do
         for h in $hooks
         do
-           typeset hookdir="${HOME}/$(git_strip_repo $REPO)/.git/hooks"
-           if [ -e "$hookdir/$(basename $h)" ]
-           then
-               cp -v $h $hookdir
-               chmod +x $hookdir/$h
-           fi
+            typeset hooktgtdir="${HOME}/$(git_strip_repo $REPO)/.git/hooks"
+            if [ -f $hooktgtdir ]
+            then
+                echo $hooktgtdir is a file. whoops....
+                ## Fix up accidental directory overwrite
+                \rm $hooktgtdir
+                mkdir $hooktgtdir
+            fi
+
+            typeset hooktgtpath="$hooktgtdir/$(basename $h)"
+            if [ ! -e $hooktgtpath ] || [ $h -nt $hooktgtpath ]
+            then
+                if [ ! -e $hooktgtpath ]
+                then
+                    echo "$hooktgtpath not found."
+                elif [ $h -nt $hooktgtpath ]
+                then
+                    echo "$hooktgtpath out of date."
+                fi
+                cp -v $h $hooktgtpath
+                chmod +x $hooktgtpath
+            fi
         done
     done
+}
+
+git_hook_check ()
+{
+    if [ ! -d .git ]
+    then
+        echo "Cannot run git_hook_check outside base repo dir - can't find .git"
+        return 1
+    fi
+    ret=0
+    for i in $(ls .git/hooks/* | grep -v '.sample')
+    do
+        if [ ! -x $i ]
+        then
+            echo "INFO: git hook $i is not executable. Making it so."
+            chmod a+x $i
+        fi
+    done
+    return 0
 }
 
 git_checkout ()
