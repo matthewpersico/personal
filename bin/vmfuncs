@@ -21,23 +21,51 @@ VMFUNCS_TOOLKIT_FILE=~/.ssh/id_rsa.toolkit
 VMFUNCS_TOOLKIT_EXPIRE_FILE=~/.ssh/id_rsa.toolkit.expires
 VMFUNCS_BCPCVMS_FILE=~/personal/bin/.bcpcvms
 
+_vm_toolkit_file_maint_usage ()
+{
+    echo "Usage: vm_toolkit_file_maint [-f|--force|-u|--update]"
+}
+
 vm_toolkit_file_maint ()
 {
     local msg=''
     local expiretime=0
-    if [ ! -r $VMFUNCS_TOOLKIT_FILE ]
+    local update=0
+    local OPTSARGS=$(getopt -o fuh --long force,update,help -n 'vm_toolkit_file_maint' -- "$@")
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) _rsync2nfs_usage; return 0 ;;
+            -f|-u|--force|--update) update=1; shift ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; git-st-strip-usage; return 1 ;;
+        esac
+    done
+
+    if [ "$update" = '1' ]
+    then
+        msg="Toolkit credential update requested."
+    elif [ ! -r $VMFUNCS_TOOLKIT_FILE ]
     then
         msg="Toolkit credential file $VMFUNCS_TOOLKIT_FILE not found. Generating..."
+        update=1
     elif [ ! -r $VMFUNCS_TOOLKIT_EXPIRE_FILE ]
     then
-        msg="Toolkit credential file $VMFUNCS_TOOLKIT_FILE not found. Generating..."
+        msg="Toolkit credential file $VMFUNCS_TOOLKIT_EXPIRE_FILE not found. Generating..."
+        update=1
     else
         expiretime=$(cat $VMFUNCS_TOOLKIT_EXPIRE_FILE | grep -v '#')
         expiremsg=$(cat $VMFUNCS_TOOLKIT_EXPIRE_FILE | grep '#' | sed 's/#//g' | sed 's/ //g' )
         msg="Toolkit credential has expired ($expiremsg). Regenerating..."
+        now=$(date +%s)
+        if ((expiretime < now))
+        then
+            update=1
+        fi
     fi
-    now=$(date +%s)
-    if ((expiretime < now))
+
+    if [ "$update" = '1' ]
     then
         echo $msg
         ## Backups
@@ -121,3 +149,53 @@ vmdel ()
     vmshow
 }
 alias delvm='vmdel '
+
+_rsync2nfs_usage ()
+{
+    echo "Usage: rsync2nfs -t|--target tgt src [src...]"
+    echo
+}
+
+rsync2nfs ()
+{
+    local target
+    local OPTSARGS=$(getopt -o t:h --long target:,help -n 'vmsync2nfs' -- "$@")
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) _rsync2nfs_usage; return 0 ;;
+            -t|--target) shift; target=$1; shift ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; git-st-strip-usage; return 1 ;;
+        esac
+    done
+
+    if [ -z "$target" ]
+    then
+        echo "--target required";
+        _vmsync2nfs_usage;
+    fi
+
+    ## -a "archive" mode, which ensures that symbolic links, devices,
+    ## -attributes, permissions, ownerships, etc. are preserved in the
+    ## -transfer.
+    ## -z - transport compressed
+    ## -r - recurse
+    ## -l - copy symlinks as symlinks
+    ## -v - verbose
+    rsync -azrlv "$@" $target
+    return $?
+}
+
+vmrsyncgits ()
+{
+    rsync2nfs --target nylxdev1.dev.bloomberg.com:vmstashes/$(hostname)/mpersico5 ~/gits
+}
+
+vmrsync ()
+{
+    rsync2nfs --target nylxdev1.dev.bloomberg.com:vmstashes/$(hostname) ~
+}
+
+alias vmsync='vmrsync '

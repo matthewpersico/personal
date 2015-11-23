@@ -1,0 +1,116 @@
+# -*- sh -*-
+
+# utilfuncs
+
+UTILFUNCS_FILE=${BASH_SOURCE[0]}
+utilfuncs_edit ()
+{
+    xo $UTILFUNCS_FILE
+}
+alias utilfuncs-edit=utilfuncs_edit
+
+utilfuncs_reload ()
+{
+    . $UTILFUNCS_FILE
+}
+alias utilfuncs-reload=utilfuncs_reload
+
+add_bb ()
+{
+    addpath -x -f /bb/bin
+}
+
+is_int ()
+{
+    [[ $1 =~ ^-?[0-9]+$ ]] && return 1
+    return 0
+
+}
+is_neg ()
+{
+    is_int $1 || (( $1 < 0 )) && return 1
+    return 0
+}
+
+is_pos ()
+{
+    is_int $1 || (( $1 > -1 )) && return 1
+    return 0
+}
+
+pause ()
+{
+    read -p "$*"
+}
+export -f pause
+
+yesno ()
+{
+
+    declare prompt_text=$1;shift
+    declare prompt="$prompt_text (y/n)"
+    declare default=$1;shift
+    default=$(echo $default| tr [:upper:] [:lower:] | tr -d [:blank:] )
+
+    declare cmd
+    cmd="$@"
+
+    if [ -n "$default" ]
+    then
+	    prompt="$prompt[$default]"
+    fi
+    prompt="$prompt? "
+
+    declare resp
+    while true
+    do
+	    read -p "$prompt" resp
+	    resp=$(echo ${resp:0:1} | tr [:upper:] [:lower:] )
+	    if [ -n "$default" ] && [ -z "$resp" ]
+	    then
+	        resp=$default
+	    fi
+	    if [ "$resp" = 'y' ] || [ "$resp" = 'n' ]
+	    then
+            if [ -z "$cmd" ]
+            then
+                ## No command, give response
+	            echo $resp
+	            return 0
+            elif  [ "$resp" = 'y' ]
+            then
+                $cmd
+                return $?
+            else
+                return 0
+            fi
+	    fi
+    done
+}
+export -f yesno
+
+dowhich ()
+{
+    declare file=$1;shift
+    declare action="$@"
+
+    declare foundit=$(which $file)
+    if [ -z "$foundit" ]
+    then
+        echo "$file not found on PATH"
+        return 1
+    elif [ -z "$action" ]
+    then
+        echo $foundit
+        return 0
+    else
+        yesno "Use $foundit" 'n' $action $foundit
+        return $?
+    fi
+}
+
+tarcopy ()
+{
+    echo 'tar cf - * | ( cd $tgtdir; tar xvfp -)'
+    echo 'also consider cp -a src[ src...] tgtdir'
+}

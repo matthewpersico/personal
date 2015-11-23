@@ -4,23 +4,36 @@
 # logit
 #
 
+usage ()
+{
+    echo "logit [--tee|-t] [ --log|-l log_basename ] command [arg ..]"
+    exit $1
+}
+
 # Take args, treat as a command + args and run all output to a file.
 
 # Inits
 logfile=''
 teeit=0
 
+if [ $(basename "${BASH_SOURCE[0]}") == 'teeit' ]
+then
+    teeit=1
+fi
+
 # Read the options and args from command line. Note that the long and short
 # don't have to match up.
-TEMP=`getopt -o l:t --long log:,tee -n 'logit' -- "$@"`
+GETOPTOUT=`getopt -o l:th --long log:,tee,help -n 'logit' -- "$@"`
 
-# Reset the command line ($@).
-eval set -- "$TEMP"
+# Reset the command line.
+eval set -- "$GETOPTOUT"
 
 # Reprocess the command line, extracting options and their arguments into
 # variables.
 while true ; do
     case "$1" in
+        -h|--help)
+            usage 0 ;;
         -l|--log)
             logfile="$2"
             shift 2 ;;
@@ -28,9 +41,16 @@ while true ; do
             teeit=1
             shift ;;
         --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
-        *) echo "Internal error!" ; exit 1 ;;
+        *) echo "Internal error!" ; usage 1 ;;
     esac
 done
+
+# Arg checking
+if [ -z "$1" ]
+then
+    echo "Command required."
+    usage 1
+fi
 
 command=$1
 shift
@@ -38,10 +58,11 @@ args="$@"
 
 if [ ! -x $command ]
 then
-    echo $command not found or not executable
-    exit 1
+    echo "'$command' not found or not executable."
+    usage 1
 fi
 
+# Log file setup
 if [ -z "$logfile" ]
 then
     logfile=$(basename $command)
@@ -56,9 +77,11 @@ else
 fi
 
 logspec="$logdir/$logfile"
-touch $logspec
+touch $logspec ## Critical for tee below
 logmsg="Logfile is: $logspec"
 echo $logmsg
+
+# And off we go...
 echo "Working..."
 
 if ((teeit))
@@ -72,11 +95,12 @@ then
         fi
     done
     $termer -g 132x40 -e tail -f $logspec &
-    sleep 2
+    sleep 2 ## Give the terminal a chance to come up and start tailing so we
+            ## see the whole log in the tali
 fi
 
 (
-    if [ -d .git ] || [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]
+    if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]
     then
         echo "********************"
         echo "      git info      "
@@ -87,15 +111,18 @@ fi
     fi
 
     echo "********************"
-    echo "Command is: $command $args"
+    echo "      Command       "
     echo "********************"
+    echo $command $args
     echo
+
     echo "********************"
     echo "       Output       "
     echo "********************"
     $command $args
     status=$?
     echo
+
     echo "********************"
     echo $logmsg
     echo "Exit status: $status"
