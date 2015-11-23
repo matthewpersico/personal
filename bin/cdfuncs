@@ -186,6 +186,11 @@ _dirlist_select()
     done
 }
 
+pwdswap ()
+{
+    echo $(pwd | sed "s|$1|$2|")
+}
+
 dirlist ()
 {
     ## The major input handling points are noted with ## ------
@@ -213,7 +218,7 @@ dirlist ()
             ## Some 'cd' commands support this intrinsically (cd x y). However,
             ## we're not going to bother trying to figure out if this
             ## version does or not.
-            builtin cd $(pwd | sed "s|$1|$2|")
+            builtin cd $(pwdswap "$1" "$2")
         else
             local tgt=$1;shift
 	        is_int $tgt
@@ -228,12 +233,13 @@ dirlist ()
                     ## Argument was a negative number. If you are in /a/b/c/d/e and
                     ## you cd -2, you end up in /a/b/c.
 		            local i=$tgt
-                    local src=$(pwd)
+                    local tgtdir=$(pwd)
 		            while (( i < 0 ))
 		            do
-		                builtin cd ..
+		                tgtdir=$(dirname $tgtdir)
 		                (( i=i+1 ))
 		            done
+		            builtin cd $tgtdir
                 else
                     ## --------------------
                     ## Positive integer arg
@@ -284,7 +290,7 @@ up () {
 	    is_neg $tgt
 	    if (( $? ))
 	    then
-            satderrcho 'up takes positive numbers. We will convert for you.'
+            stderrcho 'up takes positive numbers. We will convert for you.'
         else
             ((tgt=tgt*-1))
         fi

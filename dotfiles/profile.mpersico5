@@ -17,10 +17,13 @@ profile_reload ()
 }
 alias profile-reload=profile_reload
 
-# =-=- PATH
+# PATH
 export PERSONALBIN=~/personal/bin
+
 . $PERSONALBIN/pathfuncs
+
 pathfuncs_load
+
 addpath -f PATH $PERSONALBIN
 
 securepath ()
@@ -52,112 +55,8 @@ unsecurepath ()
 }
 alias insecurepath=unsecurepath
 
-# =-=- HISTORY
 . $PERSONALBIN/histfuncs
-
-# =-=- UTILITY FUNCTIONS
-add_bb ()
-{
-    addpath -x -f /bb/bin
-}
-
-is_int ()
-{
-    [[ $1 =~ ^-?[0-9]+$ ]] && return 1
-    return 0
-
-}
-is_neg ()
-{
-    is_int $1 || (( $1 < 0 )) && return 1
-    return 0
-}
-
-is_pos ()
-{
-    is_int $1 || (( $1 > -1 )) && return 1
-    return 0
-}
-
-pause ()
-{
-    read -p "$*"
-}
-export -f pause
-
-yesno ()
-{
-
-    declare prompt_text=$1;shift
-    declare prompt="$prompt_text (y/n)"
-    declare default=$1;shift
-    default=$(echo $default| tr [:upper:] [:lower:] | tr -d [:blank:] )
-
-    declare cmd
-    cmd="$@"
-
-    if [ -n "$default" ]
-    then
-	    prompt="$prompt[$default]"
-    fi
-    prompt="$prompt? "
-
-    declare resp
-    while true
-    do
-	    read -p "$prompt" resp
-	    resp=$(echo ${resp:0:1} | tr [:upper:] [:lower:] )
-	    if [ -n "$default" ] && [ -z "$resp" ]
-	    then
-	        resp=$default
-	    fi
-	    if [ "$resp" = 'y' ] || [ "$resp" = 'n' ]
-	    then
-            if [ -z "$cmd" ]
-            then
-                ## No command, give response
-	            echo $resp
-	            return 0
-            elif  [ "$resp" = 'y' ]
-            then
-                $cmd
-                return $?
-            else
-                return 0
-            fi
-	    fi
-    done
-}
-export -f yesno
-
-dowhich ()
-{
-    declare file=$1;shift
-    declare action="$@"
-
-    declare foundit=$(which $file)
-    if [ -z "$foundit" ]
-    then
-        echo "$file not found on PATH"
-        return 1
-    elif [ -z "$action" ]
-    then
-        echo $foundit
-        return 0
-    else
-        yesno "Use $foundit" 'n' $action $foundit
-        return $?
-    fi
-}
-
-tarcopy ()
-{
-    echo 'tar cf - * | ( cd $tgtdir; tar xvfp -)'
-    echo 'also consider cp -a src[ src...] tgtdir'
-}
-
-# =-=- DISTINCT SETTINGS
-
+. $PERSONALBIN/utilfuncs
 . $PERSONALBIN/cdfuncs
 . $PERSONALBIN/gitfuncs
 . $PERSONALBIN/svnfuncs
@@ -166,7 +65,7 @@ tarcopy ()
 . $PERSONALBIN/dotfiles_funcs
 . $PERSONALBIN/.xterminit
 
-# =-=- PERL
+# PERL
 addpath -x -f -p PERL5LIB ~/personal/share/perl5/site_perl/5.16
 
 alias pd='perldoc '
@@ -219,8 +118,7 @@ delcsperlpath ()
     export PERL5LIB
 }
 
-
-# =-=- PYTHON
+# PYTHON
 python_dbg ()
 {
     echo Do these
@@ -234,7 +132,7 @@ python_dbg ()
     echo      do not know the raw print yet
 }
 
-# =-=- ALIASES
+# ALIASES
 
 # Conveniences
 alias cvs='echo cvs? Are you KIDDING ME???? - Try again!'
@@ -244,19 +142,19 @@ alias setg='set | grep '
 alias allg='(env && set) | grep '
 alias psme='ps lxf -U ${USER}'
 alias rm='rm -i '
-alias mopdiff='diff -w --side-by-side --suppress-common-lines '
-alias mydiff='diff -w --side-by-side --suppress-common-lines '
+alias mydiff='diff -U3 '
+alias sidediff='diff -w --side-by-side --suppress-common-lines '
 alias mopquota='df -h '
 
 # Fat finger protection
 alias vf='echo cd, you moron; cd '
 
-# =-=- BLOOMBERG
+# BLOOMBERG
 
 # if chimera generated aliases exist, pull them into the current ENV
 [ -f ~/.bbalias ] && . ~/.bbalias
 
-# =-=- NO-CHIMERA
+# NO-CHIMERA
 ## Things to do if we're on a vm w/o Chimera
 git_pr_loaded=$(declare -F | grep __git_ps1)
 if [ -z "$git_pr_loaded" ]
@@ -268,7 +166,7 @@ then
     fi
 fi
 
-# =-=- POST-CHIMERA
+# POST-CHIMERA
 
 # Override prompt (assuming git stuff is loaded, either in chimera or locally)
 PS1='\n\[\e]0;\u@\h:\w\a\]\u@\h\n\w\n$(__git_ps1 "(%s)")\$ '
@@ -280,7 +178,7 @@ do
     export -f $i
 done
 
-# =-=- YUM/APT
+# YUM/APT
 apt_install ()
 {
     sudo apt-get install "$@"
@@ -296,7 +194,7 @@ yum_group_install ()
     sudo yum group install "$@"
 }
 
-# =-=- MISC
+# MISC
 
 # STOP clearing the screen!!!
 LESS="-X"
