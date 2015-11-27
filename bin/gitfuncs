@@ -577,21 +577,84 @@ git_checkout ()
         git checkout $newbranch
     fi
 }
-
-git_update ()
-{
-    echo 'Try:'
-    echo 'git pull <src> <branch>'
-    echo 'If there are issues:'
-    echo 'git stash'
-    echo 'git pull <src> <branch> --rebase'
-    echo 'READ THE OUTPUT'
-    echo 'but in short'
-    echo '- fix conflicts'
-    echo '- git rebase --continue'
-    echo 'or'
-    echo '- abort with "git rebase --abort"'
-}
-
 alias git-checkout='git_checkout '
 alias git-branches='git_checkout '
+
+git_sync_with_master ()
+{
+    local cb=$(git rev-parse --abbrev-ref HEAD)
+    status=$?
+    if ((status != 0 ))
+    then
+        return 1
+    fi
+
+    if [ "$cb" == '' ]
+    then
+        cat <<EOF
+
+git_update is used to keep your DEVELOPMENT branch in sync with changes to the
+master. However, you do not appear to be in a repo. I'm exiting. Try again the
+repo.
+
+EOF
+        return 1
+    fi
+
+    if [ "$cb" == 'master' ]
+    then
+        cat <<EOF
+
+git_update is used to keep your DEVELOPMENT branch in sync with changes to the
+master. However, you appear to be on the master, so what the hell are you
+doing? I'm exiting. Get off the master and onto a DEVELOPMENT branch. Then
+rerun the command.
+
+EOF
+        return 1
+    fi
+
+    local remote_count=$(git remote | wc -l)
+    if ((remote_count>1))
+    then
+        cat <<EOF
+
+The current repo has $rc remotes. We are going to merge "master" in the
+current local repo into branch $cb in the current local repo. Hopefully, you've
+already done a "git pull" on the master such that it is in sync with any
+upstream repos. If not, then we're really not doing much. Caveat Programmer.
+
+EOF
+    fi
+    git merge -v master
+    status=$?
+    echo "TODO: status of 'git merge -v master' was '$status'."
+    echo "      Figure out what status will signal conflicts"
+    echo "      and adjust the next message printing accordingly:"
+    cat <<EOF
+
+If you're lucky, there are no conflicts. If you're not lucky, don't
+worry. Resolve conflicts by
+
+1) Editing each file in conflict, looking for the (partial) conflict
+marker "<<<<<". Once you see the issue, fix the code and save the file.
+
+2) "git add" any files you've changed.
+
+Once any conflicts are resolved, do a "git status". You will see files under
+the section "Changes to be committed:" if:
+
+1) You fixed any conflicts.
+
+2) There are changes in the master that need to be added in that have no conflicts.
+
+If you see any such files, run "git commit". That will complete the merge into your branch.
+
+Then push the branch up to your fork so you can submit a pull request.'
+
+EOF
+
+}
+
+alias git-update='git_sync_with_master '
+alias git-sync-with-master='git_sync_with_master '
