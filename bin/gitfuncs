@@ -552,19 +552,28 @@ git_hook_check ()
 git_checkout ()
 {
     local newbranch=$1
+    local createbranch=''
     if [ -z "$newbranch" ]
     then
         local tmpfile=$(mktemp)
         git branch | sed 's|\* |*|' > $tmpfile
         typeset branch
         typeset current_branch=$(grep '*' $tmpfile)
-        select branch in $(cat $tmpfile)
+        local newonemsg="Create a new one from $current_branch"
+        select branch in "'$newonemsg'" $(cat $tmpfile)
         do
             if [ -n "$branch" ]
             then
                 if [ "$branch" == "$current_branch" ]
                 then
                     echo $branch is current.
+                elif [ "$branch" == "'$newonemsg'" ]
+                then
+                    while [ -z "$newbranch" ]
+                    do
+                        read -p "Enter a new branch name: " newbranch
+                    done
+                    createbranch='-b'
                 else
                     newbranch=$(echo $branch | sed 's|\*||')
                 fi
@@ -574,7 +583,7 @@ git_checkout ()
     fi
     if [ -n "$newbranch" ]
     then
-        git checkout $newbranch
+        git checkout $createbranch $newbranch
     fi
 }
 alias git-checkout='git_checkout '
