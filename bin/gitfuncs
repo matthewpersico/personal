@@ -4,8 +4,11 @@
 
 GITFUNCS_FILE=${BASH_SOURCE[0]}
 
+auditfuncs_init $GITFUNCS_FILE
+
 gitfuncs_edit ()
 {
+    gitfuncs_audit "$@"
     xo $GITFUNCS_FILE
 }
 ## I define functions with '_' and aliases with '-' because the emaacs modes
@@ -15,6 +18,7 @@ alias gitfuncs-edit=gitfuncs_edit
 
 gitfuncs_reload ()
 {
+    gitfuncs_audit "$@"
     . $GITFUNCS_FILE
 }
 alias gitfuncs-reload=gitfuncs_reload
@@ -47,6 +51,7 @@ fi
 
 _git_st_strip_usage ()
 {
+    gitfuncs_audit "$@"
     echo "Usage: git-st-strip [arg ...]"
     echo "       git-st-strip [--help|-h]"
     echo
@@ -61,6 +66,7 @@ alias _git-st-strip-usage=_git_st_strip_usage
 
 git_st_strip ()
 {
+    gitfuncs_audit "$@"
     typeset OPTSARGS=$(getopt -o h --long help -n 'git-st-strip' -- "$@")
     eval set -- "$OPTSARGS"
     while true
@@ -78,6 +84,7 @@ alias git-st-strip=git_st_strip
 
 git_find ()
 {
+    gitfuncs_audit "$@"
     if [ "$#" = '0' ]
     then
         git ls-files
@@ -90,46 +97,17 @@ alias gitfind=git_find
 
 git_find_conflicts ()
 {
-    git_grep -l "<<<<<<<" | sort -u
+    gitfuncs_audit "$@"
+    git grep -l "<<<<<<<" | sort -u
 }
 
-## Usage: git_grep [grep-opt [grep-opt...]] search_string [--find findarg-or-opt [findarg-or-opt...]]
-git_grep ()
-{
-    local grepargs
-    local findargs
-    local doargs='grep'
-    for arg in "$@"
-    do
-        if [ "$arg" = '--find' ]
-        then
-            doargs=find
-        else
-            if [ "$doargs" = 'grep' ]
-            then
-                grepargs="$grepargs $arg"
-            elif [ "$doargs" = 'find' ]
-            then
-                findargs="$findargs $arg"
-            fi
-        fi
-    done
-    local files
-    local entry
-    for entry in $(git_find $findargs)
-    do
-        if [ ! -d $entry ]
-        then
-            files="$files $entry"
-        fi
-    done
-    grep $grepargs $files
-}
-alias git-grep=git_grep
-alias gitgrep=git_grep
+alias git_grep='git grep '
+alias git-grep='git grep '
+alias gitgrep='git grep '
 
 git_commit_changelog () ## COmit CHangelog
 {
+    gitfuncs_audit "$@"
     typeset f=git.commit.$$
     echo "## Delete all lines if you want to abort - :q! won't work:" > $f
     if [ -e ChangeLog ]
@@ -149,16 +127,19 @@ alias git-commit-changelog=git_commit_changelog
 
 git_strip_repo ()
 {
+    gitfuncs_audit "$@"
     echo $1 | sed 's/(repo)//'
 }
 
 git_add_repo ()
 {
+    gitfuncs_audit "$@"
     echo "$1(repo)"
 }
 
 git_go_set ()
 {
+    gitfuncs_audit "$@"
     local set_x=0
     if [ "$GIT_GO_SET_DEBUG" = '1' ]
     then
@@ -217,12 +198,14 @@ alias git-go-set=git_go_set
 
 git_go_set_filename ()
 {
+    gitfuncs_audit "$@"
     mpersico5_git_go_file=${HOME}/gits/.git-go.$(date +%Y%m%d)
 }
 alias git-go-set-filename=git_go_set_filename
 
 _git_go_get()
 {
+    gitfuncs_audit "$@"
     ## no, we don't need getopt processing here. This is an internal func so we
     ## just have to GET IT RIGHT when we call it.
     typeset update=$1
@@ -266,6 +249,7 @@ _git_go_get()
 
 git_go_usage ()
 {
+    gitfuncs_audit "$@"
     echo "Usage: git-go [--update|-u] [--roots|-r] [--mbig|-m] [dirmatch]"
     echo "       git-go [-h|--help]"
     echo
@@ -285,6 +269,7 @@ alias git-go-usage=git_go_usage
 
 git_go ()
 {
+    gitfuncs_audit "$@"
     typeset PS3="Choose by number, CTRL-C to quit: "
     typeset opt_update=0
     typeset opt_roots=0
@@ -329,6 +314,7 @@ alias gitog=git_go
 
 git_get_current_branch ()
 {
+    gitfuncs_audit "$@"
     ( if [ -n "$1" ]
       then
           ## cd, not builtin cd to take advantage of any cd enhancements that
@@ -343,6 +329,7 @@ alias git-get-current-branch=git_get_current_branch
 
 git_help ()
 {
+    gitfuncs_audit "$@"
     local tmpfile=$(mktemp)
     ls -c1 $PERSONALBIN/*bbgh* 2>/dev/null | sed 's|.*/|script |' > ${tmpfile}.gh1
     ls -c1 $PERSONALBIN/*git* 2>/dev/null| sed 's|.*/|script |' > ${tmpfile}.gh2
@@ -355,6 +342,7 @@ alias git-help=git_help
 
 git_rename_branch ()
 {
+    gitfuncs_audit "$@"
     typeset old_branch=$1
     shift
     typeset new_branch=$2
@@ -385,6 +373,7 @@ alias git-rename-branch=git_rename_branch
 
 git_close_branch ()
 {
+    gitfuncs_audit "$@"
     typeset old_branch=$1
     typeset new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
     git-rename-branch $old_branch $new_branch
@@ -394,6 +383,7 @@ alias git-close-branch=git_close_branch
 
 git_delete_branch ()
 {
+    gitfuncs_audit "$@"
     local branch=$1;
     local current_branch=$(git_get_current_branch)
     if [ -z "$branch" ]
@@ -447,6 +437,7 @@ alias git-delete-branch=git_delete_branch
 
 git_set_locals ()
 {
+    gitfuncs_audit "$@"
     typeset localgitpaths='/home/mpersico5/gits/bbgithub/bbgh/bin
                            /home/mpersico5/gits/bbgithub/glow/bin'
     typeset lgp
@@ -460,6 +451,7 @@ alias git-set-locals=git_set_locals
 
 git_hook_update ()
 {
+    gitfuncs_audit "$@"
     typeset hooks="$@"
     if [ -z "$hooks" ]
     then
@@ -491,6 +483,7 @@ alias git-hook-update='git_hook_update '
 
 git_hook_push ()
 {
+    gitfuncs_audit "$@"
     git init --template=${mpersico5_githook_root}
     typeset hooks="$@"
     if [ -z "$hooks" ]
@@ -540,6 +533,7 @@ git_hook_push ()
 
 git_hook_check ()
 {
+    gitfuncs_audit "$@"
     if [ ! -d .git ]
     then
         echo "Cannot run git_hook_check outside base repo dir - can't find .git"
@@ -559,6 +553,7 @@ git_hook_check ()
 
 git_checkout ()
 {
+    gitfuncs_audit "$@"
     local newbranch=$1
     local createbranch=''
     if [ -z "$newbranch" ]
@@ -599,6 +594,7 @@ alias git-branches='git_checkout '
 
 git_sync_with_master ()
 {
+    gitfuncs_audit "$@"
     local cb=$(git rev-parse --abbrev-ref HEAD)
     status=$?
     if ((status != 0 ))
@@ -690,6 +686,7 @@ alias git-sync-with-master='git_sync_with_master '
 
 git_diff_faq ()
 {
+    gitfuncs_audit "$@"
     cat <<EOF
 
 --- Branch diffing
