@@ -1,0 +1,39 @@
+# -*- sh -*-
+
+# auditfuncs
+
+AUDITFUNCS_FILE=${BASH_SOURCE[0]}
+
+auditfuncs_init ()
+{
+    audit_system=$(basename $1 | tr '[A-Z]' '[a-z]')
+    audit_system_upper=$(basename $1 | tr '[a-z]' '[A-Z]')
+    audit_system_file="$1.$(hostname).audit"
+
+    tmpsh=$(mktemp)
+    echo "${audit_system}_audit ()" > $tmpsh
+    echo '{' >> $tmpsh
+    echo 'echo $(date +%Y_%m_%d_%H_%M_%S) - ${FUNCNAME[1]} $@ >> ' $audit_system_file >> $tmpsh
+    echo '}' >> $tmpsh
+    . $tmpsh
+    rm -f $tmpsh
+}
+
+auditfuncs_init $AUDITFUNCS_FILE
+
+auditfuncs_edit ()
+{
+    auditfuncs_audit
+    xo $AUDITFUNCS_FILE
+}
+## I define functions with '_' and aliases with '-' because the emaacs modes
+## that parse for functions to generate jump lists don't see functions with '-'
+## in their name. Ugh.
+alias auditfuncs-edit=auditfuncs_edit
+
+auditfuncs_reload ()
+{
+    auditfuncs_audit
+    . $AUDITFUNCS_FILE
+}
+alias auditfuncs-reload=auditfuncs_reload
