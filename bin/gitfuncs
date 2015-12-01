@@ -8,6 +8,9 @@ gitfuncs_edit ()
 {
     xo $GITFUNCS_FILE
 }
+## I define functions with '_' and aliases with '-' because the emaacs modes
+## that parse for functions to generate jump lists don't see functions with '-'
+## in their name. Ugh.
 alias gitfuncs-edit=gitfuncs_edit
 
 gitfuncs_reload ()
@@ -403,7 +406,7 @@ git_delete_branch ()
         fi
         typeset PS3="Choose by number, CTRL-C to quit: "
         typeset selected
-        select selected in $branches
+        select selected in ${branchesa[@]}
         do
             if [ -n "$selected" ]
             then
@@ -424,12 +427,17 @@ git_delete_branch ()
         remotes=$(git remote)
         for remote in $remotes
         do
-            local resp=$(yesno "Try deleting in remote $remote" n)
-            if [ "$resp" == 'y' ]
+            local inremote=$(git branch --list -r | grep "$remote/$branch")
+            if [ -n "$inremote" ]
             then
-                git branch -r -d $remote/$branch ## This can fail if we never
-                                                 ## pushed this branch to the
-                                                 ## remote in question
+                local resp=$(yesno "Try deleting in remote $remote" n)
+                if [ "$resp" == 'y' ]
+                then
+                    git branch -r -d $remote/$branch ## This should not fail
+                                                     ## since we have checked
+                                                     ## that the branch exists
+                                                     ## in the remote
+                fi
             fi
         done
     fi
@@ -626,31 +634,39 @@ EOF
     local remote_count=$(git remote | wc -l)
     cat <<EOF
 
-In the current local repo, we are going to merge branch "master" into branch
-$cb.  The current local repo has $remote_count remote(s). Hopefully, you've
-already done a "git pull" on the "master" such that it is in sync with the
-proper upstream repos. If not, then we're not doing much of anything
-useful. Caveat Programmer.
+In the current local repo, we are going to
+
+ merge branch "master" into current branch "$cb"
+
+The current local repo has $remote_count remote(s). Hopefully, you've already
+done a "git pull" on branch "master" such that it is in sync with the proper
+upstream repos. If not, then we're not doing much of anything useful.
+
+Caveat Programmer.
+
+Merging...
 
 EOF
-
+    sleep 2
     git merge -v master
     status=$?
-    echo "TODO: status of 'git merge -v master' was '$status'."
-    echo "      Figure out what status will signal conflicts"
-    echo "      and adjust the next message printing accordingly:"
-    cat <<EOF
+    if [ "$status" = '0' ]
+    then
+        echo "Merge successful."
+        return 0
+    else
+        cat <<EOF
 
-If you are lucky, there are no conflicts. If you're not lucky, don't
-worry. Resolve conflicts by
+It appears the merge was not successful. Assuming the issue was not a system
+issue, but rather related to conflicts:
 
-1) Editing each file in conflict, looking for the (partial) conflict marker
+1) Edit each file in conflict, looking for the (partial) conflict marker
    "<<<<<". Once you see the issue, fix the code and save the file.
 
 2) "git add" any files you've changed.
 
 Once any conflicts are resolved, do a "git status". You will see files under
-the section "Changes to be committed:" if:
+the section "Changes to be committed" if:
 
 1) You fixed any conflicts.
 
@@ -664,7 +680,38 @@ Then push the branch up to your fork so you can submit a pull request.
 
 EOF
 
+        return 1
+    fi
+
 }
 
 alias git-update='git_sync_with_master '
 alias git-sync-with-master='git_sync_with_master '
+
+git_diff_faq ()
+{
+    cat <<EOF
+
+--- Branch diffing
+
+The trick to diffing two branches is that is must be done locally. Make sure
+both branches have been pulled down from their remotes before tyring to use
+them in a diff.
+
+diff two branches:
+    git diff branch1 branch2
+
+diff current branch vs other branch:
+    git diff other
+
+    *Note - the sense of the diff is from the other back to the current, as if
+            you typed 'git diff other current' . If you want the diff from
+            current to other then use 'git diff current other'
+
+diff specific files between two branches:
+    git diff branch1 branch2 -- file [file...]
+
+EOF
+}
+
+alias git-diff-faq=git_diff_faq
