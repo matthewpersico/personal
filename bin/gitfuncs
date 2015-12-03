@@ -105,10 +105,9 @@ alias git_grep='git grep '
 alias git-grep='git grep '
 alias gitgrep='git grep '
 
-git_join_changelogs ()
+git_find_changelogs ()
 {
     gitfuncs_audit "$@"
-    typeset f=git.commit.$$
 
     typeset i
     typeset potentials
@@ -117,9 +116,8 @@ git_join_changelogs ()
         if [ -e $i ]
         then
             potentials="$potentials $i"
-        else
-            args="$args $i"
         fi
+        ## Else the arg might be a commit arg passed in.
     done
 
     if [ -z "$potentials" ]
@@ -133,7 +131,8 @@ git_join_changelogs ()
         return 1
     fi
 
-    typeset -A changelogs
+    typeset -A changelogs ## assoc array with realpath expansion will eliminate
+                          ## dups, if any
     typeset key
     typeset clcount=0
     for i in $potentials
@@ -154,34 +153,48 @@ git_join_changelogs ()
         fi
     done
 
-    echo "## Delete all lines if you want to abort - :q! won't work:" > $f
-	cat ${changelogs[@]} | grep -v mpersico5 >> $f
+    echo ${changelogs[@]}
+}
+
+git_join_changelogs ()
+{
+    gitfuncs_audit "$@"
+    typeset f=git.commit.$$
+    typeset changelogs=$(git_find_changelogs "$@")
+    typeset clcount=$(echo $changelogs | wc -w)
+    echo "## Delete all lines if you want to abort - :q! won't work." > $f
+    echo "## Enter a summary line:" >> $f
+    echo '' >> $f
+    echo '' >> $f
+    echo 'Details:' >> $f
+	cat $changelogs | grep -v mpersico5 | sed 's/\t//g' >> $f
     if (( clcount == 0 ))
     then
-	    echo "## No ChangeLog found" >> $f
+	    echo "## No ChangeLogs found" >> $f
     fi
     echo $f
 }
 
 git_preview_changelogs ()
 {
-    typeset masterCl=$(git_join_changelogs)
+    gitfuncs_audit "$@"
+    typeset masterCl=$(git_join_changelogs "$@")
     less $masterCl
     rm -f $masterCl
 }
 
 alias git-preview-changelogs='git_preview_changelogs '
 
-
 git_commit_with_changelog ()
 {
     gitfuncs_audit "$@"
+    typeset changelogs=$(git_find_changelogs)
     typeset masterCl=$(git_join_changelogs "$@")
-    git commit -F $f --edit "$@"
+    git commit -F $masterCl --edit "$@"
     typeset status=$?
     if ((status==0))
     then
-	    \rm ChangeLog $f
+	    \rm $changelogs $masterCl
     fi
 }
 alias git-commit-with-changelog=git_commit_with_changelog
