@@ -105,25 +105,99 @@ alias git_grep='git grep '
 alias git-grep='git grep '
 alias gitgrep='git grep '
 
-git_commit_changelog () ## COmit CHangelog
+git_find_changelogs ()
+{
+    gitfuncs_audit "$@"
+
+    typeset i
+    typeset potentials
+    for i in "$@"
+    do
+        if [ -e $i ]
+        then
+            potentials="$potentials $i"
+        fi
+        ## Else the arg might be a commit arg passed in.
+    done
+
+    if [ -z "$potentials" ]
+    then
+        potentials=$(git_what_can_be_committed)
+    fi
+
+    if [ -z "$potentials" ]
+    then
+        echo "Nothing to commit."
+        return 1
+    fi
+
+    typeset -A changelogs ## assoc array with realpath expansion will eliminate
+                          ## dups, if any
+    typeset key
+    typeset clcount=0
+    for i in $potentials
+    do
+        if [ -f $i ] && [ -f "$(dirname $i)/ChangeLog" ]
+        then
+            key=$(realpath $(dirname $i)/ChangeLog)
+            changelogs[$key]=$key
+            (( clcount += 1 ))
+        elif [ -d $i ]
+        then
+            for j in $(find $i -name ChangeLog)
+            do
+                key=$(realpath $j)
+                changelogs[$key]=$key
+                (( clcount += 1 ))
+            done
+        fi
+    done
+
+    echo ${changelogs[@]}
+}
+
+git_join_changelogs ()
 {
     gitfuncs_audit "$@"
     typeset f=git.commit.$$
-    echo "## Delete all lines if you want to abort - :q! won't work:" > $f
-    if [ -e ChangeLog ]
+    typeset changelogs=$(git_find_changelogs "$@")
+    typeset clcount=$(echo $changelogs | wc -w)
+    echo "## Delete all lines if you want to abort - :q! won't work." > $f
+    echo "## Enter a summary line:" >> $f
+    echo '' >> $f
+    echo '' >> $f
+    echo 'Details:' >> $f
+	cat $changelogs | grep -v mpersico5 | sed 's/\t//g' >> $f
+    if (( clcount == 0 ))
     then
-	    cat ChangeLog | grep -v mpersico5 >> $f
-    else
-	    echo "## No ChangeLog found" >> $f
+	    echo "## No ChangeLogs found" >> $f
     fi
-    git commit -F $f --edit "$@"
+    echo $f
+}
+
+git_preview_changelogs ()
+{
+    gitfuncs_audit "$@"
+    typeset masterCl=$(git_join_changelogs "$@")
+    less $masterCl
+    rm -f $masterCl
+}
+
+alias git-preview-changelogs='git_preview_changelogs '
+
+git_commit_with_changelog ()
+{
+    gitfuncs_audit "$@"
+    typeset changelogs=$(git_find_changelogs)
+    typeset masterCl=$(git_join_changelogs "$@")
+    git commit -F $masterCl --edit "$@"
     typeset status=$?
     if ((status==0))
     then
-	    \rm ChangeLog $f
+	    \rm $changelogs $masterCl
     fi
 }
-alias git-commit-changelog=git_commit_changelog
+alias git-commit-with-changelog=git_commit_with_changelog
 
 git_strip_repo ()
 {
@@ -587,8 +661,15 @@ git_checkout ()
     if [ -n "$newbranch" ]
     then
         git checkout $createbranch $newbranch
+        status=$?
+        if [ "$status" = '0' ] && [ "$createbranch" = '-b' ]
+        then
+            echo "Setting upstream..."
+            git push --set-upstream origin $newbranch
+        fi
     fi
 }
+
 alias git-checkout='git_checkout '
 alias git-branches='git_checkout '
 
@@ -606,9 +687,9 @@ git_sync_with_master ()
     then
         cat <<EOF
 
-git_sync_with_master is used to keep your git repo DEVELOPMENT branch in sync
-with changes to the "master" branch. However, you do not appear to even be in a
-repo. I'm exiting. Try again in a proper repo.
+git_sync_with_master is used to keep your git repo DEVELOPMENT branch in your
+local clone in sync with changes to the upstream "master" branch. However, you
+do not appear to even be in a repo. I'm exiting. Try again in a proper repo.
 
 EOF
         return 1
@@ -618,43 +699,56 @@ EOF
     then
         cat <<EOF
 
-git_sync_with_master is used to keep your git repo DEVELOPMENT branch in sync
-with changes to the "master" branch. However, you appear to be on the "master",
-not a DEVELOPMENT branch, so what the hell are you doing? I'm exiting. Get off
-the "master" and onto a DEVELOPMENT branch. Then rerun the command.
+git_sync_with_master is used to keep your git repo DEVELOPMENT branch in your
+local clone in sync with changes to the upstream "master" branch. However, you
+appear to be on the "master", not a DEVELOPMENT branch, so what the hell are
+you doing? I'm exiting. Get off the "master" and onto a DEVELOPMENT
+branch. Then rerun the command.
 
 EOF
         return 1
     fi
 
-    local remote_count=$(git remote | wc -l)
+    stcheck=$(mktemp)
+    git status 1>$stcheck 2>&1
+    grep "Your branch is up-to-date with 'origin/$cb'." $stcheck 1>/dev/null
+    status=$?
+    if [ "$status" != '0' ]
+    then
+        cat $stcheck
+        cat <<EOF
+Your branch should be up to date with its origin in order to simplify the
+rebase. Make it so and then rerun the command.
+EOF
+        return 1
+    fi
+
     cat <<EOF
 
 In the current local repo, we are going to
 
- merge branch "master" into current branch "$cb"
+  git pull --rebase upstream master
 
-The current local repo has $remote_count remote(s). Hopefully, you've already
-done a "git pull" on branch "master" such that it is in sync with the proper
-upstream repos. If not, then we're not doing much of anything useful.
+which will "replay" you existing changes as if you originally branched from the
+current tip of the master branch, not the prior one.
 
-Caveat Programmer.
-
-Merging...
+Working...
 
 EOF
     sleep 2
-    git merge -v master
+    git pull --rebase upstream master
     status=$?
     if [ "$status" = '0' ]
     then
-        echo "Merge successful."
+        echo
+        echo "pull --rebase successful. Do not forget to git push,"
+        echo "prossibly needing --force, by try without first."
         return 0
     else
         cat <<EOF
 
-It appears the merge was not successful. Assuming the issue was not a system
-issue, but rather related to conflicts:
+It appears the pull --rebase was not successful. Assuming the issue was not a
+system issue, but rather related to conflicts:
 
 1) Edit each file in conflict, looking for the (partial) conflict marker
    "<<<<<". Once you see the issue, fix the code and save the file.
@@ -683,6 +777,7 @@ EOF
 
 alias git-update='git_sync_with_master '
 alias git-sync-with-master='git_sync_with_master '
+alias git-rebase-on-master='git_sync_with_master '
 
 git_diff_faq ()
 {
@@ -712,3 +807,48 @@ EOF
 }
 
 alias git-diff-faq=git_diff_faq
+
+bbgithub_fork_and_clone ()
+{
+    echo 'arg 1 is namespace/repo'
+    echo 'if basename(pwd) != user then die'
+    echo 'glow clone-fork bbgithub namespace/repo repo'
+    ## does the fork of namespace/repo to user/repo
+    ## clones user/repo to repo
+    ## does git remote add upstream bbgithub:namespace/repo
+    echo 'cd repo'
+    echo 'dump the origin master in favor of the upstream master with'
+    echo 'git checkout -b temp ## get off master'
+    echo 'git branch -d master'
+    echo 'git branch -r -d origin/master'
+    echo 'git branch --set-upstream-to=upstream/master master'
+    echo 'git checkout master ## Should be the upstream'
+    echo 'git branch -d temp'
+}
+
+git_what_can_be_committed ()
+{
+    ## Get the top level of the current repo
+    typeset tl=$(git rev-parse --show-toplevel)
+
+    typeset potentials
+    ## Figure out what could be committed from the current state of the repo.
+    ## $(git st --porcelain -uno)
+    potentials=$(git st -v | grep -- 'diff --git' | cut -d' ' -f 4 | sed 's|b/||')
+
+    typeset f
+    typeset files
+    typeset dirs
+    for f in $potentials
+    do
+        if [ -f $f ]
+        then
+            files="$files $f"
+        elif [ -d $f ]
+        then
+            dirs="$dirs $f"
+            files="$files $(find $f -type f)"
+        fi
+    done
+    echo "$dirs $files"
+}
