@@ -159,17 +159,19 @@ git_find_changelogs ()
 git_join_changelogs ()
 {
     gitfuncs_audit "$@"
+
     typeset f=git.commit.$$
-    typeset changelogs=$(git_find_changelogs "$@")
-    typeset clcount=$(echo $changelogs | wc -w)
     echo "## Delete all lines if you want to abort - :q! won't work." > $f
     echo "## Enter a summary line:" >> $f
     echo '' >> $f
     echo '' >> $f
     echo 'Details:' >> $f
-	cat $changelogs | grep -v mpersico5 | sed 's/\t//g' >> $f
-    if (( clcount == 0 ))
+
+    typeset changelogs=$(git_find_changelogs "$@")
+    if [ -n "$changelogs" ]
     then
+	    cat $changelogs | grep -v mpersico5 | sed 's/\t//g' >> $f
+    else
 	    echo "## No ChangeLogs found" >> $f
     fi
     echo $f
@@ -205,7 +207,7 @@ git_strip_repo ()
     echo $1 | sed 's/(repo)//'
 }
 
-git_add_repo ()
+git_add_repo_tag ()
 {
     gitfuncs_audit "$@"
     echo "$1(repo)"
@@ -220,6 +222,7 @@ git_go_set ()
         set_x=1
         set -x
     fi
+    git_go_set_filename
     echo "Regenerating .git-go ($mpersico5_git_go_file)..." >&2
 
     local repo_find_roots
@@ -240,7 +243,7 @@ git_go_set ()
     typeset repo_roots=$(typeset i j
                          for i in $repos
 			             do
-                             git_add_repo $i
+                             git_add_repo_tag $i
 			                 j=$i
 			                 while [ -n "$j" ] && [ "$j" != 'done' ]
 			                 do
@@ -344,7 +347,7 @@ alias git-go-usage=git_go_usage
 git_go ()
 {
     gitfuncs_audit "$@"
-    typeset PS3="Choose by number, CTRL-C to quit: "
+    typeset PS3="Choose by number, q to quit: "
     typeset opt_update=0
     typeset opt_roots=0
     typeset opt_mbig=0
@@ -370,17 +373,29 @@ git_go ()
         git_go_usage
         return
     fi
-    select REPO in $REPOS
-    do
-	    if [ -n "$REPO" ]
-	    then
-            ## cd, not builtin cd to take advantage of any cd enhancements that
-            ## are in effect (via a cd alias or a cd script in PATH)
-	        cd ${HOME}/$(git_strip_repo $REPO)
-            git_hook_check
-	        return
-	    fi
-    done
+    if [ "$(echo $REPOS | wc -w)" = '1' ]
+    then
+        echo "Matches only $REPOS. Going there."
+        REPO=$REPOS
+    else
+        select REPO in $REPOS
+        do
+	        if [ -n "$REPO" ]
+	        then
+                break
+            elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
+            then
+                return
+            else
+                echo "'$REPLY' is an invalid choice"
+	        fi
+        done
+    fi
+    ## cd, not builtin cd to take advantage of any cd enhancements that
+    ## are in effect (via a cd alias or a cd script in PATH)
+	cd ${HOME}/$(git_strip_repo $REPO)
+    git_hook_check
+	return
 }
 alias git-go=git_go
 alias gitgo=git_go
@@ -468,7 +483,7 @@ git_delete_branch ()
             echo "No branches found. Are you in a git repo?"
             return
         fi
-        typeset PS3="Choose by number, CTRL-C to quit: "
+        typeset PS3="Choose by number, q to quit: "
         typeset selected
         select selected in ${branchesa[@]}
         do
@@ -476,9 +491,15 @@ git_delete_branch ()
             then
                 branch=$selected
                 break;
+            elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
+            then
+                return
+            else
+                echo "'$REPLY' is an invalid choice"
             fi
         done
     fi
+
     if [ -n "$branch" ]
     then
         ## it was either $1 or we did not ctrl-c out of the select
@@ -487,7 +508,7 @@ git_delete_branch ()
             echo "Nope, you can't delete the current branch."
             return
         fi
-        git branch    -d $branch || return $?;
+        git branch -d $branch || return $?;
         remotes=$(git remote)
         for remote in $remotes
         do
@@ -593,10 +614,10 @@ git_hook_push ()
             then
                 if [ ! -e $hooktgtpath ]
                 then
-                    echo "$hooktgtpath not found."
+                    echo "$hooktgtpath not found. Copying from $h..."
                 elif [ $h -nt $hooktgtpath ]
                 then
-                    echo "$hooktgtpath out of date."
+                    echo "$hooktgtpath out of date. Updating from $h..."
                 fi
                 cp -v $h $hooktgtpath
                 chmod +x $hooktgtpath
@@ -636,6 +657,7 @@ git_checkout ()
         git branch | sed 's|\* |*|' > $tmpfile
         typeset branch
         typeset current_branch=$(grep '*' $tmpfile)
+        local PS3="Choose by number, q to quit: "
         local newonemsg="Create a new one from $current_branch"
         select branch in "'$newonemsg'" $(cat $tmpfile)
         do
@@ -655,6 +677,11 @@ git_checkout ()
                     newbranch=$(echo $branch | sed 's|\*||')
                 fi
                 break
+            elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
+            then
+                return
+            else
+                echo "'$REPLY' is an invalid choice"
             fi
         done
     fi
@@ -810,25 +837,116 @@ alias git-diff-faq=git_diff_faq
 
 bbgithub_fork_and_clone ()
 {
-    echo 'arg 1 is namespace/repo'
-    echo 'if basename(pwd) != user then die'
-    echo 'glow clone-fork bbgithub namespace/repo repo'
+    gitfuncs_audit "$@"
+    local proto=bbgithub
+    local namespace=$1;shift
+    local repo=$1;shift
+    local cwpath=$(realpath $(pwd))
+    local local_namespace=$(basename $cwpath)
+    local local_proto=$(basename $(dirname $cwpath))
+    if [ "$local_namespace" != "$USER" ] || \
+           [ "$local_proto" != "$proto" ]
+    then
+        echo "You must be in a local directory path ending in"
+        echo "   $proto/$USER"
+        echo "You are in $cwpath"
+        echo "Correct and re-execute."
+        return 1
+    fi
+
+    local cmd="glow clone-fork $proto:$namespace/$repo"
     ## does the fork of namespace/repo to user/repo
     ## clones user/repo to repo
     ## does git remote add upstream bbgithub:namespace/repo
-    echo 'cd repo'
-    echo 'dump the origin master in favor of the upstream master with'
-    echo 'git checkout -b temp ## get off master'
-    echo 'git branch -d master'
-    echo 'git branch -r -d origin/master'
-    echo 'git branch --set-upstream-to=upstream/master master'
-    echo 'git checkout master ## Should be the upstream'
-    echo 'git branch -d temp'
+    echo $cmd ...
+    $cmd
+    status=$?; [ "$status" != '0' ] && return $status
+
+    cd $repo
+    git remote -v
+
+    ## Check for master. Some repos arrange it so that the default for clones
+    ## is other than master.
+    master_exists=$(git branch | grep -E '^(\* master|master)$')
+
+    if [ -n "$master_exists" ]
+    then
+        echo 'Dumping the origin master in favor of the upstream master...'
+        echo git checkout -b temp
+        echo status=$?; [ "$status" != '0' ] && return $status
+
+        echo git branch -d master
+        echo status=$?; [ "$status" != '0' ] && return $status
+
+        echo git branch -r -d origin/master
+        echo status=$?; [ "$status" != '0' ] && return $status
+
+        echo git checkout --track upstream/master
+        echo status=$?; [ "$status" != '0' ] && return $status
+
+        echo git checkout master
+        echo status=$?; [ "$status" != '0' ] && return $status
+
+        echo git branch -d temp
+        echo status=$?; [ "$status" != '0' ] && return $status
+    fi
+
+    ## Add this repo to the list
+    git_go_set
 }
+
+_guts_clone ()
+{
+    gitfuncs_audit "$@"
+    local proto=$1;shift
+    local namespace=$1;shift
+    local repo=$1;shift
+    local cwpath=$(realpath $(pwd))
+    local local_proto=$(basename $cwpath)
+    if [ "$local_proto" != "$proto" ]
+    then
+        echo "You must be in a local directory path ending in"
+        echo "   $proto"
+        echo "You are in $cwpath"
+        echo "Correct and re-execute."
+        return 1
+    fi
+
+    local cmd="git clone $proto:$namespace/$repo $namespace/$repo"
+    echo $cmd ...
+    $cmd
+    status=$?; [ "$status" != '0' ] && return $status
+
+    cd $namespace/$repo
+    git remote -v
+
+    ## Add this repo to the list
+    git_go_set
+}
+
+devgit_clone ()
+{
+    gitfuncs_audit "$@"
+    _guts_clone devgit "$@"
+}
+
+bbgithub_clone ()
+{
+    gitfuncs_audit "$@"
+    _guts_clone bbgithub "$@"
+}
+
+git_what_is_modified ()
+{
+    gitfuncs_audit "$@"
+    ## $1 used to specify a particular dir.
+    git status $1 | grep modified: | sed 's/.*modified://'
+}
+alias git-what-is-modified='git_what_is_modified '
 
 git_what_can_be_committed ()
 {
-    ## Get the top level of the current repo
+    gitfuncs_audit "$@"    ## Get the top level of the current repo
     typeset tl=$(git rev-parse --show-toplevel)
 
     typeset potentials
@@ -852,3 +970,55 @@ git_what_can_be_committed ()
     done
     echo "$dirs $files"
 }
+
+alias git-what-can-be-committed='git_what_can_be_committed '
+
+
+
+local forlater='
+
+git_create_orphan_branch()
+{
+ASUD RAHMAN
+14:48:14 git checkout --orphan <new branch>
+14:48:22 creates a new branch that is disconnected from the other branches
+14:48:40 then you can do git checkout -b <work branch> followed by git merge <new branch>
+14:49:00 <work branch> will now contain the stuff you normally have plus the stuff you put in <new branch>
+MATTHEW PERSICO
+14:52:54 I will try that.
+- git checkout --orphan myTools
+- *write theTools *
+- git commit the theTools
+Then do as above. If I need to update any of theTools, I think I would
+- finish the current branch work, and commit only those file, not theTools
+- git checkout myTools
+- git commit theTools
+
+I will try this out. Thanks.
+
+--orphan <new_branch>
+
+Create a new orphan branch, named <new_branch>, started from <start_point> and
+switch to it. The first commit made on this new branch will have no parents and
+it will be the root of a new history totally disconnected from all the other
+branches and commits.
+
+The index and the working tree are adjusted as if you had previously run "git
+checkout <start_point>". This allows you to start a new history that records a
+set of paths similar to <start_point> by easily running "git commit -a" to make
+the root commit.
+
+This can be useful when you want to publish the tree from a commit without
+exposing its full history. You might want to do this to publish an open source
+branch of a project whose current tree is "clean", but whose full history
+contains proprietary or otherwise encumbered bits of code.
+
+If you want to start a disconnected history that records a set of paths that is
+totally different from the one of <start_point>, then you should clear the
+index and the working tree right after creating the orphan branch by running
+"git rm -rf ." from the top level of the working tree. Afterwards you will be
+ready to prepare your new files, repopulating the working tree, by copying them
+from elsewhere, extracting a tarball, etc.
+}
+
+'
