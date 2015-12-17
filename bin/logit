@@ -6,7 +6,7 @@
 
 usage ()
 {
-    echo "logit [--tee|-t] [ --log|-l log_basename ] [--] command [arg ..]"
+    echo "logit [--tee|-t] [ --log|-l log_basename ] [ --dir | -d log_directory ] [--] command [arg ..]"
     echo "      The extra '--' is required if tee or log options"
     echo "      are specified so that logit knows when to stop processing"
     echo "      options as its own."
@@ -17,6 +17,7 @@ usage ()
 
 # Inits
 logfile=''
+logdir=''
 teeit=0
 
 if [ $(basename "${BASH_SOURCE[0]}") == 'teeit' ]
@@ -26,7 +27,7 @@ fi
 
 # Read the options and args from command line. Note that the long and short
 # don't have to match up.
-GETOPTOUT=`getopt -o l:th --long log:,tee,help -n 'logit' -- "$@"`
+GETOPTOUT=`getopt -o l:d:th --long log:,dir:tee,help -n 'logit' -- "$@"`
 
 # Reset the command line.
 eval set -- "$GETOPTOUT"
@@ -39,6 +40,9 @@ while true ; do
             usage 0 ;;
         -l|--log)
             logfile="$2"
+            shift 2 ;;
+        -d|--dir)
+            logdir="$2"
             shift 2 ;;
         -t|--tee)
             teeit=1
@@ -61,8 +65,16 @@ args="$@"
 
 if [ ! -x $command ]
 then
-    echo "'$command' not found or not executable."
-    usage 1
+    fullcommand=$(which $command 2>/dev/null)
+    if [ -z "$fullcommand" ]
+    then
+        isafunc=$(type $command | head -1)
+        if [ "$isafunc" != "$command is a function" ]
+        then
+            echo "'$command' is not a function or not found or not executable."
+            usage 1
+        fi
+    fi
 fi
 
 # Log file setup
@@ -72,10 +84,13 @@ then
 fi
 logfile="${logfile}.logit.$(date +%Y_%m_%d_%H_%M_%S)"
 
-logdir=$(pwd)
-if [ -d ./logit ]
+if [ -z "$logdir" ]
 then
-    logdir=$(pwd)/logit
+    logdir=$(pwd)
+    if [ -d ./logit ]
+    then
+        logdir=$(pwd)/logit
+    fi
 fi
 
 logspec="$logdir/$logfile"
