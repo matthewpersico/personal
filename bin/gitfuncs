@@ -11,6 +11,7 @@ gitfuncs_edit ()
     gitfuncs_audit "$@"
     xo $GITFUNCS_FILE
 }
+export -f gitfuncs_edit
 ## I define functions with '_' and aliases with '-' because the emaacs modes
 ## that parse for functions to generate jump lists don't see functions with '-'
 ## in their name. Ugh.
@@ -21,31 +22,37 @@ gitfuncs_reload ()
     gitfuncs_audit "$@"
     . $GITFUNCS_FILE
 }
+export -f gitfuncs_reload
 alias gitfuncs-reload=gitfuncs_reload
 
-mpersico5_gitroot_MBIG=${HOME}/MBIG
-mpersico5_gitroot=${HOME}/gits
-mpersico5_githook_root=${HOME}/.git_template
-mpersico5_githook_dir=${HOME}/.git_template/hooks
+gitfuncs_gitroot_MBIG=${HOME}/MBIG
+gitfuncs_gitroot=${HOME}/gits
+gitfuncs_githook_root=${HOME}/.git_template
+gitfuncs_githook_dir=${HOME}/.git_template/hooks
+gitfuncs_gitsvcs=([bbgithub]='bbgithub:' \
+                   [devgit]='devgit:' \
+                   [github]='https://github.com/')
 
 ## This will be checked on each login and any time gitfuncs_reload is run. It's
 ## only ever executed when logging into a vm just after creation.
-if [ ! -e $mpersico5_gitroot ]
+if [ ! -e $gitfuncs_gitroot ]
 then
     echo "gits dir not set up. Setting up..."
 
-    mkdir -vp $mpersico5_gitroot/devgit
-    mkdir -vp $mpersico5_gitroot/bbgithub
-    cat <<EOF >>$mpersico5_gitroot/README
+    mkdir -vp $gitfuncs_gitroot/devgit
+    mkdir -vp $gitfuncs_gitroot/bbgithub
+    mkdir -vp $gitfuncs_gitroot/github
+    cat <<EOF >>$gitfuncs_gitroot/README
 This directory level indicates which git system is being used.  Currently, only
-devgit and bbgithub should be here.
+devgit, bbgithub, and github should be here.
 EOF
 
-    mkdir -vp $mpersico5_gitroot/bbgithub/mpersico5
-    cat <<EOF >>$mpersico5_gitroot//bbgithub/README
+    mkdir -vp $gitfuncs_gitroot/bbgithub/mpersico5
+    mkdir -vp $gitfuncs_gitroot/github/matthewpersico
+    cat <<EOF >>$gitfuncs_gitroot//bbgithub/README
 This directory level indicates git repo organization.  If we are using the
 fork/clone methodology, then the only 'organization' at this level should
-be mpersico5, unless you have directly cloned a 'master' repo.
+be your own namespace, unless you have directly cloned a 'master' repo.
 EOF
 fi
 
@@ -62,12 +69,13 @@ _git_st_strip_usage ()
     echo "       pass to 'git status'. If you pass options,"
     echo "       behavior is undefined."
 }
+export -f _git_st_strip_usage
 alias _git-st-strip-usage=_git_st_strip_usage
 
 git_st_strip ()
 {
     gitfuncs_audit "$@"
-    typeset OPTSARGS=$(getopt -o h --long help -n 'git-st-strip' -- "$@")
+    local OPTSARGS=$(getopt -o h --long help -n 'git-st-strip' -- "$@")
     eval set -- "$OPTSARGS"
     while true
     do
@@ -80,6 +88,7 @@ git_st_strip ()
 
     git status -s "$@" | sed 's/.* //'
 }
+export -f git_st_strip
 alias git-st-strip=git_st_strip
 
 git_find ()
@@ -92,6 +101,7 @@ git_find ()
         git ls-files | grep "$@"
     fi
 }
+export -f git_find
 alias git-find=git_find
 alias gitfind=git_find
 
@@ -100,6 +110,7 @@ git_find_conflicts ()
     gitfuncs_audit "$@"
     git grep -l "<<<<<<<" | sort -u
 }
+export -f git_find_conflicts
 
 alias git_grep='git grep '
 alias git-grep='git grep '
@@ -109,8 +120,8 @@ git_find_changelogs ()
 {
     gitfuncs_audit "$@"
 
-    typeset i
-    typeset potentials
+    local i
+    local potentials
     for i in "$@"
     do
         if [ -e $i ]
@@ -131,10 +142,10 @@ git_find_changelogs ()
         return 1
     fi
 
-    typeset -A changelogs ## assoc array with realpath expansion will eliminate
+    local -A changelogs ## assoc array with realpath expansion will eliminate
                           ## dups, if any
-    typeset key
-    typeset clcount=0
+    local key
+    local clcount=0
     for i in $potentials
     do
         if [ -f $i ] && [ -f "$(dirname $i)/ChangeLog" ]
@@ -155,19 +166,20 @@ git_find_changelogs ()
 
     echo ${changelogs[@]}
 }
+export -f git_find_changelogs
 
 git_join_changelogs ()
 {
     gitfuncs_audit "$@"
 
-    typeset f=git.commit.$$
+    local f=git.commit.$$
     echo "## Delete all lines if you want to abort - :q! won't work." > $f
     echo "## Enter a summary line:" >> $f
     echo '' >> $f
     echo '' >> $f
     echo 'Details:' >> $f
 
-    typeset changelogs=$(git_find_changelogs "$@")
+    local changelogs=$(git_find_changelogs "$@")
     if [ -n "$changelogs" ]
     then
 	    cat $changelogs | grep -v mpersico5 | sed 's/\t//g' >> $f
@@ -176,29 +188,32 @@ git_join_changelogs ()
     fi
     echo $f
 }
+export -f git_join_changelogs
 
 git_preview_changelogs ()
 {
     gitfuncs_audit "$@"
-    typeset masterCl=$(git_join_changelogs "$@")
+    local masterCl=$(git_join_changelogs "$@")
     less $masterCl
     rm -f $masterCl
 }
+export -f git_preview_changelogs
 
 alias git-preview-changelogs='git_preview_changelogs '
 
 git_commit_with_changelog ()
 {
     gitfuncs_audit "$@"
-    typeset changelogs=$(git_find_changelogs)
-    typeset masterCl=$(git_join_changelogs "$@")
+    local changelogs=$(git_find_changelogs)
+    local masterCl=$(git_join_changelogs "$@")
     git commit -F $masterCl --edit "$@"
-    typeset status=$?
+    local status=$?
     if ((status==0))
     then
 	    \rm $changelogs $masterCl
     fi
 }
+export -f git_commit_with_changelog
 alias git-commit-with-changelog=git_commit_with_changelog
 
 git_strip_repo ()
@@ -206,12 +221,14 @@ git_strip_repo ()
     gitfuncs_audit "$@"
     echo $1 | sed 's/(repo)//'
 }
+export -f git_strip_repo
 
 git_add_repo_tag ()
 {
     gitfuncs_audit "$@"
     echo "$1(repo)"
 }
+export -f git_add_repo_tag
 
 git_go_set ()
 {
@@ -223,10 +240,10 @@ git_go_set ()
         set -x
     fi
     git_go_set_filename
-    echo "Regenerating .git-go ($mpersico5_git_go_file)..." >&2
+    echo "Regenerating .git-go ($gitfuncs_git_go_file)..." >&2
 
     local repo_find_roots
-    for i in $mpersico5_gitroot $mpersico5_gitroot_MBIG
+    for i in $gitfuncs_gitroot $gitfuncs_gitroot_MBIG
     do
         if [ -e $i ]
         then
@@ -238,9 +255,9 @@ git_go_set ()
 
     ## We add $HOME here and set repo_tops_re after we find the repos so that
     ## the two repos in the home dir don't mess everything up.
-    typeset repo_tops_re=":$(echo $repo_tops ${HOME}| sed 's/ /:/g'):"
+    local repo_tops_re=":$(echo $repo_tops ${HOME}| sed 's/ /:/g'):"
 
-    typeset repo_roots=$(typeset i j
+    local repo_roots=$(local i j
                          for i in $repos
 			             do
                              git_add_repo_tag $i
@@ -264,43 +281,45 @@ git_go_set ()
                                  fi
 			                 done
 			             done)
-    echo $repo_roots $repo_tops | tr ' ' '\n' | sort -u | sed "s|${HOME}/||" > $mpersico5_git_go_file
-    ls ${HOME}/gits/.git-go* | grep -v $mpersico5_git_go_file | xargs rm -f
+    echo $repo_roots $repo_tops | tr ' ' '\n' | sort -u | sed "s|${HOME}/||" > $gitfuncs_git_go_file
+    ls ${HOME}/gits/.git-go* | grep -v $gitfuncs_git_go_file | xargs rm -f
     if [ "$set_x" = '1' ]
     then
         set +x
     fi
 }
+export -f git_go_set
 alias git-go-set=git_go_set
 
 git_go_set_filename ()
 {
     gitfuncs_audit "$@"
-    mpersico5_git_go_file=${HOME}/gits/.git-go.$(date +%Y%m%d)
+    gitfuncs_git_go_file=${HOME}/gits/.git-go.$(date +%Y%m%d)
 }
+export -f git_go_set_filename
 alias git-go-set-filename=git_go_set_filename
 
-_git_go_get()
+_git_go_get ()
 {
     gitfuncs_audit "$@"
     ## no, we don't need getopt processing here. This is an internal func so we
     ## just have to GET IT RIGHT when we call it.
-    typeset update=$1
+    local update=$1
     shift
-    typeset roots=$1
+    local roots=$1
     shift
-    typeset mbig=$1
+    local mbig=$1
     shift
-    typeset filter=$1
+    local filter=$1
     shift
     git-go-set-filename
-    if [ ! -e $mpersico5_git_go_file ] || ((update))
+    if [ ! -e $gitfuncs_git_go_file ] || ((update))
     then
 	    git-go-set
     fi
 
     local tmpfile=$(mktemp)
-    cp $mpersico5_git_go_file $tmpfile
+    cp $gitfuncs_git_go_file $tmpfile
 
     if ((roots==0))
     then
@@ -323,6 +342,7 @@ _git_go_get()
     cat $tmpfile
     rm -f $tmpfile
 }
+export -f _git_go_get
 
 git_go_usage ()
 {
@@ -342,16 +362,17 @@ git_go_usage ()
     echo "       'dirmatch' will filter the list"
     echo
 }
+export -f git_go_usage
 alias git-go-usage=git_go_usage
 
 git_go ()
 {
     gitfuncs_audit "$@"
-    typeset PS3="Choose by number, q to quit: "
-    typeset opt_update=0
-    typeset opt_roots=0
-    typeset opt_mbig=0
-    typeset OPTSARGS=$(getopt -o urmh --long update,roots,mbig,help -n 'git-go' -- "$@")
+    local PS3="Choose by number, q to quit: "
+    local opt_update=0
+    local opt_roots=0
+    local opt_mbig=0
+    local OPTSARGS=$(getopt -o urmh --long update,roots,mbig,help -n 'git-go' -- "$@")
     eval set -- "$OPTSARGS"
     while true
     do
@@ -365,7 +386,7 @@ git_go ()
         esac
     done
 
-    typeset REPOS REPO
+    local REPOS REPO
     REPOS=$(_git_go_get $opt_update $opt_roots $opt_mbig "$1")
     if [ -z "$REPOS" ]
     then
@@ -397,6 +418,7 @@ git_go ()
     git_hook_check
 	return
 }
+export -f git_go
 alias git-go=git_go
 alias gitgo=git_go
 alias gitog=git_go
@@ -414,6 +436,7 @@ git_get_current_branch ()
     )
 }
 export -f git_get_current_branch
+export -f git_get_current_branch
 alias git-get-current-branch=git_get_current_branch
 
 git_help ()
@@ -427,30 +450,44 @@ git_help ()
     sort -u ${tmpfile}.gh*
     \rm -f ${tmpfile}.gh*
 }
+export -f git_help
 alias git-help=git_help
 
+git_rename_branch_usage()
+{
+    echo "Usage: git-rename-branch old_branch new_branch"
+}
 git_rename_branch ()
 {
     gitfuncs_audit "$@"
-    typeset old_branch=$1
+    if (($#!=2))
+    then
+        git_rename_branch_usage
+        return 1
+    fi
+
+    local old_branch=$1
     shift
-    typeset new_branch=$2
+    local new_branch=$2
     shift
     if (($#))
     then
-        echo "Usage: git-rename-branch old_branch new_branch=$2"
+        git_rename_branch_usage
         echo "       argument(s) '$*' are illegal"
         return 1
     fi
 
+    echo "git branch -m $old_branch $new_branch ..."
     git branch -m $old_branch $new_branch        || return $? # Rename branch locally.
 
-    git push origin :$old_branch                 || return $? # Delete the old
+    echo "git push origin --delete $old_branch ..."
+    git push origin --delete $old_branch         || return $? # Delete the old
                                                               # branch. DON'T
                                                               # DO THIS IF YOU
                                                               # HAVE AN OPEN
                                                               # PULL REQUEST!!!
 
+    echo "git push --set-upstream origin $new_branch"
     git push --set-upstream origin $new_branch                # Push the new
                                                               # branch, set
                                                               # local branch to
@@ -458,16 +495,19 @@ git_rename_branch ()
                                                               # remote.
     return $?
 }
+export -f git_rename_branch
 alias git-rename-branch=git_rename_branch
 
+## I prefer not to delete branches. I'd rather rename them
 git_close_branch ()
 {
     gitfuncs_audit "$@"
-    typeset old_branch=$1
-    typeset new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
+    local old_branch=$1
+    local new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
     git-rename-branch $old_branch $new_branch
     return $?
 }
+export -f git_close_branch
 alias git-close-branch=git_close_branch
 
 git_delete_branch ()
@@ -483,14 +523,19 @@ git_delete_branch ()
             echo "No branches found. Are you in a git repo?"
             return
         fi
-        typeset PS3="Choose by number, q to quit: "
-        typeset selected
+        local PS3="Choose by number, q to quit: "
+        local selected
         select selected in ${branchesa[@]}
         do
             if [ -n "$selected" ]
             then
-                branch=$selected
-                break;
+                if [ "$selected" == "$current_branch" ]
+                then
+                    echo $selected is current. Cannot checkout current.
+                else
+                    branch=$selected
+                    break
+                fi
             elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
             then
                 return
@@ -518,55 +563,57 @@ git_delete_branch ()
                 local resp=$(yesno "Try deleting in remote $remote" n)
                 if [ "$resp" == 'y' ]
                 then
-                    git branch -r -d $remote/$branch ## This should not fail
-                                                     ## since we have checked
-                                                     ## that the branch exists
-                                                     ## in the remote
+                    git push --delete $remote $branch ## This should not fail
+                                                      ## since we have checked
+                                                      ## that the branch exists
+                                                      ## in the remote
                 fi
             fi
         done
     fi
     return 0
 }
+export -f git_delete_branch
 alias git-delete-branch=git_delete_branch
 
 git_set_locals ()
 {
     gitfuncs_audit "$@"
-    typeset localgitpaths='/home/mpersico5/gits/bbgithub/bbgh/bin
+    local localgitpaths='/home/mpersico5/gits/bbgithub/bbgh/bin
                            /home/mpersico5/gits/bbgithub/glow/bin'
-    typeset lgp
+    local lgp
     for lgp in ${localgitpaths}
     do
         addpath -f -p PATH $lgp
         echo "Using $lgp ($(git-get-current-branch $lgp))"
     done
 }
+export -f git_set_locals
 alias git-set-locals=git_set_locals
 
 git_hook_update ()
 {
     gitfuncs_audit "$@"
-    typeset hooks="$@"
+    local hooks="$@"
     if [ -z "$hooks" ]
     then
-        hooks=$(ls ${mpersico5_githook_dir}/* | grep -v README.md)
+        hooks=$(ls ${gitfuncs_githook_dir}/* | grep -v README.md)
     else
-        typeset h
-        typeset newh
+        local h
+        local newh
         for h in $hooks
         do
-            newh="$newh ${mpersico5_githook_dir}/$h"
+            newh="$newh ${gitfuncs_githook_dir}/$h"
         done
         hooks="$newh"
     fi
-    typeset REPOS REPO
+    local REPOS REPO
     REPOS=$(_git_go_get 0 0 1)
     for REPO in $REPOS
     do
         for h in $hooks
         do
-           typeset hookdir="${HOME}/$(git_strip_repo $REPO)/.git/hooks"
+           local hookdir="${HOME}/$(git_strip_repo $REPO)/.git/hooks"
            if [ -e "$hookdir/$(basename $h)" ]
            then
                cp -v $h $hookdir
@@ -574,33 +621,34 @@ git_hook_update ()
         done
     done
 }
+export -f git_hook_update
 alias git-hook-update='git_hook_update '
 
 git_hook_push ()
 {
     gitfuncs_audit "$@"
-    git init --template=${mpersico5_githook_root}
-    typeset hooks="$@"
+    git init --template=${gitfuncs_githook_root}
+    local hooks="$@"
     if [ -z "$hooks" ]
     then
-        hooks=$(ls ${mpersico5_githook_dir}/*)
+        hooks=$(ls ${gitfuncs_githook_dir}/*)
     else
-        typeset h
-        typeset newh
+        local h
+        local newh
         for h in $hooks
         do
-            newh="$newh ${mpersico5_githook_dir}/$h"
+            newh="$newh ${gitfuncs_githook_dir}/$h"
         done
         hooks="$newh"
     fi
 
-    typeset REPOS REPO
+    local REPOS REPO
     REPOS=$(_git_go_get 0 0 1)
     for REPO in $REPOS
     do
         for h in $hooks
         do
-            typeset hooktgtdir="${HOME}/$(git_strip_repo $REPO)/.git/hooks"
+            local hooktgtdir="${HOME}/$(git_strip_repo $REPO)/.git/hooks"
             if [ -f $hooktgtdir ]
             then
                 echo $hooktgtdir is a file. whoops....
@@ -609,7 +657,7 @@ git_hook_push ()
                 mkdir $hooktgtdir
             fi
 
-            typeset hooktgtpath="$hooktgtdir/$(basename $h)"
+            local hooktgtpath="$hooktgtdir/$(basename $h)"
             if [ ! -e $hooktgtpath ] || [ $h -nt $hooktgtpath ]
             then
                 if [ ! -e $hooktgtpath ]
@@ -625,6 +673,7 @@ git_hook_push ()
         done
     done
 }
+export -f git_hook_push
 
 git_hook_check ()
 {
@@ -645,6 +694,7 @@ git_hook_check ()
     done
     return 0
 }
+export -f git_hook_check
 
 git_checkout ()
 {
@@ -653,20 +703,24 @@ git_checkout ()
     local createbranch=''
     if [ -z "$newbranch" ]
     then
-        local tmpfile=$(mktemp)
-        git branch | sed 's|\* |*|' > $tmpfile
-        typeset branch
-        typeset current_branch=$(grep '*' $tmpfile)
+        local branchesa=($(git branch --list | sed 's/.* //' ))
+        if [ ${#branchesa[@]} == '0' ]
+        then
+            echo "No branches found. Are you in a git repo?"
+            return
+        fi
+        local current_branch=$(git_get_current_branch)
         local PS3="Choose by number, q to quit: "
         local newonemsg="Create a new one from $current_branch"
-        select branch in "'$newonemsg'" $(cat $tmpfile)
+        local selected
+        select selected in "'$newonemsg'" ${branchesa[@]}
         do
-            if [ -n "$branch" ]
+            if [ -n "$selected" ]
             then
-                if [ "$branch" == "$current_branch" ]
+                if [ "$selected" == "$current_branch" ]
                 then
-                    echo $branch is current.
-                elif [ "$branch" == "'$newonemsg'" ]
+                    echo $selected is current. Cannot checkout current.
+                elif [ "$selected" == "'$newonemsg'" ]
                 then
                     while [ -z "$newbranch" ]
                     do
@@ -674,7 +728,7 @@ git_checkout ()
                     done
                     createbranch='-b'
                 else
-                    newbranch=$(echo $branch | sed 's|\*||')
+                    newbranch=$(echo $selected | sed 's|\*||')
                 fi
                 break
             elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
@@ -696,13 +750,55 @@ git_checkout ()
         fi
     fi
 }
+export -f git_checkout
 
 alias git-checkout='git_checkout '
 alias git-branches='git_checkout '
+alias git-br='git_checkout '
+alias gitbr='git_checkout '
 
 git_sync_with_master ()
 {
     gitfuncs_audit "$@"
+    git_sync_with_upstream --branch master "$@"
+    return $?
+}
+export -f git_sync_with_master
+
+git_sync_with_upstream_usage ()
+{
+    echo "Usage: $1 --branch otherBranch"
+}
+export -f git_sync_with_upstream_usage
+
+git_sync_with_upstream ()
+{
+    gitfuncs_audit "$@"
+    local opt_branch=''
+    local iam=${FUNCNAME[0]}
+    if [ "${FUNCNAME[1]}" = 'git_sync_with_master' ]
+    then
+        iam=git_sync_with_master
+    fi
+    local OPTSARGS=$(getopt -o hb --long help,branch: -n $iam -- "$@")
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -b|--branch) opt_branch="$2"; shift; shift ;;
+            -h|--help) git_sync_with_upstream_usage $iam; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; git_sync_with_upstream_usage $iam; return 1 ;;
+        esac
+    done
+
+    if [ -z "$opt_branch" ]
+    then
+        echo "--branch required"
+        git_sync_with_upstream_usage $iam
+        return 1
+    fi
+
     local cb=$(git rev-parse --abbrev-ref HEAD)
     status=$?
     if ((status != 0 ))
@@ -714,23 +810,25 @@ git_sync_with_master ()
     then
         cat <<EOF
 
-git_sync_with_master is used to keep your git repo DEVELOPMENT branch in your
-local clone in sync with changes to the upstream "master" branch. However, you
-do not appear to even be in a repo. I'm exiting. Try again in a proper repo.
+$iam is used to keep your current git repo DEVELOPMENT branch
+in your local clone in sync with changes and upstream branch
+"${opt_branch}". However, you do not appear to even be in a repo. I'm
+exiting. Try again in a proper repo.
 
 EOF
         return 1
     fi
 
-    if [ "$cb" == 'master' ]
+    if [ "$cb" == "$opt_branch" ]
     then
         cat <<EOF
 
-git_sync_with_master is used to keep your git repo DEVELOPMENT branch in your
-local clone in sync with changes to the upstream "master" branch. However, you
-appear to be on the "master", not a DEVELOPMENT branch, so what the hell are
-you doing? I'm exiting. Get off the "master" and onto a DEVELOPMENT
-branch. Then rerun the command.
+$iam is used to keep your current git repo DEVELOPMENT branch
+in your local clone in sync with changes and upstream branch
+${opt_branch}. However, you appear to be on branch "${opt_branch}", the branch
+you want to sync with. I'm exiting. Get off the branch "${opt_branch}" and onto
+another branch Then rerun the command. Or just do a 'git pull' if you really
+need to refresh this branch.
 
 EOF
         return 1
@@ -754,22 +852,37 @@ EOF
 
 In the current local repo, we are going to
 
-  git pull --rebase upstream master
+  git pull --rebase upstream ${opt_branch}
 
-which will "replay" you existing changes as if you originally branched from the
-current tip of the master branch, not the prior one.
+which will "replay" any existing changes on branch "${opt_branch}" so that it
+will appear as if you had originally branched from the current tip of the
+"${opt_branch}" branch, which is not necessarily the one you originally
+branched off of.
 
 Working...
 
 EOF
     sleep 2
-    git pull --rebase upstream master
+    git pull --rebase upstream ${opt_branch}
     status=$?
     if [ "$status" = '0' ]
     then
         echo
-        echo "pull --rebase successful. Do not forget to git push,"
-        echo "prossibly needing --force, by try without first."
+        echo "pull --rebase successful. Pushing..."
+        git push
+        status=$?
+        if [ "$status" != '0' ]
+        then
+            resp=$(yesno "'git push' complained. Shall I re-push with --force" n)
+            if [ "$resp" = 'y' ]
+            then
+                git push --force
+                status=$?
+            fi
+        fi
+    fi
+    if [ "$status" = '0' ]
+    then
         return 0
     else
         cat <<EOF
@@ -787,8 +900,8 @@ the section "Changes to be committed" if:
 
 1) You fixed any conflicts.
 
-2) There are changes in the "master" that need to be added in that have no
-   conflicts.
+2) There are changes in the branch "${opt_branch}" that need to be added in
+   that have no conflicts.
 
 If you see any such files, run "git commit". That will complete the merge into
 your branch.
@@ -801,6 +914,7 @@ EOF
     fi
 
 }
+export -f git_sync_with_upstream
 
 alias git-update='git_sync_with_master '
 alias git-sync-with-master='git_sync_with_master '
@@ -832,6 +946,7 @@ diff specific files between two branches:
 
 EOF
 }
+export -f git_diff_faq
 
 alias git-diff-faq=git_diff_faq
 
@@ -839,6 +954,16 @@ bbgithub_fork_and_clone ()
 {
     gitfuncs_audit "$@"
     local proto=bbgithub
+    if [ -z "$1" ]
+    then
+        echo "Usage: bbgithub_fork_and_clone namespace repo"
+        echo "       forks $proto:namespace/repo"
+        echo "       to    $proto:$USER/repo"
+        echo "       then clones to 'repo' in a"
+        echo "       directory path ending in $proto/$USER,"
+        echo "       which must be the pwd."
+        return 1
+    fi
     local namespace=$1;shift
     local repo=$1;shift
     local cwpath=$(realpath $(pwd))
@@ -857,7 +982,7 @@ bbgithub_fork_and_clone ()
     local cmd="glow clone-fork $proto:$namespace/$repo"
     ## does the fork of namespace/repo to user/repo
     ## clones user/repo to repo
-    ## does git remote add upstream bbgithub:namespace/repo
+    ## does git remote add upstream $proto:namespace/repo
     echo $cmd ...
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
@@ -894,11 +1019,28 @@ bbgithub_fork_and_clone ()
     ## Add this repo to the list
     git_go_set
 }
+export -f bbgithub_fork_and_clone
 
 _guts_clone ()
 {
     gitfuncs_audit "$@"
+
+    if [ -z "$1" ]
+    then
+        echo "Usage: _guts_clone proto namespace repo"
+        echo "       pwd must match |/proto\$|"
+        return 1
+    fi
+
     local proto=$1;shift
+
+    if [ -z "$1" ]
+    then
+        echo "Usage: ${proto}_clone namespace repo"
+        echo "       pwd must match |/$proto\$|"
+        return 1
+    fi
+
     local namespace=$1;shift
     local repo=$1;shift
     local cwpath=$(realpath $(pwd))
@@ -912,7 +1054,12 @@ _guts_clone ()
         return 1
     fi
 
-    local cmd="git clone $proto:$namespace/$repo $namespace/$repo"
+    if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
+    then
+        echo "$protc is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        return 1
+    fi
+    local cmd="git clone ${gitfuncs_gitsvcs[$proto]}$namespace/$repo $namespace/$repo"
     echo $cmd ...
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
@@ -923,41 +1070,52 @@ _guts_clone ()
     ## Add this repo to the list
     git_go_set
 }
+export -f _guts_clone
 
 devgit_clone ()
 {
     gitfuncs_audit "$@"
     _guts_clone devgit "$@"
 }
+export -f devgit_clone
 
 bbgithub_clone ()
 {
     gitfuncs_audit "$@"
     _guts_clone bbgithub "$@"
 }
+export -f bbgithub_clone
+
+github_clone ()
+{
+    gitfuncs_audit "$@"
+    _guts_clone github "$@"
+}
+export -f github_clone
 
 git_what_is_modified ()
 {
     gitfuncs_audit "$@"
     ## $1 used to specify a particular dir.
-    echo
+    echo ''
     git status $1 | grep modified: | sed 's/.*modified://' | sed 's/ //g'
 }
+export -f git_what_is_modified
 alias git-what-is-modified='git_what_is_modified '
 
 git_what_can_be_committed ()
 {
     gitfuncs_audit "$@"    ## Get the top level of the current repo
-    typeset tl=$(git rev-parse --show-toplevel)
+    local tl=$(git rev-parse --show-toplevel)
 
-    typeset potentials
+    local potentials
     ## Figure out what could be committed from the current state of the repo.
     ## $(git st --porcelain -uno)
     potentials=$(git st -v | grep -- 'diff --git' | cut -d' ' -f 4 | sed 's|b/||')
 
-    typeset f
-    typeset files
-    typeset dirs
+    local f
+    local files
+    local dirs
     for f in $potentials
     do
         if [ -f $f ]
@@ -971,15 +1129,15 @@ git_what_can_be_committed ()
     done
     echo "$dirs $files" | tr ' ' '\n' | uniq
 }
+export -f git_what_can_be_committed
 
 alias git-what-can-be-committed='git_what_can_be_committed '
 alias git-what-is-committable='git_what_can_be_committed '
 
+## Can't use local outside a function.
+typeset forlater='
 
-
-local forlater='
-
-git_create_orphan_branch()
+git_create_orphan_branch ()
 {
 ASUD RAHMAN
 14:48:14 git checkout --orphan <new branch>
@@ -1022,5 +1180,6 @@ index and the working tree right after creating the orphan branch by running
 ready to prepare your new files, repopulating the working tree, by copying them
 from elsewhere, extracting a tarball, etc.
 }
+export -f git_create_orphan_branch
 
 '
