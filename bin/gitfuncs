@@ -108,9 +108,15 @@ alias gitfind=git_find
 git_find_conflicts ()
 {
     gitfuncs_audit "$@"
-    git grep -l "<<<<<<<" | sort -u
+    local opts='-l'
+    if [ "$1" != '' ]
+    then
+        opts="$@"
+    fi
+    git grep $opts -E '^<<<<<<<' | sort -u
 }
 export -f git_find_conflicts
+alias git-find-conflicts='git_find_conflicts '
 
 alias git_grep='git grep '
 alias git-grep='git grep '
@@ -757,34 +763,61 @@ alias git-branches='git_checkout '
 alias git-br='git_checkout '
 alias gitbr='git_checkout '
 
+declare -A gitfuncs_remotes
+
+git_parse_remote_v ()
+{
+    gitfuncs_remotes=()
+    for i in $( git remote -v | sed -r -e 's/\(.*//' -e 's/ +$//' -e 's/\t/=/' | sort -ru)
+    do
+        key=${i%=*}
+        value=${i#*=}
+        gitfuncs_remotes[$key]=$value
+    done
+}
+
 git_sync_with_master ()
 {
     gitfuncs_audit "$@"
-    git_sync_with_upstream --branch master "$@"
+
+    git_parse_remote_v
+    ## clone-and-fork repos need to sync with the master in the canonical
+    ## upstream branch.  If there is no 'upstream', then it's probably a clone
+    ## only, so sync against the master in origin.
+    if [ -n "${gitfuncs_remotes[upstream]}" ]
+    then
+        git_sync_with_remote --remote upstream --branch master "$@"
+    elif [ -n "${gitfuncs_remotes[origin]}" ]
+    then
+        git_sync_with_remote --remote origin --branch master "$@"
+    fi
     return $?
 }
 export -f git_sync_with_master
 
-git_sync_with_upstream_usage ()
+git_sync_with_remote_usage ()
 {
-    echo "Usage: $1 --branch otherBranch"
+    echo "Usage: $1 --branch otherBranch [--remote remoteRepoTag]"
+    echo "       remoteRepoTag defaults to 'origin'"
 }
-export -f git_sync_with_upstream_usage
+export -f git_sync_with_remote_usage
 
-git_sync_with_upstream ()
+git_sync_with_remote ()
 {
     gitfuncs_audit "$@"
     local opt_branch=''
+    local opt_remote='origin'
     local iam=${FUNCNAME[0]}
     if [ "${FUNCNAME[1]}" = 'git_sync_with_master' ]
     then
         iam=git_sync_with_master
     fi
-    local OPTSARGS=$(getopt -o hb --long help,branch: -n $iam -- "$@")
+    local OPTSARGS=$(getopt -o hbr --long help,branch:,remote: -n $iam -- "$@")
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
+            -r|--remote) opt_remote="$2"; shift; shift ;;
             -b|--branch) opt_branch="$2"; shift; shift ;;
             -h|--help) git_sync_with_upstream_usage $iam; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
@@ -810,10 +843,14 @@ git_sync_with_upstream ()
     then
         cat <<EOF
 
-$iam is used to keep your current git repo DEVELOPMENT branch
-in your local clone in sync with changes and upstream branch
-"${opt_branch}". However, you do not appear to even be in a repo. I'm
-exiting. Try again in a proper repo.
+$iam is used to keep your current git repo DEVELOPMENT branch in your local
+clone in sync with changes in
+
+branch "${opt_branch}"
+repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
+
+However, you do not appear to even be in a repo. I'm exiting. Try again in a
+proper repo.
 
 EOF
         return 1
@@ -823,12 +860,18 @@ EOF
     then
         cat <<EOF
 
-$iam is used to keep your current git repo DEVELOPMENT branch
-in your local clone in sync with changes and upstream branch
-${opt_branch}. However, you appear to be on branch "${opt_branch}", the branch
-you want to sync with. I'm exiting. Get off the branch "${opt_branch}" and onto
-another branch Then rerun the command. Or just do a 'git pull' if you really
-need to refresh this branch.
+        cat <<EOF
+
+$iam is used to keep your current git repo DEVELOPMENT branch in your local
+clone in sync with changes in
+
+branch "${opt_branch}"
+repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
+
+However, you appear to be on branch "${opt_branch}", the branch you want to
+sync with. I'm exiting. Get off the branch "${opt_branch}" and onto another
+branch Then rerun the command. Or just do a 'git pull' if you really need to
+refresh this branch.
 
 EOF
         return 1
@@ -852,7 +895,7 @@ EOF
 
 In the current local repo, we are going to
 
-  git pull --rebase upstream ${opt_branch}
+  git pull --rebase ${opt_remote} ${opt_branch}
 
 which will "replay" any existing changes on branch "${opt_branch}" so that it
 will appear as if you had originally branched from the current tip of the
@@ -863,7 +906,7 @@ Working...
 
 EOF
     sleep 2
-    git pull --rebase upstream ${opt_branch}
+    git pull --rebase ${opt_remote} ${opt_branch}
     status=$?
     if [ "$status" = '0' ]
     then
@@ -914,7 +957,7 @@ EOF
     fi
 
 }
-export -f git_sync_with_upstream
+export -f git_sync_with_remote
 
 alias git-update='git_sync_with_master '
 alias git-sync-with-master='git_sync_with_master '
