@@ -1,8 +1,10 @@
 # -*- sh -*-
-# ~/.profile.mpersico5
+# ~/.profile.${USER}
 # Isolates my stuff.
 
-echo "$(date): ~/.profile.mpersico5 is running..."
+echo "$(date): ~/.profile.${USER} is running..."
+
+shopt -s expand_aliases
 
 PROFILE_FILE=${BASH_SOURCE[0]}
 profile_edit ()
@@ -10,6 +12,7 @@ profile_edit ()
     profile_audit
     xo $PROFILE_FILE
 }
+export -f profile_edit
 alias profile-edit=profile_edit
 
 profile_reload ()
@@ -17,6 +20,7 @@ profile_reload ()
     profile_audit
     . $PROFILE_FILE
 }
+export -f profile_reload
 alias profile-reload=profile_reload
 
 # PATH
@@ -28,46 +32,15 @@ pathfuncs_load
 
 addpath -f PATH $PERSONALBIN
 
-securepath ()
-{
-    if [ -z "$INSECUREPATH" ]
+for i in auditfuncs histfuncs utilfuncs cdfuncs gitfuncs svnfuncs dotfilesfuncs \
+snapshotfuncs vmfuncs .xterminit yumaptfuncs
+do
+    if [ -f $PERSONALBIN/$i ]
     then
-        export INSECUREPATH=$PATH
-        delpath -p PATH /sbin
-        delpath -p PATH /usr/sbin
-        export PATH
-    else
-        echo "Already secure:"
-        echo PATH=$PATH
-        echo INSECUREPATH=$INSECUREPATH
+        ## Debug:echo "**** $i"
+        . $PERSONALBIN/$i
     fi
-}
-
-unsecurepath ()
-{
-    if [ -n "$INSECUREPATH" ]
-    then
-        export PATH=$INSECUREPATH
-        unset $INSECUREPATH
-    else
-        echo "Already insecure:"
-        echo PATH=$PATH
-        echo INSECUREPATH=$INSECUREPATH
-    fi
-}
-alias insecurepath=unsecurepath
-
-. $PERSONALBIN/auditfuncs
-. $PERSONALBIN/histfuncs
-. $PERSONALBIN/utilfuncs
-. $PERSONALBIN/cdfuncs
-. $PERSONALBIN/gitfuncs
-. $PERSONALBIN/svnfuncs
-. $PERSONALBIN/snapshotfuncs
-. $PERSONALBIN/vmfuncs
-. $PERSONALBIN/dotfilesfuncs
-. $PERSONALBIN/.xterminit
-. $PERSONALBIN/yumaptfuncs
+done
 
 # PERL
 addpath -x -f -p PERL5LIB ~/personal/share/perl5/site_perl/5.16
@@ -94,6 +67,7 @@ tkpod ()
         $realtkpod "$@" &
     fi
 }
+export -f tkpod
 
 aptperl ()
 {
@@ -105,6 +79,7 @@ aptperl ()
         sudo apt-get install $pkg
     done
 }
+export -f aptperl
 
 addcsperlpath ()
 {
@@ -112,6 +87,7 @@ addcsperlpath ()
     addpath -f -p PERL5LIB ~/personal/csperl/lib/site_perl
     export PERL5LIB
 }
+export -f addcsperlpath
 
 delcsperlpath ()
 {
@@ -119,6 +95,7 @@ delcsperlpath ()
     delpath -p PERL5LIB ~/personal/csperl/lib/5.12.2
     export PERL5LIB
 }
+export -f delcsperlpath
 
 # PYTHON
 python_dbg ()
@@ -133,6 +110,7 @@ python_dbg ()
     echo type a variable to print it, with overloads
     echo      do not know the raw print yet
 }
+export -f python_dbg
 
 # ALIASES
 
@@ -142,11 +120,12 @@ alias dir='ls -la '
 alias envg='env | grep '
 alias setg='set | grep '
 alias allg='(env && set) | grep '
-alias psme='ps lxf -U ${USER}'
+alias psme="ps lxf -U ${USER}"
 alias rm='rm -i '
 alias mydiff='diff -U3 '
 alias sidediff='diff -w --side-by-side --suppress-common-lines '
 alias mopquota='df -h '
+alias showfunc='type '
 
 # Fat finger protection
 alias vf='echo cd, you moron; cd '
@@ -159,27 +138,26 @@ alias fit='echo dir, you moron; dir '
 
 # NO-CHIMERA
 ## Things to do if we're on a vm w/o Chimera
-git_pr_loaded=$(declare -F | grep __git_ps1)
-if [ -z "$git_pr_loaded" ]
+git_contrib_loaded=$(declare -F | grep __git_ps1)
+if [ -z "$git_contrib_loaded" ]
 then
     if [ -e ~/.git-prompt.sh ]
     then
         . ~/.git-prompt.sh
-        echo loaded git-prompt.sh
     fi
 fi
 
 # POST-CHIMERA
-
-# Override prompt (assuming git stuff is loaded, either in chimera or locally)
-PS1='\n\[\e]0;\u@\h:\w\a\]\u@\h\n\w\n$(__git_ps1 "(%s)")\$ '
-export PS1
 
 # Useful in subshells
 for i in $(declare -F | grep __git | grep -v fx | sed 's/.* //')
 do
     export -f $i
 done
+
+# Override prompt (assuming git stuff is loaded, either in chimera or locally)
+PS1='\n\[\e]0;\u@\h:\w\a\]\u@\h\n\w\n$(__git_ps1 "(%s)")\$ '
+export PS1
 
 # MISC
 
@@ -197,7 +175,7 @@ export NO_AT_BRIDGE=1
 . ~/personal/bin/.xterminit
 
 # AD stuff
-alias authinfo='/opt/quest/bin/vastool search CN=mpersico5'
+alias authinfo="/opt/quest/bin/vastool search CN=${USER}"
 
 if [ ! -e ~/.bbprofile ]
 then
@@ -230,4 +208,11 @@ export LANG=C
 ## Interference with remote dpkg stuff
 addpath -s , -p no_proxy 'blp-dpkg.dev.bloomberg.com'
 
-echo "$(date): ~/.profile.mpersico5 has run"
+## Colors frequently conflict with different terminal colors
+alias ls >/dev/null 2>&1
+if [ "$?" = '0' ]
+then
+    unalias ls
+fi
+
+echo "$(date): ~/.profile.${USER} has run"

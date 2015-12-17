@@ -8,12 +8,14 @@ vmfuncs_edit ()
 {
     xo $VMFUNCS_FILE
 }
+export -f vmfuncs_edit
 alias vmfuncs-edit=vmfuncs_edit
 
 vmfuncs_reload ()
 {
     . $VMFUNCS_FILE
 }
+export -f vmfuncs_reload
 alias vmfuncs-reload=vmfuncs_reload
 alias vmfuncs-load=vmfuncs_reload
 
@@ -25,6 +27,7 @@ _vm_toolkit_file_maint_usage ()
 {
     echo "Usage: vm_toolkit_file_maint [-f|--force|-u|--update]"
 }
+export -f _vm_toolkit_file_maint_usage
 
 vm_toolkit_file_maint ()
 {
@@ -81,6 +84,7 @@ vm_toolkit_file_maint ()
         ~/personal/bin/toolkit-login $VMFUNCS_TOOLKIT_FILE $USER
     fi
 }
+export -f vm_toolkit_file_maint
 
 vmchoose ()
 {
@@ -94,6 +98,7 @@ vmchoose ()
     done
     echo $vmname
 }
+export -f vmchoose
 
 vmgo ()
 {
@@ -109,12 +114,14 @@ vmgo ()
     vmip=${vmips[$vmname]}
     ssh -i $VMFUNCS_TOOLKIT_FILE $vmip $@
 }
+export -f vmgo
 alias govm='vmgo '
 
 vmshow ()
 {
     cat $VMFUNCS_BCPCVMS_FILE | grep -v 'declare -A vmips'
 }
+export -f vmshow
 alias showvm='vmshow '
 
 vmadd ()
@@ -133,6 +140,7 @@ vmadd ()
     rm -f $VMFUNCS_BCPCVMS_FILE.$$
     vmshow
 }
+export -f vmadd
 alias addvm='vmadd '
 
 vmdel ()
@@ -148,6 +156,7 @@ vmdel ()
     mv $VMFUNCS_BCPCVMS_FILE.$$ $VMFUNCS_BCPCVMS_FILE
     vmshow
 }
+export -f vmdel
 alias delvm='vmdel '
 
 _rsync2nfs_usage ()
@@ -155,17 +164,20 @@ _rsync2nfs_usage ()
     echo "Usage: rsync2nfs -t|--target tgt src [src...]"
     echo
 }
+export -f _rsync2nfs_usage
 
 rsync2nfs ()
 {
     local target
-    local OPTSARGS=$(getopt -o t:h --long target:,help -n 'vmsync2nfs' -- "$@")
+    local verbose
+    local OPTSARGS=$(getopt -o t:vh --long target:,verbose,help -- "$@")
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
             -h|--help) _rsync2nfs_usage; return 0 ;;
             -t|--target) shift; target=$1; shift ;;
+            -v|--verbose) verbose='-v'; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; git-st-strip-usage; return 1 ;;
         esac
@@ -174,9 +186,15 @@ rsync2nfs ()
     if [ -z "$target" ]
     then
         echo "--target required";
-        _vmsync2nfs_usage;
+        _rsync2nfs_usage;
+        exit 1;
     fi
 
+    if [ -n "$verbose" ]
+    then
+        echo "** Command: rsync -a -z -r -l $verbose --delete $@ $target"
+        echo "** Start: $(date)"
+    fi
     ## -a "archive" mode, which ensures that symbolic links, devices,
     ## -attributes, permissions, ownerships, etc. are preserved in the
     ## -transfer.
@@ -184,18 +202,34 @@ rsync2nfs ()
     ## -r - recurse
     ## -l - copy symlinks as symlinks
     ## -v - verbose
-    rsync -azrlv "$@" $target
-    return $?
+    ## --delete - if it was deleted in the source, delete it in the target too.
+    ## -i - ssh stuff
+    local sshfile="${HOME}/.ssh/$(hostname)"
+    if [ ! -e $sshfile ]
+    then
+        echo "!! Cannot rsync - ssh file $sshfile not found"
+    fi
+    local sshtext="ssh -i $sshfile"
+    rsync -e "$sshtext" -a -z -r -l $verbose --delete "$@" $target
+    status=$?
+    if [ -n "$verbose" ]
+    then
+        echo "** End: $(date)"
+    fi
+    return $status
 }
+export -f rsync2nfs
 
 vmrsyncgits ()
 {
-    rsync2nfs --target nylxdev1.dev.bloomberg.com:vmstashes/$(hostname)/mpersico5 ~/gits
+    rsync2nfs -v --target nylxdev1.dev.bloomberg.com:vmstashes/$(hostname)/mpersico5 ~/gits
 }
+export -f vmrsyncgits
 
 vmrsync ()
 {
-    rsync2nfs --target nylxdev1.dev.bloomberg.com:vmstashes/$(hostname) ~
+    rsync2nfs -v --target nylxdev1.dev.bloomberg.com:vmstashes/$(hostname) ~
 }
+export -f vmrsync
 
 alias vmsync='vmrsync '
