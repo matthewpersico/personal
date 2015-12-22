@@ -1,0 +1,95 @@
+# -*- sh -*-
+
+# rsyncfuncs
+
+RSYNCFUNCS_FILE=${BASH_SOURCE[0]}
+
+rsyncfuncs_edit ()
+{
+    xo $RSYNCFUNCS_FILE
+}
+export -f rsyncfuncs_edit
+alias rsyncfuncs-edit=rsyncfuncs_edit
+
+rsyncfuncs_reload ()
+{
+    . $RSYNCFUNCS_FILE
+}
+export -f rsyncfuncs_reload
+alias rsyncfuncs-reload=rsyncfuncs_reload
+alias rsyncfuncs-load=rsyncfuncs_reload
+
+_rsync2nfs_usage ()
+{
+    echo "Usage: rsync2nfs -t|--target tgt src [src...]"
+    echo
+}
+export -f _rsync2nfs_usage
+
+rsync2nfs ()
+{
+    local target
+    local verbose
+    local OPTSARGS=$(getopt -o t:vh --long target:,verbose,help -- "$@")
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) _rsync2nfs_usage; return 0 ;;
+            -t|--target) shift; target=$1; shift ;;
+            -v|--verbose) verbose='-v'; shift ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; git-st-strip-usage; return 1 ;;
+        esac
+    done
+
+    if [ -z "$target" ]
+    then
+        echo "--target required";
+        _rsync2nfs_usage;
+        exit 1;
+    fi
+
+    if [ -n "$verbose" ]
+    then
+        echo "** Command: rsync -a -z -r -l $verbose --delete $@ $target"
+        echo "** Start: $(date)"
+    fi
+    ## -a "archive" mode, which ensures that symbolic links, devices,
+    ## -attributes, permissions, ownerships, etc. are preserved in the
+    ## -transfer.
+    ## -z - transport compressed
+    ## -r - recurse
+    ## -l - copy symlinks as symlinks
+    ## -v - verbose
+    ## --delete - if it was deleted in the source, delete it in the target too.
+    ## -i - ssh stuff
+    local sshfile="${HOME}/.ssh/$(hostname)"
+    if [ ! -e $sshfile ]
+    then
+        echo "!! Cannot rsync - ssh file $sshfile not found"
+    fi
+    local sshtext="ssh -i $sshfile"
+    rsync -e "$sshtext" -a -z -r -l $verbose --delete "$@" $target
+    status=$?
+    if [ -n "$verbose" ]
+    then
+        echo "** End: $(date)"
+    fi
+    return $status
+}
+export -f rsync2nfs
+
+vmrsyncgits ()
+{
+    rsync2nfs -v --target nylxdev1.dev.bloomberg.com:vmstashes/$(hostname)/mpersico5 ~/gits
+}
+export -f vmrsyncgits
+
+vmrsync ()
+{
+    rsync2nfs -v --target nylxdev1.dev.bloomberg.com:vmstashes/$(hostname) ~
+}
+export -f vmrsync
+
+alias vmsync='vmrsync '
