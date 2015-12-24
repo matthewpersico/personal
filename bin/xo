@@ -1,1 +1,34 @@
-eo
+## -*- sh -*-
+
+## Grabs all my processes that have emacs in the command.
+## Filters out the grep command
+## Filters in where parent ppid is 1 (in case emacs is running a perl debugger
+## or some other subprocess)
+
+set -x
+
+case $(uname) in
+    Linux )
+        pscmd="ps lx -U ${USER}"
+        grepargs='emacs'
+        cutrange='15-20'
+        ;;
+    Cygwin | cygwin )
+        pscmd="ps -l -u ${USER}"
+        grepargs='-- emacs-w32'
+        cutrange='13-18'
+        ;;
+    * )
+        echo "ps command for $(uname) not defined"
+        exit 1
+        ;;
+esac
+
+serverup=$($pscmd | grep $grepargs | grep -v grep | cut -c $cutrange | grep '    1' | wc -l)
+
+if ((serverup==1))
+then
+    emacsclient -n -a emacs $*
+else
+    emacs $* &
+fi
