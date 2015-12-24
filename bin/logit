@@ -6,9 +6,12 @@
 
 usage ()
 {
-    echo "logit [--tee|-t] [ --log|-l log_basename ] [ --dir | -d log_directory ] [--] command [arg ..]"
+    echo "logit [--tee|-t] [ --log|-l log_basename ] [ --dir | -d log_directory ] [-e|--edit] [--] command [arg ..]"
     echo "      The extra '--' is required if tee or log options"
     echo "      are specified so that logit knows when to stop processing"
+    echo "      options as its own."
+    echo "      --edit means run $EDITOR on the log file when complete."
+    echo "      --purge means remove all related log files before starting."
     echo "      options as its own."
     exit $1
 }
@@ -19,15 +22,12 @@ usage ()
 logfile=''
 logdir=''
 teeit=0
-
-if [ $(basename "${BASH_SOURCE[0]}") == 'teeit' ]
-then
-    teeit=1
-fi
+edit=0
+purge=0
 
 # Read the options and args from command line. Note that the long and short
 # don't have to match up.
-GETOPTOUT=`getopt -o l:d:th -l log:,dir:,tee,help -n 'logit' -- "$@"`
+GETOPTOUT=`getopt -o l:d:teph -l log:,dir:,tee,edit,purge,help -n 'logit' -- "$@"`
 
 # Reset the command line.
 eval set -- "$GETOPTOUT"
@@ -46,6 +46,12 @@ while true ; do
             shift 2 ;;
         -t|--tee)
             teeit=1
+            shift ;;
+        -e|--edit)
+            edit=1
+            shift ;;
+        -p|--purge)
+            purge=1
             shift ;;
         --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
         *) echo "Internal error!" ; usage 1 ;;
@@ -82,6 +88,7 @@ if [ -z "$logfile" ]
 then
     logfile=$(basename $command)
 fi
+logfileroot="${logfile}.logit"
 logfile="${logfile}.logit.$(date +%Y_%m_%d_%H_%M_%S)"
 
 if [ -z "$logdir" ]
@@ -94,6 +101,13 @@ then
 fi
 
 logspec="$logdir/$logfile"
+logspecroot="$logdir/$logfileroot"
+if (( purge ))
+then
+    echo "Purging ${logspecroot}*"
+    rm -f ${logspecroot}*
+fi
+
 touch $logspec ## Critical for tee below
 logmsg="Logfile is: $logspec"
 echo $logmsg
@@ -149,4 +163,10 @@ fi
 status=$?
 echo "$logmsg"
 echo "Exit status: $status"
+
+if ((edit))
+then
+    $EDITOR $logspec &
+fi
+
 exit $status
