@@ -258,7 +258,12 @@ git_go_set ()
     echo "Regenerating .git-go ($gitfuncs_git_go_file)..." >&2
 
     local repo_find_roots
-    for i in $gitfuncs_gitroot $gitfuncs_gitroot_MBIG
+    local search_roots="$gitfuncs_gitroot"
+    if [ "$1" = '1' ]
+    then
+        search_roots="$search_roots $gitfuncs_gitroot_MBIG"
+    fi
+    for i in $search_roots
     do
         if [ -e $i ]
         then
@@ -266,7 +271,10 @@ git_go_set ()
         fi
     done
     local repo_tops=$(find $repo_find_roots -maxdepth 1 -mindepth 1 -type d -follow)
-    local repos=$(find ${HOME}/personal ${HOME}/.git_template $repo_tops -name .git -type d | sed 's|/.git$||g' | sort -u)
+    ## We can use -maxdepth 3 to speed things up drastically because of the
+    ## standard host/repo for devgit, host/namespace/repo for bbgithub and
+    ## similarly for other git hosts.
+    local repos=$(find ${HOME}/personal ${HOME}/.git_template $repo_tops -maxdepth 3 -name .git -type d | sed 's|/.git$||g' | sort -u)
 
     ## We add $HOME here and set repo_tops_re after we find the repos so that
     ## the two repos in the home dir don't mess everything up.
@@ -330,7 +338,7 @@ _git_go_get ()
     git-go-set-filename
     if [ ! -e $gitfuncs_git_go_file ] || ((update))
     then
-	    git-go-set
+	    git-go-set $mbig
     fi
 
     local tmpfile=$(mktemp)
@@ -522,6 +530,17 @@ git_close_branch ()
 }
 export -f git_close_branch
 alias git-close-branch=git_close_branch
+
+git_close_current_branch ()
+{
+    gitfuncs_audit "$@"
+    local old_branch=$(git_get_current_branch)
+    local new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
+    git-rename-branch $old_branch $new_branch
+    return $?
+}
+export -f git_close_current_branch
+alias git-close_current-branch=git_close_current_branch
 
 git_delete_branch ()
 {
