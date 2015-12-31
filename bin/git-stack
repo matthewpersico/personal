@@ -1,15 +1,51 @@
 ## -*- sh -*-
-if [ -z "$1" ]
-then
-    git stash list
-elif [ "$1" = 'push' ]
-then
-    shift
-    git stash save "$@"
-elif [ "$1" = 'one' ] || [ "$1" = 'some' ]
-then
-    shift
-    git stash --patch "$@"
-else
-    git stash "$@"
-fi
+
+typeset tfile=$(mktemp)
+trap finish EXIT SIGINT
+finish ()
+{
+    if [ -e $tfile ]
+    then
+        rm -rf $tfile
+    fi
+}
+
+main ()
+{
+    local status
+    if [ -z "$1" ] || [ "$1" = 'list' ]
+    then
+        git stash list > $tfile 2>&1
+        status=$?
+        if [ $(cat $tfile | wc -l ) = '0' ]
+        then
+            echo "Nothing stashed"
+        fi
+    elif [ "$1" = 'push' ] || [ "$1" = 'save' ]
+    then
+        shift
+        if [ "$#" = '0' ]
+        then
+            echo "Message required"
+            status=1
+        else
+            git stash save "$@"
+            status=$?
+        fi
+    elif [ "$1" = 'one' ] || [ "$1" = 'some' ]
+    then
+        shift
+        if [ "$#" = '0' ]
+        then
+            echo "Message required"
+            status=1
+        else
+            git stash save --patch "$@"
+            status=$?
+        fi
+    else
+        git stash "$@"
+    fi
+}
+
+main "$@"
