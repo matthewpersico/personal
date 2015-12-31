@@ -5,8 +5,6 @@
 ## Filters in where parent ppid is 1 (in case emacs is running a perl debugger
 ## or some other subprocess)
 
-set -x
-
 case $(uname) in
     Linux )
         pscmd="ps lx -U ${USER}"
@@ -24,11 +22,36 @@ case $(uname) in
         ;;
 esac
 
-serverup=$($pscmd | grep $grepargs | grep -v grep | cut -c $cutrange | grep '    1' | wc -l)
+## Temp file for processing and diagnostic messages.
+procs=$(mktemp)
 
-if ((serverup==1))
+## Set up a trap for cleanup.
+trap finish EXIT SIGINT
+finish ()
+{
+    if [ -e $procs ]
+    then
+        rm -rf $procs
+    fi
+}
+
+## Get potential emacs server processes
+$pscmd | grep $grepargs | grep -v grep | grep -vi 'emacs -q' >$procs 2>&1
+
+## Count how many
+serverup=$(cut -c $cutrange $procs | grep '    1' | wc -l)
+
+if ((serverup==0))
 then
-    emacsclient -n -a emacs $*
+    emacs "$@" &
+elif ((serverup==1))
+then
+    if [ ! "$#" = 0 ]
+    then
+        emacsclient -n -a emacs "$@"
+    fi
+    ## else just silently go about your business.
 else
-    emacs $* &
+    echo "More than one potential emacs server process found:"
+    cat $procs
 fi
