@@ -524,30 +524,7 @@ git_close_branch ()
 {
     gitfuncs_audit "$@"
     local old_branch=$1
-    local new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
-    git-rename-branch $old_branch $new_branch
-    return $?
-}
-export -f git_close_branch
-alias git-close-branch=git_close_branch
-
-git_close_current_branch ()
-{
-    gitfuncs_audit "$@"
-    local old_branch=$(git_get_current_branch)
-    local new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
-    git-rename-branch $old_branch $new_branch
-    return $?
-}
-export -f git_close_current_branch
-alias git-close_current-branch=git_close_current_branch
-
-git_delete_branch ()
-{
-    gitfuncs_audit "$@"
-    local branch=$1;
-    local current_branch=$(git_get_current_branch)
-    if [ -z "$branch" ]
+    if [ -z "$old_branch" ]
     then
         local branchesa=($(git branch --list | sed 's/.* //' ))
         if [ ${#branchesa[@]} == '0' ]
@@ -561,13 +538,8 @@ git_delete_branch ()
         do
             if [ -n "$selected" ]
             then
-                if [ "$selected" == "$current_branch" ]
-                then
-                    echo $selected is current. Cannot checkout current.
-                else
-                    branch=$selected
-                    break
-                fi
+                old_branch=$selected
+                break
             elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
             then
                 return
@@ -577,15 +549,77 @@ git_delete_branch ()
         done
     fi
 
+    local new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
+    git-rename-branch $old_branch $new_branch
+    return $?
+}
+export -f git_close_branch
+alias git-close-branch=git_close_branch
+
+git_close_current_branch ()
+{
+    gitfuncs_audit "$@"
+    git-close-branch $(git_get_current_branch)
+    return $?
+}
+export -f git_close_current_branch
+alias git-close-current-branch=git_close_current_branch
+
+git_delete_branch ()
+{
+    gitfuncs_audit "$@"
+    local no_remote=0
+    if [ "$1" = '--no-remote' ] || [ "$1" = '--local-only' ]
+    then
+        no_remote=1
+        shift;
+    fi
+    local branch=$1;
+    local current_branch=$(git_get_current_branch)
+    if [ -z "$branch" ]
+    then
+        local branchesa=($(git branch --list | sed 's/.* //' ))
+        if [ ${#branchesa[@]} == '0' ]
+        then
+            echo "No branches found. Are you in a git repo?"
+            return 1
+        fi
+        local PS3="Choose by number, q to quit: "
+        local selected
+        select selected in ${branchesa[@]}
+        do
+            if [ -n "$selected" ]
+            then
+                if [ "$selected" == "$current_branch" ]
+                then
+                    echo $selected is current. Cannot delete current.
+                else
+                    branch=$selected
+                    break
+                fi
+            elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
+            then
+                return 0
+            else
+                echo "'$REPLY' is an invalid choice"
+            fi
+        done
+    fi
+
     if [ -n "$branch" ]
     then
-        ## it was either $1 or we did not ctrl-c out of the select
+        ## $branch was either $1 or we did not ctrl-c out of the select
         if [ "$branch" = "$current_branch" ]
         then
             echo "Nope, you can't delete the current branch."
-            return
+            return 1
         fi
         git branch -d $branch || return $?;
+        if [ "$no_remote" = '1' ]
+        then
+            return 0
+        fi
+
         remotes=$(git remote)
         for remote in $remotes
         do
@@ -603,6 +637,7 @@ git_delete_branch ()
             fi
         done
     fi
+
     return 0
 }
 export -f git_delete_branch
