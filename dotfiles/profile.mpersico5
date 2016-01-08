@@ -34,7 +34,7 @@ addpath -f PATH $PERSONALBIN
 ## Major initializations
 ##
 for i in auditfuncs histfuncs utilfuncs cdfuncs gitfuncs svnfuncs dotfilesfuncs \
-snapshotfuncs vmfuncs .xterminit yumaptfuncs rsyncfuncs
+snapshotfuncs vmfuncs .xterminit yumaptfuncs rsyncfuncs perlfuncs pythonfuncs
 do
     if [ -f $PERSONALBIN/$i ]
     then
@@ -50,76 +50,6 @@ EDITOR='vi'
 ## exit the whole session to register completion with the user of EDITOR
 export EDITOR
 
-# Perl
-addpath -x -f -p PERL5LIB ~/personal/share/perl5/site_perl/5.16
-
-alias pd='perldoc '
-tkpod ()
-{
-    local tkpodI
-    for i in /bbsrc/bin/builddeb/prod/lib/site_perl/ \
-                 /bbsrc/bin/builddeb/prod/lib/perl/
-    do
-        if [ -d $i ]
-        then
-            tkpodI="$tkpodI -I $i"
-        fi
-    done
-    declare realtkpod="$(which tkpod) $tkpodI"
-    if (($#==0))
-    then
-        echo $realtkpod --tree ampersand
-        $realtkpod --tree &
-    else
-        echo $realtkpod "$@" ampersand
-        $realtkpod "$@" &
-    fi
-}
-export -f tkpod
-
-aptperl ()
-{
-    local module
-    for module in $*
-    do
-        local pkg="lib$(echo $module | sed 's/::/-/g' | tr '[:upper:]' '[:lower:]')-perl"
-        echo "Installing $pkg..."
-        sudo apt-get install $pkg
-    done
-}
-export -f aptperl
-
-addcsperlpath ()
-{
-    addpath -f -p PERL5LIB ~/personal/csperl/lib/5.12.2
-    addpath -f -p PERL5LIB ~/personal/csperl/lib/site_perl
-    export PERL5LIB
-}
-export -f addcsperlpath
-
-delcsperlpath ()
-{
-    delpath -p PERL5LIB ~/personal/csperl/lib/site_perl
-    delpath -p PERL5LIB ~/personal/csperl/lib/5.12.2
-    export PERL5LIB
-}
-export -f delcsperlpath
-
-# PYTHON
-python_dbg ()
-{
-    echo Do these
-    echo ipython
-    echo run -d script arg arg...
-    echo s - step in
-    echo n - next
-    echo up - up one stack level. Use this instead
-    echo      of run-till-return
-    echo type a variable to print it, with overloads
-    echo      do not know the raw print yet
-}
-export -f python_dbg
-
 # ALIASES
 
 # Conveniences
@@ -128,7 +58,6 @@ alias dir='ls -la '
 alias envg='env | grep '
 alias setg='set | grep '
 alias allg='(env && set) | grep '
-alias psme="ps lxf -U ${USER}"
 alias rm='rm -i '
 alias mydiff='diff -U3 '
 alias sidediff='diff -w --side-by-side --suppress-common-lines '
@@ -139,13 +68,11 @@ alias showfunc='type '
 alias vf='echo cd, you moron; cd '
 alias fit='echo dir, you moron; dir '
 
-# BLOOMBERG
-
 # if chimera generated aliases exist, pull them into the current ENV
 [ -f ~/.bbalias ] && . ~/.bbalias
 
-# NO-CHIMERA
-## Things to do if we're on a vm w/o Chimera
+## GIT
+## Probably should move this to gitfuncs
 git_contrib_loaded=$(declare -F | grep __git_ps1)
 if [ -z "$git_contrib_loaded" ]
 then
@@ -155,8 +82,6 @@ then
     fi
 fi
 
-# POST-CHIMERA
-
 # Useful in subshells
 for i in $(declare -F | grep __git | grep -v fx | sed 's/.* //')
 do
@@ -164,7 +89,8 @@ do
 done
 
 # Override prompt (assuming git stuff is loaded, either in chimera or locally)
-PS1='\n\[\e]0;\u@\h:\w\a\]\u@\h\n$(__git_ps1 "git branch:%s\\npwd       :")\w\$ '
+PS1='\n[\$? = $?]\n\n\[\e]0;\u@\h:\w\a\]\u@\h$(__git_ps1 "\\nbranch  : %s")$(git_get_stash_count "\nstashes : ")\n$([ "$(git_inside_work_tree -p)" = "true" ] && echo "pwd     : ")\w \$ '
+
 export PS1
 
 # MISC
