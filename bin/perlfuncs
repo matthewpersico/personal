@@ -1,0 +1,64 @@
+# -*- sh -*-
+
+# perlfuncs
+
+PERLFUNCS_FILE=${BASH_SOURCE[0]}
+
+auditfuncs_init $PERLFUNCS_FILE
+
+perlfuncs_edit ()
+{
+    perlfuncs_audit "$@"
+    xo $PERLFUNCS_FILE
+}
+export -f perlfuncs_edit
+## I define functions with '_' and aliases with '-' because the emaacs modes
+## that parse for functions to generate jump lists don't see functions with '-'
+## in their name. Ugh.
+alias perlfuncs-edit=perlfuncs_edit
+
+perlfuncs_reload ()
+{
+    perlfuncs_audit "$@"
+    . $PERLFUNCS_FILE
+}
+export -f perlfuncs_reload
+alias perlfuncs-reload=perlfuncs_reload
+
+addpath -x -f -p PERL5LIB ~/personal/share/perl5/site_perl/5.16
+
+alias pd='perldoc '
+tkpod ()
+{
+    local tkpodI
+    for i in /bbsrc/bin/builddeb/prod/lib/site_perl/ \
+                 /bbsrc/bin/builddeb/prod/lib/perl/
+    do
+        if [ -d $i ]
+        then
+            tkpodI="$tkpodI -I $i"
+        fi
+    done
+    declare realtkpod="$(which tkpod) $tkpodI"
+    if (($#==0))
+    then
+        echo $realtkpod --tree ampersand
+        $realtkpod --tree &
+    else
+        echo $realtkpod "$@" ampersand
+        $realtkpod "$@" &
+    fi
+}
+export -f tkpod
+
+aptperl ()
+{
+    local module
+    for module in $*
+    do
+        local pkg="lib$(echo $module | sed 's/::/-/g' | tr '[:upper:]' '[:lower:]')-perl"
+        echo "Installing $pkg..."
+        sudo apt-get install $pkg
+    done
+}
+export -f aptperl
