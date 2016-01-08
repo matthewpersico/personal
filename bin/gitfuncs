@@ -276,12 +276,20 @@ git_go_set ()
     ## similarly for other git hosts.
     local repos=$(find ${HOME}/personal ${HOME}/.git_template $repo_tops -maxdepth 3 -name .git -type d | sed 's|/.git$||g' | sort -u)
 
+    ## And then we do worktree (wt) search
+    local repo
+    local wts
+    for repo in $repos
+    do
+        wts="$wts $(find $repo/wt -name .git -type f 2>/dev/null | sed 's|/.git$||g')"
+    done
+
     ## We add $HOME here and set repo_tops_re after we find the repos so that
     ## the two repos in the home dir don't mess everything up.
     local repo_tops_re=":$(echo $repo_tops ${HOME}| sed 's/ /:/g'):"
 
     local repo_roots=$(local i j
-                         for i in $repos
+                         for i in $repos $wts
 			             do
                              git_add_repo_tag $i
 			                 j=$i
@@ -333,8 +341,11 @@ _git_go_get ()
     shift
     local mbig=$1
     shift
+    local wt=$1
+    shift
     local filter=$1
     shift
+
     git-go-set-filename
     if [ ! -e $gitfuncs_git_go_file ] || ((update))
     then
@@ -356,6 +367,12 @@ _git_go_get ()
         mv ${tmpfile}.001 ${tmpfile}
     fi
 
+    if ((wt==0))
+    then
+        cat $tmpfile | grep -v '/wt/' > ${tmpfile}.001
+        mv ${tmpfile}.001 ${tmpfile}
+    fi
+
     if [ -n "$filter" ]
     then
         cat $tmpfile | grep $filter > ${tmpfile}.001
@@ -370,7 +387,7 @@ export -f _git_go_get
 git_go_usage ()
 {
     gitfuncs_audit "$@"
-    echo "Usage: git-go [--update|-u] [--roots|-r] [--mbig|-m] [dirmatch]"
+    echo "Usage: git-go [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt ] [dirmatch]"
     echo "       git-go [-h|--help]"
     echo
     echo "       Presents a list of all git repos"
@@ -381,6 +398,10 @@ git_go_usage ()
     echo "           where gits live so you can add new repos"
     echo
     echo "       --mbig will add the directories in MBIG"
+    echo
+    echo "       --wt will add the worktree subdirectories"
+    echo "           in repos. This is the default."
+    echo "       --nowt will not add them."
     echo
     echo "       'dirmatch' will filter the list"
     echo
@@ -395,7 +416,9 @@ git_go ()
     local opt_update=0
     local opt_roots=0
     local opt_mbig=0
-    local OPTSARGS=$(getopt -o urmh --long update,roots,mbig,help -n 'git-go' -- "$@")
+    local opt_wt=1
+    local opt_subwt_only=0
+    local OPTSARGS=$(getopt -o urmh --long update,roots,mbig,wt,nowt,subwt,help -n 'git-go' -- "$@")
     eval set -- "$OPTSARGS"
     while true
     do
@@ -403,6 +426,9 @@ git_go ()
             -m|--mbig) opt_mbig=1; shift ;;
             -r|--roots) opt_roots=1; shift ;;
             -u|--update) opt_update=1; shift ;;
+            --wt) opt_wt=1; shift ;;
+            --nowt) opt_wt=0; shift ;;
+            --subwt) opt_subwt_only=1; shift ;;
             -h|--help) git-go-usage; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; git-go-usage; return 1 ;;
@@ -410,7 +436,24 @@ git_go ()
     done
 
     local REPOS REPO
-    REPOS=$(_git_go_get $opt_update $opt_roots $opt_mbig "$1")
+    REPOS=$(_git_go_get $opt_update $opt_roots $opt_mbig $opt_wt "$1")
+    if ((opt_subwt_only))
+    then
+        git_inside_work_tree
+        if [ "$?" = '1' ]
+        then
+            echo "Not in a git repo. Showing all repos."
+        else
+            local current_repo_full=$(git rev-parse --show-toplevel | sed 's|/wt/.*||')
+            local current_repo=$(echo $current_repo_full | sed "s|${HOME}/||")
+            if [ ! -d $current_repo_full/wt ]
+            then
+                echo "No worktrees here. Showing all repos."
+            else
+                REPOS=$(echo $REPOS | tr ' ' '\n' | grep $current_repo/wt)
+            fi
+        fi
+    fi
     if [ -z "$REPOS" ]
     then
         echo $1 does not match any repo
@@ -675,7 +718,7 @@ git_hook_update ()
         hooks="$newh"
     fi
     local REPOS REPO
-    REPOS=$(_git_go_get 0 0 1)
+    REPOS=$(_git_go_get 0 0 1 0)
     for REPO in $REPOS
     do
         for h in $hooks
@@ -710,7 +753,7 @@ git_hook_push ()
     fi
 
     local REPOS REPO
-    REPOS=$(_git_go_get 0 0 1)
+    REPOS=$(_git_go_get 0 0 1 0)
     for REPO in $REPOS
     do
         for h in $hooks
@@ -745,13 +788,21 @@ export -f git_hook_push
 git_hook_check ()
 {
     gitfuncs_audit "$@"
-    if [ ! -d .git ]
+    local gitloc="./.git"
+    if [ -f $gitloc ]
+    then
+        ## We are probably in a worktree...
+        gitloc=$(cat .git | sed 's/.* //')
+        gitloc=${gitloc%%/worktrees*}
+    fi
+    if [ ! -d $gitloc ]
     then
         echo "Cannot run git_hook_check outside base repo dir - can't find .git"
         return 1
     fi
     ret=0
-    for i in $(ls .git/hooks/* | grep -v '.sample')
+    local hookloc="${gitloc}/hooks"
+    for i in $(ls ${hookloc}/* | grep -v '.sample')
     do
         if [ ! -x $i ]
         then
@@ -808,6 +859,16 @@ git_checkout ()
     fi
     if [ -n "$newbranch" ]
     then
+        if [ "$newbranch" = 'help' ]
+        then
+            echo "Use -help or --help"
+            return
+        fi
+        if [ "$newbranch" = 'info' ]
+        then
+            git branch -vv
+            return
+        fi
         git checkout $createbranch $newbranch
         status=$?
         if [ "$status" = '0' ] && [ "$createbranch" = '-b' ]
@@ -1261,8 +1322,113 @@ git_track_remote_branch ()
 }
 alias git-track-remote-branch='git_track_remote_branch '
 
+## Useful in prompts (PS1).
+git_inside_work_tree ()
+{
+    local print=$1;shift
+    local v=$(git rev-parse  --is-inside-work-tree 2>/dev/null)
+    local r=0
+    [ "$v" = "" ] && r=1
+    [ "$print" = '-p' ] && echo $v
+    return $r ## 0 if in tree, 1 if not
+}
+
+git_get_stash_count ()
+{
+    local pre=$1;shift
+    local post=$1;shift
+    git_inside_work_tree
+    if [ "$?" = '0' ]
+    then
+        local c=$(git stash list | wc -l)
+        echo "${pre}${c}${post}"
+    fi
+}
+
+git_create_worktree ()
+{
+    ## Make sure pwd ends in wt
+    if [[ ! "$(pwd)" =~ /wt$ ]]
+    then
+        echo "Will not create worktrees outside of wt dir. Aborting."
+        return 1
+    fi
+
+    local wt=$1
+    shift
+    wtdir="$(pwd)/$wt"
+    if [ -e $wtdir ]
+    then
+        echo "$wtdir already exists. Aborting."
+        return 1
+    fi
+
+    git worktree add -b "$1" "$1"
+    status=$?
+    if [ ! "$status" = '0' ]
+    then
+        echo "Aborting"
+        return 1
+    fi
+
+    ## put lots of branch code here but add:
+    ## checks for existing worktrees with same name
+    ## allow for suffix to add to worktree so you can dup them if you need to
+    ## set up remote tracking
+EOF
+}
+alias git-worktree='git_worktree '
+
+git_delete_current_worktree ()
+{
+    ## Make sure we are in a proper worktree.
+    if [ ! -f .git ] || [[ ! "$(pwd)" =~ /wt/ ]]
+    then
+        echo "$(pwd) is not a proper worktree for deletion"
+        return 1
+    fi
+
+    ## Make sure it's clean.
+    if [ "$(git status --porcelain | wc -l)" != '0' ]
+    then
+        git status
+        echo
+        echo "Will not delete current worktree"
+        return 1
+    fi
+
+    ## Whack it. Start with the current dir.
+    local delit=$(basename $(pwd))
+    cd ..
+    rm -ir $delit
+
+    ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
+    ## get to first, and bail.
+    while [ "$(basename $(pwd))" != 'wt' ]
+    do
+        if [ -z "$(ls -A $(pwd))" ]
+        then
+            #it's empty
+            delit=$(basename $(pwd))
+            cd ..
+            rm -rf $delit
+            status=$?
+            if [ "$status" != '0' ]
+            then
+                echo "Bad rm. Aborting."
+                return 1;
+            fi
+        else
+            return 0
+        fi
+    done
+}
+alias git-delete-current-worktree='git_delete_current_worktree '
+
 ## Can't use local outside a function.
 typeset forlater='
+
+in order to keep my scripts separate from the main repo
 
 git_create_orphan_branch ()
 {
