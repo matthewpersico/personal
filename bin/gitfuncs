@@ -1473,6 +1473,12 @@ git_get_stash_count ()
     fi
 }
 
+git_create_worktree_usage ()
+{
+    echo "Usage: git_create_worktree branch [remote]"
+    echo "       default remote is 'origin'"
+}
+
 git_create_worktree ()
 {
     ## Make sure pwd ends in wt
@@ -1482,8 +1488,24 @@ git_create_worktree ()
         return 1
     fi
 
+    if [ -z "$1" ]
+    then
+        echo 'Need a branch name to use for the worktree spec.'
+        git_create_worktree_usage
+        return 1
+    fi
     local wt=$1
     shift
+
+    local remote=$1
+    shift
+    if [ -z "$1" ]
+    then
+        remote=origin
+        echo "Using 'origin' as remote."
+    fi
+
+    ## check for existing worktrees with same name
     wtdir="$(pwd)/$wt"
     if [ -e $wtdir ]
     then
@@ -1491,21 +1513,25 @@ git_create_worktree ()
         return 1
     fi
 
-    git worktree add -b "$1" "$1"
+    ## TODO: Allow for suffix to append to worktree name so you can dup them if
+    ## you need to.
+
+    git worktree add -b "$wt" "$wt"
     status=$?
     if [ ! "$status" = '0' ]
     then
-        echo "Aborting"
+        echo "Aborting."
         return 1
     fi
 
-    ## put lots of branch code here but add:
-    ## checks for existing worktrees with same name
-    ## allow for suffix to add to worktree so you can dup them if you need to
-    ## set up remote tracking
-EOF
+    cd $wt
+    git branch --set-upstream-to=$remote/$wt $wt
+    git_go_set
+
 }
-alias git-worktree='git_worktree '
+alias git-create-worktree='git_create_worktree '
+alias git_worktree='git_create_worktree '
+alias git-worktree='git_create_worktree '
 
 git_delete_current_worktree ()
 {
@@ -1560,6 +1586,9 @@ git_add_remote ()
 alias git-add-remote='git_add_remote'
 alias git_remote_add='git-add-remote'
 alias git-remote-add='git_add_remote'
+
+alias git-remotes='git remote -v '
+alias git_remotes='git remote -v '
 
 ## Can't use local outside a function.
 typeset forlater='
