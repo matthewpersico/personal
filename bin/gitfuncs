@@ -259,7 +259,17 @@ git_go_set ()
 
     local repo_find_roots
     local search_roots="$gitfuncs_gitroot"
-    if [ "$1" = '1' ]
+    local addmbig="$1"
+    if [ "$addmbig" = '' ]
+    then
+        grep MBIG $gitfuncs_git_go_file
+        status=$?
+        if ((status==0))
+        then
+            addmbig=1
+        fi
+    fi
+    if [ "$addmbig" = '1' ]
     then
         search_roots="$search_roots $gitfuncs_gitroot_MBIG"
     fi
@@ -435,8 +445,14 @@ git_go ()
         esac
     done
 
-    local REPOS REPO
-    REPOS=$(_git_go_get $opt_update $opt_roots $opt_mbig $opt_wt "$1")
+    local REPOS REPO tgt
+    tgt=$1
+    if [[ "$tgt" =~ /$ ]]
+    then
+        tgt="$(dirname $tgt)/$(basename $tgt)"
+    fi
+
+    REPOS=$(_git_go_get $opt_update $opt_roots $opt_mbig $opt_wt "$tgt")
     if ((opt_subwt_only))
     then
         git_inside_work_tree
@@ -456,7 +472,7 @@ git_go ()
     fi
     if [ -z "$REPOS" ]
     then
-        echo $1 does not match any repo
+        echo $tgt does not match any repo
         git_go_usage
         return
     fi
@@ -485,9 +501,10 @@ git_go ()
 	return
 }
 export -f git_go
-alias git-go=git_go
-alias gitgo=git_go
-alias gitog=git_go
+alias git-go='git_go '
+alias gitgo='git_go '
+alias gitog='git_go '
+alias gitwt='git_go --subwt '
 
 git_get_current_branch ()
 {
@@ -1265,6 +1282,117 @@ bitbucket_clone ()
 }
 export -f bitbucket_clone
 
+_guts_whack ()
+{
+    gitfuncs_audit "$@"
+    if [ -z "$1" ]
+    then
+        echo "Usage: _guts_whack proto namespace repo"
+        echo "       pwd must match |/proto\$|"
+        return 1
+    fi
+
+    local proto=$1;shift
+
+    if [ -z "$1" ]
+    then
+        echo "Usage: ${proto}_whack namespace repo"
+        echo "       pwd must match |/$proto\$|"
+        return 1
+    fi
+
+    local namespace=$1;shift
+    repo=$(basename $namespace) ## Trailing / whacking...
+    local repo=$1;shift
+    repo=$(basename $repo)
+    if [ -z "$repo" ]
+    then
+        echo "Usage: ${proto}_whack namespace repo"
+        echo "       Did you namespace/repo?"
+        return 1
+    fi
+
+    local cwpath=$(realpath $(pwd))
+    local local_proto=$(basename $cwpath)
+    if [ "$local_proto" != "$proto" ]
+    then
+        echo "You must be in a local directory path ending in"
+        echo "   $proto"
+        echo "You are in $cwpath"
+        echo "Correct and re-execute."
+        return 1
+    fi
+
+    if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
+    then
+        echo "$proto is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        return 1
+    fi
+    (
+        ## subshell to avoid cd issues
+
+        ## Go to what we want to whack, to make sure it's there...
+        echo gitgo $proto/$namespace/$repo
+        gitgo $proto/$namespace/$repo
+        status=$?
+        if ((status==0))
+        then
+            ## ...and make sure it's clean
+            dirty=$(git status --porcelain)
+            if [ -z "$dirty" ]
+            then
+                ## We're clean. Whack it.
+                cd ..
+                pwd
+                set -x
+                rm -r -i $repo
+                status=$?
+                if ((status==0))
+                then
+                    ## Remove it from the list of local git repos
+                    git_go_set
+                fi
+            else
+                status=1
+                git status
+            fi
+        fi
+        return $status
+    )
+    status=$?
+    set +x
+    return $status
+}
+export -f _guts_whack
+
+devgit_whack ()
+{
+    gitfuncs_audit "$@"
+    _guts_whack devgit "$@"
+}
+export -f devgit_whack
+
+bbgithub_whack ()
+{
+    gitfuncs_audit "$@"
+    _guts_whack bbgithub "$@"
+}
+export -f bbgithub_whack
+
+github_whack ()
+{
+    gitfuncs_audit "$@"
+    _guts_whack github "$@"
+}
+export -f github_whack
+
+bitbucket_whack ()
+{
+    gitfuncs_audit "$@"
+    _guts_whack bitbucket "$@"
+}
+export -f bitbucket_whack
+
 git_what_is_modified ()
 {
     gitfuncs_audit "$@"
@@ -1424,6 +1552,14 @@ git_delete_current_worktree ()
     done
 }
 alias git-delete-current-worktree='git_delete_current_worktree '
+
+git-add-remote ()
+{
+    echo "git remote add 'remote_name' 'remote_url'"
+}
+alias git_add_remote 'git-add-remote'
+alias git-remote-add 'git-add-remote'
+alias git_remote_add 'git-add-remote'
 
 ## Can't use local outside a function.
 typeset forlater='
