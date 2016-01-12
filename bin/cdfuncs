@@ -71,6 +71,11 @@ setdirlist ()
 {
     cleandirlist
     local p=$(pwd)
+    if [ "$1" = '--nopwd' ]
+    then
+        p=''
+    fi
+
     ## Pull out ~...
 	DIRLISTTMP=$(echo $p ${DIRLIST} | sed "s|\~|$HOME|g" | tr ' ' '\n' | sort -u | grep -v "^${HOME}$")
     local d
@@ -80,7 +85,7 @@ setdirlist ()
     do
         if [ -d $d ]
         then
-            if [ $d == $p ]
+            if [ $d == "$p" ]
             then
                 d="${DIRLIST_PWD_INDIC}$d"
             fi
@@ -177,7 +182,7 @@ export -f writedirlist
 
 _dirlist_select ()
 {
-    local PS3="Choose by number, q to quit: "
+    local PS3="Choose by number, - for prior, q to quit: "
     local d
     select d in $*
     do
@@ -191,11 +196,18 @@ _dirlist_select ()
             else
                 stderrcho "$d no longer exists"
             fi
-        elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
-        then
-            return
         else
-            echo "'$REPLY' is an invalid choice"
+            local reply=$(echo $REPLY | tr '[A-Z]' '[a-z]')
+            if [ "$reply" = 'q' ]
+            then
+                return
+            elif [ "$reply" = '-' ]
+            then
+                builtin cd -
+                return
+            else
+                echo "'$REPLY' is an invalid choice"
+            fi
         fi
     done
 }
@@ -207,10 +219,65 @@ pwdswap ()
 }
 export -f pwdswap
 
+dirlist_usage ()
+{
+    echo Usage: dirlist TBD
+}
+
 dirlist ()
 {
     ## The major input handling points are noted with ## ------
-    setdirlist
+
+    ## The nosave* options are in support of the dirlist -5 foo/bar case. We
+    ## call dirlist on the -5 to go up and on foo./bar to go down. In the first
+    ## call, we do not want the setdirlist at the END of this call to save the
+    ## current directory (the result of the up) on the stack, so we specify
+    ## nosavetarget.  When we make the second call we don't want the current
+    ## directory added to the list in the call to setdirlist at the START of
+    ## the call - that's nosavecurrent.
+
+    local target
+    local current
+
+    ## Have to pull off any negative numbers first so as not to confuse getopt
+    local negs
+    local args
+    while [ -n "$1" ]
+    do
+        is_neg $1
+        if (( $? == 0 ))
+        then
+            negs="$negs $1"
+        else
+            args="$args $1"
+        fi
+        shift
+    done
+
+    ## Put back args
+    eval set -- "$args"
+
+    local OPTSARGS=$(getopt -o h --long nosavetarget,nosavecurrent -n 'dirlist' -- "$@")
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) dirlist_usage; return 0 ;;
+            --nosavetarget) target='--nopwd'; shift;;
+            --nosavecurrent) current='--nopwd'; shift ;;
+
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; dirlist_usage; return 1 ;;
+        esac
+    done
+
+    if [ -n "$negs" ]
+    then
+        eval set -- "$negs $@"
+    fi
+
+    setdirlist $current
+
     if [ -z "$1" ]
     then
         ## ----
@@ -219,7 +286,8 @@ dirlist ()
         ## No args given; present the menu and read choice.
         ## Note: If you
         ##    alias cd=dirlist
-        ## you lose cd == cd ~. Oh well.
+        ## you lose cd == cd ~. Oh well. As a consolation, we always make '~'
+        ## the 1) entry in the menu so 'cd 1' has the same effect.
         _dirlist_select $DIRLIST
     else
         ## --------------
@@ -227,21 +295,35 @@ dirlist ()
         ## --------------
         if (($#==2))
         then
-            ## ---------
-            ## Text swap
-            ## ---------
-            ## 'dirlist x y' changes /a/b/x/f to /a/b/y/f and cd's to the later.
-            ## Some 'cd' commands support this intrinsically (cd x y). However,
-            ## we're not going to bother trying to figure out if this
-            ## version does or not.
-            builtin cd $(pwdswap "$1" "$2")
+            is_neg $1
+            if (( $? == 0 ))
+            then
+                ## We're doing cd -4 a/c, i.e; cd up then down.  The oldpwd
+                ## save and the --nosave* args prevent saving the intermediate
+                ## dir in the list.
+                local oldpwd=$(pwd)
+                dirlist --nosavetarget $1
+                dirlist --nosavecurrent $2
+
+                ## This will undo the effect of the intermediate builtin cd call.
+                export OLDPWD=$oldpwd
+            else
+                ## ---------
+                ## Text swap
+                ## ---------
+                ## 'dirlist x y' changes /a/b/x/f to /a/b/y/f and cd's to the later.
+                ## Some 'cd' commands support this intrinsically (cd x y). However,
+                ## we're not going to bother trying to figure out if this
+                ## version does or not.
+                builtin cd $(pwdswap "$1" "$2")
+            fi
         else
             local tgt=$1;shift
 	        is_int $tgt
-	        if (( $? ))
+	        if (( $? == 0 ))
 	        then
 	            is_neg $tgt
-	            if (( $? ))
+	            if (( $? == 0 ))
 	            then
                     ## --------------------
                     ## Negative integer arg
@@ -288,7 +370,7 @@ dirlist ()
             fi
         fi
     fi
-    setdirlist
+    setdirlist $target
 }
 export -f dirlist
 
@@ -303,10 +385,10 @@ up ()
         tgt=1
     fi
 	is_int $tgt
-	if (( $? ))
+	if (( $? == 0 ))
 	then
 	    is_neg $tgt
-	    if (( $? ))
+	    if (( $? != 0 ))
 	    then
             stderrcho 'up takes positive numbers. We will convert for you.'
         else
