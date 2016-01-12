@@ -23,23 +23,31 @@ add_bb ()
 }
 export -f add_bb
 
+## 0 as true is the 'right' way for UNIX so that (($?)) "works", i.e.; (( $? ))
+## && echo 'truth', because programs return error codes - 0 is no error.  Note,
+## however that if (( $? )) is FALSE. Remember when you were told not to assume
+## that logic values were integers and to mix logic evals with math? :-)
 is_int ()
 {
-    [[ $1 =~ ^-?[0-9]+$ ]] && return 1
-    return 0
+    if [[ $1 =~ ^-?[0-9]+$ ]]
+    then
+        return 0 ## Unix TRUE/success
+    else
+        return 1
+    fi
 
 }
 export -f is_int
 is_neg ()
 {
-    is_int $1 || (( $1 < 0 )) && return 1
-    return 0
+    is_int $1 && (( $1 < 0 )) && return 0
+    return 1
 }
 export -f is_neg
 
 is_pos ()
 {
-    is_int $1 || (( $1 > -1 )) && return 1
+    is_neg $1 && return 1
     return 0
 }
 export -f is_pos
@@ -50,9 +58,10 @@ pause ()
 }
 export -f pause
 
+## Here we went with 0 is true, because it matched the return from potentially
+## executing commands on a 'y' response. Go figure...
 yesno ()
 {
-
     declare prompt_text=$1;shift
     declare prompt="$prompt_text (y/n)"
     declare default=$1;shift
@@ -84,7 +93,7 @@ yesno ()
                 ## No command, give response
 	            echo $resp
 	            return 0
-            elif  [ "$resp" = 'y' ]
+            elif [ "$resp" = 'y' ]
             then
                 $cmd
                 return $?
