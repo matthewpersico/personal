@@ -5,6 +5,23 @@
 ## Filters in where parent ppid is 1 (in case emacs is running a perl debugger
 ## or some other subprocess)
 
+## Temp file for processing and diagnostic messages.
+procs=$(mktemp)
+
+## Set up a trap for cleanup.
+trap finish EXIT SIGINT
+finish ()
+{
+    if [ -e $procs ]
+    then
+        rm -rf $procs
+    fi
+}
+
+##
+## Main
+##
+
 case $(uname) in
     Linux )
         pscmd="ps lx -U ${USER}"
@@ -21,19 +38,6 @@ case $(uname) in
         exit 1
         ;;
 esac
-
-## Temp file for processing and diagnostic messages.
-procs=$(mktemp)
-
-## Set up a trap for cleanup.
-trap finish EXIT SIGINT
-finish ()
-{
-    if [ -e $procs ]
-    then
-        rm -rf $procs
-    fi
-}
 
 ## Get potential emacs server processes
 $pscmd | grep $grepargs | grep -v grep | grep -vi 'emacs -q' >$procs 2>&1
@@ -56,11 +60,7 @@ then
     then
         emacs "$@" &
     else
-        ## So if there is no emacs process running and you try to use visual,
-        ## it will start up from scratch and then go away. If you keep doing
-        ## that all day, best to run this script once from command line before
-        ## you get in that mode.
-        emacs "$@"
+        echo "No emacs server found. Start one and try again or use -m."
     fi
 elif ((serverup==1))
 then
