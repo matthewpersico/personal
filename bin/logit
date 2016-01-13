@@ -9,10 +9,10 @@
 usage ()
 {
     cat <<EOUSAGE
-logit [ --tee | -t ] \\
-      [ --log | -l log_basename ] \\
-      [ --dir | -d log_directory ] \\
-      [ --edit | -e ] [ --purge | -p ] \\
+logit [ --tee ] \\
+      [ --log log_basename ] \\
+      [ --dir log_directory ] \\
+      [ --edit ] [ --purge | --purgeprior ] \\
       [ -- ] \\
       command [arg ..]
 
@@ -34,6 +34,11 @@ logit [ --help | -h ]
       --purge - Remove all similarly named log files before
                 running the command.
 
+      --purgeprior -
+                Remove all similarly named log files before
+                running the command, but keep those with
+                today's date in the log name.
+
       --      - Ends options to logit. Command and its options
                 follow. Only needed if one or more logit options
                 are specified.
@@ -48,10 +53,10 @@ logfile=''
 logdir=''
 teeit=0
 edit=0
-purge=0
+purge=''
 
 # Read the options and args from command line.
-GETOPTOUT=`getopt -o h -l tee,log:,dir:,edit,purge,help -n 'logit' -- "$@"`
+GETOPTOUT=`getopt -o h -l tee,log:,dir:,edit,purge,purgeprior,help -n 'logit' -- "$@"`
 
 # Reset the command line.
 eval set -- "$GETOPTOUT"
@@ -75,7 +80,10 @@ while true ; do
             edit=1
             shift ;;
         --purge)
-            purge=1
+            purge=all
+            shift ;;
+        --purgeprior)
+            purge=prior
             shift ;;
         --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
         *) echo "Internal error!" ; usage 1 ;;
@@ -113,7 +121,9 @@ then
     logfile=$(basename $command)
 fi
 logfileroot="${logfile}.logit"
-logfile="${logfile}.logit.$(date +%Y_%m_%d_%H_%M_%S)"
+now=$(date +%Y_%m_%dT%H_%M_%S)
+logfile="${logfile}.logit.${now}"
+today=${now%%T*}
 
 if [ -z "$logdir" ]
 then
@@ -126,10 +136,17 @@ fi
 
 logspec="$logdir/$logfile"
 logspecroot="$logdir/$logfileroot"
-if (( purge ))
+if [ -n "$purge" ]
 then
-    echo "Purging ${logspecroot}*"
-    rm -f ${logspecroot}*
+    if [ "$purge" = 'all' ]
+    then
+        echo "Purging ${logspecroot}*"
+        rm -f ${logspecroot}*
+    else
+        ## prior day
+        echo "Purging ${logspecroot}*, keeping $today"
+        rm -f $(ls ${logspecroot}* | grep -v logit.${today})
+    fi
 fi
 
 touch $logspec ## Critical for tee below
@@ -149,7 +166,7 @@ then
             termer=$(which $i)
         fi
     done
-    $termer -g 132x40 -e tail -f $logspec &
+    $termer -g 132x40 -title "logit tee on $(hostname)" -e tail -f $logspec &
     sleep 2 ## Give the terminal a chance to come up and start tailing so we
             ## see the whole log in the tali
 fi
