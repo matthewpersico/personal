@@ -116,10 +116,7 @@ then
 fi
 
 # Log file setup
-if [ -z "$logfile" ]
-then
-    logfile=$(basename $command)
-fi
+[ -z "$logfile" ] && logfile=$(basename $command)
 logfileroot="${logfile}.logit"
 now=$(date +%Y_%m_%dT%H_%M_%S)
 logfile="${logfile}.logit.${now}"
@@ -128,9 +125,7 @@ today=${now%%T*}
 if [ -z "$logdir" ]
 then
     logdir=$(pwd)
-    if [ -d ./logit ]
-    then
-        logdir=$(pwd)/logit
+    [ -d ./logit ] && logdir=$(pwd)/logit
     fi
 fi
 
@@ -145,7 +140,8 @@ then
     else
         ## prior day
         echo "Purging ${logspecroot}*, keeping $today"
-        rm -f $(ls ${logspecroot}* | grep -v logit.${today})
+        local rmlist=$(ls ${logspecroot}* 2>/dev/null | grep -v logit.${today})
+        [ -n "$rmlist" ] && rm -f $rmlist
     fi
 fi
 
@@ -161,10 +157,7 @@ then
     termer=''
     for i in xterm rxvt mrxvt
     do
-        if [ -z "$termer" ] && [ -n "$(which $i 2>/dev/null)" ]
-        then
-            termer=$(which $i)
-        fi
+        [ -z "$termer" ] && [ -n "$(which $i 2>/dev/null)" ] && termer=$(which $i)
     done
     $termer -g 132x40 -title "logit tee on $(hostname)" -e tail -f $logspec &
     sleep 2 ## Give the terminal a chance to come up and start tailing so we
