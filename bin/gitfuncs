@@ -754,7 +754,22 @@ alias git-hook-update='git_hook_update '
 git_hook_push ()
 {
     gitfuncs_audit "$@"
-    git init --template=${gitfuncs_githook_root}
+    local current_template=$(git config --get init.templatedir)
+    if [ "$current_template" != "${gitfuncs_githook_root}" ]
+    then
+        echo "Error: Config says init.templatedir = '$current_template'"
+        echo "       It should be '${gitfuncs_githook_root}'"
+        echo "       Please correct."
+        return 1
+    fi
+
+    if [ ! -d "$current_template" ]
+    then
+        echo "Error: Can't find '$current_template'"
+        echo "       Please correct."
+        return 1
+    fi
+
     local hooks="$@"
     if [ -z "$hooks" ]
     then
@@ -770,9 +785,11 @@ git_hook_push ()
     fi
 
     local REPOS REPO
-    REPOS=$(_git_go_get 0 0 1 0)
+    REPOS=$(_git_go_get 0 0 1 0 | grep -v ".git_template" )
     for REPO in $REPOS
     do
+
+        echo "== $REPO"
         for h in $hooks
         do
             local hooktgtdir="${HOME}/$(git_strip_repo $REPO)/.git/hooks"
@@ -801,6 +818,7 @@ git_hook_push ()
     done
 }
 export -f git_hook_push
+alias git-hook-push='git_hook_push '
 
 git_hook_check ()
 {
