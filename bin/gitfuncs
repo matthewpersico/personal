@@ -210,7 +210,7 @@ git_preview_changelogs ()
     gitfuncs_audit "$@"
     local masterCl=$(git_join_changelogs "$@")
     less $masterCl
-    rm -f $masterCl
+    \rm -f $masterCl
 }
 export -f git_preview_changelogs
 
@@ -323,7 +323,7 @@ git_go_set ()
 			                 done
 			             done)
     echo $repo_roots $repo_tops | tr ' ' '\n' | sort -u | sed "s|${HOME}/||" > $gitfuncs_git_go_file
-    ls ${HOME}/gits/.git-go* | grep -v $gitfuncs_git_go_file | xargs rm -f
+    ls ${HOME}/gits/.git-go* | grep -v $gitfuncs_git_go_file | xargs \rm -f
     if [ "$set_x" = '1' ]
     then
         set +x
@@ -390,7 +390,7 @@ _git_go_get ()
     fi
 
     cat $tmpfile
-    rm -f $tmpfile
+    \rm -f $tmpfile
 }
 export -f _git_go_get
 
@@ -1138,12 +1138,18 @@ bbgithub_fork_and_clone ()
     local proto=bbgithub
     if [ -z "$1" ]
     then
-        echo "Usage: bbgithub_fork_and_clone namespace repo"
-        echo "       forks $proto:namespace/repo"
-        echo "       to    $proto:$USER/repo"
-        echo "       then clones to 'repo' in a"
-        echo "       directory path ending in $proto/$USER,"
-        echo "       which must be the pwd."
+        cat <<EOUSAGE
+Usage: bbgithub_fork_and_clone namespace repo
+       forks $proto:namespace/repo
+       to    $proto:$USER/repo
+       then clones to 'repo' in a directory path
+       ending in $proto/$USER, which must be the pwd.
+
+       If the fork already exists, and all you want
+       to do is make a new local clone, run this command
+       anyway. It will not re-fork.
+
+EOUSAGE
         return 1
     fi
     local namespace=$1;shift
@@ -1197,6 +1203,10 @@ bbgithub_fork_and_clone ()
         echo git branch -d temp
         echo status=$?; [ "$status" != '0' ] && return $status
     fi
+
+    echo "Setting up for worktrees..."
+    mkdir wt
+    ls -ld $(pwd)/wt
 
     ## Add this repo to the list
     git_go_set
@@ -1345,7 +1355,7 @@ _guts_whack ()
                 cd ..
                 pwd
                 set -x
-                rm -r -i $repo
+                \rm -r -i $repo
                 status=$?
                 if ((status==0))
                 then
@@ -1481,6 +1491,7 @@ git_create_worktree_usage ()
 
 git_create_worktree ()
 {
+    local verbose=1
     ## Make sure pwd ends in wt
     if [[ ! "$(pwd)" =~ /wt$ ]]
     then
@@ -1505,7 +1516,7 @@ git_create_worktree ()
         echo "Using 'origin' as remote."
     fi
 
-    ## check for existing worktrees with same name
+    ((verbose)) && echo '## check for existing worktrees with same name'
     wtdir="$(pwd)/$wt"
     if [ -e $wtdir ]
     then
@@ -1516,6 +1527,7 @@ git_create_worktree ()
     ## TODO: Allow for suffix to append to worktree name so you can dup them if
     ## you need to.
 
+    ((verbose)) && echo git worktree add -b "$wt" "$wt"
     git worktree add -b "$wt" "$wt"
     status=$?
     if [ ! "$status" = '0' ]
@@ -1524,8 +1536,12 @@ git_create_worktree ()
         return 1
     fi
 
+    ((verbose)) && echo cd $wt
     cd $wt
-    git branch --set-upstream-to=$remote/$wt $wt
+
+    ((verbose)) && echo git push --set-upstream $remote $wt
+    git push --set-upstream $remote $wt
+
     git_go_set
 
 }
@@ -1543,7 +1559,8 @@ git_delete_current_worktree ()
     fi
 
     ## Make sure it's clean.
-    if [ "$(git status --porcelain | wc -l)" != '0' ]
+    if [ "$(git status --porcelain | wc -l)" != '0' ] || \
+           [ "$(git status | grep 'Your branch is' | grep -v 'up-to-date' | wc -l)" != '0' ]
     then
         git status
         echo
@@ -1551,10 +1568,18 @@ git_delete_current_worktree ()
         return 1
     fi
 
+    git status
+    local resp=$(yesno 'Hard check on status for a while. Continue with deletion');
+    if [ "$resp" = 'n' ]
+    then
+        return 0
+    fi
     ## Whack it. Start with the current dir.
     local delit=$(basename $(pwd))
     cd ..
-    rm -ir $delit
+    local resp=$(yesno "Hard check on rm for a while. Continue with $delit");
+    [ "$resp" = 'n' ] && return 0
+    \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
 
     ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
     ## get to first, and bail.
@@ -1565,13 +1590,9 @@ git_delete_current_worktree ()
             #it's empty
             delit=$(basename $(pwd))
             cd ..
-            rm -rf $delit
-            status=$?
-            if [ "$status" != '0' ]
-            then
-                echo "Bad rm. Aborting."
-                return 1;
-            fi
+            resp=$(yesno "Hard check on rm for a while. Continue with $delit");
+            [ "$resp" = 'n' ] && return 0
+            \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
         else
             return 0
         fi
