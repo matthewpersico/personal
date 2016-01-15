@@ -1,6 +1,6 @@
 # -*- sh -*-
 
-# gitfuncs
+# git1funcs
 
 GITFUNCS_FILE=${BASH_SOURCE[0]}
 
@@ -12,7 +12,7 @@ gitfuncs_edit ()
     xo $GITFUNCS_FILE
 }
 export -f gitfuncs_edit
-## I define functions with '_' and aliases with '-' because the emaacs modes
+## I define functions with '_' and aliases with '-' because the emacs modes
 ## that parse for functions to generate jump lists don't see functions with '-'
 ## in their name. Ugh.
 alias gitfuncs-edit=gitfuncs_edit
@@ -182,6 +182,7 @@ git_find_changelogs ()
     echo ${changelogs[@]}
 }
 export -f git_find_changelogs
+alias git-find-changelogs='git_find_changelogs '
 
 git_join_changelogs ()
 {
@@ -197,13 +198,14 @@ git_join_changelogs ()
     local changelogs=$(git_find_changelogs "$@")
     if [ -n "$changelogs" ]
     then
-	    cat $changelogs | grep -v mpersico5 | sed 's/\t//g' >> $f
+        cat $changelogs | grep -v mpersico5 | sed 's/\t//g' >> $f
     else
-	    echo "## No ChangeLogs found" >> $f
+        echo "## No ChangeLogs found" >> $f
     fi
     echo $f
 }
 export -f git_join_changelogs
+alias git-join-changelogs='git_join_changelogs '
 
 git_preview_changelogs ()
 {
@@ -213,6 +215,7 @@ git_preview_changelogs ()
     \rm -f $masterCl
 }
 export -f git_preview_changelogs
+alias git-preview-changelogs='git_preview_changelogs '
 
 alias git-preview-changelogs='git_preview_changelogs '
 
@@ -225,7 +228,7 @@ git_commit_with_changelog ()
     local status=$?
     if ((status==0))
     then
-	    \rm $changelogs $masterCl
+        \rm $changelogs $masterCl
     fi
 }
 export -f git_commit_with_changelog
@@ -237,6 +240,7 @@ git_strip_repo ()
     echo $1 | sed 's/(repo)//'
 }
 export -f git_strip_repo
+alias git-strip-repo='git_strip_repo '
 
 git_add_repo_tag ()
 {
@@ -244,6 +248,7 @@ git_add_repo_tag ()
     echo "$1(repo)"
 }
 export -f git_add_repo_tag
+alias git-add-repo-tag='git_add_repo_tag '
 
 git_go_set ()
 {
@@ -300,28 +305,28 @@ git_go_set ()
 
     local repo_roots=$(local i j
                          for i in $repos $wts
-			             do
+                         do
                              git_add_repo_tag $i
-			                 j=$i
-			                 while [ -n "$j" ] && [ "$j" != 'done' ]
-			                 do
+                             j=$i
+                             while [ -n "$j" ] && [ "$j" != 'done' ]
+                             do
                                  if [ "$j" != "$i" ]
                                  then
                                      echo $j
                                  fi
-				                 if [[ $repo_tops_re =~ ":$j:" ]]
-				                 then
-				                     j='done'
-				                 else
-				                     j=$(dirname $j)
-				                 fi
+                                 if [[ $repo_tops_re =~ ":$j:" ]]
+                                 then
+                                     j='done'
+                                 else
+                                     j=$(dirname $j)
+                                 fi
                                  #for debugging:
                                  if [ $set_x = '1' ]
                                  then
                                      pause 'DEBUG MODE: Hit return to continue: '
                                  fi
-			                 done
-			             done)
+                             done
+                         done)
     echo $repo_roots $repo_tops | tr ' ' '\n' | sort -u | sed "s|${HOME}/||" > $gitfuncs_git_go_file
     ls ${HOME}/gits/.git-go* | grep -v $gitfuncs_git_go_file | xargs \rm -f
     if [ "$set_x" = '1' ]
@@ -359,7 +364,7 @@ _git_go_get ()
     git-go-set-filename
     if [ ! -e $gitfuncs_git_go_file ] || ((update))
     then
-	    git-go-set $mbig
+        git-go-set $mbig
     fi
 
     local tmpfile=$(mktemp)
@@ -481,24 +486,26 @@ git_go ()
         echo "Matches only $REPOS. Going there."
         REPO=$REPOS
     else
+        REPOS=$(tail_number_select $REPOS)
         select REPO in $REPOS
         do
-	        if [ -n "$REPO" ]
-	        then
+            if [ -n "$REPO" ]
+            then
+                REPO=$(tail_number_strip "$REPO")
                 break
             elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
             then
                 return
             else
                 echo "'$REPLY' is an invalid choice"
-	        fi
+            fi
         done
     fi
     ## cd, not builtin cd to take advantage of any cd enhancements that
     ## are in effect (via a cd alias or a cd script in PATH)
-	cd ${HOME}/$(git_strip_repo $REPO)
-    git_hook_check
-	return
+    cd ${HOME}/$(git_strip_repo $REPO)
+    git_check_hook
+    return
 }
 export -f git_go
 alias git-go='git_go '
@@ -519,8 +526,9 @@ git_get_current_branch ()
     )
 }
 export -f git_get_current_branch
-export -f git_get_current_branch
-alias git-get-current-branch=git_get_current_branch
+alias git-get-current-branch='git_get_current_branch '
+alias git-branch-get-current='git_get_current_branch '
+alias git_branch_get_current='git_get_current_branch '
 
 git_help ()
 {
@@ -540,6 +548,7 @@ git_rename_branch_usage()
 {
     echo "Usage: git-rename-branch old_branch new_branch"
 }
+
 git_rename_branch ()
 {
     gitfuncs_audit "$@"
@@ -577,7 +586,9 @@ git_rename_branch ()
     return $?
 }
 export -f git_rename_branch
-alias git-rename-branch=git_rename_branch
+alias git-rename-branch='git_rename_branch '
+alias git-branch-rename='git_rename_branch '
+alias git_branch_rename='git_rename_branch '
 
 ## I prefer not to delete branches. I'd rather rename them
 git_close_branch ()
@@ -614,7 +625,9 @@ git_close_branch ()
     return $?
 }
 export -f git_close_branch
-alias git-close-branch=git_close_branch
+alias git-close-branch='git_close_branch '
+alias git-branch-close='git_close_branch '
+alias git_branch_close='git_close_branch '
 
 git_close_current_branch ()
 {
@@ -624,6 +637,8 @@ git_close_current_branch ()
 }
 export -f git_close_current_branch
 alias git-close-current-branch=git_close_current_branch
+alias git-branch-close-current='git_close_current_branch '
+alias git_branch_close_current='git_close_current_branch '
 
 git_delete_branch ()
 {
@@ -701,7 +716,9 @@ git_delete_branch ()
     return 0
 }
 export -f git_delete_branch
-alias git-delete-branch=git_delete_branch
+alias git-delete-branch='git_delete_branch '
+alias git-branch-delete='git_delete_branch '
+alias git_branch_delete='git_delete_branch '
 
 git_set_locals ()
 {
@@ -718,7 +735,7 @@ git_set_locals ()
 export -f git_set_locals
 alias git-set-locals=git_set_locals
 
-git_hook_update ()
+git_update_hook ()
 {
     gitfuncs_audit "$@"
     local hooks="$@"
@@ -748,10 +765,12 @@ git_hook_update ()
         done
     done
 }
-export -f git_hook_update
-alias git-hook-update='git_hook_update '
+export -f git_update_hook
+alias git-update-hook='git_update_hook '
+alias git_hook_update='git_update_hook '
+alias git-hook-update='git_update_hook '
 
-git_hook_push ()
+git_push_hook ()
 {
     gitfuncs_audit "$@"
     local current_template=$(git config --get init.templatedir)
@@ -817,10 +836,12 @@ git_hook_push ()
         done
     done
 }
-export -f git_hook_push
-alias git-hook-push='git_hook_push '
+export -f git_push_hook
+alias git-push-hook='git_push_hook '
+alias git_hook_push='git_push_hook '
+alias git-hook-push='git_push_hook '
 
-git_hook_check ()
+git_check_hook ()
 {
     gitfuncs_audit "$@"
     local gitloc="./.git"
@@ -832,7 +853,7 @@ git_hook_check ()
     fi
     if [ ! -d $gitloc ]
     then
-        echo "Cannot run git_hook_check outside base repo dir - can't find .git"
+        echo "Cannot run git_check_hook outside base repo dir - can't find .git"
         return 1
     fi
     ret=0
@@ -847,7 +868,10 @@ git_hook_check ()
     done
     return 0
 }
-export -f git_hook_check
+export -f git_check_hook
+alias git-check-hook='git_check_hook '
+alias git_hook_check='git_check_hook '
+alias git-hook-check='git_check_hook '
 
 git_checkout ()
 {
@@ -914,6 +938,7 @@ git_checkout ()
     fi
 }
 export -f git_checkout
+alias git-checkout='git_checkout '
 
 alias git-checkout='git_checkout '
 alias git-branches='git_checkout '
@@ -932,6 +957,7 @@ git_parse_remote_v ()
         gitfuncs_remotes[$key]=$value
     done
 }
+alias git-parse-remote-v='git_parse_remote_v '
 
 git_sync_with_master ()
 {
@@ -951,6 +977,7 @@ git_sync_with_master ()
     return $?
 }
 export -f git_sync_with_master
+alias git-sync-with-master='git_sync_with_master '
 
 git_sync_with_remote_usage ()
 {
@@ -958,6 +985,7 @@ git_sync_with_remote_usage ()
     echo "       remoteRepoTag defaults to 'origin'"
 }
 export -f git_sync_with_remote_usage
+alias git-sync-with-remote-usage='git_sync_with_remote_usage '
 
 git_sync_with_remote ()
 {
@@ -1115,6 +1143,7 @@ EOF
 
 }
 export -f git_sync_with_remote
+alias git-sync-with-remote='git_sync_with_remote '
 
 alias git-update='git_sync_with_master '
 alias git-sync-with-master='git_sync_with_master '
@@ -1147,7 +1176,6 @@ diff specific files between two branches:
 EOF
 }
 export -f git_diff_faq
-
 alias git-diff-faq=git_diff_faq
 
 bbgithub_fork_and_clone ()
@@ -1230,6 +1258,9 @@ EOUSAGE
     git_go_set
 }
 export -f bbgithub_fork_and_clone
+alias bbgithub-fork-and-clone='bbgithub_fork_and_clone '
+alias fork_and_clone_bbgithub='bbgithub_fork_and_clone '
+alias fork-and-clone-bbgithub='bbgithub_fork_and_clone '
 
 _guts_clone ()
 {
@@ -1288,6 +1319,9 @@ devgit_clone ()
     _guts_clone devgit "$@"
 }
 export -f devgit_clone
+alias devgit-clone='devgit_clone '
+alias git_clone_devgit='devgit_clone '
+alias git-clone-devgit='devgit_clone '
 
 bbgithub_clone ()
 {
@@ -1295,6 +1329,9 @@ bbgithub_clone ()
     _guts_clone bbgithub "$@"
 }
 export -f bbgithub_clone
+alias bbgithub-clone='bbgithub_clone '
+alias git_clone_bbgithub='bbgithub_clone '
+alias git-clone-bbgithub='bbgithub_clone '
 
 github_clone ()
 {
@@ -1302,6 +1339,9 @@ github_clone ()
     _guts_clone github "$@"
 }
 export -f github_clone
+alias github-clone='github_clone '
+alias git_clone_github='github_clone '
+alias git-clone-github='github_clone '
 
 bitbucket_clone ()
 {
@@ -1309,6 +1349,9 @@ bitbucket_clone ()
     _guts_clone bitbucket "$@"
 }
 export -f bitbucket_clone
+alias bitbucket-clone='bitbucket_clone '
+alias git_clone_bitbucket='bitbucket_clone '
+alias git-clone-bitbucket='bitbucket_clone '
 
 _guts_whack ()
 {
@@ -1399,6 +1442,9 @@ devgit_whack ()
     _guts_whack devgit "$@"
 }
 export -f devgit_whack
+alias devgit-whack='devgit_whack '
+alias git_whack_devgit='devgit_whack '
+alias git-whack-devgit='devgit_whack '
 
 bbgithub_whack ()
 {
@@ -1406,6 +1452,9 @@ bbgithub_whack ()
     _guts_whack bbgithub "$@"
 }
 export -f bbgithub_whack
+alias bbgithub-whack='bbgithub_whack '
+alias git_whack_bbgithub='bbgithub_whack '
+alias git-whack-bbgithub='bbgithub_whack '
 
 github_whack ()
 {
@@ -1413,6 +1462,9 @@ github_whack ()
     _guts_whack github "$@"
 }
 export -f github_whack
+alias github-whack='github_whack '
+alias git_whack_github='github_whack '
+alias git-whack-github='github_whack '
 
 bitbucket_whack ()
 {
@@ -1420,6 +1472,9 @@ bitbucket_whack ()
     _guts_whack bitbucket "$@"
 }
 export -f bitbucket_whack
+alias bitbucket-whack='bitbucket_whack '
+alias git_whack_bitbucket='bitbucket_whack '
+alias git-whack-bitbucket='bitbucket_whack '
 
 git_what_is_modified ()
 {
@@ -1458,6 +1513,7 @@ git_what_can_be_committed ()
     echo "$dirs $files" | tr ' ' '\n' | uniq
 }
 export -f git_what_can_be_committed
+alias git-what-can-be-committed='git_what_can_be_committed '
 
 alias git-what-can-be-committed='git_what_can_be_committed '
 alias git-what-is-committable='git_what_can_be_committed '
@@ -1477,6 +1533,8 @@ git_track_remote_branch ()
     return $?
 }
 alias git-track-remote-branch='git_track_remote_branch '
+alias git_branch_track_remote='git_track_remote_branch '
+alias git-branch-track-remote='git_track_remote_branch '
 
 ## Useful in prompts (PS1).
 git_inside_work_tree ()
@@ -1488,6 +1546,7 @@ git_inside_work_tree ()
     [ "$print" = '-p' ] && echo $v
     return $r ## 0 if in tree, 1 if not
 }
+alias git-inside-work-tree='git_inside_work_tree '
 
 git_get_stash_count ()
 {
@@ -1500,12 +1559,18 @@ git_get_stash_count ()
         echo "${pre}${c}${post}"
     fi
 }
+alias git-get-stash-count='git_get_stash_count '
+alias git_stash_get_count='git_get_stash_count '
+alias git-stash-get-count='git_get_stash_count '
 
 git_create_worktree_usage ()
 {
     echo "Usage: git_create_worktree branch [remote]"
     echo "       default remote is 'origin'"
 }
+alias git-create-worktree-usage='git_create_worktree_usage '
+alias git_worktree_create_usage='git_create_worktree_usage '
+alias git-worktree-create-usage='git_create_worktree_usage '
 
 git_create_worktree ()
 {
@@ -1564,6 +1629,8 @@ git_create_worktree ()
 
 }
 alias git-create-worktree='git_create_worktree '
+alias git_worktree_create='git_create_worktree '
+alias git-worktree-create='git_create_worktree '
 alias git_worktree='git_create_worktree '
 alias git-worktree='git_create_worktree '
 
@@ -1617,10 +1684,37 @@ git_delete_current_worktree ()
     done
 }
 alias git-delete-current-worktree='git_delete_current_worktree '
+alias git_worktree_delete-current='git_delete_current_worktree '
+alias git-worktree-delete_current='git_delete_current_worktree '
+
+git_add_remote_usage ()
+{
+    cat <<EOF
+usage: git_add_remote proto namespace"
+       Adds proto:namespace/current_repo"
+       as a remote named 'namespace'."
+       Use this to get at people's"
+       branches on a repo fork."
+EOF
+}
 
 git_add_remote ()
 {
-    echo "git remote add 'remote_name' 'remote_url'"
+    set -x
+    if [ "$#" != '2' ]
+    then
+        git_add_remote_usage; return 1
+    fi
+    local proto=$1; shift
+    local remote=$1; shift
+    current_repo=$(git_get_current_repo_name)
+    git remote add $remote $proto:$remote/$current_repo
+    local $status=$?
+    if (( $status == 0 ))
+    then
+        git remote -v | grep $remote
+    fi
+    return $status
 }
 alias git-add-remote='git_add_remote'
 alias git_remote_add='git-add-remote'
@@ -1641,6 +1735,10 @@ git_state ()
 alias git-state='git_state '
 alias git-st='git_state '
 
+git_get_current_repo_name ()
+{
+    git remote -v | grep origin | sed 's|.*/||' | sed 's/ .*//' | sort -u
+}
 
 ## Can't use local outside a function.
 typeset forlater='
@@ -1691,5 +1789,6 @@ ready to prepare your new files, repopulating the working tree, by copying them
 from elsewhere, extracting a tarball, etc.
 }
 export -f git_create_orphan_branch
+alias git-create-orphan-branch=''git_create_orphan_branch ''
 
 '
