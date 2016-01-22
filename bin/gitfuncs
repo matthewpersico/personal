@@ -64,7 +64,14 @@ fi
 ## Random aliases
 ##
 alias gitpush='git push '
+alias gitk="$(which gitk | tail -1 | sed 's/ +//') &"
+alias git_grep='git grep '
+alias git-grep='git grep '
+alias gitgrep='git grep '
 
+##
+## Goodies
+###
 _git_st_strip_usage ()
 {
     gitfuncs_audit "$@"
@@ -126,10 +133,6 @@ git_find_conflicts ()
 }
 export -f git_find_conflicts
 alias git-find-conflicts='git_find_conflicts '
-
-alias git_grep='git grep '
-alias git-grep='git grep '
-alias gitgrep='git grep '
 
 git_find_changelogs ()
 {
@@ -215,8 +218,6 @@ git_preview_changelogs ()
     \rm -f $masterCl
 }
 export -f git_preview_changelogs
-alias git-preview-changelogs='git_preview_changelogs '
-
 alias git-preview-changelogs='git_preview_changelogs '
 
 git_commit_with_changelog ()
@@ -597,7 +598,7 @@ git_close_branch ()
     local old_branch=$1
     if [ -z "$old_branch" ]
     then
-        local branchesa=($(git branch --list | sed 's/.* //' ))
+        local branchesa=($(git_branch_list))
         if [ ${#branchesa[@]} == '0' ]
         then
             echo "No branches found. Are you in a git repo?"
@@ -653,7 +654,7 @@ git_delete_branch ()
     local current_branch=$(git_get_current_branch)
     if [ -z "$branch" ]
     then
-        local branchesa=($(git branch --list | sed 's/.* //' ))
+        local branchesa=($(git_branch_list))
         if [ ${#branchesa[@]} == '0' ]
         then
             echo "No branches found. Are you in a git repo?"
@@ -698,7 +699,7 @@ git_delete_branch ()
         remotes=$(git remote)
         for remote in $remotes
         do
-            local inremote=$(git branch --list -r | grep "$remote/$branch")
+            local inremote=$(git_branch_list -r | grep "$remote/$branch")
             if [ -n "$inremote" ]
             then
                 local resp=$(yesno "Try deleting in remote $remote" n)
@@ -880,7 +881,7 @@ git_checkout ()
     local createbranch=''
     if [ -z "$newbranch" ]
     then
-        local branchesa=($(git branch --list | sed 's/.* //' ))
+        local branchesa=($(git_branch_list))
         if [ ${#branchesa[@]} == '0' ]
         then
             echo "No branches found. Are you in a git repo?"
@@ -939,8 +940,6 @@ git_checkout ()
 }
 export -f git_checkout
 alias git-checkout='git_checkout '
-
-alias git-checkout='git_checkout '
 alias git-branches='git_checkout '
 alias git-br='git_checkout '
 alias gitbr='git_checkout '
@@ -978,10 +977,12 @@ git_sync_with_master ()
 }
 export -f git_sync_with_master
 alias git-sync-with-master='git_sync_with_master '
+alias git-update='git_sync_with_master '
+alias git-rebase-on-master='git_sync_with_master '
 
 git_sync_with_remote_usage ()
 {
-    echo "Usage: $1 --branch otherBranch [--remote remoteRepoTag]"
+    echo "Usage: $1 --branch otherBranch [--remote remote]"
     echo "       remoteRepoTag defaults to 'origin'"
 }
 export -f git_sync_with_remote_usage
@@ -1004,7 +1005,7 @@ git_sync_with_remote ()
         case "$1" in
             -r|--remote) opt_remote="$2"; shift; shift ;;
             -b|--branch) opt_branch="$2"; shift; shift ;;
-            -h|--help) git_sync_with_upstream_usage $iam; return 0 ;;
+            -h|--help) git_sync_with_remote_usage $iam; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; git_sync_with_upstream_usage $iam; return 1 ;;
         esac
@@ -1144,10 +1145,6 @@ EOF
 }
 export -f git_sync_with_remote
 alias git-sync-with-remote='git_sync_with_remote '
-
-alias git-update='git_sync_with_master '
-alias git-sync-with-master='git_sync_with_master '
-alias git-rebase-on-master='git_sync_with_master '
 
 git_diff_faq ()
 {
@@ -1514,8 +1511,6 @@ git_what_can_be_committed ()
 }
 export -f git_what_can_be_committed
 alias git-what-can-be-committed='git_what_can_be_committed '
-
-alias git-what-can-be-committed='git_what_can_be_committed '
 alias git-what-is-committable='git_what_can_be_committed '
 
 git_track_remote_branch ()
@@ -1542,7 +1537,7 @@ git_inside_work_tree ()
     local print=$1;shift
     local v=$(git rev-parse  --is-inside-work-tree 2>/dev/null)
     local r=0
-    [ "$v" = "" ] && r=1
+    [ "$v" != "true" ] && r=1
     [ "$print" = '-p' ] && echo $v
     return $r ## 0 if in tree, 1 if not
 }
@@ -1610,8 +1605,16 @@ git_create_worktree ()
     ## TODO: Allow for suffix to append to worktree name so you can dup them if
     ## you need to.
 
-    ((verbose)) && echo git worktree add -b "$wt" "$wt"
-    git worktree add -b "$wt" "$wt"
+    ((verbose)) && echo '## check for existing branch'
+    local create_branch="-b"
+    local exists=$(git_branch_list | grep $wt)
+    if [ -n "$exists" ]
+    then
+        echo "Branch $wt already exists. Using it."
+        create_branch=''
+    fi
+    ((verbose)) && echo git worktree add $create_branch "$wt" "$wt"
+    git worktree add $create_branch "$wt" "$wt"
     status=$?
     if [ ! "$status" = '0' ]
     then
@@ -1739,6 +1742,34 @@ alias git-st='git_state '
 git_get_current_repo_name ()
 {
     git remote -v | grep origin | sed 's|.*/||' | sed 's/ .*//' | sort -u
+}
+
+git_branch_list ()
+{
+    gitfuncs_audit "$@"
+    local strip=1
+    local remote=''
+    local OPTSARGS=$(getopt -o r --long strip,nostrip,remote -n 'git-branch-list' -- "$@")
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -r | --remote) remote='-r'; shift;;
+            --strip) strip=1; shift;;
+            --nostrip) strip=0; shift;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; git-st-strip-usage; return 1 ;;
+        esac
+    done
+
+    local opts="--list --no-color $remote"
+    if ((strip))
+    then
+        git branch $opts | sed 's/.* //'
+    else
+        git branch $opts
+    fi
+
 }
 
 ## Can't use local outside a function.
