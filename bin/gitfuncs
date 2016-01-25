@@ -92,6 +92,9 @@ git_st_strip ()
 {
     gitfuncs_audit "$@"
     local OPTSARGS=$(getopt -o h --long help -n 'git-st-strip' -- "$@")
+    status=$?
+    ((status != 0)) && _git_st_strip_usage && return $status
+
     eval set -- "$OPTSARGS"
     while true
     do
@@ -435,6 +438,8 @@ git_go ()
     local opt_wt=1
     local opt_subwt_only=0
     local OPTSARGS=$(getopt -o urmh --long update,roots,mbig,wt,nowt,subwt,help -n 'git-go' -- "$@")
+    status=$?
+    ((status != 0)) && git_go_usage && return $status
     eval set -- "$OPTSARGS"
     while true
     do
@@ -502,9 +507,8 @@ git_go ()
             fi
         done
     fi
-    ## cd, not builtin cd to take advantage of any cd enhancements that
-    ## are in effect (via a cd alias or a cd script in PATH)
-    cd ${HOME}/$(git_strip_repo $REPO)
+    ## dirlist, not builtin cd, to take advantage this cd enhancement
+    dirlist ${HOME}/$(git_strip_repo $REPO)
     git_check_hook
     return
 }
@@ -519,9 +523,8 @@ git_get_current_branch ()
     gitfuncs_audit "$@"
     ( if [ -n "$1" ]
       then
-          ## cd, not builtin cd to take advantage of any cd enhancements that
-          ## are in effect (via a cd alias or a cd script in PATH)
-          cd $1
+          ## dirlist, not builtin cd, to take advantage this cd enhancement
+          dirlist $1
       fi
       git rev-parse --abbrev-ref HEAD
     )
@@ -999,6 +1002,8 @@ git_sync_with_remote ()
         iam=git_sync_with_master
     fi
     local OPTSARGS=$(getopt -o hbr --long help,branch:,remote: -n $iam -- "$@")
+    status=$?
+    ((status != 0)) && git_synvcc_with_remote_usage && return $status
     eval set -- "$OPTSARGS"
     while true
     do
@@ -1218,7 +1223,8 @@ EOUSAGE
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
 
-    cd $repo
+    ## dirlist, not builtin cd, to take advantage this cd enhancement
+    dirlist $repo
     git remote -v
 
     ## Check for master. Some repos arrange it so that the default for clones
@@ -1302,7 +1308,8 @@ _guts_clone ()
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
 
-    cd $namespace/$repo
+    ## dirlist, not builtin cd, to take advantage this cd enhancement
+    dirlist $namespace/$repo
     git remote -v
 
     ## Add this repo to the list
@@ -1410,7 +1417,7 @@ _guts_whack ()
             if [ -z "$dirty" ]
             then
                 ## We're clean. Whack it.
-                cd ..
+                builtin cd ..
                 pwd
                 set -x
                 \rm -r -i $repo
@@ -1623,7 +1630,8 @@ git_create_worktree ()
     fi
 
     ((verbose)) && echo cd $wt
-    cd $wt
+    ## dirlist, not builtin cd, to take advantage this cd enhancement
+    dirlist $wt
 
     ((verbose)) && echo git push --set-upstream $remote $wt
     git push --set-upstream $remote $wt
@@ -1664,7 +1672,7 @@ git_delete_current_worktree ()
     fi
     ## Whack it. Start with the current dir.
     local delit=$(basename $(pwd))
-    cd ..
+    builtin cd ..
     local resp=$(yesno "Hard check on rm for a while. Continue with $delit");
     [ "$resp" = 'n' ] && return 0
     \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
@@ -1677,7 +1685,7 @@ git_delete_current_worktree ()
         then
             #it's empty
             delit=$(basename $(pwd))
-            cd ..
+            builtin cd ..
             resp=$(yesno "Hard check on rm for a while. Continue with $delit");
             [ "$resp" = 'n' ] && return 0
             \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
@@ -1750,6 +1758,8 @@ git_branch_list ()
     local strip=1
     local remote=''
     local OPTSARGS=$(getopt -o r --long strip,nostrip,remote -n 'git-branch-list' -- "$@")
+    status=$?
+    ((status != 0)) && echo "Exiting." && return $status
     eval set -- "$OPTSARGS"
     while true
     do
