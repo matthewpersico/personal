@@ -42,7 +42,7 @@ rsync2nfs ()
             -h|--help) _rsync2nfs_usage; return 0 ;;
             -t|--target) shift; target=$1; shift ;;
             -v|--verbose) verbose='-v'; shift ;;
-            --timestamp) rm ~/rsync2fs.timestamp.*
+            --timestamp) /bin/rm -f ~/rsync2fs.timestamp.*
                          touch ~/rsync2fs.timestamp.$(date +%Y-%m-%dT%H-%M-%S)
                          shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
@@ -71,10 +71,15 @@ rsync2nfs ()
     ## -v - verbose
     ## --delete - if it was deleted in the source, delete it in the target too.
     ## -i - ssh stuff
-    local sshfile="${HOME}/.ssh/$(hostname)"
-    if [ ! -e $sshfile ]
+    local sshfile
+    for i in "${HOME}/.ssh/$(hostname)" "${HOME}/.ssh/id_rsa.$(hostname)"
+    do
+        [ -e $i ] && sshfile=$i
+    done
+    if [ -z "$sshfile" ]
     then
-        echo "!! Cannot rsync - ssh file $sshfile not found"
+        echo "!! Cannot rsync - no ssh identity file found"
+        return 1
     fi
     local sshtext="ssh -i $sshfile"
     rsync -e "$sshtext" -a -z -r -l $verbose --delete "$@" $target
@@ -91,12 +96,23 @@ NFSMACHINE=nylxdev1.dev.bloomberg.com
 vmrsyncgits ()
 {
     rsync2nfs -v --timestamp --target $NFSMACHINE:vmstashes/$(hostname)/mpersico5 ~/gits
+    return $?
 }
 export -f vmrsyncgits
 
 vmrsync ()
 {
-    rsync2nfs -v --timestamp --target $NFSMACHINE:vmstashes/$(hostname) ~
+    target="$NFSMACHINE:vmstashes/$(hostname)"
+    running="$(ps lxf | grep rsync | grep $target)"
+    if [ -z "$running" ]
+    then
+        rsync2nfs -v --timestamp --target $target ~
+        return $?
+    else
+        echo Another vmrsync appears to be running:
+        echo $running
+        return 1
+    fi
 }
 export -f vmrsync
 alias vmsync='vmrsync '
