@@ -12,36 +12,39 @@ usage ()
 logit [ --tee ] \\
       [ --log log_basename ] \\
       [ --dir log_directory ] \\
-      [ --edit ] [ --purge | --purgeprior ] \\
+      [ [--edit ] || --editor "command" ] \
+      [ --purge | --purgeprior ] \\
       [ -- ] \\
       command [arg ..]
 
 logit [ --help | -h ]
 
-      --tee   - Spin up a terminal and show the log
-                output in it as it is generated.
+      --tee    - Spin up a terminal and show the log
+                 output in it as it is generated.
 
-      --log   - Provide a name for the log if the command is
-                generic.
+      --log    - Provide a name for the log if the command is
+                 generic.
 
-      --dir   - Put the logs in specifed directory, not
-                current working directory. If not specified
-                and there is a 'logit' subdir of the current
-                working directory, logs will be placed in './logit'.
+      --dir    - Put the logs in specifed directory, not
+                 current working directory. If not specified
+                 and there is a 'logit' subdir of the current
+                 working directory, logs will be placed in './logit'.
 
-      --edit  - Run $EDITOR on the log file when complete.
+      --edit   - Run \$EDITOR ($EDITOR) on the log file when complete.
 
-      --purge - Remove all similarly named log files before
-                running the command.
+      --editor - Run "command" on the log file when complete.
+
+      --purge  - Remove all similarly named log files before
+                 running the command.
 
       --purgeprior -
-                Remove all similarly named log files before
-                running the command, but keep those with
-                today's date in the log name.
+                 Remove all similarly named log files before
+                 running the command, but keep those with
+                 today's date in the log name.
 
-      --      - Ends options to logit. Command and its options
-                follow. Only needed if one or more logit options
-                are specified.
+      --       - Ends options to logit. Command and its options
+                 follow. Only needed if one or more logit options
+                 are specified.
 
       --help  - show this text.
 EOUSAGE
@@ -52,11 +55,11 @@ EOUSAGE
 logfile=''
 logdir=''
 teeit=0
-edit=0
+edit=''
 purge=''
 
 # Read the options and args from command line.
-GETOPTOUT=`getopt -o h -l tee,log:,dir:,edit,purge,purgeprior,help -n 'logit' -- "$@"`
+GETOPTOUT=`getopt -o h -l tee,log:,dir:,edit,editor:,purge,purgeprior,help,cmd -n 'logit' -- "$@"`
 status=$?
 ((status != 0)) && echo "Exiting." && exit $status
 
@@ -79,8 +82,11 @@ while true ; do
             teeit=1
             shift ;;
         --edit)
-            edit=1
+            edit="$EDITOR"
             shift ;;
+        --editor)
+            edit="$2"
+            shift 2 ;;
         --purge)
             purge=all
             shift ;;
@@ -199,9 +205,9 @@ status=$?
 echo "$logmsg"
 echo "Exit status: $status"
 
-if ((edit))
+if [ -n "$edit" ]
 then
-    $EDITOR $logspec &
+    $edit $logspec &
 fi
 
 exit $status
