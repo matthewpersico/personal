@@ -626,6 +626,11 @@ git_close_branch ()
 
     local new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
     git-rename-branch $old_branch $new_branch
+    status=$?
+    ((status != 0)) && return $status
+
+    ## Update with changed branches
+    git_go_set
     return $?
 }
 export -f git_close_branch
@@ -717,7 +722,9 @@ git_delete_branch ()
         done
     fi
 
-    return 0
+    ## Update with changed branches
+    git_go_set
+    return $?
 }
 export -f git_delete_branch
 alias git-delete-branch='git_delete_branch '
@@ -888,7 +895,7 @@ git_checkout ()
         if [ ${#branchesa[@]} == '0' ]
         then
             echo "No branches found. Are you in a git repo?"
-            return
+            return 1
         fi
         local current_branch=$(git_get_current_branch)
         local PS3="Choose by number, q to quit: "
@@ -914,7 +921,7 @@ git_checkout ()
                 break
             elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
             then
-                return
+                return 0
             else
                 echo "'$REPLY' is an invalid choice"
             fi
@@ -939,7 +946,12 @@ git_checkout ()
             echo "Setting upstream..."
             git push --set-upstream origin $newbranch
         fi
+
+        ## Update with changed branches
+        git_go_set
+        return $?
     fi
+    return 0
 }
 export -f git_checkout
 alias git-checkout='git_checkout '
@@ -1636,8 +1648,8 @@ git_create_worktree ()
     ((verbose)) && echo git push --set-upstream $remote $wt
     git push --set-upstream $remote $wt
 
+    ## Add this repo to the list
     git_go_set
-
 }
 alias git-create-worktree='git_create_worktree '
 alias git_worktree_create='git_create_worktree '
@@ -1689,15 +1701,46 @@ git_delete_current_worktree ()
             resp=$(yesno "Hard check on rm for a while. Continue with $delit");
             [ "$resp" = 'n' ] && return 0
             \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
-        else
-            git_go_set
-            return 0
         fi
     done
+
+    git_go_set
+    return 0
 }
 alias git-delete-current-worktree='git_delete_current_worktree '
 alias git_worktree_delete_current='git_delete_current_worktree '
 alias git-worktree-delete-current='git_delete_current_worktree '
+
+git_in_a_worktree ()
+{
+    ## 0 is true!
+    [[  "$(pwd)" =~ /wt/ ]]; return $?
+}
+
+git_worktree_diff_to_root ()
+{
+    local in_a_wt=$(git_in_a_worktree)
+    if (( in_a_wt == 1 ))
+    then
+        echo "Must be in a wt"
+        return 1;
+    fi
+
+    local files=$(git ls-files)
+    if [ -z "$files" ]
+    then
+        echo "No git files found. Is current dir '$(pwd)' a git repo?"
+        return 1;
+    fi
+
+    local root=$(pwd);
+    root=${root%%/wt*}
+    for i in $files
+    do
+        git diff --no-index $i ${root}/$i 2>&1
+    done
+}
+alias git-worktree-diff-to-root='git_worktree_diff_to_root '
 
 git_add_remote_usage ()
 {
