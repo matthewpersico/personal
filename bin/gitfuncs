@@ -72,43 +72,49 @@ alias gitgrep='git grep '
 ##
 ## Goodies
 ###
-_git_st_strip_usage ()
-{
-    gitfuncs_audit "$@"
-    echo "Usage: git-st-strip [arg ...]"
-    echo "       git-st-strip [--help|-h]"
-    echo
-    echo "       Runs 'git status -s' and removes the leading"
-    echo "       status indicators"
-    echo
-    echo "       'arg' is any argument you would normally"
-    echo "       pass to 'git status'. If you pass options,"
-    echo "       behavior is undefined."
+git_st_por_usage () {
+            echo "Usage: git-st-por [--strip [--]| -s [--]]  [arg ...]"
+            echo "       git-st-por [--help|-h]"
+            echo
+            echo "       'git status' in porcelain mode."
+            echo
+            echo "       '--strip' will get remove the leading"
+            echo "       status indicators. You need the '--'"
+            echo "       that follows if you are passing other"
+            echo "       'git status' options down."
+            echo
+            echo "       'arg' is any argument (or option, see"
+            echo "       above) that you would normally"
+            echo "       pass to 'git status'"
 }
-export -f _git_st_strip_usage
-alias _git-st-strip-usage=_git_st_strip_usage
 
-git_st_strip ()
-{
-    gitfuncs_audit "$@"
-    local OPTSARGS=$(getopt -o h --long help -n 'git-st-strip' -- "$@")
-    status=$?
-    ((status != 0)) && _git_st_strip_usage && return $status
+git_st_por () {
+    local opt_strip=0
+    OPTSARGS=$(getopt -o sh --long strip,help -n 'git-st-por' -- "$@")
+    local status=$?
+    ((status != 0)) && git_st_por_usage && return $status
 
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
-            -h|--help) _git-st-strip-usage; return 0 ;;
+            -s|--strip) opt_strip=1; shift ;;
+            -h|--help) git_st_por_usage; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; git-st-strip-usage; return 1 ;;
+            *) echo "Internal error!"; git-st-por-usage; return 1 ;;
         esac
     done
 
-    git status -s "$@" | sed 's/.* //'
+    if ((opt_strip))
+    then
+        git st --porcelain "$@" | sed 's/.* //'
+    else
+        git st --porcelain "$@"
+    fi
+    return $?
 }
-export -f git_st_strip
-alias git-st-strip=git_st_strip
+export -f git_st_por
+alias git-st-por='git_st_por '
 
 git_find ()
 {
