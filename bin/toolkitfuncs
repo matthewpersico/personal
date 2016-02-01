@@ -1,0 +1,105 @@
+# -*- sh -*-
+
+# toolkitfuncs
+
+TOOLKITFUNCS_FILE=${BASH_SOURCE[0]}
+
+toolkitfuncs_edit ()
+{
+    xo $TOOLKITFUNCS_FILE
+}
+export -f toolkitfuncs_edit
+alias toolkitfuncs-edit=toolkitfuncs_edit
+
+toolkitfuncs_reload ()
+{
+    . $TOOLKITFUNCS_FILE
+}
+export -f toolkitfuncs_reload
+alias toolkitfuncs-reload=toolkitfuncs_reload
+alias toolkitfuncs-load=toolkitfuncs_reload
+
+TOOLKITFUNCS_TOOLKIT_FILE=~/.ssh/id_rsa.toolkit
+TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE=~/.ssh/id_rsa.toolkit.expires
+TOOLKITFUNCS_BCPCVMS_FILE=~/personal/bin/.bcpcvms
+typeset -a TOOLKIT_TARGETS=(nylxdev1.dev.bloomberg.com ip-1-70-18-131.dob1.bcpc.bloomberg.com)
+_toolkit_file_maint_usage ()
+{
+    echo "Usage: toolkit_file_maint [-f|--force|-u|--update]"
+}
+export -f _toolkit_file_maint_usage
+
+toolkit_file_maint ()
+{
+    local msg=''
+    local expiretime=0
+    local update=0
+    local OPTSARGS=$(getopt -o fuh --long force,update,help -n 'toolkit_file_maint' -- "$@")
+    status=$?
+    ((status != 0)) && _rsync2nfs_usage && return 1
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) _rsync2nfs_usage; return 0 ;;
+            -f|-u|--force|--update) update=1; shift ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; git-st-strip-usage; return 1 ;;
+        esac
+    done
+
+    if [ "$update" = '1' ]
+    then
+        msg="Toolkit credential update requested."
+    elif [ ! -r $TOOLKITFUNCS_TOOLKIT_FILE ]
+    then
+        msg="Toolkit credential file $TOOLKITFUNCS_TOOLKIT_FILE not found. Generating..."
+        update=1
+    elif [ ! -r $TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE ]
+    then
+        msg="Toolkit credential file $TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE not found. Generating..."
+        update=1
+    else
+        expiretime=$(cat $TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE | grep -v '#')
+        expiremsg=$(cat $TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE | grep '#' | sed 's/#//g' | sed 's/ //g' )
+        msg="Toolkit credential has expired ($expiremsg). Regenerating..."
+        now=$(date +%s)
+        if ((expiretime < now))
+        then
+            update=1
+        fi
+    fi
+
+    if [ "$update" = '1' ]
+    then
+        echo $msg
+
+        ## Backups
+        if [ -r $TOOLKITFUNCS_TOOLKIT_FILE ]
+        then
+            cp -pvf ${TOOLKITFUNCS_TOOLKIT_FILE} ${TOOLKITFUNCS_TOOLKIT_FILE}.${now}
+        fi
+        if [ -r $TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE ]
+        then
+            cp -pvf ${TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE} ${TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE}.${now}
+        fi
+
+        ## Create
+        ~/personal/bin/toolkit-login $TOOLKITFUNCS_TOOLKIT_FILE $USER
+
+        ## Spread around
+        local h
+        local lh=$(hostname)
+        for h in ${TOOLKIT_TARGETS[*]}
+        do
+            if [[ ! "$h" =~ $(hostname) ]]
+            then
+                echo "Copying to $h..."
+                scp ${TOOLKITFUNCS_TOOLKIT_FILE}* ${h}:.ssh
+            fi
+        done
+    fi
+}
+export -f toolkit_file_maint
+alias vm-toolkit-file-maint='toolkit_file_maint '
+alias toolkit-maint='toolkit_file_maint '
