@@ -913,13 +913,23 @@ git_checkout ()
             then
                 if [ "$selected" == "$current_branch" ]
                 then
-                    echo $selected is current. Cannot checkout current.
+                    echo "$selected is current. Cannot checkout current."
                 elif [ "$selected" == "'$newonemsg'" ]
                 then
                     while [ -z "$newbranch" ]
                     do
                         read -p "Enter a new branch name: " newbranch
                     done
+                    if [ -d './wt' ]
+                    then
+                        local resp=$(yesno "As a worktree" y)
+                        if [ "$resp" == 'y' ]
+                        then
+                            (builtin cd ./wt || exit $?
+                             git_create_worktree $newbranch || exit $?)
+                            return $?
+                        fi
+                    fi
                     createbranch='-b'
                 else
                     newbranch=$(echo $selected | sed 's|\*||')
@@ -1507,6 +1517,7 @@ git_what_is_modified ()
 }
 export -f git_what_is_modified
 alias git-what-is-modified='git_what_is_modified '
+alias git-is-modified='git_what_is_modified '
 
 git_what_can_be_committed ()
 {
@@ -1537,6 +1548,7 @@ git_what_can_be_committed ()
 export -f git_what_can_be_committed
 alias git-what-can-be-committed='git_what_can_be_committed '
 alias git-what-is-committable='git_what_can_be_committed '
+alias git-can-commit='git_what_can_be_committed '
 
 git_track_remote_branch ()
 {
@@ -1656,6 +1668,8 @@ git_create_worktree ()
 
     ## Add this repo to the list
     git_go_set
+
+    return 0
 }
 alias git-create-worktree='git_create_worktree '
 alias git_worktree_create='git_create_worktree '
@@ -1817,7 +1831,7 @@ git_branch_list ()
             --strip) strip=1; shift;;
             --nostrip) strip=0; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; git-st-strip-usage; return 1 ;;
+            *) echo "Internal error!"; return 1 ;;
         esac
     done
 
@@ -1829,6 +1843,10 @@ git_branch_list ()
         git branch $opts
     fi
 
+}
+
+git-logg () {
+    git log --all --graph --pretty=format:'%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative
 }
 
 ## Can't use local outside a function.
