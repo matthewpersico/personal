@@ -37,6 +37,10 @@ histinit ()
             echo "Initializing bash command history setup..."
             mkdir -p ~/.bash_histories
         fi
+        cat <<EOF >>$HISTFILE
+#$(date +%s)
+## pwd => The current directory AFTER the command. 'AFTER' only matters if a cd was involved.
+EOF
         if [ "$1" = '--force' ]
         then
            echo "History inited."
@@ -52,6 +56,10 @@ _bash_history_sync ()
   HISTFILESIZE=$HISTSIZE     #2
   builtin history -c         #3
   builtin history -r         #4
+
+  perl -e 'open(IH, "<$ARGV[0]");@lines=<IH>;close(IH);
+chomp $lines[-2];$lines[-2]=~s/ ## pwd =>.*//;$lines[-2].= " ## pwd => $ARGV[1]\n";
+open(OH, ">$ARGV[0]");print OH @lines;close(OH)' $HISTFILE "$(pwd)"
 }
 export -f _bash_history_sync
 
