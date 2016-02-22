@@ -6,24 +6,22 @@ PERLFUNCS_FILE=${BASH_SOURCE[0]}
 
 auditfuncs_init $PERLFUNCS_FILE
 
-perlfuncs_edit ()
+perlfuncs-edit ()
 {
     perlfuncs_audit "$@"
     xo $PERLFUNCS_FILE
 }
-export -f perlfuncs_edit
+export -f perlfuncs-edit
 ## I define functions with '_' and aliases with '-' because the emaacs modes
 ## that parse for functions to generate jump lists don't see functions with '-'
 ## in their name. Ugh.
-alias perlfuncs-edit=perlfuncs_edit
 
-perlfuncs_reload ()
+perlfuncs-reload ()
 {
     perlfuncs_audit "$@"
     . $PERLFUNCS_FILE
 }
-export -f perlfuncs_reload
-alias perlfuncs-reload=perlfuncs_reload
+export -f perlfuncs-reload
 
 addpath -x -f -p PERL5LIB ~/personal/share/perl5/site_perl/5.16
 
@@ -62,3 +60,391 @@ aptperl ()
     done
 }
 export -f aptperl
+alias perl-module-apt-install='aptperl '
+
+perl-current-version()
+{
+    ## Prints Maj.Min. If $1 == --full, prints Maj.Min.Patch
+    perl -MConfig -MData::Dumper -e '$x=$Config{version};$x=~s/(\.[0-9]+$)//;print $x'-- $1
+}
+
+perl-add-local()
+{
+    ## Clean first in case they exist in the wrong order
+    perl-del-local
+
+    local pcv=$(perl-current-version)
+    ## Remember, these are in reverse order of how they need to appear
+    addpath -x -f -p PERL5LIB ~/perl/share/perl5
+    addpath -x -f -p PERL5LIB ~/perl/share/perl5/site_perl
+    addpath -x -f -p PERL5LIB ~/perl/share/perl5/site_perl/$pcv
+    addpath -x -f -p PERL5LIB ~/perl/lib/perl5
+    addpath -x -f -p PERL5LIB ~/perl/lib/perl5/site_perl
+    addpath -x -f -p PERL5LIB ~/perl/lib/perl5/site_perl/$pcv
+    addpath -x -f -p PATH ~/perl/bin
+    addpath -x -f -p MANPATH ~/perl/man
+
+    perl-list-local
+}
+export -f perl-add-local
+alias perl-local-add='perl-add-local '
+
+perl-list-local()
+{
+    listpath -p PERL5LIB | grep ~/perl
+    listpath -p PATH | grep ~/perl/bin
+    listpath -p MANPATH | grep ~/perl/man
+}
+export -f perl-list-local
+alias perl-local-list='perl-list-local '
+
+perl-del-local()
+{
+    local pcv=$(perl-current-version)
+    delpath -x -c -p PERL5LIB ~/perl/share/perl5
+    delpath -x -c -p PERL5LIB ~/perl/share/perl5/site_perl
+    delpath -x -c -p PERL5LIB ~/perl/share/perl5/site_perl/$pcv
+    delpath -x -c -p PERL5LIB ~/perl/lib/perl5
+    delpath -x -c -p PERL5LIB ~/perl/lib/perl5/site_perl
+    delpath -x -c -p PERL5LIB ~/perl/lib/perl5/site_perl/$pcv
+    delpath -x -c -p PATH ~/perl/bin
+    delpath -x -c -p MANPATH ~/perl/man
+}
+export -f perl-del-local
+alias perl-local-del='perl-del-local '
+
+perl-module-new-repo-usage ()
+{
+    echo "usage: perl-module-new-repo [-r|--reset] Module::Name /tmp/Module-Name-3.4.tar.gz"
+    echo "       perl-module-new-repo [-r|--reset] Module::Name http://www.cpan.org/yadayadayada/Module-Name-3.4.tar.gz"
+    echo "       --reset    Delete any existing repo directory and start from scratch."
+}
+export -f perl-module-new-repo-usage
+
+perl-module-new-tar ()
+{
+    tar -zxf $1 --strip-components=1
+}
+export -f perl-module-new-tar
+
+perl-module-new-zip ()
+{
+    ## All this to replicate --strip-components=1
+    local rootdir=$(unzip -l $1 | grep '/' | sed -e 's/.* //' -e 's|/.*||' | sort -u)
+    unzip $1
+    mv -f $rootdir/* .
+    rmdir $rootdir
+}
+export -f perl-module-new-zip
+
+
+perl-module-new-repo ()
+{
+    local usage_func=perl-module-new-repo-usage
+    local opt_reset=0
+    OPTSARGS=$(getopt -o rh  --long reset,help -n 'git-st-por' -- "$@")
+    local status=$?
+    ((status != 0)) && $usage && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -r|--reset) opt_reset=1; shift ;;
+            -h|--help) $usage; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
+
+
+    if [ "$#" != '2' ]
+    then
+        perl-module-new-repo-usage
+        return 1
+    fi
+    local module_name=$1
+    local tarball_path=$2
+    local tarball_name=$(basename $tarball_path)
+    if [ ! -r $tarball_name ]
+    then
+        wget $tarball_path
+        if [ ! -r $tarball_name ]
+        then
+            echo "Tarball $tarball_name not found"
+            perl-module-new-repo-usage
+            return 1
+        fi
+    fi
+    tarball_path="$(pwd)/$tarball_name"
+
+    declare -A tarmap
+    tarmap=([".tar.gz"]='perl-module-new-tar')
+    tarmap+=([".tgz"]='perl-module-new-tar')
+    tarmap+=([".zip"]='perl-module-new-zip')
+
+    local tarext
+    local tarcmd
+    for i in ${!tarmap[@]}
+    do
+        echo $tarball_name | grep $i >/dev/null
+        if [ "$?" = '0' ]
+        then
+            tarext=$i
+            tarcmd=${tarmap[$i]}
+        fi
+    done
+
+    local module_filename=$(echo $module_name | sed 's/::/-/g')
+    local version_id=$(echo $tarball_name | \
+                       sed -e "s/$tarext//" \
+                           -e "s/${module_filename}-//" \
+                           -e "s/${module_filename}//" \
+          )
+    local repo_name="lib$(echo $module_filename | tr '[A-Z]' '[a-z]')"
+    [ -d $repo_name ] && ((opt_reset)) && echo "Resetting $repo_name" && rm -rf $repo_name
+    [ ! -d $repo_name ] && mkdir $repo_name
+    cd $repo_name
+    if [ ! -d .git ]
+    then
+        git init .
+        $tarcmd $tarball_path
+        git add -f .
+        git commit -m "Import $module_name $version_id"
+        myname=$(git config --get user.name)
+        myemail=$(git config --get user.email)
+        mymaintainer="$myname <$myemail>"
+        git checkout -b debian
+        mkdir debian
+
+        ## makefile
+        cat << 'EOF' > debian/rules
+#!/usr/bin/make -f
+# -*- makefile -*-
+include $(DISTRIBUTION_REFROOT)/opt/bb/share/perl-debhelper/build.mk
+EOF
+
+        ## control
+        cat << 'EOF' | sed -e "s/|repo_name|/$repo_name/" \
+                           -e "s/|mymaintainer|/$mymaintainer/" > debian/control
+Source: |repo_name|
+Section: unknown
+Priority: extra
+Maintainer: |mymaintainer|
+Build-Depends: perl-debhelper, ADD ANY OTHERS HERE
+Standards-Version: 3.9.4
+# Original Source: $tarball_path
+
+Package: |repo_name|-${perl:Version}
+Architecture: all
+Depends: ${perl:Version}, ADD ANY OTHERS HERE-${perl:Version},
+Description: DESCRIPTION NEEDED
+
+Package: |repo_name|
+Architecture: all
+Depends: |repo_name|-${perl:Version}
+Description: dependency package
+EOF
+
+        ## changelog - needs control file
+        devgit-debchange --version=${version_id}.0 --full-rewrite
+
+    else
+        echo ".git found. Not writing debian stuff."
+    fi
+
+    local s
+    if [ -e Build.PL ]
+    then
+        bldcmds[0]='perl Build.PL --prefix=~/perl'
+        bldcmds[1]='./Build'
+        bldcmds[2]='./Build test'
+        bldcmds[3]='./Build install'
+    elif [ -e Makefile.PL ]
+    then
+        bldcmds[0]='perl Makefile.PL INSTALL_BASE=~/perl'
+        bldcmds[1]='make'
+        bldcmds[2]='make test'
+        bldcmds[3]='make install'
+    fi
+
+    local bldidx
+    for bldidx in 0 1 2 3
+    do
+        echo "******** ${bldcmds[bldidx]}"
+        ${bldcmds[bldidx]};s=$?;((s!=0)) && return $s
+    done
+
+    return 0
+}
+export -f perl-module-new-repo
+
+perl-script-new-repo ()
+{
+    echo perl-script-new-repo is not ready for prime time
+    return 0
+
+
+    local usage_func=perl-script-new-repo_usage
+    local opt_reset=0
+    OPTSARGS=$(getopt -o rh  --long reset,help -n 'git-st-por' -- "$@")
+    local status=$?
+    ((status != 0)) && $usage && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -r|--reset) opt_reset=1; shift ;;
+            -h|--help) $usage; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
+
+
+    if [ "$#" != '2' ]
+    then
+        perl-script-new-repo_usage
+        return 1
+    fi
+    local script_name=$1
+    local tarball_path=$2
+    local tarball_name=$(basename $tarball_path)
+    if [ ! -r $tarball_name ]
+    then
+        wget $tarball_path
+        if [ ! -r $tarball_name ]
+        then
+            echo "Tarball $tarball_name not found"
+            perl-script-new-repo_usage
+            return 1
+        fi
+    fi
+    tarball_path="$(pwd)/$tarball_name"
+
+    declare -A tarmap
+    tarmap=([".tar.gz"]='perl-script-new-tar')
+    tarmap+=([".tgz"]='perl-script-new-tar')
+    tarmap+=([".zip"]='perl-script-new-zip')
+
+    local tarext
+    local tarcmd
+    for i in ${!tarmap[@]}
+    do
+        echo $tarball_name | grep $i >/dev/null
+        if [ "$?" = '0' ]
+        then
+            tarext=$i
+            tarcmd=${tarmap[$i]}
+        fi
+    done
+
+    local script_filename=$(echo $script_name | sed 's/::/-/g')
+    local version_id=$(echo $tarball_name | \
+                       sed -e "s/$tarext//" \
+                           -e "s/${script_filename}-//" \
+                           -e "s/${script_filename}//" \
+          )
+    local repo_name="$(echo $script_filename | tr '[A-Z]' '[a-z]')"
+    [ -d $repo_name ] && ((opt_reset)) && echo "Resetting $repo_name" && rm -rf $repo_name
+    [ ! -d $repo_name ] && mkdir $repo_name
+    cd $repo_name
+    if [ ! -d .git ]
+    then
+        git init .
+        $tarcmd $tarball_path
+        git add -f .
+        git commit -m "Import $script_name $version_id"
+        myname=$(git config --get user.name)
+        myemail=$(git config --get user.email)
+        mymaintainer="$myname <$myemail>"
+        git checkout -b debian
+        mkdir debian
+
+        ## makefile
+        cat << 'EOF' > debian/rules
+#!/usr/bin/make -f
+# -*- makefile -*-
+include $(DISTRIBUTION_REFROOT)/opt/bb/share/perl-debhelper/build.mk
+EOF
+
+        ## control
+        cat << 'EOF' | sed -e "s/|repo_name|/$repo_name/" \
+                           -e "s/|mymaintainer|/$mymaintainer/" > debian/control
+Source: |repo_name|
+Section: unknown
+Priority: extra
+Maintainer: |mymaintainer|
+Build-Depends: perl-debhelper, ADD ANY OTHERS HERE
+Standards-Version: 3.9.4
+# Original Source: $tarball_path
+
+Package: |repo_name|
+Architecture: any
+Description: |repo_name| - Runtime files
+
+EOF
+
+        ## changelog - needs control file
+        devgit-debchange --version=${version_id}.0 --full-rewrite
+
+    else
+        echo ".git found. Not writing debian stuff."
+    fi
+
+    local s
+    if [ -e Build.PL ]
+    then
+        bldcmds[0]='perl Build.PL --prefix=~/perl'
+        bldcmds[1]='./Build'
+        bldcmds[2]='./Build test'
+        bldcmds[3]='./Build install'
+    elif [ -e Makefile.PL ]
+    then
+        bldcmds[0]='perl Makefile.PL INSTALL_BASE=~/perl'
+        bldcmds[1]='make'
+        bldcmds[2]='make test'
+        bldcmds[3]='make install'
+    fi
+
+    local bldidx
+    for bldidx in 0 1 2 3
+    do
+        echo "******** ${bldcmds[bldidx]}"
+        ${bldcmds[bldidx]};s=$?;((s!=0)) && return $s
+    done
+
+    return 0
+}
+export -f perl-script-new-repo
+
+perl-filter-code ()
+{
+    local file
+    for file in $*
+    do
+        head -1 $file | grep perl | grep -E '^#!' > /dev/null
+        if [ "$?" == '0' ]
+        then
+            foundperl="$foundperl $i"
+        else
+            echo $file | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null
+            if [ "$?" == '0' ]
+            then
+                foundperl="$foundperl $i"
+            fi
+        fi
+    done
+    echo $foundperl
+    local words=($foundperl)
+    return ${#words[@]}
+}
+export -f perl-filter-code
+
+perl-find-code ()
+{
+    perl-filter-code $(find "$@")
+    return $?
+}
+export -f perl-find-code
