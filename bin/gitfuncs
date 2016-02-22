@@ -89,19 +89,20 @@ git_st_por_usage () {
 }
 
 git_st_por () {
+    local usage_func=git_st_por_usage
     local opt_strip=0
     OPTSARGS=$(getopt -o sh --long strip,help -n 'git-st-por' -- "$@")
     local status=$?
-    ((status != 0)) && git_st_por_usage && return $status
+    ((status != 0)) && $usage_func && return $status
 
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
             -s|--strip) opt_strip=1; shift ;;
-            -h|--help) git_st_por_usage; return 0 ;;
+            -h|--help) $usage_func; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; git-st-por-usage; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return 1 ;;
         esac
     done
 
@@ -201,18 +202,18 @@ git_join_changelogs ()
     gitfuncs_audit "$@"
 
     local f=git.commit.$$
-    echo "## Delete all lines if you want to abort - :q! won't work." > $f
-    echo "## Enter a summary line:" >> $f
-    echo '' >> $f
-    echo '' >> $f
-    echo 'Details:' >> $f
-
     local changelogs=$(git_find_changelogs "$@")
     if [ -n "$changelogs" ]
     then
+        local f=git.commit.$$
+        echo "## Delete all lines if you want to abort - :q! won't work." > $f
+        echo "## Enter a summary on the next line:" >> $f
+        echo '' >> $f
+        echo '' >> $f
+        echo 'Details:' >> $f
         cat $changelogs | grep -v mpersico5 | sed 's/\t//g' >> $f
     else
-        echo "## No ChangeLogs found" >> $f
+        echo "## No ChangeLog files found" >> $f
     fi
     echo $f
 }
@@ -231,6 +232,7 @@ alias git-preview-changelogs='git_preview_changelogs '
 
 git_commit_with_changelog ()
 {
+    set -x
     gitfuncs_audit "$@"
     local changelogs=$(git_find_changelogs)
     local masterCl=$(git_join_changelogs "$@")
@@ -240,6 +242,7 @@ git_commit_with_changelog ()
     then
         \rm $changelogs $masterCl
     fi
+    set +x
 }
 export -f git_commit_with_changelog
 alias git-commit-with-changelog=git_commit_with_changelog
@@ -272,12 +275,13 @@ git_go_set ()
     git_go_set_filename
     echo "Regenerating .git-go ($gitfuncs_git_go_file)..." >&2
 
+    local current_git_go_file=$(git_go_get_filename)
     local repo_find_roots
     local search_roots="$gitfuncs_gitroot"
     local addmbig="$1"
     if [ "$addmbig" = '' ]
     then
-        grep MBIG $gitfuncs_git_go_file
+        grep MBIG $current_git_go_file
         status=$?
         if ((status==0))
         then
@@ -299,7 +303,11 @@ git_go_set ()
     ## We can use -maxdepth 3 to speed things up drastically because of the
     ## standard host/repo for devgit, host/namespace/repo for bbgithub and
     ## similarly for other git hosts.
-    local repos=$(find ${HOME}/personal ${HOME}/.git_template $repo_tops -maxdepth 3 -name .git -type d | sed 's|/.git$||g' | sort -u)
+    local repos=$(find ${HOME}/personal \
+                       ${HOME}/.git_template \
+                       ${HOME}/.emacs.d \
+                       ${HOME}/.emacs.d/taps/mpersico5 \
+                       $repo_tops -maxdepth 3 -name .git -type d | sed 's|/.git$||g' | sort -u)
 
     ## And then we do worktree (wt) search
     local repo
@@ -351,6 +359,14 @@ git_go_set_filename ()
 {
     gitfuncs_audit "$@"
     gitfuncs_git_go_file=${HOME}/gits/.git-go.$(date +%Y%m%d)
+}
+export -f git_go_set_filename
+alias git-go-set-filename=git_go_set_filename
+
+git_go_get_filename ()
+{
+    gitfuncs_audit "$@"
+    ls -rt ${HOME}/gits/.git-go.* | head -1
 }
 export -f git_go_set_filename
 alias git-go-set-filename=git_go_set_filename
@@ -1547,6 +1563,7 @@ export -f git_what_can_be_committed
 alias git-what-can-be-committed='git_what_can_be_committed '
 alias git-what-is-committable='git_what_can_be_committed '
 alias git-can-commit='git_what_can_be_committed '
+alias git-is-commitable='git_what_can_be_committed '
 
 git_track_remote_branch ()
 {
@@ -1674,6 +1691,8 @@ alias git_worktree_create='git_create_worktree '
 alias git-worktree-create='git_create_worktree '
 alias git_worktree='git_create_worktree '
 alias git-worktree='git_create_worktree '
+alias git-wt='git_create_worktree '
+alias gitwt='git_create_worktree '
 
 git_delete_current_worktree ()
 {
@@ -1694,12 +1713,17 @@ git_delete_current_worktree ()
         return 1
     fi
 
+    ## Current branch
+    local current_branch=$(git_get_current_branch)
+
+    ## Confirm
     git status
     local resp=$(yesno 'Hard check on status for a while. Continue with deletion');
     if [ "$resp" = 'n' ]
     then
         return 0
     fi
+
     ## Whack it. Start with the current dir.
     local delit=$(basename $(pwd))
     builtin cd ..
@@ -1721,6 +1745,20 @@ git_delete_current_worktree ()
             \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
         fi
     done
+
+    ## Now the branch
+    local resp=$(yesno "Close associated branch $current_branch");
+    if [ "$resp" = 'y' ]
+    then
+
+        ## Have to be in a git repo to do this
+        while [ "$(basename $(pwd))" != 'wt' ]
+        do
+            cd ..
+        done
+        cd ..
+        git_close_branch $current_branch
+    fi
 
     git_go_set
     return 0
@@ -1846,6 +1884,16 @@ git_branch_list ()
 git-logg () {
     git log --all --graph --pretty=format:'%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative
 }
+
+alias git-clean='git clean -e wt/ '
+
+git_revert() {
+    echo "Use 'git log' to find the id of the revision that contains"
+    echo "the version of the file you want to revert to."
+    echo "Then execute 'git checkout theGitID the/file/to/revert'."
+}
+alias git-revert='git_revert '
+
 
 ## Can't use local outside a function.
 typeset forlater='
