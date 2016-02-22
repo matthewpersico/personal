@@ -227,3 +227,48 @@ alias hist='history '
 alias histg='history | grep '
 alias histgf='grep_history -h $(hostname) '
 alias histgfa='grep_history '
+
+hist_with_pwd ()
+{
+    perl -ane 'BEGIN{@out=()};
+if( $_ =~ m/^#([0-9]+)( ## pwd => (.*))*/ ) {
+push @out, {time=$1, pwd=$3};
+} else {
+$out[-1]->{cmd} = $_;
+}
+END {
+$idxfmt="%" . scalar(split(//,scalar(@out))) . "d";
+
+@out
+printf($idxfmt . ": %s %s %s",
+        $., $_);' $HISTFILE
+}
+
+load_history ()
+{
+    histfuncs_audit "$@"
+    local loadhist=$1
+    if [ -z "$1" ]
+    then
+        select loadhist in $(ls -rt $(dirname $HISTFILE)/*)
+        do
+            if [ -n "$loadhist" ]
+            then
+                break
+            fi
+        done
+    fi
+    if [ -n "$loadhist" ]
+    then
+        loadhist=$(dirname $HISTFILE)/$(basename $loadhist)
+        cat $loadhist >> $HISTFILE
+    fi
+}
+export -f load_history
+
+alias load_hist='load_history '
+alias load-hist='load_history '
+alias loadhist='load_history '
+alias hist-load='load_history '
+alias hist_load='load_history '
+alias histload='load_history '
