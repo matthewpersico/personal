@@ -1717,6 +1717,15 @@ git_delete_current_worktree ()
     local current_branch=$(git_get_current_branch)
 
     ## Confirm
+    local current_dir=$(basename $(pwd))
+
+    if [ "$current_branch" != "$current_dir" ]
+    then
+        echo "Branch '$current_branch' does not match current subdir '$current_dir'."
+        echo "I'm bailing; you fix this mess."
+        return 1
+    fi
+
     git status
     local resp=$(yesno 'Hard check on status for a while. Continue with deletion');
     if [ "$resp" = 'n' ]
@@ -1894,6 +1903,15 @@ git_revert() {
 }
 alias git-revert='git_revert '
 
+git-find-deleted() {
+    ## The revision in which $1 was deleted.
+    git rev-list -n 1 HEAD -- "$1"
+}
+git-checkout-deleted() {
+    ## ^ is the revision before, so the revision before deleted, i.e., the last
+    ## revision in which $1 was present.
+    git checkout $(git-find-deleted "$1")^ -- "$1"
+}
 
 ## Can't use local outside a function.
 typeset forlater='
