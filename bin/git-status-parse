@@ -1,0 +1,62 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use Getopt::Long qw(:config auto_abbrev);
+my %opt;
+GetOptions(\%opt,
+           qw( staged
+               unstaged
+               untracked )
+       ) or die;
+die "Need at least one of --staged --unstaged --untracked"
+    if(! %opt );
+$opt{$_} //= 0
+    for ( qw ( staged  unstaged untracked ) );
+my @input = qx(git status; echo GSE);
+my %files;
+INPUT:for (@input) {
+    chomp;s/^\s+//;s/\s+$//;
+    length($_) == 0 && next INPUT;
+
+    if($opt{staged} and
+           /^Changes to be committed/ .. /^Changes not staged for commit/) {
+        /^Changes to be committed/ && next INPUT;
+        /use "git reset HEAD <file>..." to unstage/ && next INPUT;
+        if( /^Changes not staged for commit/ ) {
+            $opt{staged} = 0;
+        } else {
+            store_filename($_);
+        }
+    }
+
+    if($opt{unstaged} and
+           /^Changes not staged for commit/ .. /^Untracked files/) {
+        /^Changes not staged for commit/ && next INPUT;
+        /use "git add <file>..." to update what will be committed/ && next INPUT;
+        /use "git checkout -- <file>..." to discard changes in working directory/ && next INPUT;
+        if( /^Untracked files/ ) {
+            $opt{unstaged} = 0;
+        } else {
+            store_filename($_);
+        }
+    }
+
+    if($opt{untracked} and
+           /^Untracked files/ .. /^GSE$/) {
+        /^Untracked files/ && next INPUT;
+        /use "git add <file>..." to include in what will be committed/ && next INPUT;
+        if( /^GSE/ ) {
+            last INPUT;
+        } else {
+            store_filename($_);
+        }
+    }
+
+}
+
+print "@{[sort keys %files]}";
+
+sub store_filename {
+    $files{(split(/:/, $_[0]))[-1]}++;
+}
