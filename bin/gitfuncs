@@ -195,7 +195,7 @@ git-find-changelogs ()
 
     if [ -z "$potentials" ]
     then
-        potentials=$(git_what_can_be_committed)
+        potentials=$(git_what_is_staged)
     fi
 
     if [ -z "$potentials" ]
@@ -205,7 +205,7 @@ git-find-changelogs ()
     fi
 
     local -A changelogs ## assoc array with realpath expansion will eliminate
-                          ## dups, if any
+                        ## dups, if any
     local key
     local clcount=0
     for i in $potentials
@@ -234,7 +234,7 @@ git_join_changelogs ()
     gitfuncs_audit "$@"
 
     local f=git.commit.$$
-    local changelogs=$(git-find-changelogs "$@")
+    local changelogs="$@"
     if [ -n "$changelogs" ]
     then
         local f=git.commit.$$
@@ -254,7 +254,14 @@ alias git-join-changelogs='git_join_changelogs '
 git_preview_changelogs ()
 {
     gitfuncs_audit "$@"
-    local masterCl=$(git_join_changelogs "$@")
+    local files=
+    for i in "$@"
+    do
+        [ -r $i ] && files="$files $i"
+    done
+
+    local changelogs=$(git-find-changelogs "$files")
+    local masterCl=$(git_join_changelogs "$changelogs")
     less $masterCl
     \rm -f $masterCl
 }
@@ -264,8 +271,14 @@ git_commit_with_changelog ()
 {
     set -x
     gitfuncs_audit "$@"
-    local changelogs=$(git-find-changelogs)
-    local masterCl=$(git_join_changelogs "$@")
+    local files=
+    for i in "$@"
+    do
+        [ -r $i ] && files="$files $i"
+    done
+
+    local changelogs=$(git-find-changelogs "$files")
+    local masterCl=$(git_join_changelogs "$changelogs")
     git commit -F $masterCl --edit "$@"
     local status=$?
     if ((status==0))
@@ -952,9 +965,8 @@ git_checkout ()
                         local resp=$(yesno "As a worktree" y)
                         if [ "$resp" == 'y' ]
                         then
-                            (builtin cd ./wt || exit $?
-                             git_create_worktree $newbranch || exit $?)
-                            return $?
+                            builtin cd ./wt || return $?
+                            git_create_worktree $newbranch || return $?
                         fi
                     fi
                     createbranch='-b'
@@ -1733,8 +1745,8 @@ git_delete_current_worktree ()
     done
 
     ## Now the branch
-    local resp=$(yesno "Close associated branch $current_branch");
-    if [ "$resp" = 'y' ]
+    local resp=$(pick  "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
+    if [ "$resp" != 'k' ]
     then
 
         ## Have to be in a git repo to do this
@@ -1743,7 +1755,12 @@ git_delete_current_worktree ()
             cd ..
         done
         cd ..
-        git_close_branch $current_branch
+        if [ "$resp" = 'd' ]
+        then
+            git-delete-branch $current_branch
+        else
+            git_close_branch $current_branch
+        fi
     fi
 
     git_go_set
