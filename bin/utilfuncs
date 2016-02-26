@@ -58,18 +58,15 @@ pause ()
 }
 export -f pause
 
-## Here we went with 0 is true, because it matched the return from potentially
-## executing commands on a 'y' response. Go figure...
-yesno ()
+pick ()
 {
-    declare prompt_text=$1;shift
-    declare prompt="$prompt_text (y/n)"
+    declare prompt_text="$1";shift
+    declare choices="$1";shift
+    declare choicesmatch="/$choices/"
+    declare prompt="$prompt_text ($choices)"
     declare default=$1;shift
     ## Blank 'echo' is ok - just a new line.
     default=$(echo $default| tr [:upper:] [:lower:] | tr -d [:blank:] )
-
-    declare cmd
-    cmd="$@"
 
     if [ -n "$default" ]
     then
@@ -86,22 +83,41 @@ yesno ()
 	    then
 	        resp=$default
 	    fi
-	    if [ "$resp" = 'y' ] || [ "$resp" = 'n' ]
+	    if [[ "$choicesmatch" =~ "/$resp/" ]]
 	    then
-            if [ -z "$cmd" ]
-            then
-                ## No command, give response
-	            echo $resp
-	            return 0
-            elif [ "$resp" = 'y' ]
-            then
-                $cmd
-                return $?
-            else
-                return 0
-            fi
+	        echo $resp
+            return 0
 	    fi
     done
+}
+
+## Here we went with 0 is true, because it matched the return from potentially
+## executing commands on a 'y' response. Go figure...
+yesno ()
+{
+    declare prompt_text=$1;shift
+    declare choices="y/n"
+    declare default=$1;shift
+    declare cmd
+    cmd="$@"
+
+    resp=$(pick "$prompt_text" "$choices" "$default")
+
+	if [ "$resp" = 'y' ] || [ "$resp" = 'n' ]
+	then
+        if [ -z "$cmd" ]
+        then
+            ## No command, give response
+	        echo $resp
+	        return 0
+        elif [ "$resp" = 'y' ]
+        then
+            $cmd
+            return $?
+        else
+            return 0
+        fi
+	fi
 }
 export -f yesno
 
