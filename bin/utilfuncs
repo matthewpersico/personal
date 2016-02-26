@@ -23,15 +23,28 @@ add_bb ()
 }
 export -f add_bb
 
-## 0 as true is the 'right' way for UNIX so that (($?)) "works", i.e.; (( $? ))
-## && echo 'truth', because programs return error codes - 0 is no error.  Note,
-## however that if (( $? )) is FALSE. Remember when you were told not to assume
-## that logic values were integers and to mix logic evals with math? :-)
+## 0 as success is the correct way to return from commands and functions in
+## UNIX so that the typical 0 success from UNIX commands just works in
+## statements like the following (assuming xxx is some program exiting 0 or
+## function returning 0):
+##
+##    xxx && echo xxx worked
+##
+## What you CAN'T do are these
+##    if [ xxx ]       ## won't execute
+##    if [ $(xxx) ]    ## the value that [] sees is the output from stdout
+##
+## If you need an 'if', then you are stuck with
+##    xxx
+##    if [ "$?" = '0' ]
+##
+## Remember when you were told in CS 101 not to assume that logic values were
+## integers and not to mix logic evals with math? :-)
 is_int ()
 {
     if [[ $1 =~ ^-?[0-9]+$ ]]
     then
-        return 0 ## Unix TRUE/success
+        return 0
     else
         return 1
     fi
@@ -91,8 +104,6 @@ pick ()
     done
 }
 
-## Here we went with 0 is true, because it matched the return from potentially
-## executing commands on a 'y' response. Go figure...
 yesno ()
 {
     declare prompt_text=$1;shift
