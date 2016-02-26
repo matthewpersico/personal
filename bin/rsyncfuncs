@@ -21,7 +21,10 @@ alias rsyncfuncs-load=rsyncfuncs_reload
 
 _rsync2nfs_usage ()
 {
-    echo "Usage: rsync2nfs -t|--target tgt src [src...]"
+    echo "Usage: rsync2nfs -t|--target tgt \ "
+    echo "                 [--verbose|-v] [--timestamp|-t] \ "
+    echo "                 src [src...]"
+    echo "       rsync2nfs --help|-h"
     echo
 }
 export -f _rsync2nfs_usage
@@ -42,8 +45,9 @@ rsync2nfs ()
             -h|--help) _rsync2nfs_usage; return 0 ;;
             -t|--target) shift; target=$1; shift ;;
             -v|--verbose) verbose='-v'; shift ;;
-            --timestamp) /bin/rm -f ~/rsync2fs.timestamp.*
-                         touch ~/rsync2fs.timestamp.$(date +%Y-%m-%dT%H-%M-%S)
+            --timestamp) timestamp="${HOME}/rsync2fs.timestamp.$(date +%Y-%m-%dT%H-%M-%S)"
+                         /bin/rm -f ~/rsync2fs.timestamp.*
+                         touch $timestamp
                          shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; _rsync2nfs_usage; return 1 ;;
@@ -61,6 +65,7 @@ rsync2nfs ()
     then
         echo "** Command: rsync -a -z -r -l $verbose --delete $@ $target"
         echo "** Start: $(date)"
+        local start=$(date +%s)
     fi
     ## -a "archive" mode, which ensures that symbolic links, devices,
     ## -attributes, permissions, ownerships, etc. are preserved in the
@@ -87,7 +92,10 @@ rsync2nfs ()
     if [ -n "$verbose" ]
     then
         echo "** End: $(date)"
+        local end=$(date +%s)
+        echo "** Elapsed: $(( (end-start)/60 )) minutes, $(( (end-start)%60 )) seconds"
     fi
+    [ -n "$timestamp" ] && date > $timestamp
     return $status
 }
 export -f rsync2nfs
@@ -100,13 +108,40 @@ vmrsyncgits ()
 }
 export -f vmrsyncgits
 
+vmrsync-running()
+{
+    local target="$NFSMACHINE:vmstashes/$(hostname)"
+    local running="$(ps lxf | grep rsync | grep $target)"
+    echo "$running"
+}
+
+_vmrsync_usage ()
+{
+    echo "Usage: vmrsync [--verbose|-v] [--help|-h]"
+    echo
+}
 vmrsync ()
 {
-    target="$NFSMACHINE:vmstashes/$(hostname)"
-    running="$(ps lxf | grep rsync | grep $target)"
+    local OPTSARGS=$(getopt -o vh --long verbose,help -- "$@")
+    status=$?
+    ((status != 0)) && _vmrsync_usage && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) _vmrsync_usage; return 0 ;;
+            -v|--verbose) verbose='-v'; shift ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; _vmrsync_usage; return 1 ;;
+        esac
+    done
+
+    local target="$NFSMACHINE:vmstashes/$(hostname)"
+    local running="$(vmrsync-running)"
     if [ -z "$running" ]
     then
-        rsync2nfs --timestamp --target $target ~
+        rsync2nfs $verbose --timestamp --target $target ~
         return $?
     else
         echo Another vmrsync appears to be running:
@@ -117,13 +152,10 @@ vmrsync ()
 export -f vmrsync
 alias vmsync='vmrsync '
 
-vmrsync_check ()
+vmrsync-status ()
 {
-    ts=$(ssh $NFSMACHINE ls -la vmstashes/$(ssh $NFSMACHINE ls vmstashes)/$USER | grep rsyn)
-    tsds=$(echo "$ts" | sed 's/.*timestamp.//')
-    now=$(date +%Y-%m-%dT%H-%M-%S)
-
-    echo "$tsds:sync $now:now" | tr ' ' '\n' | sort
+    touch /tmp/now
+    date
+    ls -lart ~/rsync2fs.timestamp.* /tmp/now
+    vmrsync-running
 }
-export -f vmrsync_check
-alias vmrsync-check='vmrsync_check '
