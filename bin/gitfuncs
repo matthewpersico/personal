@@ -1,6 +1,6 @@
 # -*- sh -*-
 
-# git1funcs
+# gitfuncs
 
 GITFUNCS_FILE=${BASH_SOURCE[0]}
 
@@ -1032,6 +1032,36 @@ git_parse_remote_v ()
     done
 }
 alias git-parse-remote-v='git_parse_remote_v '
+
+git-check-with-master ()
+{
+    local oldpwd=$(pwd)
+    [ -n "$1" ] && builtin cd $1
+
+    git fetch 1>/dev/null 2>&1
+
+    local branchlog=$(mktemp)
+    git log -1 > $branchlog
+
+    local masterlog=$(mktemp)
+    git log -1 origin/master > $masterlog
+
+    local difflog=$(mktemp)
+    diff  -y --suppress-common-lines $branchlog $masterlog 1> $difflog 2>&1
+
+    if [ -s $difflog ]
+    then
+        echo
+        echo "*** git repo: $(pwd)"
+        echo "*** Current branch $(git_get_current_branch) and origin/master are not synced:"
+        echo
+        cat $difflog
+    fi
+
+    rm -f $branchlog $masterlog $difflog
+
+    builtin cd $oldpwd
+}
 
 git_sync_with_master ()
 {
