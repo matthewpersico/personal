@@ -429,6 +429,7 @@ _git_go_get ()
     git-go-set-filename
     if [ ! -e $gitfuncs_git_go_file ] || ((update))
     then
+        echo "******* calling git-go-set $mbig in _get_go_get"
         git-go-set $mbig
     fi
 
@@ -1974,6 +1975,277 @@ git-gui () {
 }
 
 alias gitgui='git-gui '
+
+git-hold-process-if-untracked ()
+{
+    local action=$1;      shift
+    local gitf=$1;        shift
+    local src=$1;         shift
+    local tgt=$1;         shift
+    local opt_verbose=$1; shift
+    local noexec_mode=$1; shift
+
+    local verbose_mv='';  shift
+
+    ((opt_verbose)) && verbose_mv='-v'
+
+    local untracked=$(git-what-is-untracked | grep $gitf)
+    if [ -n "$untracked" ]
+    then
+        if [ "$action" = 'direct' ]
+        then
+            cmd="mv $verbose_mv $src $tgt.git-hold.untracked"
+            ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
+            ((noexec_mode)) || $cmd
+
+            ((noexec_mode)) || echo $untracked > $tgt.git-hold-meta.untracked
+        else
+            \rm -f $src
+        fi
+    fi
+}
+
+git-hold-process-if-unstaged()
+{
+    local action=$1;      shift
+    local gitf=$1;        shift
+    local src=$1;         shift
+    local tgt=$1;         shift
+    local opt_verbose=$1; shift
+    local noexec_mode=$1; shift
+
+    local verbose_cp='';  shift
+
+    ((opt_verbose)) && verbose_cp='-v'
+
+    local unstaged=$(git-what-is-unstaged | grep $gitf)
+    if [ -n "$unstaged" ]
+    then
+        if [ "$action" = 'direct' ]
+        then
+            cmd="cp -p $opt_cp $src $tgt.git-hold.unstaged"
+            ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
+            ((noexec_mode)) || $cmd
+
+            ((noexec_mode)) || echo $unstaged > $tgt.git-hold-meta.unstaged
+        fi
+
+        cmd="git checkout -- $gitf"
+        ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
+        ((noexec_mode)) || $cmd
+
+        git-hold-process-if-untracked 'indirect' $gitf $src $tgt $opt_verbose $noexec_mode
+    fi
+}
+
+git-hold-process-if-staged()
+{
+    local action=$1;      shift
+    local gitf=$1;        shift
+    local src=$1;         shift
+    local tgt=$1;         shift
+    local opt_verbose=$1; shift
+    local noexec_mode=$1; shift
+
+    local verbose_cp='';  shift
+
+    ((opt_verbose)) && verbose_cp='-v'
+
+    local staged=$(git-what-is-staged | grep $gitf)
+    if [ -n "$staged" ]
+    then
+        if [ "$action" = 'direct' ]
+        then
+            cmd="cp -p $opt_cp $src $tgt.git-hold.staged"
+            ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
+            ((noexec_mode)) || $cmd
+
+            ((noexec_mode)) || echo $staged > $tgt.git-hold-meta.staged
+        fi
+
+        cmd="git reset -q HEAD $gitf"
+        ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
+        ((noexec_mode)) || $cmd
+
+        git-hold-process-if-unstaged 'indirect' $gitf $src $tgt $opt_verbose $noexec_mode
+    fi
+}
+
+git-hold ()
+{
+    local noexec_mode=0
+    if [ "$1" = "-n" ]
+    then
+        noexec_mode=1
+        shift
+    fi
+
+    local hold_root=$(git-root)
+    if [ "$hold_root" != "$(pwd)" ]
+    then
+        echo "Must be in git root ($hold_root) to run $FUNCNAME"
+        return 1
+    fi
+    local hold_dir=$hold_root/hold
+    local ok_to_hold
+    local not_ok_to_hold
+    local opt_verbose=1
+    local gitf    ## realtive file path as seen by git
+    local src     ## absolute file path as seen by file system
+    local gitfsrc ## gitf, src pair
+    local tgt
+    [ ! -d $hold_dir ] && mkdir -p $hold_dir
+    for gitf in $*
+    do
+        src=$(realpath $gitf)
+        tgt=$hold_dir/${src##$hold_root}
+        if [ -r $tgt ]
+        then
+            echo "Cannot hold $gitf - hold exists:"
+            ls -la $tgt
+            not_ok_to_hold="$not_ok_to_hold $src"
+        else
+            ok_to_hold="$ok_to_hold $gitf:$src"
+        fi
+    done
+    if [ -n "$not_ok_to_hold" ]
+    then
+        echo "Hold aborted"
+    else
+        local opt_cp
+        ((verbose)) && opt_cp='-v'
+        for gitfsrc in $ok_to_hold
+        do
+            gitf=${gitfsrc%:*} ## dump right of :
+            src=${gitfsrc#*:}  ## dump left of :
+            tgt=$hold_dir/${src##$hold_root}
+
+            ((noexec_mode)) && echo "No exec mode"
+
+            cmd="mkdir -p $(dirname $tgt)"
+            ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
+            ((noexec_mode)) || $cmd
+
+            git-hold-process-if-untracked 'direct' $gitf $src $tgt $opt_verbose $noexec_mode
+
+            git-hold-process-if-unstaged 'direct' $gitf $src $tgt $opt_verbose $noexec_mode
+
+            git-hold-process-if-staged 'direct' $gitf $src $tgt $opt_verbose $noexec_mode
+
+        done
+    fi
+
+    git-hold-list
+}
+
+git-hold-meta-view ()
+{
+    local hold_root=$(git-root)
+    if [ ! "$hold_root" = "$(pwd)" ]
+    then
+        echo "Must be in git root ($hold_root) to run $FUNCNAME"
+        return 1
+    fi
+    local hold_dir=$hold_root/hold
+    realpath --relative-to=$(pwd) $(find $hold_dir -type f)
+}
+
+git-hold-base-view ()
+{
+    local hold_root=$(git-root)
+    if [ ! "$hold_root" = "$(pwd)" ]
+    then
+        echo "Must be in git root ($hold_root) to run $FUNCNAME"
+        return 1
+    fi
+    git-hold-meta-view \
+        | grep -v 'git-hold-meta' \
+        | sed 's|.git-hold.*||' \
+        | sort -u
+}
+
+git-hold-relative-base-dir ()
+{
+    local hold_root=$(git-root)
+    if [ ! "$hold_root" = "$(pwd)" ]
+    then
+        echo "Must be in git root ($hold_root) to run $FUNCNAME"
+        return 1
+    fi
+    git-hold-meta-view \
+        | sed 's|/hold/.*|/hold|' \
+        | sort -u
+}
+
+alias git-hold-show='git-hold-base-view '
+alias git-hold-list='git-hold-base-view '
+
+git-unhold ()
+{
+    local hold_root=$(git-root)
+    if [ "$hold_root" != "$(pwd)" ]
+    then
+        echo "Must be in git root ($hold_root) to run $FUNCNAME"
+        return 1
+    fi
+    local hold_dir=$hold_root/hold
+    local ok_to_unhold
+    local not_ok_to_hold
+    local opt_verbose=1
+    [ ! -d $hold_dir ] && mkdir -p $hold_dir
+    basefiles="$@"
+    if [ -z "$basefiles" ]
+    then
+        basefiles=$(git-hold-base-view)
+    fi
+    set -x
+    for b in $basefiles
+    do
+        if [ $(basename $(dirname $b)) != 'hold' ]
+        then
+            b="hold/$b"
+        fi
+        if [ -d $b ]
+        then
+            echo "Can't pick a dir ($b)- pick files"
+            return 1
+        fi
+        for m in $(ls -t -c1 $(realpath $b)* | grep '.git-hold\.')
+        do
+            ok_to_unhold="$ok_to_unhold $b:$m"
+        done
+    done
+    local opt_mv
+    ((verbose)) && opt_mv='-v'
+
+    local metafile
+    local metatype
+    local ghrbd=$(git-hold-relative-base-dir)
+    for gitf_metasrc in $ok_to_unhold
+    do
+        local gitf=${gitf_metasrc%:*} ## dump right of :
+        gitf=${gitf#hold/*} ## dump left hold/
+        local metasrc=${gitf_metasrc#*:}  ## dump left of :
+        bn=$(basename $metasrc)
+        for metatype in staged unstaged untracked
+        do
+            src=$(basename $metasrc .git-hold.$metatype)
+            if [ "$bn" != "$src" ]
+            then
+                tgt=$hold_root/${metasrc##$hold_dir}
+                tgt=${tgt%.git-hold.$metatype}
+                mkdir -p $(dirname $tgt)
+                mv $opt_mv $metasrc $tgt
+                metafile="${metasrc%.git-hold.$metatype}.git-hold-meta.$metatype"
+                if [ "$metatype" = 'staged' ]
+                then
+                    git add $gitf
+                fi
+                [ -r $metafile ] && \rm $metafile
+            fi
+        done
+    done
+}
 
 ## Can't use local outside a function.
 typeset forlater='
