@@ -184,8 +184,34 @@ tarcopy ()
         echo "Target '$tgtdir' must be a directory"
         return 1
     fi
+    tgtdir=$(realpath $tgtdir)
+    startdir=$(pwd)
+    if [ "$srcdir" != '.' ]
+    then
+        echo "WARNING: You are about to copy $srcdir into $tgtdir"
+        echo "instead of copying the CONTENTS of $srcdir into $tgtdir"
+        read -p "Do you want to copy the (d)irectory or its (c)ontents? " resp
+        if [ "$resp" = 'd' ]
+        then
+            echo 'Ok...'
+        elif [ "$resp" = 'c' ]
+        then
+            echo "Yeah, that's what I figured"
+            echo "*** builtin cd $srcdir"
+            builtin cd $srcdir
+            srcdir='.'
+        else
+            echo "d or c, how hard could that have been???"
+            return 1
+        fi
+    fi
     echo "*** tar cf - $srcdir | ( builtin cd $tgtdir; tar xvfp -)"
     tar cf - $srcdir | ( builtin cd $tgtdir; tar xvfp -)
+    if [ $(pwd) != "$startdir" ]
+    then
+        echo "*** builtin cd $startdir"
+        builtin cd $startdir
+    fi
 }
 export -f tarcopy
 alias tarcp='tarcopy '
