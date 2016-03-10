@@ -2086,7 +2086,12 @@ git-hold-meta-view ()
         return 1
     fi
     local hold_dir=$hold_root/hold
-    realpath --relative-to=$(pwd) $(find $hold_dir -type f)
+    if [ -d $hold_dir ]
+    then
+        local found=$(find $hold_dir -type f)
+        [ -n "$found" ] && \
+            realpath --relative-to=$(pwd) $found
+    fi
 }
 
 git-hold-base-view ()
@@ -2186,6 +2191,29 @@ git-hold-restore ()
     done
 }
 alias git-unhold='git-hold-restore '
+
+git-get-hold-count ()
+{
+    local pre=$1;shift
+    local post=$1;shift
+    git-inside-work-tree
+    if [ "$?" = '0' ]
+    then
+        local c=$(git-hold-list | wc -l)
+        ((c)) && c=1
+        echo "${pre}${c}${post}"
+    fi
+}
+alias git-hold-get-count='git-get-hold-count '
+
+git-hold-load-both ()
+{
+    for i in $(git-hold-list)
+    do
+        j=${i##hold/}
+        xo ${i}.git-hold.* $j
+    done
+}
 
 ## Can't use local outside a function.
 typeset forlater='
