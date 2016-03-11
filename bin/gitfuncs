@@ -1560,9 +1560,19 @@ git-what-is-modified ()
 {
     if [ -n "$1" ]
     then
-        echo 'Files altered, staged and not staged commit'
+        echo 'Files altered, both staged and not staged for commit'
     else
         git-status-parse --staged --unstaged
+    fi
+}
+
+git-what-is-unmodified ()
+{
+    if [ -n "$1" ]
+    then
+        echo 'Files unaltered, but tracked'
+    else
+        git-status-parse --unmodified
     fi
 }
 
@@ -1915,6 +1925,37 @@ git-gui () {
 
 alias gitgui='git-gui '
 
+git-hold-process-if-unmodified ()
+{
+    local action=$1;      shift
+    local gitf=$1;        shift
+    local src=$1;         shift
+    local tgt=$1;         shift
+    local opt_verbose=$1; shift
+    local noexec_mode=$1; shift
+
+    local verbose_cp='';  shift
+
+    ((opt_verbose)) && verbose_cp='-v'
+
+    local unmodified=$(git-what-is-unmodified | grep $gitf)
+    if [ -n "$unmodified" ]
+    then
+        if [ "$action" = 'direct' ]
+        then
+            cmd="cp $verbose_cp $src $tgt.git-hold.unmodified"
+            ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
+            ((noexec_mode)) || $cmd
+
+            ((noexec_mode)) || echo $unmodified > $tgt.git-hold-meta.unmodified
+        # else
+            # No rm here or else git will think we're removing it.
+            # We use this in the case where we want to hold onto a file
+            # BEFORE we start messing with it.
+        fi
+    fi
+}
+
 git-hold-process-if-untracked ()
 {
     local action=$1;      shift
@@ -2034,6 +2075,11 @@ git-hold ()
     local gitfsrc ## gitf, src pair
     local tgt
     [ ! -d $hold_dir ] && mkdir -p $hold_dir
+    if [ -z "$1" ]
+    then
+        echo "Must provide one or more files to hold"
+        return 1
+    fi
     for gitf in $*
     do
         src=$(realpath $gitf)
@@ -2070,6 +2116,8 @@ git-hold ()
             git-hold-process-if-unstaged 'direct' $gitf $src $tgt $opt_verbose $noexec_mode
 
             git-hold-process-if-staged 'direct' $gitf $src $tgt $opt_verbose $noexec_mode
+
+            git-hold-process-if-unmodified 'direct' $gitf $src $tgt $opt_verbose $noexec_mode
 
         done
     fi
@@ -2170,7 +2218,7 @@ git-hold-restore ()
         gitf=${gitf#hold/*} ## dump left hold/
         local metasrc=${gitf_metasrc#*:}  ## dump left of :
         bn=$(basename $metasrc)
-        for metatype in staged unstaged untracked
+        for metatype in unmodified staged unstaged untracked
         do
             src=$(basename $metasrc .git-hold.$metatype)
             if [ "$bn" != "$src" ]
@@ -2206,7 +2254,7 @@ git-get-hold-count ()
 }
 alias git-hold-get-count='git-get-hold-count '
 
-git-hold-load-both ()
+git-hold-edit-both ()
 {
     for i in $(git-hold-list)
     do
