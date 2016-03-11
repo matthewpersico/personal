@@ -58,6 +58,8 @@ teeit=0
 edit=''
 purge=''
 
+original_argv="$0 $@"
+
 # Read the options and args from command line.
 GETOPTOUT=`getopt -o h -l tee,log:,dir:,edit,editor:,purge,purgeprior,help,cmd -n 'logit' -- "$@"`
 status=$?
@@ -180,24 +182,53 @@ then
 fi
 
 (
+    echo "********************"
+    echo "  logit invocation  "
+    echo "********************"
+    echo $original_argv
+    echo
+
     if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]
     then
         echo "********************"
         echo "      git info      "
         echo "********************"
+        echo
+        echo "Latest log entry:"
         git log -1
+        echo
+        echo "Status:"
         git status
         echo
+
+        tmpf=$(mktemp)
+        git stash list >$tmpf 2>&1
+        if [ -s $tmpf ]
+        then
+            echo "Stashes:"
+            cat $tmpf
+            echo
+        fi
+        if [[ ! "$(type git-hold-list 2>&1)" =~ 'not found' ]]
+        then
+            git-hold-list >$tmpf 2>&1
+            if [ -s $tmpf ]
+            then
+                echo "Holds:"
+                cat $tmpf
+                echo
+            fi
+        fi
     fi
 
     echo "********************"
-    echo "      Command       "
+    echo "      command       "
     echo "********************"
     echo $command $args
     echo
 
     echo "********************"
-    echo "       Output       "
+    echo "       output       "
     echo "********************"
     $command $args
     status=$?
@@ -205,7 +236,7 @@ fi
 
     echo "********************"
     echo $logmsg
-    echo "Exit status: $status"
+    echo "exit status: $status"
     echo "********************"
     exit $status
 ) >> $logspec 2>&1
