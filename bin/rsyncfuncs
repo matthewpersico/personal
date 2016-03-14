@@ -131,15 +131,26 @@ export -f vmrsyncgits
 
 vmrsync-running()
 {
-    local target="$NFSMACHINE:vmstashes/$(hostname)"
-    local running="$(ps lxf | grep rsync | grep $target)"
-    if [ -z "$running" ]
+    local silent=0
+    if [ "$1" = '-s' ]
     then
-        echo "Not running"
-    else
-        ps lxf | head -1
-        echo "$running"
+        silent=1
     fi
+
+    local target="$NFSMACHINE:vmstashes/$(hostname)"
+    local running=$(mktemp)
+    local ret
+    ps lxf | grep -E "COMMAND|rsync.*$target" | grep -v grep  > $running
+    if [ "$(cat $running | wc -l)" != 1 ]
+    then
+        cat $running
+        ret=1
+    else
+        ((silent)) || echo "Not running"
+        ret=0
+    fi
+    \rm -f $running
+    return $ret
 }
 
 _vmrsync_usage ()
@@ -149,6 +160,8 @@ _vmrsync_usage ()
 }
 vmrsync ()
 {
+    local verbose=''
+    local silent='-s'
     local OPTSARGS=$(getopt -o vh --long verbose,help -- "$@")
     status=$?
     ((status != 0)) && _vmrsync_usage && return $status
@@ -158,21 +171,20 @@ vmrsync ()
     do
         case "$1" in
             -h|--help) _vmrsync_usage; return 0 ;;
-            -v|--verbose) verbose='-v'; shift ;;
+            -v|--verbose) verbose='-v'; silent=''; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; _vmrsync_usage; return 1 ;;
         esac
     done
 
     local target="$NFSMACHINE:vmstashes/$(hostname)"
-    local running="$(vmrsync-running)"
-    if [ -z "$running" ] || [ "$running" = 'Not running' ]
+    vmrsync-running -s
+    if [ "$?" = '0' ]
     then
         rsync2nfs $verbose --multistamp --target $target ~
         return $?
     else
-        echo Another vmrsync appears to be running:
-        echo $running
+        echo "Another vmrsync appears to be running--^"
         return 1
     fi
 }
