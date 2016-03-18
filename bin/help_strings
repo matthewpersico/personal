@@ -1,0 +1,41 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+use Getopt::Long;
+
+my %out;
+my $max = 0;
+my %line;
+my $patt = qr/^\s+##@@\s+/;
+
+my %opt;
+
+GetOptions(\%opt,
+           're=s@');
+
+if($opt{re}) {
+    $opt{re} = join('|',@{$opt{re}});
+    $opt{re} = qr/$opt{re}/;
+}
+
+while (<>) {
+    next if $_ !~ m/$patt/;
+    chomp;
+    $_ =~ s/$patt//;
+    @line{qw(class classord name text)} = split(/\|\|/,$_);
+    $line{text} ||= '';
+    my $ok=($opt{re}
+              ? ( $line{name} =~ m/$opt{re}/
+                  ? 1
+                  : 0 )
+              : 1 );
+    if($ok) {
+        $out{$line{name}} = $line{text};
+        $max = length($line{name}) > $max ? length($line{name}) : $max;
+    }
+}
+
+my $fmt = "%${max}s - %s\n";
+for (sort keys %out ) {
+    printf ($fmt, $_, $out{$_});
+}
