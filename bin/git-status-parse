@@ -9,19 +9,21 @@ GetOptions(\%opt,
            qw( staged
                unstaged
                untracked
+               deleted
                all-modified
-               unmodified)
+               unmodified
+               verbose)
        ) or die;
 die "Need at least one of --staged --unstaged --untracked --all-modified --unmodified"
   if(! %opt );
 %flags = %opt;
 
-if( $opt{'all-modified'} || $opt{unmodified} ) {
+if( $opt{'all-modified'} || $opt{unmodified} || $opt{deleted}) {
     $flags{$_} = 1
       for ( qw (staged unstaged untracked) );
 }
 $flags{$_} //= 0
-    for ( qw (staged unstaged untracked all unmodified) );
+    for ( qw (staged unstaged deleted untracked all unmodified) );
 
 my @input = qx(git status; echo GSE);
 my %files;
@@ -70,15 +72,29 @@ INPUT:for (@input) {
 
 if( $flags{unmodified} ) {
     print join("\n", sort
-                 grep { ! defined $files{modified}{$_} }
+                 grep { ! defined $files{affected}{$_} }
                  map {chomp;$_}
                  qx(git ls-files));
+} elsif( $flags{deleted} ) {
+    print join("\n", sort keys %{$files{deleted}});
+} elsif($opt{verbose}) {
+    print join("\n", map { "$_ - " . join(', ', @{$files{affected}{$_}}) } sort keys %{$files{affected}});
 } else {
-    print join("\n", sort keys %{$files{modified}});
+    print join("\n", sort keys %{$files{affected}});
 }
 
 sub store_filename {
-    my ($type, $name) = ($_[0], (map { s/\s+//; $_} (split(/:/, $_[1]))[-1])[0]);
-    return if ! -f $name and ! -d $name and ! -l $name;
-    $files{$type}{$name} = $files{modified}{$name} = 1;
+    my ($type, $subtype, $name) = ($_[0], map { s/\s+//; $_} (split(/:/, $_[1])));
+    return if (not defined $name
+                 or
+                 ( $subtype ne 'deleted'
+                   and
+                   (! -f $name and ! -d $name and ! -l $name) ) );
+    $files{$type}{$name} = $subtype;
+    $files{$subtype}{$name} = 1;
+    if($files{affected}{$name}) {
+        push @{$files{affected}{$name}}, $subtype;
+    } else {
+        $files{affected}{$name} = [$subtype];
+    }
 }
