@@ -1043,21 +1043,27 @@ git-check-with-master ()
     git fetch 1>/dev/null 2>&1
 
     local branchlog=$(mktemp)
-    git log -1 > $branchlog
+    git log > $branchlog
 
     local masterlog=$(mktemp)
-    git log -1 origin/master > $masterlog
+    git log origin/master > $masterlog
 
     local difflog=$(mktemp)
-    diff  -y --suppress-common-lines $branchlog $masterlog 1> $difflog 2>&1
+    diff $branchlog $masterlog 1> $difflog 2>&1
 
     if [ -s $difflog ]
     then
-        echo
-        echo "*** git repo: $(pwd)"
-        echo "*** Current branch $(git-get-current-branch) and origin/master are not synced:"
-        echo
-        cat $difflog
+        if [ "$(cat $difflog | wc -l)" = '10' ] \
+              && [ ! "$(grep -E "Merge pull request.*$(git-get-current-branch)" $difflog)" = '' ]
+        then
+            echo "Only diff to master is merge pull request"
+        else
+            echo
+            echo "*** git repo: $(pwd)"
+            echo "*** Current branch $(git-get-current-branch) and origin/master are not synced:"
+            echo
+            cat $difflog
+        fi
     fi
 
     rm -f $branchlog $masterlog $difflog
