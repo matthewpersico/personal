@@ -4,6 +4,9 @@
 
 XTERMINIT_FILE=${BASH_SOURCE[0]}
 
+. ~/personal/bin/auditfuncs ## In case we're called on an NFS machine before
+                            ## .profile sets this up
+
 auditfuncs_init $XTERMINIT_FILE
 
 xterminit_edit ()
@@ -47,18 +50,6 @@ else
     export XTERM HOSTNAME
 
     xtermgeo='-geometry 132x40+200+200'
-    case ${HOSTNAME} in
-        *bcpc* )
-	        xtermcolors='-fg black -bg darkgrey'
-            xtermfonts="-fa 'Monospace' -fs 10"
-            ;;
-
-        nylxdev* )
-	        xtermcolors='-fg wheat -bg darkblue'
-            xtermfonts=''
-            ;;
-        * )
-    esac
 
     RXCmd ()
     {
@@ -71,7 +62,7 @@ else
 		    local XARGS="${*}"
 		    if [ -z "${XARGS}" ]
 		    then
-			    XARGS="$xtermgeo $xtermfonts"
+			    XARGS="$xtermgeo"
 		    fi
 		    if [ "${HOST}" = "${HOSTNAME}" ]
 		    then
@@ -90,23 +81,91 @@ else
 		    fi
 	    fi
     }
-    export -f RXCmd
 
-    newx ()
+    case ${HOSTNAME} in
+        *bcpc* )
+            alias newx='newxgrey '
+            xtermfonts="-fa 'Monospace' -fs 10"
+            ;;
+
+        nylxdev* )
+            alias newx='newxdarkblue '
+            xtermfonts=''
+            ;;
+        * )
+    esac
+
+    newxguts ()
     {
-        if [ -n "$*" ]
-        then
-            RXCmd ${HOSTNAME} $xtermgeo $xtermfonts $*
-        else
-            RXCmd ${HOSTNAME} $xtermgeo $xtermfonts $xtermcolors
-        fi
+        RXCmd ${HOSTNAME} $xtermgeo $xtermfonts $*
     }
-    export -f newx
-    alias newxred='newx -fg wheat -bg darkred '
-    alias newxwhite='newx -fg black -bg white '
-    alias newxblack='newx -fg white -bg black '
-    alias newxblue='newx -fg black -bg steelblue '
-    alias newxgreen='newx -fg black -bg seagreen '
+
+    ## GIT_CONFIG
+
+    ## Take the configuration from the given file instead of .git/config. Using
+    ## the "--global" option forces this to ~/.gitconfig. Using the "--system"
+    ## option forces this to $(prefix)/etc/gitconfig.
+
+    ## This is how we can change colors per terminal!!!
+
+    ##
+    ## Includes You can include one config file from another by setting the
+    ## special include.path variable to the name of the file to be
+    ## included. The included file is expanded immediately, as if its contents
+    ## had been found at the location of the include directive. If the value of
+    ## the include.path variable is a relative path, the path is considered to
+    ## be relative to the configuration file in which the include directive was
+    ## found. The value of include.path is subject to tilde expansion: ~/ is
+    ## expanded to the value of $HOME, and ~user/ to the specified user’s home
+    ## directory. See below for examples.
+
+    ## Example
+    # Core variables
+    ##[include]
+    ##path = /path/to/gitcolors.$basecolor
+
+    newxgrey ()
+    {
+        export GREP_COLORS='ln=42'
+        newxguts -fg black -bg darkgrey
+    }
+
+    newxdarkblue ()
+    {
+        unset GREP_COLORS
+        newxguts -fg wheat -bg darkblue
+    }
+
+    newxred ()
+    {
+        unset GREP_COLORS
+        newxguts -fg wheat -bg darkred
+    }
+
+    newxwhite ()
+    {
+        unset GREP_COLORS
+        newxguts -fg black -bg white
+    }
+
+    newxblack ()
+    {
+        unset GREP_COLORS
+        newxguts -fg white -bg black
+    }
+
+    newxblue ()
+    {
+        unset GREP_COLORS
+        newxguts -fg black -bg steelblue
+    }
+
+    newxgreen ()
+    {
+        unset GREP_COLORS
+        newxguts -fg black -bg seagreen
+    }
+
 
     perlx ()
     {
