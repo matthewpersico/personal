@@ -76,6 +76,9 @@ rsync2nfs ()
         mkdir -p $RSYNCFUNCS_LOG_HOME
         timestamp="$RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.$(date +%Y-%m-%dT%H-%M-%S)"
 
+        ## Purge - we don't need more than 7 days (YES +6 GIVES US 7 DAYS)
+        find $RSYNCFUNCS_LOG_HOME -type f -mtime +6 -delete
+
         ## STDOUT to the log
         exec 1> $timestamp
 
@@ -138,7 +141,7 @@ vmrsync-running()
     fi
 
     local target="$NFSMACHINE:vmstashes/$(hostname)"
-    local running=$(mktemp)
+    local running=$(mktemp --suffix=.vmrsync-running)
     local ret
     ps lxf | grep -E "COMMAND|rsync.*$target" | grep -v grep  > $running
     if [ "$(cat $running | wc -l)" != 1 ]
@@ -158,6 +161,7 @@ _vmrsync_usage ()
     echo "Usage: vmrsync [--verbose|-v] [--help|-h]"
     echo
 }
+
 vmrsync ()
 {
     local verbose=''
@@ -177,16 +181,18 @@ vmrsync ()
         esac
     done
 
+    local status
     local target="$NFSMACHINE:vmstashes/$(hostname)"
     vmrsync-running -s
     if [ "$?" = '0' ]
     then
         rsync2nfs $verbose --multistamp --target $target ~
-        return $?
+        status=$?
     else
         echo "Another vmrsync appears to be running--^"
-        return 1
+        status=1
     fi
+    return $status
 }
 #nxport -f vmrsync
 alias vmsync='vmrsync '
@@ -194,7 +200,7 @@ alias vmsync='vmrsync '
 vmrsync-status ()
 {
     date
-    touch /tmp/now
-    ls -lart $RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.* /tmp/now
+    touch /tmp/now.vmrsync-status
+    ls -lart $RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.* /tmp/now.vmrsync-status
     vmrsync-running
 }
