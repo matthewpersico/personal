@@ -435,7 +435,7 @@ _git-go-get ()
         git-go-set $mbig
     fi
 
-    local tmpfile=$(mktemp)
+    local tmpfile=$(mktemp --suffix=._git-go-get)
     cp $gitfuncs_git_go_file $tmpfile
 
     if ((roots==0))
@@ -597,7 +597,7 @@ git-help ()
 {
     ##@@ none||none||git-help||
     gitfuncs_audit "$@"
-    local tmpfile=$(mktemp)
+    local tmpfile=$(mktemp --suffix=.git-help)
     ls -c1 $PERSONALBIN/*bbgh* 2>/dev/null | sed 's|.*/|script |' > ${tmpfile}.gh1
     ls -c1 $PERSONALBIN/*git* 2>/dev/null| sed 's|.*/|script |' > ${tmpfile}.gh2
     declare -F | grep git | grep -v _git > ${tmpfile}.gh3
@@ -971,7 +971,7 @@ git-checkout ()
                         if [ "$resp" == 'y' ]
                         then
                             builtin cd ./wt || return $?
-                            git-create-worktree $newbranch
+                            git-worktree-create $newbranch
                             return $?
                         fi
                     fi
@@ -1042,13 +1042,13 @@ git-check-with-master ()
 
     git fetch 1>/dev/null 2>&1
 
-    local branchlog=$(mktemp)
+    local branchlog=$(mktemp --suffix=.git-check-with-master.branchlog)
     git log > $branchlog
 
-    local masterlog=$(mktemp)
+    local masterlog=$(mktemp --suffix=.git-check-with-master.masterlog)
     git log origin/master > $masterlog
 
-    local difflog=$(mktemp)
+    local difflog=$(mktemp --suffix=.git-check-with-master.difflog)
     diff $branchlog $masterlog 1> $difflog 2>&1
 
     if [ -s $difflog ]
@@ -1175,7 +1175,7 @@ EOF
         return 1
     fi
 
-    stcheck=$(mktemp)
+    stcheck=$(mktemp --suffix=.git-sync-with-remote)
     git status 1>$stcheck 2>&1
     grep "Your branch is up-to-date with 'origin/$cb'." $stcheck 1>/dev/null
     status=$?
@@ -1184,9 +1184,13 @@ EOF
         cat $stcheck
         cat <<EOF
 Your branch should be up to date with its origin in order to simplify the
-rebase. Make it so and then rerun the command.
+rebase.
 EOF
-        return 1
+        local resp=$(yesno "Do you want to continue anyway" n)
+        if [ "$resp" == 'n' ]
+        then
+            return 1
+        fi
     fi
 
     cat <<EOF
@@ -1684,29 +1688,34 @@ git-get-stash-count ()
 }
 alias git-stash-get-count='git-get-stash-count '
 
-git-create-worktree-usage ()
+git-worktree-create-usage ()
 {
-    echo "Usage: git-create-worktree branch [remote]"
+    echo "Usage: git-worktree-create branch [remote]"
     echo "       default remote is 'origin'"
 }
 alias git-create-worktree-usage='git-create-worktree-usage '
 alias git-worktree-create-usage='git-create-worktree-usage '
 
-git-create-worktree ()
+git-worktree-create ()
 {
-    ##@@ none||none||git-create-worktree||
+    ##@@ none||none||git-worktree-create||
     local verbose=1
     ## Make sure pwd ends in wt
     if [[ ! "$(pwd)" =~ /wt$ ]]
     then
-        echo "Will not create worktrees outside of wt dir. Aborting."
-        return 1
+        if [ -d ./wt ]
+        then
+            builtin cd ./wt
+        else
+            echo "Will not create worktrees outside of wt dir. Aborting."
+            return 1
+        fi
     fi
 
     if [ -z "$1" ]
     then
         echo 'Need a branch name to use for the worktree spec.'
-        git-create-worktree-usage
+        git-worktree-create-usage
         return 1
     fi
     local wt=$1
@@ -1760,93 +1769,109 @@ git-create-worktree ()
 
     return 0
 }
-alias git-worktree-create='git-create-worktree '
-alias git-worktree='git-create-worktree '
-alias git-wt='git-create-worktree '
-alias gitwt='git-create-worktree '
+alias git-create-worktree='git-worktree-create '
+alias git-worktree='git-worktree-create '
+alias git-wt='git-worktree-create '
+alias gitwt='git-worktree-create '
 
 git-delete-current-worktree ()
 {
-    ##@@ none||none||git-delete-current-worktree||
-    ## Make sure we are in a proper worktree.
-    if [ ! -f .git ] || [[ ! "$(pwd)" =~ /wt/ ]]
-    then
-        echo "$(pwd) is not a proper worktree for deletion"
-        return 1
-    fi
+    git-delete-worktree $(pwd)
+    status=$?
+    return $status
+}
 
-    ## Make sure it's clean.
-    if [ "$(git status --porcelain | wc -l)" != '0' ] || \
-           [ "$(git status | grep 'Your branch is' | grep -v 'up-to-date' | wc -l)" != '0' ]
-    then
-        git status
-        echo
-        echo "Will not delete current worktree"
-        return 1
-    fi
+git-delete-worktree ()
+{
+    ##@@ none||none||git-delete-worktree||
+    local worktree=$1;
+    local worktreefull=$(realpath $1);
 
-    ## Current branch
-    local current_branch=$(git-get-current-branch)
+    (
+        builtin cd $worktreefull
 
-    ## Confirm
-    local current_dir=$(basename $(pwd))
-
-    if [ "$current_branch" != "$current_dir" ]
-    then
-        echo "Branch '$current_branch' does not match current subdir '$current_dir'."
-        echo "I'm bailing; you fix this mess."
-        return 1
-    fi
-
-    git status
-    local resp=$(yesno 'Hard check on status for a while. Continue with deletion');
-    if [ "$resp" = 'n' ]
-    then
-        return 0
-    fi
-
-    ## Whack it. Start with the current dir.
-    local delit=$(basename $(pwd))
-    builtin cd ..
-    local resp=$(yesno "Hard check on rm for a while. Continue with $delit");
-    [ "$resp" = 'n' ] && return 0
-    \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
-
-    ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
-    ## get to first, and bail.
-    while [ "$(basename $(pwd))" != 'wt' ]
-    do
-        if [ -z "$(ls -A $(pwd))" ]
+        ##@@ none||none||git-delete-current-worktree||
+        ## Make sure we are in a proper worktree.
+        if [ ! -f .git ] || [[ ! "$(pwd)" =~ /wt/ ]]
         then
-            #it's empty
-            delit=$(basename $(pwd))
-            builtin cd ..
-            resp=$(yesno "Hard check on rm for a while. Continue with $delit");
-            [ "$resp" = 'n' ] && return 0
-            \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
+            echo "$worktree is not a proper worktree for deletion"
+            return 1
         fi
-    done
 
-    ## Now the branch
-    local resp=$(pick  "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
-    if [ "$resp" != 'k' ]
-    then
+        ## Make sure it's clean.
+        if [ "$(git status --porcelain | wc -l)" != '0' ] || \
+               [ "$(git status | grep 'Your branch is' | grep -v 'up-to-date' | wc -l)" != '0' ]
+        then
+            git status
+            echo
+            echo "Will not delete current worktree"
+            return 1
+        fi
 
-        ## Have to be in a git repo to do this
+        ## Current branch
+        local current_branch=$(git-get-current-branch)
+
+        ## Confirm
+        local current_dir=$(basename $(pwd))
+
+        if [ "$current_branch" != "$current_dir" ]
+        then
+            echo "Branch '$current_branch' does not match current subdir '$current_dir'."
+            echo "I'm bailing; you fix this mess."
+            return 1
+        fi
+
+        git status
+        local resp=$(yesno 'Hard check on status for a while. Continue with deletion');
+        if [ "$resp" = 'n' ]
+        then
+            return 0
+        fi
+
+        ## Whack it. Start with the current dir.
+        local delit=$(basename $(pwd))
+        builtin cd ..
+        local resp=$(yesno "Hard check on rm for a while. Continue with $delit");
+        [ "$resp" = 'n' ] && return 0
+        \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
+
+        ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
+        ## get to first, and bail.
         while [ "$(basename $(pwd))" != 'wt' ]
         do
-            cd ..
+            if [ -z "$(ls -A $(pwd))" ]
+            then
+                #it's empty
+                delit=$(basename $(pwd))
+                builtin cd ..
+                resp=$(yesno "Hard check on rm for a while. Continue with $delit");
+                [ "$resp" = 'n' ] && return 0
+                \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
+            fi
         done
-        cd ..
-        if [ "$resp" = 'd' ]
+
+        ## Now the branch
+        local resp=$(pick  "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
+        if [ "$resp" != 'k' ]
         then
-            git-delete-branch $current_branch
-        else
-            git-close-branch $current_branch
+
+            ## Have to be in a git repo to do this
+            while [ "$(basename $(pwd))" != 'wt' ]
+            do
+                cd ..
+            done
+            cd ..
+            if [ "$resp" = 'd' ]
+            then
+                git-delete-branch $current_branch
+            else
+                git-close-branch $current_branch
+            fi
         fi
-    fi
+    )
 
     git-go-set
+
     return 0
 }
 alias git-delete-current-worktree='git-delete-current-worktree '
