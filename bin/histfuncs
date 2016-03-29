@@ -11,7 +11,7 @@ histfuncs_edit ()
     histfuncs_audit "$@"
     xo $HISTFUNCS_FILE
 }
-export -f histfuncs_edit
+#nxport -f histfuncs_edit
 alias histfuncs-edit=histfuncs_edit
 
 histfuncs_reload ()
@@ -19,7 +19,7 @@ histfuncs_reload ()
     histfuncs_audit "$@"
     . $HISTFUNCS_FILE
 }
-export -f histfuncs_reload
+#nxport -f histfuncs_reload
 alias histfuncs-reload=histfuncs_reload
 
 histinit ()
@@ -47,7 +47,7 @@ EOF
         fi
     fi
 }
-export -f histinit
+#nxport -f histinit
 histinit
 
 _bash_history_sync ()
@@ -61,7 +61,7 @@ _bash_history_sync ()
 chomp $lines[-2];$lines[-2]=~s/ ## pwd =>.*//;$lines[-2].= " ## pwd => $ARGV[1]\n";
 open(OH, ">$ARGV[0]");print OH @lines;close(OH)' $HISTFILE "$(pwd)"
 }
-export -f _bash_history_sync
+#nxport -f _bash_history_sync
 
 PROMPT_COMMAND=_bash_history_sync
 
@@ -71,14 +71,14 @@ history ()
     _bash_history_sync
     builtin history "$@"
 }
-export -f history
+#nxport -f history
 
 stash_history ()
 {
     histfuncs_audit "$@"
     cp -v $HISTFILE $(dirname $HISTFILE)/$1
 }
-export -f stash_history
+#nxport -f stash_history
 alias stash_hist='stash_history '
 alias stash-hist='stash_history '
 alias hist-stash='stash_history '
@@ -90,7 +90,7 @@ show_history ()
     local hf=$(basename $HISTFILE)
     ls -lrt $(dirname $HISTFILE) | sed "s|$hf|$hf <= current|"
 }
-export -f show_history
+#nxport -f show_history
 
 alias show_hist='show_history '
 alias show-hist='show_history '
@@ -111,7 +111,7 @@ show_current_history ()
     histfuncs_audit "$@"
     ls -la $HISTFILE
 }
-export -f show_current_history
+#nxport -f show_current_history
 
 alias show_current_hist='show_current_history '
 alias show_current-hist='show_current_history '
@@ -126,20 +126,63 @@ grep_history ()
 {
     histfuncs_audit "$@"
     local hostfilt=''
-    if [ "$1" = '-h' ]
+    local grepopt=''
+    local days_ago=''
+    local day=''
+    local endofopts=''
+    local exclude_pwd=1
+    while [[ "$1" =~ ^- ]] && [ -z "$endofopts" ]
+    do
+        case "$1" in
+            -h ) hostfilt=$2
+                 shift;shift ;;
+            -l ) grepopt='-l'
+                 shift ;;
+            -n ) grepopt='-n'
+                 shift ;;
+            -[0-9] )
+                days_ago=$(echo "$1" | sed 's/^-//')
+                shift ;;
+            -d )
+                day=$(echo $2 | tr '-' '_')
+                shift; shift ;;
+            -pwd )
+                exclude_pwd=0
+                shift ;;
+            -- )
+                endofopts=$1
+                shift ;;
+            * )
+                echo invalid option "$1"
+                return 1
+        esac
+    done
+
+    if [ -n "$days_ago" ]
     then
-        hostfilt=$2
-        shift;shift;
+        ## Thank you gnu date
+        day=$(date -d "today - $days_ago day" +'%Y_%m_%d')
     fi
-    local grepopt='-n'
-    if [ "$1" = '-l' ]
+    if [ -n "$day" ]
     then
-        grepopt='-l'
-        shift
+        hostfilt="$hostfilt.$day"
     fi
-    grep $grepopt "$1" $(ls -rt $(dirname $HISTFILE)/$hostfilt*)
+
+    local histfilt="$(dirname $HISTFILE)/$hostfilt"
+    local histfs=$(ls -rt ${histfilt}* 2>/dev/null;return $?)
+    if [ -z "$histfs" ]
+    then
+        echo "No history files found matching ${histfilt}*"
+    elif (( exclude_pwd ))
+    then
+        grep $grepopt -- "$1" $histfilt \
+            | grep -v '## pwd =' \
+            | grep $grepopt -- "$1"
+    else
+        grep $grepopt -- "$1" $histfilt
+    fi
 }
-export -f grep_history
+#nxport -f grep_history
 alias grep_hist='grep_history '
 alias grep-hist='grep_history '
 alias grephist='grep_history '
@@ -167,7 +210,7 @@ cat_history ()
         cat $cathist
     fi
 }
-export -f cat_history
+#nxport -f cat_history
 
 alias cat_hist='cat_history '
 alias cat-hist='cat_history '
@@ -188,7 +231,7 @@ rename_history ()
     fi
     echo "Done"
 }
-export -f rename_history
+#nxport -f rename_history
 
 alias rename_hist='rename_history '
 alias rename-hist='rename_history '
@@ -213,7 +256,7 @@ new_history ()
     fi
     echo "Done"
 }
-export -f new_history
+#nxport -f new_history
 
 alias new_hist='new_history '
 alias new-hist='new_history '
@@ -264,7 +307,7 @@ load_history ()
         cat $loadhist >> $HISTFILE
     fi
 }
-export -f load_history
+#nxport -f load_history
 
 alias load_hist='load_history '
 alias load-hist='load_history '
