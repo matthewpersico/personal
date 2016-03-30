@@ -1,23 +1,23 @@
 #!/usr/bin/env perl
 
 # A replacement for shell getopt that respects long options on those machines
-# where the shell getopt does not.
+# where the shell getopt does not. Only implements the most used options.
 
 use strict;
 use warnings;
 
-use Getopt::Long qw(:config pass_through);
+use Getopt::Long qw(:config pass_through auto_abbrev);
 
 ## Options to getoptp
 my %metaopt =
-  ( o => '',
-    l => '',
-    n => 'getoptp'
+  ( 'o' => '',
+    'l' => '',
+    'n' => 'getoptp',
 );
 
 GetOptions (\%metaopt,
             'o=s',
-            'l=s',
+            'l|long=s',
             'n=s');
 
 shift @ARGV if ($ARGV[0] eq '--' ); ## This should be the end of getoptp's
@@ -29,10 +29,20 @@ my %optlong;
 my @optctrl;
 my %opt;
 
-%optshort = map { /(.*):/ ? ($1 => 's') : ($_ => 1)} split(/,/, $metaopt{o});
-%optlong = map { /(.*):/ ? ($1 => 's') : ($_ => 1)} split(/,/, $metaopt{l});
-for (@metaopt{qw(o l)}) {
-    push @optctrl, map { s/:/=s/; $_} split(/,/, $_);
+if ($metaopt{o}) {
+    ## No commas between short options and some can have ':' so the split is
+    ## more involved.
+    my @split;
+    for (split(//,$metaopt{o})) {
+        $_ eq ':' ? $split[-1] .= ':' : push @split, $_;
+    }
+    %optshort = map { /(.*):/ ? ($1 => 's') : ($_ => 1)} @split;
+    push @optctrl, map { s/:/=s/; $_} @split;
+}
+
+if ($metaopt{l}) {
+    %optlong = map { /(.*):/ ? ($1 => 's') : ($_ => 1)} split(/,/, $metaopt{l});
+    push @optctrl, map { s/:/=s/; $_} split(/,/, $metaopt{l});
 }
 
 GetOptions(\%opt,
@@ -54,6 +64,8 @@ for (keys %opt) {
         push @out, $opt{$_};
     }
 }
+push @out, '--' if (@ARGV and $ARGV[0] ne '--' );
 push @out, @ARGV;
+push @out, '--' if (!@out or !@ARGV);
 print "@out";
 exit 0;
