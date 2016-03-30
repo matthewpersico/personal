@@ -1696,10 +1696,18 @@ git-worktree-create-usage ()
 alias git-create-worktree-usage='git-create-worktree-usage '
 alias git-worktree-create-usage='git-create-worktree-usage '
 
+git-worktree-fetch ()
+{
+    git-worktree-create --fetch "$@"
+    return $?
+}
+
 git-worktree-create ()
 {
     ##@@ none||none||git-worktree-create||
     local verbose=1
+    local fetch_existing=0
+
     ## Make sure pwd ends in wt
     if [[ ! "$(pwd)" =~ /wt$ ]]
     then
@@ -1707,9 +1715,15 @@ git-worktree-create ()
         then
             builtin cd ./wt
         else
-            echo "Will not create worktrees outside of wt dir. Aborting."
+            echo "Will not manipulate worktrees outside of wt dir. Aborting."
             return 1
         fi
+    fi
+
+    if [ "$1" = '--fetch' ]
+    then
+        fetch_existing=1
+        shift
     fi
 
     if [ -z "$1" ]
@@ -1747,7 +1761,12 @@ git-worktree-create ()
     then
         echo "Branch $wt already exists. Using it."
         create_branch=''
+    elif [ "$fetch_existing" = '1' ]
+    then
+        echo "Branch $wt does not exist to be fetched."
+        return 1
     fi
+
     ((verbose)) && echo git worktree add $create_branch "$wt" "$wt"
     git worktree add $create_branch "$wt" "$wt"
     status=$?
@@ -1761,8 +1780,14 @@ git-worktree-create ()
     ## dirlist, not builtin cd, to take advantage this cd enhancement
     dirlist $wt
 
-    ((verbose)) && echo git push --set-upstream $remote $wt
-    git push --set-upstream $remote $wt
+    if [ -n "$create_branch" ]
+    then
+        ((verbose)) && echo git push --set-upstream $remote $wt
+        git push --set-upstream $remote $wt
+    else
+        ((verbose)) && echo git pull --set-upstream-to=$remote/$wt $wt
+        git pull --set-upstream-to=origin/$remote $wt
+    fi
 
     ## Add this repo to the list
     git-go-set
