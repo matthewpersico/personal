@@ -1,0 +1,59 @@
+#!/usr/bin/env perl
+
+# A replacement for shell getopt that respects long options on those machines
+# where the shell getopt does not.
+
+use strict;
+use warnings;
+
+use Getopt::Long qw(:config pass_through);
+
+## Options to getoptp
+my %metaopt =
+  ( o => '',
+    l => '',
+    n => 'getoptp'
+);
+
+GetOptions (\%metaopt,
+            'o=s',
+            'l=s',
+            'n=s');
+
+shift @ARGV if ($ARGV[0] eq '--' ); ## This should be the end of getoptp's
+                                    ## options indicator.
+
+## The options to the caller's program
+my %optshort;
+my %optlong;
+my @optctrl;
+my %opt;
+
+%optshort = map { /(.*):/ ? ($1 => 's') : ($_ => 1)} split(/,/, $metaopt{o});
+%optlong = map { /(.*):/ ? ($1 => 's') : ($_ => 1)} split(/,/, $metaopt{l});
+for (@metaopt{qw(o l)}) {
+    push @optctrl, map { s/:/=s/; $_} split(/,/, $_);
+}
+
+GetOptions(\%opt,
+           @optctrl);
+
+my @out;
+for (keys %opt) {
+    my $optfmt;
+    if (defined($optshort{$_})) {
+        push @out, "-$_";
+        $optfmt = $optshort{$_};
+    } elsif (defined($optlong{$_})) {
+        push @out, "--$_";
+        $optfmt = $optlong{$_};
+    } else {
+        die "$metaopt{n}: $_ is not a short or long opt"
+    }
+    if ($optfmt eq 's') {
+        push @out, $opt{$_};
+    }
+}
+push @out, @ARGV;
+print "@out";
+exit 0;
