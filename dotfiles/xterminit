@@ -1,6 +1,14 @@
 # -*- sh -*-
 
-#xterminit
+# xterminit
+
+## X server ping...
+xmodmap 1>/dev/null 2>/dev/null
+if (($?))
+then
+    ## There is no xserver. Don't set any of this up.
+    return
+fi
 
 if [ -z "$XTERM" ]
 then
@@ -16,161 +24,142 @@ fi
 if [ -z "$XTERM" ]
 then
     echo "$(date) - $(hostname) - Cannot find an xterm to use. xterm setup stops." >> ~/xterminit.stop
-else
-    if [ -z "${HOSTNAME}" ]
-    then
-        HOSTNAME=`hostname`
-    fi
-    export XTERM HOSTNAME
-
-    xtermgeo='-geometry 132x40+200+200'
-
-    RXCmd ()
-    {
-        local HOST="${1}"
-	    if [ -z ${HOST} ]
-	    then
-		    echo "Error: hostname not specified."
-	    else
-		    shift 1
-		    local XARGS="${*}"
-		    if [ -z "${XARGS}" ]
-		    then
-			    XARGS="$xtermgeo"
-		    fi
-		    if [ "${HOST}" = "${HOSTNAME}" ]
-		    then
-			    ${XTERM} -display ${DISPLAY} -name ${HOST} ${XARGS} &
-		    else
-			    local XCOOKIE=`/usr/bin/X11/xauth list ${DISPLAY}`
-                #					${XARGS} >/dev/null 2>&1 &
-                ssh ${HOST} "(
-				PATH=$PATH:/usr/bin/X11
-				DISPLAY=$DISPLAY
-				export PATH DISPLAY
-				xauth add ${XCOOKIE} >> ~/inlog 2>&1
-				/usr/bin/nohup ${XTERM} -name ${HOST} \
-					${XARGS} >> ~/inlog 2>&1 &
-			)" &
-		    fi
-	    fi
-    }
-
-    if [ -z "$NEWX" ]
-    then
-        case ${HOSTNAME} in
-            *bldo* )
-                export NEWX=newxdarkred
-                xtermfonts="-fa 'Monospace' -fs 10"
-                ;;
-
-            *bcpc* )
-                export NEWX=newxgrey
-                xtermfonts="-fa 'Monospace' -fs 10"
-                ;;
-
-            nylxdev* )
-                export NEWX=newxdarkblue
-                xtermfonts=''
-                ;;
-            * )
-                export NEWX=newxred
-                xtermfonts=''
-        esac
-    fi
-
-    alias newx="$NEWX "
-
-    newxguts ()
-    {
-        RXCmd ${HOSTNAME} $xtermgeo $xtermfonts $*
-    }
-
-    ## GIT_CONFIG
-
-    ## Take the configuration from the given file instead of .git/config. Using
-    ## the "--global" option forces this to ~/.gitconfig. Using the "--system"
-    ## option forces this to $(prefix)/etc/gitconfig.
-
-    ## This is how we can change colors per terminal!!!
-
-    ##
-    ## Includes You can include one config file from another by setting the
-    ## special include.path variable to the name of the file to be
-    ## included. The included file is expanded immediately, as if its contents
-    ## had been found at the location of the include directive. If the value of
-    ## the include.path variable is a relative path, the path is considered to
-    ## be relative to the configuration file in which the include directive was
-    ## found. The value of include.path is subject to tilde expansion: ~/ is
-    ## expanded to the value of $HOME, and ~user/ to the specified user’s home
-    ## directory. See below for examples.
-
-    ## Example
-    # Core variables
-    ##[include]
-    ##path = /path/to/gitcolors.$basecolor
-
-    newxgrey ()
-    {
-	    export NEWX=newxgrey
-        export GREP_COLORS='ln=42'
-        newxguts -fg black -bg darkgrey
-    }
-
-    newxdarkblue ()
-    {
-	    export NEWX=newxdarkblue
-        unset GREP_COLORS
-        newxguts -fg wheat -bg darkblue
-    }
-
-    newxred ()
-    {
-	    export NEWX=newxred
-        unset GREP_COLORS
-        newxguts -fg wheat -bg red
-    }
-
-    newxdarkred ()
-    {
-	    export NEWX=newxdarkred
-        unset GREP_COLORS
-        newxguts -fg wheat -bg darkred
-    }
-
-    newxwhite ()
-    {
-	    export NEWX=newxwhite
-        unset GREP_COLORS
-        newxguts -fg black -bg white
-    }
-
-    newxblack ()
-    {
-	    export NEWX=newxblack
-        unset GREP_COLORS
-        newxguts -fg white -bg black
-    }
-
-    newxblue ()
-    {
-	    export NEWX=newxblue
-        unset GREP_COLORS
-        newxguts -fg black -bg steelblue
-    }
-
-    newxgreen ()
-    {
-	    export NEWX=newxgreen
-        unset GREP_COLORS
-        newxguts -fg black -bg seagreen
-    }
-
-    perlx ()
-    {
-        ## For starting up windows for forked Perl programs in debugger to
-        ## attach to.
-        xterm -e sh -c 'tty;sleep 99999999' &
-    }
-
+    return
 fi
+
+if [ -z "${HOSTNAME}" ]
+then
+    HOSTNAME=`hostname`
+fi
+export XTERM HOSTNAME
+
+xtermgeo='-geometry 132x40+200+200'
+
+RXCmd ()
+{
+    local HOST="${1}"
+	if [ -z ${HOST} ]
+	then
+		echo "Error: hostname not specified."
+	else
+		shift 1
+		local XARGS="${*}"
+		if [ -z "${XARGS}" ]
+		then
+			XARGS="$xtermgeo"
+		fi
+		if [ "${HOST}" = "${HOSTNAME}" ]
+		then
+			${XTERM} -display ${DISPLAY} -name ${HOST} ${XARGS} &
+		else
+			local XCOOKIE=`/usr/bin/X11/xauth list ${DISPLAY}`
+            #					${XARGS} >/dev/null 2>&1 &
+            ssh ${HOST} "(
+                                  PATH=$PATH:/usr/bin/X11
+                                  DISPLAY=$DISPLAY
+                                  export PATH DISPLAY
+                                  xauth add ${XCOOKIE} >> ~/inlog 2>&1
+                                  /usr/bin/nohup ${XTERM} -name ${HOST} \
+                                                 ${XARGS} >> ~/inlog 2>&1 &
+                                 )" &
+		fi
+	fi
+}
+
+if [ -z "$NEWX" ]
+then
+    case ${HOSTNAME} in
+        *bldo* )
+            export NEWX=newxdarkred
+            xtermfonts="-fa 'Monospace' -fs 10"
+            ;;
+
+        *bcpc* )
+            export NEWX=newxgrey
+            xtermfonts="-fa 'Monospace' -fs 10"
+            ;;
+
+        nylxdev* )
+            export NEWX=newxdarkblue
+            xtermfonts=''
+            ;;
+        * )
+            export NEWX=newxred
+            xtermfonts=''
+    esac
+fi
+
+alias newx="$NEWX "
+
+newxguts ()
+{
+    RXCmd ${HOSTNAME} $xtermgeo $xtermfonts $*
+}
+
+## If we want to change git colors, then define the color assignments
+## with a series of -c name=value assignments in an ennvar GIT_COLORS
+## and make git be a function such that it calls '/the/real/git
+## $GIT_COLORS "$@"'.
+
+newxgrey ()
+{
+	export NEWX=newxgrey
+    export GREP_COLORS='ln=42'
+    newxguts -fg black -bg darkgrey
+}
+
+newxdarkblue ()
+{
+	export NEWX=newxdarkblue
+    unset GREP_COLORS
+    newxguts -fg wheat -bg darkblue
+}
+
+newxred ()
+{
+	export NEWX=newxred
+    unset GREP_COLORS
+    newxguts -fg wheat -bg red
+}
+
+newxdarkred ()
+{
+	export NEWX=newxdarkred
+    unset GREP_COLORS
+    newxguts -fg wheat -bg darkred
+}
+
+newxwhite ()
+{
+	export NEWX=newxwhite
+    unset GREP_COLORS
+    newxguts -fg black -bg white
+}
+
+newxblack ()
+{
+	export NEWX=newxblack
+    unset GREP_COLORS
+    newxguts -fg white -bg black
+}
+
+newxblue ()
+{
+	export NEWX=newxblue
+    unset GREP_COLORS
+    newxguts -fg black -bg steelblue
+}
+
+newxgreen ()
+{
+	export NEWX=newxgreen
+    unset GREP_COLORS
+    newxguts -fg black -bg seagreen
+}
+
+perlx ()
+{
+    ## For starting up windows for forked Perl programs in debugger to
+    ## attach to.
+    xterm -e sh -c 'tty;sleep 99999999' &
+}
