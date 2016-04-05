@@ -4,20 +4,20 @@
 
 VMFUNCS_FILE=${BASH_SOURCE[0]}
 
-vmfuncs_edit ()
+vmfuncs-edit ()
 {
     xo $VMFUNCS_FILE
 }
-#nxport -f vmfuncs_edit
-alias vmfuncs-edit=vmfuncs_edit
 
-vmfuncs_reload ()
+vmfuncs-reload ()
 {
     . $VMFUNCS_FILE
 }
-#nxport -f vmfuncs_reload
-alias vmfuncs-reload=vmfuncs_reload
-alias vmfuncs-load=vmfuncs_reload
+alias vmfuncs-load=vmfuncs-reload
+
+vmfuncs-help () {
+    help_strings $VMFUNCS_FILE "$@"
+}
 
 VMFUNCS_TOOLKIT_FILE=~/.ssh/id_rsa.toolkit
 VMFUNCS_TOOLKIT_EXPIRE_FILE=~/.ssh/id_rsa.toolkit.expires
@@ -25,6 +25,7 @@ VMFUNCS_BCPCVMS_FILE=~/personal/bin/.bcpcvms
 
 vmchoose ()
 {
+    ##@@ none||none||vmchoose||pick a VM to connect to
     local PS3='Pick a machine:'
     select vmname in ${!vmips[@]}
     do
@@ -35,10 +36,10 @@ vmchoose ()
     done
     echo $vmname
 }
-#nxport -f vmchoose
 
 vmgo ()
 {
+    ##@@ none||none||vmgo||connect to VM
     vm_toolkit_file_maint
 
     . $VMFUNCS_BCPCVMS_FILE
@@ -51,18 +52,18 @@ vmgo ()
     vmip=${vmips[$vmname]}
     ssh -i $VMFUNCS_TOOLKIT_FILE $vmip $@
 }
-#nxport -f vmgo
 alias govm='vmgo '
 
 vmshow ()
 {
+    ##@@ none||none||vmshow||show the list of VMs
     cat $VMFUNCS_BCPCVMS_FILE | grep -v 'declare -A vmips'
 }
-#nxport -f vmshow
 alias showvm='vmshow '
 
 vmadd ()
 {
+    ##@@ none||none||vmadd||add a VM to the list
     if [ $# != '2' ]
     then
         echo usage vmadd name ip
@@ -77,11 +78,11 @@ vmadd ()
     rm -f $VMFUNCS_BCPCVMS_FILE.$$
     vmshow
 }
-#nxport -f vmadd
 alias addvm='vmadd '
 
 vmdel ()
 {
+    ##@@ none||none||vmdel||remove a VM from the list
     . $VMFUNCS_BCPCVMS_FILE
     vmname=${1:-undef}
 
@@ -93,12 +94,12 @@ vmdel ()
     mv $VMFUNCS_BCPCVMS_FILE.$$ $VMFUNCS_BCPCVMS_FILE
     vmshow
 }
-#nxport -f vmdel
 alias delvm='vmdel '
 
 NFSMACHINE=nylxdev1.dev.bloomberg.com
 cptonfs ()
 {
+    ##@@ none||none||cptonfs||copy a file to the vmbounce directory of the NFS filesystem
     scp "$@" $NFSMACHINE:vmbounce
 }
 alias cp-to-nfs='cptonfs '
@@ -106,8 +107,28 @@ alias scp-to-nfs='cptonfs '
 
 cpfromnfs ()
 {
+    ##@@ none||none||cpfromfs||copy a file from the vmbounce directory of the NFS filesystem to the local ~/vmbounce directory
     mkdir -p ~/vmbounce
     scp $NFSMACHINE:vmbounce/* ~/vmbounce
 }
 alias cp-from-nfs='cpfromnfs '
 alias scp-from-nfs='cpfromnfs '
+
+bldo-check ()
+{
+    ##@@ none||none||bldo-check||ssh all the BDLO machines to refresh the RSA keys
+    local bldos=$(cat /bb/csdata/bldfarm/pools/*BLDO* 2>/dev/null)
+    if [ -z "$bldos" ]
+    then
+        echo No BLDO files found
+    else
+        local hcount=$(echo $bldos | wc -w)
+        local hindex=0
+        for h in $bldos
+        do
+            ((hindex+=1))
+            echo "*** $h ($hindex/$hcount) ***"
+            ssh $h
+        done
+    fi
+}
