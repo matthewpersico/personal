@@ -39,11 +39,30 @@ case $(uname) in
         ;;
 esac
 
+## Assume X is available and do the needful if not.
+hasX=1
+pinged=$(which xmodmap 2>&1 | grep 'no xmodmap')
+if [ -n "$pinged" ]
+then
+    hasX=0
+else
+    pinged=$(xmodmap 2>&1 | grep 'unable to open display')
+    if [ -n "$pinged" ]
+    then
+        hasX=0
+    fi
+fi
+
 ## Get potential emacs server processes
 $pscmd | grep $grepargs | grep -v grep | grep -vi 'emacs -q' >$procs 2>&1
 
 ## Count how many
-serverup=$(cut -c $cutrange $procs | grep '    1' | wc -l)
+if((hasX))
+then
+    serverup=$(cut -c $cutrange $procs | grep '    1' | wc -l)
+else
+    serverup=$(cat $procs | grep 'emacs -nw' | wc -l)
+fi
 
 ## If we are being used as the git editor or EDITOR, we don't want to start up
 ## such that the underlying process thinks we're done editing before we are.
@@ -58,7 +77,12 @@ if ((serverup==0))
 then
     if ((as_visual==0))
     then
-        emacs "$@" &
+        if (( hasX ))
+        then
+            emacs "$@" &
+        else
+            emacs -nw "$@" < /dev/tty
+        fi
     else
         echo "No emacs server found. Start one and try again or use -m."
     fi
