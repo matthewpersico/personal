@@ -2,12 +2,44 @@
 
 # xterminit
 
-## X server ping...
-xmodmap 1>/dev/null 2>/dev/null
-if (($?))
+## Cygwin use only
+startxserver() {
+    if [ -z "$(ps -a | grep XWin)" ]
+    then
+        if [ "$1" = '--verbose' ]
+        then
+            echo "Starting Cygwin XServer..."
+            startxwin 2>/dev/null 2>/dev/null &
+            XSERVER='XWin'
+        fi
+    fi
+}
+
+## init
+if [ -z "$DISPLAY" ]
 then
-    ## There is no xserver. Don't set any of this up.
-    return
+    export DISPLAY=:0.0
+fi
+
+XSERVER=''
+if [ "$(uname -o)" = 'Cygwin' ]
+then
+    hasXming=$(ps -aW | grep Xming.exe)
+    if [ -n "$hasXming" ]
+    then
+        echo "Using Xming XServer"
+        XSERVER='Xming'
+    else
+        startxserver --verbose
+    fi
+else
+    ## X server ping...
+    xmodmap 1>/dev/null 2>/dev/null
+    if (($?))
+    then
+        ## There is no xserver. Do not set any of this up.
+        return 0 ## return, not exit because this script is meant to be 'dotted in'
+    fi
 fi
 
 if [ -z "$XTERM" ]
@@ -24,7 +56,7 @@ fi
 if [ -z "$XTERM" ]
 then
     echo "$(date) - $(hostname) - Cannot find an xterm to use. xterm setup stops." >> ~/xterminit.stop
-    return
+    return 0
 fi
 
 if [ -z "${HOSTNAME}" ]
@@ -34,7 +66,44 @@ fi
 export XTERM HOSTNAME
 
 xtermgeo='-geometry 132x40+200+200'
+if [ -z "$NEWX" ]
+then
+    case ${HOSTNAME} in
+        *bldo* )
+            export NEWX=newxdarkred
+            xtermfonts="-fa 'Monospace' -fs 10"
+            ;;
 
+        *bcpc* )
+            export NEWX=newxgrey
+            xtermfonts="-fa 'Monospace' -fs 10"
+            ;;
+
+        nylxdev* )
+            export NEWX=newxdarkblue
+            xtermfonts=''
+            ;;
+
+        monolith* )
+            export NEWX=newxblack
+            if [ "$XSERVER" = 'XWin' ]
+            then
+                xtermfonts="-fa 'Monospace' -fs 10"
+            else
+                ## Xming
+                xtermfonts='-fn lucidasanstypewriter-14'
+            fi
+            ;;
+
+        * )
+            export NEWX=newxred
+            xtermfonts=''
+    esac
+fi
+
+alias newx="$NEWX "
+
+## Set these up here because they use values set above
 RXCmd ()
 {
     local HOST="${1}"
@@ -65,31 +134,6 @@ RXCmd ()
 		fi
 	fi
 }
-
-if [ -z "$NEWX" ]
-then
-    case ${HOSTNAME} in
-        *bldo* )
-            export NEWX=newxdarkred
-            xtermfonts="-fa 'Monospace' -fs 10"
-            ;;
-
-        *bcpc* )
-            export NEWX=newxgrey
-            xtermfonts="-fa 'Monospace' -fs 10"
-            ;;
-
-        nylxdev* )
-            export NEWX=newxdarkblue
-            xtermfonts=''
-            ;;
-        * )
-            export NEWX=newxred
-            xtermfonts=''
-    esac
-fi
-
-alias newx="$NEWX "
 
 newxguts ()
 {
