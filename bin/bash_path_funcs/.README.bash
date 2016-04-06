@@ -83,7 +83,7 @@ $ delpath -e "/opt.*/bin"
 deletes deletes all directories matching the regular expression /opt.*/bin
 from $PATH. (This would remove all bin directories under /opt from $PATH).
 
-$ delpath -n 
+$ delpath -n
 
 deletes all non-existent directories from $PATH. You can operate on other
 path variables using the -p option.
@@ -100,7 +100,7 @@ This allows you to fire up an editor (by default vi, if $EDITOR is not
 set) and edit the contents of a path variable in any arbitrary way you wish.
 The elements of the path appear on separate lines in the editor. You can,
 for example, change the order of lines in the file, to modify the order in
-which executables are found on your search path. 
+which executables are found on your search path.
 
 listpath
 --------
@@ -198,7 +198,7 @@ Warranty
 --------
 
 There is no warranty, or expressed or implied fitness for any particular
-purpose, associated with the utilities described above. 
+purpose, associated with the utilities described above.
 
 Public Domain
 -------------
@@ -207,4 +207,3 @@ The code for all the utilities described above is hereby placed in the
 public domain. No license is required for usage or modification.
 
 Please feel free to use of any of the code in any legal way that benefits you.
-
