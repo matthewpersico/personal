@@ -17,8 +17,11 @@ gitfuncs-reload ()
     gitfuncs_audit "$@"
     . $GITFUNCS_FILE
 }
-alias gitfuncs-reload=gitfuncs-reload
 alias gitfuncs-load=gitfuncs-reload
+
+gitfuncs-help () {
+    help_strings $GITFUNCS_FILE "$@"
+}
 
 gitfuncs_gitroot_MBIG=${HOME}/MBIG
 gitfuncs_gitroot=${HOME}/gits
@@ -66,10 +69,6 @@ alias gitgrep='git grep '
 ##
 ## Goodies
 ###
-gitfuncs-help () {
-    help_strings $GITFUNCS_FILE "$@"
-}
-
 git-st-por-usage () {
     echo "Usage: git-st-por [--strip [--]| -s [--]]  [arg ...]"
     echo "       git-st-por [--help|-h]"
@@ -469,12 +468,17 @@ _git-go-get ()
 git-go-usage ()
 {
     gitfuncs_audit "$@"
-    echo "Usage: git-go [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt ] [dirmatch]"
+    echo "Usage: git-go [--list] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt ] [dirmatch]"
     echo "       git-go [-h|--help]"
     echo
     echo "       Presents a list of all git repos"
     echo "       in ${HOME}/gits"
     echo "       for you to choose and then cd to."
+    echo
+    echo "       --list will skip the choosing part and just exit"
+    echo
+    echo "       --update will rescan to pick up new and deleted"
+    echo "           repos and worktrees"
     echo
     echo "       --roots will add the non-git directories"
     echo "           where gits live so you can add new repos"
@@ -494,18 +498,20 @@ git-go ()
     ##@@ none||none||git-go||
     gitfuncs_audit "$@"
     local PS3="Choose by number, q to quit: "
+    local opt_list=0
     local opt_update=0
     local opt_roots=0
     local opt_mbig=0
     local opt_wt=1
     local opt_subwt_only=0
-    local OPTSARGS=$(getoptp -o urmh --long update,roots,mbig,wt,nowt,subwt,help -n 'git-go' -- "$@")
+    local OPTSARGS=$(getoptp -o lurmh --long list,update,roots,mbig,wt,nowt,subwt,help -n 'git-go' -- "$@")
     status=$?
     ((status != 0)) && git-go-usage && return $status
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
+            -l|--list) opt_list=1; shift ;;
             -m|--mbig) opt_mbig=1; shift ;;
             -r|--roots) opt_roots=1; shift ;;
             -u|--update) opt_update=1; shift ;;
@@ -553,30 +559,47 @@ git-go ()
         echo "Matches only $REPOS. Going there."
         REPO=$REPOS
     else
-        REPOS=$(tail_number_select $REPOS)
-        COLUMNS=1 ## One character wide terminal, forces list to be one column.
-        select REPO in $REPOS
-        do
-            if [ -n "$REPO" ]
-            then
-                REPO=$(tail_number_strip "$REPO")
-                break
-            elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
-            then
-                return
-            else
-                echo "'$REPLY' is an invalid choice"
-            fi
-        done
+        if (($opt_list))
+        then
+            local r
+            for r in $REPOS
+            do
+                echo '~'/$r
+            done
+        else
+            REPOS=$(tail_number_select $REPOS)
+            COLUMNS=1 ## One character wide terminal, forces list to be one column.
+            select REPO in $REPOS
+            do
+                if (($opt_list))
+                then
+                    return
+                fi
+                if [ -n "$REPO" ]
+                then
+                    REPO=$(tail_number_strip "$REPO")
+                    break
+                elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
+                then
+                    return
+                else
+                    echo "'$REPLY' is an invalid choice"
+                fi
+            done
+        fi
     fi
-    ## dirlist, not builtin cd, to take advantage this cd enhancement
-    dirlist ${HOME}/$(git-strip-repo $REPO)
-    git-check-hook
+    if((!opt_list))
+    then
+        ## dirlist, not builtin cd, to take advantage this cd enhancement
+        dirlist ${HOME}/$(git-strip-repo $REPO)
+        git-check-hook
+    fi
     return
 }
 alias gitgo='git-go '
 alias gitog='git-go '
 alias gitwt='git-go --subwt '
+alias git-list='git-go -l '
 
 git-get-current-branch ()
 {
