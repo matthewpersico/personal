@@ -207,4 +207,3 @@ The code for all the utilities described above is hereby placed in the
 public domain. No license is required for usage or modification.
 
 Please feel free to use of any of the code in any legal way that benefits you.
-
