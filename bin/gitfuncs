@@ -68,7 +68,7 @@ alias gitgrep='git grep '
 
 ##
 ## Goodies
-###
+##
 git-st-por-usage () {
     echo "Usage: git-st-por [--strip [--]| -s [--]]  [arg ...]"
     echo "       git-st-por [--help|-h]"
@@ -231,6 +231,40 @@ git-find-changelogs ()
     echo ${changelogs[@]}
 }
 
+git-parse-changelog ()
+{
+    local changelog=$1;shift;
+    local spec
+
+    for spec in $*
+    do
+        local cl=$(git-find-changelogs $spec)
+        ## open the cl
+        ## read in all the lines
+        ## for each line
+        ## if we are not in a section
+        ##    and line does not match section start
+        ##   save line to rewrite
+        ##   next
+        ## if line matches a section start
+        ##   if in a section
+        ##     end section
+        ##   set in a section = true
+        ##   start new section
+        ##   save line to print
+        ##   next
+        ## -- we must be in a section
+        ## if line is blank
+        ##   end section
+        ##   save line to rewrite
+        ##   next
+    done
+    ## remove consecutive blank lines from rewrite
+    ## write the rewrite to change log
+    ## write the sections to F file
+    ## return F file name
+}
+
 git-join-changelogs ()
 {
     ##@@ none||none||git-join-changelogs||
@@ -280,8 +314,7 @@ git-commit-with-changelog ()
         [ -r $i ] && files="$files $i"
     done
 
-    local changelogs=$(git-find-changelogs "$files")
-    local masterCl=$(git-join-changelogs "$changelogs")
+    local masterCl=$(git-parse-changelogs --strip "$changelogs")
     git commit -F $masterCl --edit "$@"
     local status=$?
     if ((status==0))
@@ -396,7 +429,6 @@ git-go-set ()
         set +x
     fi
 }
-alias git-go-set=git-go-set
 
 git-go-set-filename ()
 {
@@ -431,6 +463,7 @@ _git-go-get ()
     git-go-set-filename
     if [ ! -e $gitfuncs_git_go_file ] || ((update))
     then
+        echo "line 467 next line is: git-go-set $mbig"
         git-go-set $mbig
     fi
 
@@ -712,6 +745,7 @@ git-close-branch ()
     ((status != 0)) && return $status
 
     ## Update with changed branches
+    echo "line 749 next line is: git-go-set"
     git-go-set
     return $?
 }
@@ -804,6 +838,7 @@ git-delete-branch ()
     fi
 
     ## Update with changed branches
+    echo "line 842 next line is: git-go-set"
     git-go-set
     return $?
 }
@@ -1032,6 +1067,7 @@ git-checkout ()
         fi
 
         ## Update with changed branches
+        echo "line 1071 next line is: git-go-set"
         git-go-set
         return $?
     fi
@@ -1391,6 +1427,7 @@ EOUSAGE
     ls -ld $(pwd)/wt
 
     ## Add this repo to the list
+    echo "line 1431 next line is: git-go-set"
     git-go-set
 }
 alias fork-and-clone-bbgithub='bbgithub-fork-and-clone '
@@ -1443,6 +1480,7 @@ _guts_clone ()
     git remote -v
 
     ## Add this repo to the list
+    echo "line 1484 next line is: git-go-set"
     git-go-set
 }
 
@@ -1546,6 +1584,7 @@ _guts-whack ()
                 if ((status==0))
                 then
                     ## Remove it from the list of local git repos
+                    echo "line 1588 next line is: git-go-set"
                     git-go-set
                 fi
             else
@@ -1730,7 +1769,7 @@ git-worktree-create ()
     ##@@ none||none||git-worktree-create||
     local verbose=1
     local fetch_existing=0
-
+    local status=0
     ## Make sure pwd ends in wt
     if [[ ! "$(pwd)" =~ /wt$ ]]
     then
@@ -1759,14 +1798,11 @@ git-worktree-create ()
     shift
 
     local remote=$1
-    shift
-    if [ -z "$1" ]
-    then
-        remote=origin
-        echo "Using 'origin' as remote."
-    fi
+    [ -n "$remote" ] && shift
+    [ -z "$remote" ] && remote=origin
+    echo "Using '$remote' as remote."
 
-    ((verbose)) && echo '## check for existing worktrees with same name'
+    ((verbose)) && echo 'check for existing worktrees with same name'
     wtdir="$(pwd)/$wt"
     if [ -e $wtdir ]
     then
@@ -1777,7 +1813,7 @@ git-worktree-create ()
     ## TODO: Allow for suffix to append to worktree name so you can dup them if
     ## you need to.
 
-    ((verbose)) && echo '## check for existing branch'
+    ((verbose)) && echo 'check for existing branch'
     local create_branch="-b"
     local exists=$(git-branch-list | grep $wt)
     if [ -n "$exists" ]
@@ -1788,12 +1824,27 @@ git-worktree-create ()
     then
         echo "Branch $wt does not exist to be fetched."
         return 1
+    else
+        ## Since this worktree is going to create a branch of the local master,
+        ## make sure the local master (where we should be right now) it is up
+        ## to date.
+        if [ "$(git-get-current-branch)" != 'master' ]
+        then
+            echo "Will not create a branch and worktree from a non-master branch"
+            return 1
+        fi
+        echo "Checking local master, starting point for branch."
+        git pull
+        status=$?
+        ((status)) && return 1 ## assuming the error message will be printed to
+                               ## stderr...
     fi
 
+    ## Now create the work tree and create/fetch the branch.
     ((verbose)) && echo git worktree add $create_branch "$wt" "$wt"
     git worktree add $create_branch "$wt" "$wt"
     status=$?
-    if [ ! "$status" = '0' ]
+    if ((status))
     then
         echo "Aborting."
         return 1
@@ -1813,6 +1864,7 @@ git-worktree-create ()
     fi
 
     ## Add this repo to the list
+    echo "line 1868 next line is: git-go-set"
     git-go-set
 
     return 0
@@ -1832,92 +1884,96 @@ git-delete-current-worktree ()
 git-delete-worktree ()
 {
     ##@@ none||none||git-delete-worktree||
+    local opwd=$(pwd)
     local worktree=$1;
     local worktreefull=$(realpath $1);
 
-    (
-        builtin cd $worktreefull
+    builtin cd $worktreefull
 
-        ##@@ none||none||git-delete-current-worktree||
-        ## Make sure we are in a proper worktree.
-        if [ ! -f .git ] || [[ ! "$(pwd)" =~ /wt/ ]]
-        then
-            echo "$worktree is not a proper worktree for deletion"
-            return 1
-        fi
+    ##@@ none||none||git-delete-current-worktree||
+    ## Make sure we are in a proper worktree.
+    if [ ! -f .git ] || [[ ! "$(pwd)" =~ /wt/ ]]
+    then
+        echo "$worktree is not a proper worktree for deletion"
+        return 1
+    fi
 
-        ## Make sure it's clean.
-        if [ "$(git status --porcelain | wc -l)" != '0' ] || \
-               [ "$(git status | grep 'Your branch is' | grep -v 'up-to-date' | wc -l)" != '0' ]
-        then
-            git status
-            echo
-            echo "Will not delete current worktree"
-            return 1
-        fi
-
-        ## Current branch
-        local current_branch=$(git-get-current-branch)
-
-        ## Confirm
-        local current_dir=$(basename $(pwd))
-
-        if [ "$current_branch" != "$current_dir" ]
-        then
-            echo "Branch '$current_branch' does not match current subdir '$current_dir'."
-            echo "I'm bailing; you fix this mess."
-            return 1
-        fi
-
+    ## Make sure it's clean.
+    if [ "$(git status --porcelain | wc -l)" != '0' ] || \
+           [ "$(git status | grep 'Your branch is' | grep -v 'up-to-date' | wc -l)" != '0' ]
+    then
         git status
-        local resp=$(yesno 'Hard check on status for a while. Continue with deletion');
-        if [ "$resp" = 'n' ]
+        echo
+        echo "Will not delete current worktree"
+        return 1
+    fi
+
+    ## Current branch
+    local current_branch=$(git-get-current-branch)
+
+    ## Confirm
+    local current_dir=$(basename $(pwd))
+
+    if [ "$current_branch" != "$current_dir" ]
+    then
+        echo "Branch '$current_branch' does not match current subdir '$current_dir'."
+        echo "I'm bailing; you fix this mess."
+        return 1
+    fi
+
+    git status
+    local resp=$(yesno 'Hard check on status for a while. Continue with deletion');
+    if [ "$resp" = 'n' ]
+    then
+        return 0
+    fi
+
+    ## Whack it. Start with the current dir.
+    local delit=$(basename $(pwd))
+    builtin cd ..
+    local resp=$(yesno "Hard check on rm for a while. Continue with $delit");
+    [ "$resp" = 'n' ] && return 0
+    \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
+
+    ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
+    ## get to first, and bail.
+    while [ "$(basename $(pwd))" != 'wt' ]
+    do
+        if [ -z "$(ls -A $(pwd))" ]
         then
-            return 0
+            #it's empty
+            delit=$(basename $(pwd))
+            builtin cd ..
+            resp=$(yesno "Hard check on rm for a while. Continue with $delit");
+            [ "$resp" = 'n' ] && return 0
+            \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
         fi
+    done
 
-        ## Whack it. Start with the current dir.
-        local delit=$(basename $(pwd))
-        builtin cd ..
-        local resp=$(yesno "Hard check on rm for a while. Continue with $delit");
-        [ "$resp" = 'n' ] && return 0
-        \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
+    ## Now the branch
+    local resp=$(pick  "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
+    if [ "$resp" != 'k' ]
+    then
 
-        ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
-        ## get to first, and bail.
+        ## Have to be in a git repo to do this
         while [ "$(basename $(pwd))" != 'wt' ]
         do
-            if [ -z "$(ls -A $(pwd))" ]
-            then
-                #it's empty
-                delit=$(basename $(pwd))
-                builtin cd ..
-                resp=$(yesno "Hard check on rm for a while. Continue with $delit");
-                [ "$resp" = 'n' ] && return 0
-                \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
-            fi
+            builtin cd ..
         done
-
-        ## Now the branch
-        local resp=$(pick  "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
-        if [ "$resp" != 'k' ]
+        builtin cd ..
+        if [ "$resp" = 'd' ]
         then
-
-            ## Have to be in a git repo to do this
-            while [ "$(basename $(pwd))" != 'wt' ]
-            do
-                cd ..
-            done
-            cd ..
-            if [ "$resp" = 'd' ]
-            then
-                git-delete-branch $current_branch
-            else
-                git-close-branch $current_branch
-            fi
+            git-delete-branch $current_branch
+        else
+            git-close-branch $current_branch
         fi
-    )
+    fi
 
+    [ -d $opwd ] && builtin cd ## If $opwd was the worktree directory, it
+    ## won't be there anymore. Stay where we
+    ## are.
+
+    echo "line 1977 next line is: git-go-set"
     git-go-set
 
     return 0
@@ -2448,6 +2504,21 @@ git-hold-edit-both ()
         j=${i##hold/}
         xo ${i}.git-hold.* $j
     done
+}
+
+git-pull-with-checkpoint ()
+{
+    ##@@ none||none||git-pull-with-checkpoint||Write a file with the current UUID before pulling updates.
+    git log -1 > $(git-root).git-pull-checkpoint
+    git pull "$@"
+}
+
+git-diff-to-checkpoint ()
+{
+    ##@@ none||none||git-diff-to-checkpoint||Diff the current state of the local repo against the state as it was stored in git-pull-with-checkpoint
+    local oldid=$(grep $(git-root).git-pull-checkpoint| head -1 | sed 's/commit//')
+    local newid=$(git log -1 | head -1 | sed 's/commit//')
+    git diff $oldid $newid
 }
 
 ## Can't use local outside a function.
