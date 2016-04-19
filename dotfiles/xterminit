@@ -65,41 +65,42 @@ then
 fi
 export XTERM HOSTNAME
 
-xtermgeo='-geometry 132x40+200+200'
-if [ -z "$NEWX" ]
-then
-    case ${HOSTNAME} in
-        *bldo* )
-            export NEWX=newxdarkred
-            xtermfonts="-fa 'Monospace' -fs 10"
-            ;;
+XTERMGEOW=132
+XTERMGEOH=40
+XTERMGEOX=200
+XTERMGEOY=200
+XTERMGEO="-geometry ${XTERMGEOW}x${XTERMGEOH}+${XTERMGEOX}+${XTERMGEOY}"
+case ${HOSTNAME} in
+    *bldo* )
+        export NEWX=newxdarkred
+        XTERMFONTS="-fa 'Monospace' -fs 10"
+        ;;
 
-        *bcpc* )
-            export NEWX=newxgrey
-            xtermfonts="-fa 'Monospace' -fs 10"
-            ;;
+    *bcpc* )
+        export NEWX=newxgrey
+        XTERMFONTS="-fa 'Monospace' -fs 10"
+        ;;
 
-        nylxdev* )
-            export NEWX=newxdarkblue
-            xtermfonts=''
-            ;;
+    nylxdev* )
+        export NEWX=newxdarkblue
+        XTERMFONTS=''
+        ;;
 
-        monolith* )
-            export NEWX=newxblack
-            if [ "$XSERVER" = 'XWin' ]
-            then
-                xtermfonts="-fa 'Monospace' -fs 10"
-            else
-                ## Xming
-                xtermfonts='-fn lucidasanstypewriter-14'
-            fi
-            ;;
+    monolith* )
+        export NEWX=newxblack
+        if [ "$XSERVER" = 'XWin' ]
+        then
+            XTERMFONTS="-fa 'Monospace' -fs 10"
+        else
+            ## Xming
+            XTERMFONTS='-fn lucidasanstypewriter-14'
+        fi
+        ;;
 
-        * )
-            export NEWX=newxred
-            xtermfonts=''
-    esac
-fi
+    * )
+        export NEWX=newxred
+        XTERMFONTS=''
+esac
 
 alias newx="$NEWX "
 
@@ -115,7 +116,7 @@ RXCmd ()
 		local XARGS="${*}"
 		if [ -z "${XARGS}" ]
 		then
-			XARGS="$xtermgeo"
+			XARGS="$XTERMGEO"
 		fi
 		if [ "${HOST}" = "${HOSTNAME}" ]
 		then
@@ -137,7 +138,39 @@ RXCmd ()
 
 newxguts ()
 {
-    RXCmd ${HOSTNAME} $xtermgeo $xtermfonts $*
+    local count=1
+    local xtermgeow=$XTERMGEOW
+    local checkargs=1
+    while ((checkargs))
+    do
+        case $1 in
+            w )
+                ## wide
+                ((xtermgeow*=2)) ; shift ;;
+            n )
+                ## narrow
+                ((xtermgeow/=2)) ; shift ;;
+            s )
+                ## std
+                ((xtermgeow+-0)) ; shift ;;
+            [0-9]* )
+                ## number of xterms to spawn
+                count=$1 ; shift ;;
+            * )
+                ## We're done
+                checkargs=0 ;;
+        esac
+    done
+    local i=0
+    while ((i<count))
+    do
+        local xtermgeo="-geometry ${xtermgeow}x${XTERMGEOH}+$((XTERMGEOX+(i*72)))+$((XTERMGEOY+(i*72)))"
+        RXCmd ${HOSTNAME} $XTERMGEO $XTERMFONTS $@ $xtermgeo
+        ((i+=1))
+        sleep .05 ## Just enough to space out the &-ed invocations so that they
+                  ## do not randomly appear, but rather appear in a nice
+                  ## cascade.
+    done
 }
 
 ## If we want to change git colors, then define the color assignments
@@ -149,56 +182,56 @@ newxgrey ()
 {
 	export NEWX=newxgrey
     export GREP_COLORS='ln=42'
-    newxguts -fg black -bg darkgrey
+    newxguts ${1:-1} ${2:-s} -fg black -bg darkgrey
 }
 
 newxdarkblue ()
 {
 	export NEWX=newxdarkblue
     unset GREP_COLORS
-    newxguts -fg wheat -bg darkblue
+    newxguts ${1:-1} ${2:-s} -fg wheat -bg darkblue
 }
 
 newxred ()
 {
 	export NEWX=newxred
     unset GREP_COLORS
-    newxguts -fg wheat -bg red
+    newxguts ${1:-1} ${2:-s} -fg wheat -bg red
 }
 
 newxdarkred ()
 {
 	export NEWX=newxdarkred
     unset GREP_COLORS
-    newxguts -fg wheat -bg darkred
+    newxguts ${1:-1} ${2:-s} -fg wheat -bg darkred
 }
 
 newxwhite ()
 {
 	export NEWX=newxwhite
     unset GREP_COLORS
-    newxguts -fg black -bg white
+    newxguts ${1:-1} ${2:-s} -fg black -bg white
 }
 
 newxblack ()
 {
 	export NEWX=newxblack
     unset GREP_COLORS
-    newxguts -fg white -bg black
+    newxguts ${1:-1} ${2:-s} -fg white -bg black
 }
 
 newxblue ()
 {
 	export NEWX=newxblue
     unset GREP_COLORS
-    newxguts -fg black -bg steelblue
+    newxguts ${1:-1} ${2:-s} -fg black -bg steelblue
 }
 
 newxgreen ()
 {
 	export NEWX=newxgreen
     unset GREP_COLORS
-    newxguts -fg black -bg seagreen
+    newxguts ${1:-1} ${2:-s} -fg black -bg seagreen
 }
 
 perlx ()
