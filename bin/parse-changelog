@@ -1,0 +1,186 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Data::Dumper;
+use File::Basename;
+use File::Spec::Functions;
+use Getopt::Long;
+use IO::File;
+
+my @oldput;
+
+my $file;
+my $function;
+my $text;
+my %current = ();
+my %output = ();
+my %opt = (
+    write => 0,
+    withstatus => 0,
+);
+my $exit = 0;
+
+GetOptions(\%opt,
+           'write',
+           'withstatus',
+           'missingok' ) or die "Bad options";
+
+die "Cannot set --write with --withstatus or --missingok"
+  if( $opt{write}
+        and ( $opt{withstatus}
+              or $opt{missingok} ) );
+
+my $changelog = shift;
+for (@ARGV) {
+    if ( ! -f $_ ) {
+        print STDERR "$_ not found\n";
+        $exit++;
+    }
+}
+if ($exit) {
+    print STDERR "Aborting...\n";
+    exit 1;
+}
+
+my %files = map { $_ => 0 } grep { -f $_ } @ARGV;
+
+my @status;
+if($opt{withstatus}) {
+    $opt{missingok}=1;
+    @status = qx(git -c color.status=always status @ARGV);
+}
+
+my $clih = IO::File->new($changelog, "r")
+  or die "Cannot open $changelog for read:$!";
+my $commondir=dirname($changelog);
+
+LINE: while (<$clih>) {
+    chomp;
+
+    if ( /^\d{4,4}-\d{2,2}-\d{2,2}/ ## date and user header line
+           or length($_) == 0       ## blank
+           or /^\s+$/) {            ## technically blank
+        push @oldput, $_;
+        %current=();
+    } else {
+        if( /^\s+\* ([a-zA-Z0-9_.-]+) \(([a-zA-Z0-9_.-]+)\): (.*)/) {
+            ## * file (function): text
+            $file = catfile($commondir,$1);
+            $function = $2;
+            ($text = $3) =~ s/^\s+//;
+            $text =~ s/\s+$//;
+        } elsif( /^\s+\* ([a-zA-Z0-9_.-]+): (.*)/) {
+            ## * file: text
+            $file = catfile($commondir,$1);
+            $function = '<generic>';
+            ($text = $2) =~ s/^\s+//;
+            $text =~ s/\s+$//;
+        } elsif (/^\s+\(([a-zA-Z0-9_.-]+)\): (.*)/) {
+            ## (function): text
+            $file = $current{'file'};
+            $function = $1;
+            ($text = $2)=~ s/^\s+//;
+            $text =~ s/\s+$//;
+        } else {
+            ## text
+            $file = $current{file};
+            $function = $current{function};
+            ($text = $_) =~ s/^\s+//;
+            $text =~ s/\s+$//;
+        }
+
+        @current{qw(file function)} = ($file, $function);
+
+        if( defined $files{$file} ) {
+            $files{$file}=1;
+            $output{$file}->{$function} = []
+              if not defined $output{$file}->{$function};
+            push @{$output{$file}->{$function}}, $text;
+        } else {
+            push @oldput, $_;
+        }
+    }
+}
+$clih->close();
+
+my %nocl;
+while ( my ($k, $v) = each (%files)) {
+    if( $v == 0 ) {
+        if ($opt{missingok}) {
+            $nocl{$k} = $changelog;
+        } else {
+            print STDERR "$k has no entry in $changelog.\n";
+            $exit++;
+        }
+    }
+}
+if ($exit) {
+    print STDERR "Aborting...\n";
+    exit 1;
+}
+
+my $clnew;
+my $clnewh;
+if( $opt{write} ) {
+    $clnew = $changelog . ".new";
+    $clnewh =  IO::File->new($clnew, "w")
+      or die "Cannot open $clnew for write:$!";
+} else {
+    $clnewh = *STDOUT;
+}
+
+if (@status) {
+    $clnewh->print(join("\n",
+                        '*'x(10 + length($changelog)),
+                        "**** $changelog ****",
+                        '*'x(10 + length($changelog)),
+                        ''));
+    my @fs = keys %output;
+  STATUS: for my $sline (@status) {
+        $clnewh->print($sline);
+        chomp $sline;
+        next STATUS if $sline eq '';
+      FILE: for my $f (@fs) {
+            if( $sline =~ m/$f/) {
+                my $filedata = $output{$f};
+                for $function (sort keys %{$filedata}) {
+                    $clnewh->print(
+                        ' ' x 20,
+                        $function ne '<generic>'
+                          ? "($function)" : '',
+                        "@{$filedata->{$function}}\n");
+                }
+                next STATUS;
+            }
+        }
+        (my $file_from_sline = $sline ) =~ s/.*:\s+([a-zA-Z0-9_.-]+)/$1/;
+        $clnewh->print(' ' x 21, "*** No entry in $nocl{$file_from_sline}. ***\n")
+          if (exists ($nocl{$file_from_sline}));
+    }
+} else {
+    for $file (sort keys %output) {
+        my $filedata = $output{$file};
+        my $printfile = $file;
+        for $function (sort keys %{$filedata}) {
+            $clnewh->print("$printfile",
+                           $function ne '<generic>' ? " ($function)" : '',
+                           ": @{$filedata->{$function}}\n");
+            $printfile =~ s/./ /g;
+        }
+    }
+}
+
+if( $opt{write} ) {
+    $clnewh->close();
+
+    if (@oldput) {
+        my $cloldh =  IO::File->new($changelog, "w")
+          or die "Cannot open $changelog for re-write:$!";
+        $cloldh->print(join("\n", @oldput, ''));
+        $cloldh->close();
+    }
+}
+
+exit 0;
