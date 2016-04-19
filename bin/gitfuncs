@@ -179,149 +179,101 @@ git-find-conflicts ()
     git grep $opts -E '^<<<<<<<' | sort -u
 }
 
-git-find-changelogs ()
+git-status-changelog ()
 {
-    ##@@ none||none||git-find-changelogs||
+    ##@@ none||none||git-status-changelog||
+    gitfuncs_audit "$@"
+    local args="$@"
+    if [ -z "$args" ]
+    then
+        args=$(git-status-parse --staged --unstaged)
+    fi
+    git-process-changelog --withstatus $args
+    return $?
+}
+
+git-commit-changelog ()
+{
+    ##@@ none||none||git-commit-changelog||
     gitfuncs_audit "$@"
 
-    local i
-    local potentials
-    for i in "$@"
-    do
-        if [ -e $i ]
-        then
-            potentials="$potentials $i"
-        fi
-        ## Else the arg might be a commit arg passed in.
-    done
+    local args="$@"
+    ## This causes the same behavior as git commit with no args, but we need
+    ## files to find ChangeLogs.
+    [ -z "$args" ] && args=$(git-what-is-staged)
 
-    if [ -z "$potentials" ]
-    then
-        potentials=$(git-what-is-staged)
-    fi
+    git-process-changelog --commit "$args"
+    return $?
+}
 
-    if [ -z "$potentials" ]
+git-process-changelog ()
+{
+    ##@@ none||none||git-process-changelog||
+    gitfuncs_audit "$@"
+
+    if [ -z $1 ]
     then
-        echo "Nothing to commit."
+        echo "No files specified."
         return 1
     fi
 
-    local -A changelogs ## assoc array with realpath expansion will eliminate
-                        ## dups, if any
-    local key
-    local clcount=0
-    for i in $potentials
+    local action='read'
+    local parse_flag=''
+    if [ "$1" = '--commit' ]
+    then
+        action=commit
+        parse_flag='--write'
+        shift
+    elif [ "$1" = '--withstatus' ]
+    then
+        action=withstatus
+        parse_flag='--withstatus'
+        shift
+    fi
+
+    ## Adding /x/nomore allows us to get at the last set of changes in the list
+    ## using the dirspec change check and not a separate "catch" loop at the
+    ## end. We sort the inputs to gather files in common directories.
+    local filespec
+    local filelist
+    local current_dirspec
+    local dirspec
+    local status
+    for filespec in $(echo $@ | tr ' ' '\n' | sort -u) '/x/nomore'
     do
-        if [ -f $i ] && [ -f "$(dirname $i)/ChangeLog" ]
+        dirspec=$(dirname $filespec)
+        [ -z "$current_dirspec" ] && current_dirspec=$dirspec
+
+        if [ "$current_dirspec" = "$dirspec" ]
         then
-            key=$(realpath $(dirname $i)/ChangeLog)
-            changelogs[$key]=$key
-            (( clcount += 1 ))
-        elif [ -d $i ]
-        then
-            for j in $(find $i -name ChangeLog)
-            do
-                key=$(realpath $j)
-                changelogs[$key]=$key
-                (( clcount += 1 ))
-            done
+            filelist="$filelist $filespec"
+        else
+            local cl=${current_dirspec}/ChangeLog
+            if [ ! -r $cl ]
+            then
+                echo "No changelog found in '$current_dirspec'."
+                return 1
+            fi
+
+            local pcl=$(which parse-changelog)
+            ##perl -d:ptkdb \
+            $pcl $parse_flag $cl $filelist
+            status=$?
+            ((status!=0)) && return $status
+
+            if [ "$action" = 'commit' ]
+            then
+                git commit -F ${cl}.new --edit $filelist
+                status=$?
+                ((status!=0)) && return $status
+
+                \rm ${cl}.new
+            fi
+
+            current_dirspec=$dirspec
+            filelist=$filespec
         fi
     done
-
-    echo ${changelogs[@]}
-}
-
-git-parse-changelog ()
-{
-    local changelog=$1;shift;
-    local spec
-
-    for spec in $*
-    do
-        local cl=$(git-find-changelogs $spec)
-        ## open the cl
-        ## read in all the lines
-        ## for each line
-        ## if we are not in a section
-        ##    and line does not match section start
-        ##   save line to rewrite
-        ##   next
-        ## if line matches a section start
-        ##   if in a section
-        ##     end section
-        ##   set in a section = true
-        ##   start new section
-        ##   save line to print
-        ##   next
-        ## -- we must be in a section
-        ## if line is blank
-        ##   end section
-        ##   save line to rewrite
-        ##   next
-    done
-    ## remove consecutive blank lines from rewrite
-    ## write the rewrite to change log
-    ## write the sections to F file
-    ## return F file name
-}
-
-git-join-changelogs ()
-{
-    ##@@ none||none||git-join-changelogs||
-    gitfuncs_audit "$@"
-
-    local f=git.commit.$$
-    local changelogs="$@"
-    if [ -n "$changelogs" ]
-    then
-        local f=git.commit.$$
-        echo "## Delete all lines if you want to abort - :q! won't work." > $f
-        echo "## Enter a summary on the next line:" >> $f
-        echo '' >> $f
-        echo '' >> $f
-        echo 'Details:' >> $f
-        cat $changelogs | grep -v mpersico5 | sed 's/\t//g' >> $f
-    else
-        echo "## No ChangeLog files found" >> $f
-    fi
-    echo $f
-}
-
-git-preview-changelogs ()
-{
-    ##@@ none||none||git-preview-changelogs||
-    gitfuncs_audit "$@"
-    local files=
-    for i in "$@"
-    do
-        [ -r $i ] && files="$files $i"
-    done
-
-    local changelogs=$(git-find-changelogs "$files")
-    local masterCl=$(git-join-changelogs "$changelogs")
-    less $masterCl
-    \rm -f $masterCl
-}
-
-git-commit-with-changelog ()
-{
-    ##@@ none||none||git-commit-with-changelog||
-    set -x
-    gitfuncs_audit "$@"
-    local files=
-    for i in "$@"
-    do
-        [ -r $i ] && files="$files $i"
-    done
-
-    local masterCl=$(git-parse-changelogs --strip "$changelogs")
-    git commit -F $masterCl --edit "$@"
-    local status=$?
-    if ((status==0))
-    then
-        \rm $changelogs $masterCl
-    fi
-    set +x
 }
 
 git-strip-repo ()
