@@ -50,6 +50,20 @@ GetOptions(\%opt,
 
 my @out;
 for (keys %opt) {
+    ## Special check. If the value of an option starts with - or -- and matches
+    ## an entry in optctrl, odds are you're missing a value for the option and
+    ## have glommed the next option as the value.
+    if ($opt{$_} =~ m/^-{1,2}/) {
+        (my $nodash = $opt{$_}) =~ s/-{1,2}//;
+        if (defined($optshort{$nodash})
+              or
+              defined($optlong{$nodash})) {
+            die join("\n",
+                     "'$opt{$_}' is the value for option '$_', yet '$opt{$_}' is itself a valid option.",
+                     "This is probably an error; perhaps you forgot the value for '$_'?.\n");
+        }
+    }
+
     my $optfmt;
     if (defined($optshort{$_})) {
         push @out, "-$_";
@@ -69,3 +83,68 @@ push @out, @ARGV;
 push @out, '--' if (!@out or !@ARGV);
 print "@out";
 exit 0;
+
+=for test_script
+
+# -*- sh -*-
+
+opt_short_s=0
+opt_short_t_with_arg=''
+
+opt_long_vlong=0
+opt_long_wlong_with_arg=''
+
+OPTSARGS=$(perl -d:ptkdb getoptp -o st: --long vlong,wlong: -n 'testing' -- "$@")
+status=$?
+if ((status != 0))
+then
+    echo "Error."
+    exit $status
+fi
+
+# Reset the command line.
+eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+while true ; do
+    case "$1" in
+        -s | --vlong)
+            echo "option $1 specified"
+            shift
+            ;;
+        -t | --wlong)
+            echo "option $1 specified"
+            echo "next arg is '$2' and it modifies $1"
+            shift
+            shift
+            ;;
+        --)
+            echo "end of options. args are $@"
+            break
+            ;;
+        *) echo "option $1 illegal"
+           shift
+           ;;
+    esac
+done
+
+=cut
+
+=for test_cases
+
+$  ./getoptp_test -s -t --vlong --wlong -- --foo
+'--vlong' is the value for option 't', yet '--vlong' is itself a valid option.
+This is probably an error; perhaps you forgot the value for 't'?.
+Error.
+
+$ ./getoptp_test -s -t -d --vlong --wlong -d -- --foo
+option --wlong specified
+next arg is '-d' and it modifies --wlong
+option -s specified
+option --vlong specified
+option -t specified
+next arg is '-d' and it modifies -t
+end of options. args are -- --foo
+
+ =cut
