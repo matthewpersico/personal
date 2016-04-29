@@ -65,6 +65,7 @@ alias gitpush='git push '
 alias gitk="$(which gitk | tail -1 | sed 's/ +//') &"
 alias git-grep='git grep '
 alias gitgrep='git grep '
+alias gitnp='git --no-pager '
 
 ##
 ## Goodies
@@ -192,6 +193,7 @@ git-status-with-changelog ()
     return $?
 }
 alias git-st-cl='git-status-with-changelog '
+alias git-st-ch='git-status-with-changelog '
 
 git-commit-with-changelog ()
 {
@@ -1595,7 +1597,9 @@ git-what-is-staged ()
         git-status-parse --staged
     fi
 }
+alias git-is-staged='git-what-is-staged '
 alias git-what-is-committable='git-what-is-staged '
+alias git-is-committable='git-what-is-staged '
 
 git-what-is-unstaged ()
 {
@@ -1607,6 +1611,7 @@ git-what-is-unstaged ()
         git-status-parse --unstaged
     fi
 }
+alias git-is-unstaged='git-what-is-unstaged '
 
 git-what-is-untracked ()
 {
@@ -1618,6 +1623,7 @@ git-what-is-untracked ()
         git-status-parse --untracked
     fi
 }
+alias git-is-untracked='git-what-is-untracked '
 
 git-what-is-modified ()
 {
@@ -1629,6 +1635,7 @@ git-what-is-modified ()
         git-status-parse --staged --unstaged
     fi
 }
+alias git-is-modified='git-what-is-modified '
 
 git-what-is-unmodified ()
 {
@@ -1640,6 +1647,7 @@ git-what-is-unmodified ()
         git-status-parse --unmodified
     fi
 }
+alias git-is-unmodified='git-what-is-unmodified '
 
 git-what-is-deleted ()
 {
@@ -1651,6 +1659,7 @@ git-what-is-deleted ()
         git-status-parse --deleted
     fi
 }
+alias git-is-deleted='git-what-is-deleted '
 
 git-track-remote-branch ()
 {
@@ -1723,7 +1732,7 @@ git-worktree-create ()
         then
             builtin cd ./wt
         else
-            echo "Will not manipulate worktrees outside of wt dir. Aborting."
+            echo '* Will not manipulate worktrees outside of wt dir. Aborting.'
             return 1
         fi
     fi
@@ -1736,7 +1745,7 @@ git-worktree-create ()
 
     if [ -z "$1" ]
     then
-        echo 'Need a branch name to use for the worktree spec.'
+        echo '* Need a branch name to use for the worktree spec.'
         git-worktree-create-usage
         return 1
     fi
@@ -1746,29 +1755,29 @@ git-worktree-create ()
     local remote=$1
     [ -n "$remote" ] && shift
     [ -z "$remote" ] && remote=origin
-    echo "Using '$remote' as remote."
+    echo "* Using '$remote' as remote."
 
-    ((verbose)) && echo 'check for existing worktrees with same name'
+    ((verbose)) && echo '* Check for existing worktrees with same name'
     wtdir="$(pwd)/$wt"
     if [ -e $wtdir ]
     then
-        echo "$wtdir already exists. Aborting."
+        echo "* $wtdir already exists. Aborting."
         return 1
     fi
 
     ## TODO: Allow for suffix to append to worktree name so you can dup them if
     ## you need to.
 
-    ((verbose)) && echo 'check for existing branch'
+    ((verbose)) && echo '* Check for existing branch'
     local create_branch="-b"
     local exists=$(git-branch-list | grep $wt)
     if [ -n "$exists" ]
     then
-        echo "Branch $wt already exists. Using it."
+        echo "* Branch $wt already exists. Using it."
         create_branch=''
     elif [ "$fetch_existing" = '1' ]
     then
-        echo "Branch $wt does not exist to be fetched."
+        echo "* Branch $wt does not exist to be fetched."
         return 1
     else
         ## Since this worktree is going to create a branch of the local master,
@@ -1776,10 +1785,10 @@ git-worktree-create ()
         ## to date.
         if [ "$(git-get-current-branch)" != 'master' ]
         then
-            echo "Will not create a branch and worktree from a non-master branch"
+            echo "* Will not create a branch and worktree from a non-master branch"
             return 1
         fi
-        echo "Checking local master, starting point for branch."
+        echo "* Checking local master, starting point for branch."
         git pull
         status=$?
         ((status)) && return 1 ## assuming the error message will be printed to
@@ -1787,25 +1796,25 @@ git-worktree-create ()
     fi
 
     ## Now create the work tree and create/fetch the branch.
-    ((verbose)) && echo git worktree add $create_branch "$wt" "$wt"
+    ((verbose)) && echo "* git worktree add $create_branch $wt $wt"
     git worktree add $create_branch "$wt" "$wt"
     status=$?
     if ((status))
     then
-        echo "Aborting."
+        echo "* Aborting."
         return 1
     fi
 
-    ((verbose)) && echo cd $wt
+    ((verbose)) && echo "* cd $wt"
     ## dirlist, not builtin cd, to take advantage this cd enhancement
     dirlist $wt
 
     if [ -n "$create_branch" ]
     then
-        ((verbose)) && echo git push --set-upstream $remote $wt
+        ((verbose)) && echo "* git push --set-upstream $remote $wt"
         git push --set-upstream $remote $wt
     else
-        ((verbose)) && echo git pull --set-upstream-to=$remote/$wt $wt
+        ((verbose)) && echo "* git pull --set-upstream-to=$remote/$wt $wt"
         git pull --set-upstream-to=origin/$remote $wt
     fi
 
@@ -1932,9 +1941,45 @@ git-in-a-worktree ()
     [[  "$(pwd)" =~ /wt/ ]]; return $?
 }
 
+git-worktree-root ()
+{
+    ##@@ none||none||git-worktree-root||print the master root where the wt dir is
+    local in_a_wt=$(git-in-a-worktree)
+    if (( in_a_wt == 1 ))
+    then
+        echo "Must be in a wt"
+        return 1;
+    fi
+
+    local files=$(git ls-files)
+    if [ -z "$files" ]
+    then
+        echo "No git files found. Is current dir '$(pwd)' a git repo?"
+        return 1;
+    fi
+
+    local root=$(pwd);
+    root=${root%%/wt*}
+    echo $root
+}
+
+git-run-precommit-hook ()
+{
+    local hookroot
+    local in_a_wt=$(git-in-a-worktree)
+    if (( in_a_wt == 0 ))
+    then
+        hookroot=$(git-worktree-root)
+    else
+        hookroot=$(git-root)
+    fi
+
+    ${hookroot}/.git/hooks/pre-commit $*
+}
+
 git-worktree-diff-to-root ()
 {
-    ##@@ none||none||git-worktree-diff-to-root||
+    ##@@ none||none||git-worktree-diff-to-root||diff worktree file against root file
     local in_a_wt=$(git-in-a-worktree)
     if (( in_a_wt == 1 ))
     then
@@ -1953,9 +1998,22 @@ git-worktree-diff-to-root ()
     root=${root%%/wt*}
     for i in $files
     do
-        git diff --no-index $i ${root}/$i 2>&1
-    done
+        if [ "$1" = '--reverse' ]
+        then
+            git --no-pager diff --no-index --color=always ${root}/$i $i 2>&1
+        else
+            git --no-pager diff --no-index --color=always $i ${root}/$i 2>&1
+        fi
+    done | less -R
 }
+
+git-worktree-diff-from-root ()
+{
+    ##@@ none||none||git-worktree-diff-rom-root||diff root file against worktree file
+    git-worktree-diff-to-root --reverse "$@"
+    return $?
+}
+
 
 git-add-remote-usage ()
 {
