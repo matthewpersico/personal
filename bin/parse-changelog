@@ -8,6 +8,7 @@ use File::Basename;
 use File::Spec::Functions;
 use Getopt::Long;
 use IO::File;
+use List::MoreUtils qw{uniq};
 
 my @oldput;
 
@@ -17,22 +18,30 @@ my $text;
 my %current = ();
 my %output = ();
 my %opt = (
+    diff => 0,
     write => 0,
     withstatus => 0,
+    missingok => 0,
 );
 my $exit = 0;
 
 GetOptions(\%opt,
+           'diff',
            'write',
            'withstatus',
            'missingok' ) or die "Bad options";
 
-die "Cannot set --write with --withstatus or --missingok"
+die "Cannot set --write when one or more of --withstatus, --missingok, --diff are specified"
   if( $opt{write}
         and ( $opt{withstatus}
-              or $opt{missingok} ) );
+              or $opt{missingok}
+              or $opt{diff}) );
 
 my $changelog = shift;
+
+## You must specify all the files for which you want to grab a changelog
+## entry. If you want to infer that from the state of wherever the changelog
+## lives, that's an issue for the caller of this program.
 for (@ARGV) {
     if ( ! -f $_ ) {
         print STDERR "$_ not found\n";
@@ -44,25 +53,53 @@ if ($exit) {
     exit 1;
 }
 
+## Because even if @ARGV is relative to some other directory where we started
+## from, we match it up here to the directory of the ChangeLog that references
+## it.
 my %files = map { catfile(dirname($_), basename($_)) => 0 } grep { -f $_ } @ARGV;
 
 my @status;
+my %diff;
 if($opt{withstatus}) {
     $opt{missingok}=1;
     @status = qx(git -c color.status=always status @ARGV);
+}
+
+if($opt{diff}) {
+    $opt{missingok}=1;
+    my @diff = qx(git -c color.diff=always diff @ARGV);
+    my $entry;
+    for my $line (@diff) {
+        if ($line =~ m/^....diff --git a/) {
+            $entry = $line;
+            $entry =~ s|.*b/||;
+            $entry =~ s|([/a-zA-Z0-9_.-]+).*|$1|;
+            chomp $entry;
+            $diff{$entry} = [];
+        }
+        push @{$diff{$entry}}, $line;
+    }
 }
 
 my $clih = IO::File->new($changelog, "r")
   or die "Cannot open $changelog for read:$!";
 my $commondir=dirname($changelog);
 
+## Parse the changelog.
 LINE: while (<$clih>) {
     chomp;
 
-    if ( /^\d{4,4}-\d{2,2}-\d{2,2}/ ## date and user header line
-           or length($_) == 0       ## blank
-           or /^\s+$/) {            ## technically blank
-        push @oldput, $_;
+    if ( /^\d{4,4}-\d{2,2}-\d{2,2}/ ) {
+        ## date and user header line
+        push @oldput, [];
+        push @{$oldput[-1]}, $_;
+    } elsif (length($_) == 0 ) {
+        ## blank
+        push @{$oldput[-1]}, $_;
+        %current=();
+    } elsif ( /^\s+$/) {
+        ## technically blank, so let's make it so
+        push @{$oldput[-1]}, '';
         %current=();
     } else {
         if( /^\s+\* ([a-zA-Z0-9_.-]+) \(([a-zA-Z0-9_.-]+)\): (.*)/) {
@@ -94,17 +131,26 @@ LINE: while (<$clih>) {
         @current{qw(file function)} = ($file, $function);
 
         if( defined $files{$file} ) {
-            $files{$file}=1;
+            ## The current entry corresponds to a file we are processing.
+
+            ## Mark that a changelog entry has been found.
+            $files{$file} = 1;
+
+            ## Init the output if needed.
             $output{$file}->{$function} = []
               if not defined $output{$file}->{$function};
+
+            ## Save the text.
             push @{$output{$file}->{$function}}, $text;
         } else {
-            push @oldput, $_;
+            ## Not wanted. Store for push back to changelog.
+            push @{$oldput[-1]}, $_;
         }
     }
 }
 $clih->close();
 
+## See about files with no changelog entries.
 my %nocl;
 while ( my ($k, $v) = each (%files)) {
     if( $v == 0 ) {
@@ -121,6 +167,7 @@ if ($exit) {
     exit 1;
 }
 
+## Where to write the entries that matched.
 my $clnew;
 my $clnewh;
 if( $opt{write} ) {
@@ -132,28 +179,32 @@ if( $opt{write} ) {
 }
 
 if (@status) {
+    ## Mixing in the changelog entries with git status output.
     $clnewh->print(join("\n",
                         '*'x(10 + length($changelog)),
                         "**** $changelog ****",
                         '*'x(10 + length($changelog)),
                         ''));
-    my @fs = keys %output;
+    my @files = keys %output;
   STATUS: for my $sline (@status) {
         $clnewh->print($sline);
         chomp $sline;
         next STATUS if $sline eq '';
-      FILE: for my $f (@fs) {
-            my $comp = $f;
+      FILE: for my $file (@files) {
+            my $comp = $file;
             ## Special case where file is './x' and entry in status is 'x'.
             $comp =~ s|^\./||;
             if( $sline =~ m/$comp/) {
-                my $filedata = $output{$f};
+                my $filedata = $output{$file};
                 for $function (sort keys %{$filedata}) {
                     $clnewh->print(
                         ' ' x 20,
                         $function ne '<generic>'
                           ? "($function): " : '',
                         "@{$filedata->{$function}}\n");
+                }
+                if(exists($diff{$file})) {
+                    $clnewh->print(@{$diff{$file}});
                 }
                 next STATUS;
             }
@@ -163,6 +214,7 @@ if (@status) {
           if (exists ($nocl{$file_from_sline}));
     }
 } else {
+    ## Just write the output.
     for $file (sort keys %output) {
         my $filedata = $output{$file};
         my $printfile = $file;
@@ -172,16 +224,43 @@ if (@status) {
                            ": @{$filedata->{$function}}\n");
             $printfile =~ s/./ /g;
         }
+        if(exists($diff{$file})) {
+            $clnewh->print(@{$diff{$file}});
+        }
     }
 }
 
 if( $opt{write} ) {
+    ## Now store the unused entries back in the changelog.
+
+    ## Close the new entries file.
     $clnewh->close();
 
     if (@oldput) {
+        ## Reopen the changelog.
         my $cloldh =  IO::File->new($changelog, "w")
           or die "Cannot open $changelog for re-write:$!";
-        $cloldh->print(join("\n", @oldput, ''));
+
+        for my $group (@oldput) {
+            my $count=0;
+            my $prev='';
+          LINE: for (my $i=0;$i < @{$group};$i++) {
+                $count++ if (length($group->[$i])); ## count non-blank lines
+                if ($i+1 < @{$group}
+                      and
+                      $group->[$i] eq $group->[$i+1]) {
+                    ## Remove duplicate lines. The only dups should be blank
+                    ## lines.
+                    splice(@$group,$i+1,1);
+                    $i--; ## reprocess this slot
+                }
+            }
+            if($count > 1) {
+                ## If there is more than the date header and a blank line,
+                ## write it. Else we don't bother.
+                $cloldh->print(join("\n", @{$group}, ''));
+            }
+        }
         $cloldh->close();
     }
 }
