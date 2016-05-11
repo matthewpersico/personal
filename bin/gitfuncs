@@ -127,6 +127,7 @@ git-find ()
 {
     ##@@ none||none||git-find||A convenience function around: git ls-files $(git rev-parse --show-toplevel) | grep -E fileExpression'
     gitfuncs_audit "$@"
+
     local usage_func=git-find-usage
     local opt_untracked_only=0
     local opt_all=0
@@ -172,6 +173,7 @@ git-find-conflicts ()
 {
     ##@@ none||none||git-find-conflicts||search git repo files for the opening conflict marker (<<<<<<)
     gitfuncs_audit "$@"
+
     local opts='-l'
     if [ "$1" != '' ]
     then
@@ -184,12 +186,23 @@ git-status-with-changelog ()
 {
     ##@@ none||none||git-status-with-changelog||Mix in ChangeLog text with correspoding file entries in git status
     gitfuncs_audit "$@"
+
+    local diff=''
+    if [ "$1" = '--diff' ]
+    then
+        diff='--diff'
+        shift
+    fi
+
     local args="$@"
     if [ -z "$args" ]
     then
         args=$(git-status-parse --staged --unstaged)
     fi
-    git-process-changelog --withstatus $args
+    local out=$(mktemp)
+    git-process-changelog --withstatus $diff $args 1>$out 2>&1
+    less -R $out
+    rm -f $out
     return $?
 }
 alias git-st-cl='git-status-with-changelog '
@@ -199,7 +212,7 @@ git-commit-with-changelog ()
 {
     ##@@ none||none||git-commit-with-changelog||Use ChangeLog entries to create commit messages
     gitfuncs_audit "$@"
-
+set -x
     local args="$@"
     ## This causes the same behavior as git commit with no args, but we need
     ## files to find ChangeLogs.
@@ -210,11 +223,17 @@ git-commit-with-changelog ()
     return $?
 }
 
+git-process-changelog-usage ()
+{
+    echo "git-process-changelog [ --write | [ --withstatus ] [ --diff ]"
+}
+
 git-process-changelog ()
 {
     ##@@ none||none||git-process-changelog||'Guts' function for *-with-changelog functions
     gitfuncs_audit "$@"
 
+    local usage_func=git-process-changelog-usage
     if [ -z $1 ]
     then
         echo "No files specified."
@@ -223,17 +242,27 @@ git-process-changelog ()
 
     local action='read'
     local parse_flag=''
-    if [ "$1" = '--commit' ]
-    then
-        action=commit
-        parse_flag='--write'
-        shift
-    elif [ "$1" = '--withstatus' ]
-    then
-        action=withstatus
-        parse_flag='--withstatus'
-        shift
-    fi
+    local diff=''
+
+    OPTSARGS=$(getoptp -o h --long commit,withstatus,diff,help -n 'git-process-changelog' -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            --commit)
+                action=commit; parse_flag='--write'; shift ;;
+            --withstatus)
+                action=withstatus; parse_flag='--withstatus'; shift ;;
+            --diff)
+                diff='--diff'; shift;;
+            -h|--help) $usage_func; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
 
     ## Adding /x/nomore allows us to get at the last set of changes in the list
     ## using the dirspec change check and not a separate "catch" loop at the
@@ -258,13 +287,12 @@ git-process-changelog ()
                 echo "No changelog found in '$current_dirspec'."
                 return 1
             fi
-
+set -x
             local pcl=$(which parse-changelog)
-            ##perl -d:ptkdb \
-            $pcl $parse_flag $cl $filelist
+            $DEBUG_PROCESS_CHANGELOG $pcl $parse_flag $diff $cl $filelist
             status=$?
             ((status!=0)) && return $status
-
+set +x
             if [ "$action" = 'commit' ]
             then
                 git commit -F ${cl}.new --edit $filelist
@@ -284,6 +312,7 @@ git-strip-repo ()
 {
     ##@@ none||none||git-strip-repo||
     gitfuncs_audit "$@"
+
     echo $1 | sed 's/(repo)//'
 }
 
@@ -291,6 +320,7 @@ git-add-repo-tag ()
 {
     ##@@ none||none||git-add-repo-tag||
     gitfuncs_audit "$@"
+
     echo "$1(repo)"
 }
 
@@ -298,11 +328,12 @@ git-go-set ()
 {
     ##@@ none||none||git-go-set||
     gitfuncs_audit "$@"
+
     local set_x=0
     if [ "$GIT-GO-SET_DEBUG" = '1' ]
     then
         set_x=1
-        set -x
+        set -x ## set by envvar
     fi
     git-go-set-filename
 
@@ -334,12 +365,18 @@ git-go-set ()
     ## We can use -maxdepth 3 to speed things up drastically because of the
     ## standard host/repo for devgit, host/namespace/repo for bbgithub and
     ## similarly for other git hosts.
-    local repos=$(find ${HOME}/personal \
-                       ${HOME}/.git_template \
-                       ${HOME}/.emacs.d \
-                       ${HOME}/.emacs.d/taps/mpersico5 \
-                       ${HOME}/examples \
-                       $repo_tops -maxdepth 3 -name .git -type d | sed 's|/.git$||g' | sort -u)
+    local finds
+    for d in ${HOME}/personal \
+                    ${HOME}/.git_template \
+                    ${HOME}/.emacs.d \
+                    ${HOME}/.emacs.d/taps/mpersico5 \
+                    ${HOME}/examples \
+                    $repo_tops
+    do
+        [ -d $d ] && finds="$finds $d"
+    done
+
+    local repos=$(find $finds -maxdepth 3 -name .git -type d | sed 's|/.git$||g' | sort -u)
 
     ## And then we do worktree (wt) search
     local repo
@@ -389,6 +426,7 @@ git-go-set-filename ()
 {
     ##@@ none||none||git-go-set-filename||
     gitfuncs_audit "$@"
+
     gitfuncs_git_go_file=${HOME}/gits/.git-go.$(date +%Y%m%d)
 }
 
@@ -396,12 +434,14 @@ git-go-get-filename ()
 {
     ##@@ none||none||git-go-get-filename||
     gitfuncs_audit "$@"
+
     ls -rt ${HOME}/gits/.git-go.* | head -1
 }
 
 _git-go-get ()
 {
     gitfuncs_audit "$@"
+
     ## no, we don't need getopt processing here. This is an internal func so we
     ## just have to GET IT RIGHT when we call it.
     local update=$1
@@ -455,6 +495,7 @@ _git-go-get ()
 git-go-usage ()
 {
     gitfuncs_audit "$@"
+
     echo "Usage: git-go [--list] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt ] [dirmatch]"
     echo "       git-go [-h|--help]"
     echo
@@ -484,6 +525,7 @@ git-go ()
 {
     ##@@ none||none||git-go||
     gitfuncs_audit "$@"
+
     local PS3="Choose by number, q to quit: "
     local opt_list=0
     local opt_update=0
@@ -592,6 +634,7 @@ git-get-current-branch ()
 {
     ##@@ none||none||git-get-current-branch||
     gitfuncs_audit "$@"
+
     ( if [ -n "$1" ]
       then
           ## dirlist, not builtin cd, to take advantage this cd enhancement
@@ -607,6 +650,7 @@ git-help ()
 {
     ##@@ none||none||git-help||
     gitfuncs_audit "$@"
+
     local tmpfile=$(mktemp --suffix=.git-help)
     ls -c1 $PERSONALBIN/*bbgh* 2>/dev/null | sed 's|.*/|script |' > ${tmpfile}.gh1
     ls -c1 $PERSONALBIN/*git* 2>/dev/null| sed 's|.*/|script |' > ${tmpfile}.gh2
@@ -625,6 +669,7 @@ git-rename-branch ()
 {
     ##@@ none||none||git-rename-branch||
     gitfuncs_audit "$@"
+
     if (($#!=2))
     then
         git-rename-branch-usage
@@ -666,6 +711,7 @@ git-close-branch ()
 {
     ##@@ none||none||git-close-branch||
     gitfuncs_audit "$@"
+
     local old_branch=$1
     if [ -z "$old_branch" ]
     then
@@ -709,6 +755,7 @@ git-close-current-branch ()
 {
     ##@@ none||none||git-close-current-branch||
     gitfuncs_audit "$@"
+
     git-close-branch $(git-get-current-branch)
     return $?
 }
@@ -719,6 +766,7 @@ git-delete-branch ()
 {
     ##@@ none||none||git-delete-branch||
     gitfuncs_audit "$@"
+
     local no_remote=0
     if [ "$1" = '--no-remote' ] || [ "$1" = '--local-only' ]
     then
@@ -801,6 +849,7 @@ git-set-locals ()
 {
     ##@@ none||none||git-set-locals||
     gitfuncs_audit "$@"
+
     local localgitpaths='/home/mpersico5/gits/bbgithub/bbgh/bin
                            /home/mpersico5/gits/bbgithub/glow/bin'
     local lgp
@@ -815,6 +864,7 @@ git-update-hook ()
 {
     ##@@ none||none||git-update-hook||
     gitfuncs_audit "$@"
+
     local hooks="$@"
     if [ -z "$hooks" ]
     then
@@ -848,6 +898,7 @@ git-push-hook ()
 {
     ##@@ none||none||git-push-hook||
     gitfuncs_audit "$@"
+
     local current_template=$(git config --get init.templatedir)
     if [ "$current_template" != "${gitfuncs_githook_root}" ]
     then
@@ -917,6 +968,7 @@ git-check-hook ()
 {
     ##@@ none||none||git-check-hook||
     gitfuncs_audit "$@"
+
     local gitloc="./.git"
     if [ -f $gitloc ]
     then
@@ -947,6 +999,7 @@ git-checkout ()
 {
     ##@@ none||none||git-checkout||
     gitfuncs_audit "$@"
+
     local newbranch=$1
     local createbranch=''
     if [ -z "$newbranch" ]
@@ -1034,6 +1087,8 @@ declare -A gitfuncs_remotes
 git-parse-remote-v ()
 {
     ##@@ none||none||git-parse-remote-v||
+    gitfuncs_audit "$@"
+
     gitfuncs_remotes=()
     for i in $( git remote -v | sed -r -e 's/\(.*//' -e 's/ +$//' -e 's/\t/=/' | sort -ru)
     do
@@ -1047,6 +1102,8 @@ alias git-parse-remote-v='git-parse-remote-v '
 git-check-with-master ()
 {
     ##@@ none||none||git-check-with-master||
+    gitfuncs_audit "$@"
+
     local oldpwd=$(pwd)
     [ -n "$1" ] && builtin cd $1
 
@@ -1086,6 +1143,45 @@ git-sync-with-master ()
     ##@@ none||none||git-sync-with-master||
     gitfuncs_audit "$@"
 
+    local status
+    local ok_to_pop=0
+    local do_stash=0
+    local needs_stash=$(git-is-staged && git-is-unstaged | wc -w)
+
+    if ((needs_stash))
+    then
+        if [ "$1" = "--stash" ]
+        then
+            do_stash=1
+        else
+            local resp=$(git st;yesno "Stash" n)
+            if [ "$resp" = 'n' ]
+            then
+                echo "Will not proceed without a stash"
+                return 1
+            else
+                do_stash=1
+            fi
+        fi
+    else
+        if [ "$1" = "--stash" ]
+        then
+            echo "stash not needed"
+        fi
+    fi
+
+    if ((do_stash))
+    then
+        git stash
+        status=$?
+        if [ "$status" = '0' ]
+        then
+            ok_to_pop=1
+        else
+            return $status
+        fi
+    fi
+
     git-parse-remote-v
     ## clone-and-fork repos need to sync with the master in the canonical
     ## upstream branch.  If there is no 'upstream', then it's probably a clone
@@ -1097,14 +1193,21 @@ git-sync-with-master ()
     then
         git-sync-with-remote --remote origin --branch master "$@"
     fi
-    return $?
+    status=$?
+
+    if [ "$status" = '0' ] && [ "$ok_to_pop" = '1' ]
+    then
+        git stash pop
+        status=$?
+    fi
+    return $status
 }
 alias git-update='git-sync-with-master '
 alias git-rebase-on-master='git-sync-with-master '
 
 git-sync-with-remote-usage ()
 {
-    echo "Usage: $1 --branch otherBranch [--remote remote]"
+    echo "Usage: $1 --branch otherBranch [--remote remote] [--confirm]"
     echo "       remoteRepoTag defaults to 'origin'"
 }
 alias git-sync-with-remote-usage='git-sync-with-remote-usage '
@@ -1113,20 +1216,23 @@ git-sync-with-remote ()
 {
     ##@@ none||none||git-sync-with-remote||
     gitfuncs_audit "$@"
+
     local opt_branch=''
     local opt_remote='origin'
+    local opt_confirm='0'
     local iam=${FUNCNAME[0]}
     if [ "${FUNCNAME[1]}" = 'git-sync-with-master' ]
     then
         iam=git-sync-with-master
     fi
-    local OPTSARGS=$(getoptp -o hb:r: --long help,branch:,remote: -n $iam -- "$@")
+    local OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,confirm -n $iam -- "$@")
     status=$?
     ((status != 0)) && git-sync-with-remote-usage && return $status
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
+            -c|--confirm) opt_confirm=1; shift;;
             -r|--remote) opt_remote="$2"; shift; shift ;;
             -b|--branch) opt_branch="$2"; shift; shift ;;
             -h|--help) git-sync-with-remote-usage $iam; return 0 ;;
@@ -1144,10 +1250,7 @@ git-sync-with-remote ()
 
     local cb=$(git rev-parse --abbrev-ref HEAD)
     status=$?
-    if ((status != 0 ))
-    then
-        return 1
-    fi
+    ((status != 0 )) && return 1
 
     if [ "$cb" == '' ]
     then
@@ -1203,21 +1306,47 @@ EOF
         fi
     fi
 
-    cat <<EOF
+    local ok_to_pull=1
+    ((opt_confirm)) && ok_to_pull=0
 
-In the current local repo, we are going to
+    git fetch ${opt_remote} ${opt_branch}
 
-  git pull --rebase ${opt_remote} ${opt_branch}
+    local diffout=$(mktemp --suffix=.gf-syr)
+    git diff ...${opt_remote} > $diffout 2>&1
+    local diffc=$(cat $diffout | wc -l)
+    if ((diffc)) && ((opt_confirm))
+    then
+        echo "===== diffs ====="
+        cat $diffout
+        \rm $diffout
+    fi
 
-which will "replay" any existing changes on branch "${opt_branch}" so that it
-will appear as if you had originally branched from the current tip of the
-"${opt_branch}" branch, which is not necessarily the one you originally
-branched off of.
+    local logout=$(mktemp --suffix=.gf-syr)
+    git log ...${opt_remote} > $logout 2>&1
+    local logc=$(cat $logout | wc -l)
+    if ((logc)) && ((opt_confirm))
+    then
+        ((diffc)) && echo
+        echo "=====  log  ====="
+        cat $logout
+        \rm $logout
+    fi
 
-Working...
+    if ((diffc)) || ((logc))
+    then
+        if ((opt_confirm))
+        then
+            local resp=$(yesno "Ok to pull" n)
+            if [ "$resp" == 'n' ]
+            then
+                return 0
+            fi
+        fi
+    else
+        echo "No difference with remote. Exiting."
+        return 0
+    fi
 
-EOF
-    sleep 2
     git pull --rebase ${opt_remote} ${opt_branch}
     status=$?
     if [ "$status" = '0' ]
@@ -1275,6 +1404,7 @@ git-diff-faq ()
 {
     ##@@ none||none||git-diff-faq||
     gitfuncs_audit "$@"
+
     cat <<EOF
 
 --- Branch diffing
@@ -1303,6 +1433,7 @@ bbgithub-fork-and-clone ()
 {
     ##@@ none||none||bbgithub-fork-and-clone||
     gitfuncs_audit "$@"
+
     local proto=bbgithub
     if [ -z "$1" ]
     then
@@ -1437,6 +1568,7 @@ devgit-clone ()
 {
     ##@@ none||none||devgit-clone||
     gitfuncs_audit "$@"
+
     _guts_clone devgit "$@"
 }
 alias git-clone-devgit='devgit-clone '
@@ -1445,6 +1577,7 @@ bbgithub-clone ()
 {
     ##@@ none||none||bbgithub-clone||
     gitfuncs_audit "$@"
+
     _guts_clone bbgithub "$@"
 }
 alias git-clone-bbgithub='bbgithub-clone '
@@ -1453,6 +1586,7 @@ github-clone ()
 {
     ##@@ none||none||github-clone||
     gitfuncs_audit "$@"
+
     _guts_clone github "$@"
 }
 alias git-clone-github='github-clone '
@@ -1461,6 +1595,7 @@ bitbucket-clone ()
 {
     ##@@ none||none||bitbucket-clone||
     gitfuncs_audit "$@"
+
     _guts_clone bitbucket "$@"
 }
 alias git-clone-bitbucket='bitbucket-clone '
@@ -1468,6 +1603,7 @@ alias git-clone-bitbucket='bitbucket-clone '
 _guts-whack ()
 {
     gitfuncs_audit "$@"
+
     if [ -z "$1" ]
     then
         echo "Usage: _guts-whack proto namespace repo"
@@ -1527,7 +1663,6 @@ _guts-whack ()
                 ## We're clean. Whack it.
                 builtin cd ..
                 pwd
-                set -x
                 \rm -r -i $repo
                 status=$?
                 if ((status==0))
@@ -1551,6 +1686,7 @@ devgit-whack ()
 {
     ##@@ none||none||devgit-whack||
     gitfuncs_audit "$@"
+
     _guts-whack devgit "$@"
 }
 alias devgit-whack='devgit-whack '
@@ -1561,6 +1697,7 @@ bbgithub-whack ()
 {
     ##@@ none||none||bbgithub-whack||
     gitfuncs_audit "$@"
+
     _guts-whack bbgithub "$@"
 }
 alias bbgithub-whack='bbgithub-whack '
@@ -1571,6 +1708,7 @@ github-whack ()
 {
     ##@@ none||none||github-whack||
     gitfuncs_audit "$@"
+
     _guts-whack github "$@"
 }
 alias github-whack='github-whack '
@@ -1581,6 +1719,7 @@ bitbucket-whack ()
 {
     ##@@ none||none||bitbucket-whack||
     gitfuncs_audit "$@"
+
     _guts-whack bitbucket "$@"
 }
 alias bitbucket-whack='bitbucket-whack '
@@ -1590,6 +1729,8 @@ alias git-whack-bitbucket='bitbucket-whack '
 git-what-is-staged ()
 {
     ##@@ none||none||git-what-is-staged||
+    gitfuncs_audit "$@"
+
     if [ -n "$1" ]
     then
         echo 'Files altered, staged for commit'
@@ -1604,6 +1745,8 @@ alias git-is-committable='git-what-is-staged '
 git-what-is-unstaged ()
 {
     ##@@ none||none||git-what-is-unstaged||
+    gitfuncs_audit "$@"
+
     if [ -n "$1" ]
     then
         echo 'Files altered, not staged for commit'
@@ -1616,6 +1759,8 @@ alias git-is-unstaged='git-what-is-unstaged '
 git-what-is-untracked ()
 {
     ##@@ none||none||git-what-is-untracked||
+    gitfuncs_audit "$@"
+
     if [ -n "$1" ]
     then
         echo 'Files not tracked in the repo'
@@ -1628,6 +1773,8 @@ alias git-is-untracked='git-what-is-untracked '
 git-what-is-modified ()
 {
     ##@@ none||none||git-what-is-modified||
+    gitfuncs_audit "$@"
+
     if [ -n "$1" ]
     then
         echo 'Files altered, both staged and not staged for commit'
@@ -1636,10 +1783,13 @@ git-what-is-modified ()
     fi
 }
 alias git-is-modified='git-what-is-modified '
+alias git-is-mod='git-what-is-modified '
 
 git-what-is-unmodified ()
 {
     ##@@ none||none||git-what-is-unmodified||
+    gitfuncs_audit "$@"
+
     if [ -n "$1" ]
     then
         echo 'Files unaltered, but tracked'
@@ -1652,6 +1802,8 @@ alias git-is-unmodified='git-what-is-unmodified '
 git-what-is-deleted ()
 {
     ##@@ none||none||git-what-is-deleted||
+    gitfuncs_audit "$@"
+
     if [ -n "$1" ]
     then
         echo 'Files deleted, both staged and not staged for commit'
@@ -1664,6 +1816,8 @@ alias git-is-deleted='git-what-is-deleted '
 git-track-remote-branch ()
 {
     ##@@ none||none||git-track-remote-branch||
+    gitfuncs_audit "$@"
+
     local remote=$1
     local branch=$2
     if [ -z "$remote" ] || [ -z "$branch" ]
@@ -1682,6 +1836,15 @@ alias git-branch-track-remote='git-track-remote-branch '
 git-inside-work-tree ()
 {
     ##@@ none||none||git-inside-work-tree||
+    local na=''
+    if [ "$1" = "-na" ]
+    then
+        na=$1
+        shift
+    else
+        gitfuncs_audit "$@"
+    fi
+
     local print=$1;shift
     local v=$(git rev-parse  --is-inside-work-tree 2>/dev/null)
     local r=0
@@ -1694,9 +1857,18 @@ alias git-inside-work-tree='git-inside-work-tree '
 git-get-stash-count ()
 {
     ##@@ none||none||git-get-stash-count||
+    local na=''
+    if [ "$1" = "-na" ]
+    then
+        na=$1
+        shift
+    else
+        gitfuncs_audit "$@"
+    fi
+
     local pre=$1;shift
     local post=$1;shift
-    git-inside-work-tree
+    git-inside-work-tree $na
     if [ "$?" = '0' ]
     then
         local c=$(git stash list | wc -l)
@@ -1715,6 +1887,8 @@ alias git-worktree-create-usage='git-create-worktree-usage '
 
 git-worktree-fetch ()
 {
+    gitfuncs_audit "$@"
+
     git-worktree-create --fetch "$@"
     return $?
 }
@@ -1722,8 +1896,11 @@ git-worktree-fetch ()
 git-worktree-create ()
 {
     ##@@ none||none||git-worktree-create||
+    gitfuncs_audit "$@"
+
     local verbose=1
     local fetch_existing=0
+    local fetch_opt=''
     local status=0
     ## Make sure pwd ends in wt
     if [[ ! "$(pwd)" =~ /wt$ ]]
@@ -1740,6 +1917,7 @@ git-worktree-create ()
     if [ "$1" = '--fetch' ]
     then
         fetch_existing=1
+        fetch_opt="-r"
         shift
     fi
 
@@ -1767,10 +1945,9 @@ git-worktree-create ()
 
     ## TODO: Allow for suffix to append to worktree name so you can dup them if
     ## you need to.
-
     ((verbose)) && echo '* Check for existing branch'
     local create_branch="-b"
-    local exists=$(git-branch-list | grep $wt)
+    local exists=$(git-branch-list $fetch_opt | grep $wt)
     if [ -n "$exists" ]
     then
         echo "* Branch $wt already exists. Using it."
@@ -1830,6 +2007,8 @@ alias gitwt='git-worktree-create '
 
 git-delete-current-worktree ()
 {
+    gitfuncs_audit "$@"
+
     git-delete-worktree $(pwd)
     status=$?
     return $status
@@ -1838,6 +2017,8 @@ git-delete-current-worktree ()
 git-delete-worktree ()
 {
     ##@@ none||none||git-delete-worktree||
+    gitfuncs_audit "$@"
+
     local opwd=$(pwd)
     local worktree=$1;
     local worktreefull=$(realpath $1);
@@ -1876,7 +2057,8 @@ git-delete-worktree ()
     fi
 
     git status
-    local resp=$(yesno 'Hard check on status for a while. Continue with deletion');
+    local rc=$?
+    local resp=$(yesno "git status returned $rc. Continue with deletion");
     if [ "$resp" = 'n' ]
     then
         return 0
@@ -1885,9 +2067,7 @@ git-delete-worktree ()
     ## Whack it. Start with the current dir.
     local delit=$(basename $(pwd))
     builtin cd ..
-    local resp=$(yesno "Hard check on rm for a while. Continue with $delit");
-    [ "$resp" = 'n' ] && return 0
-    \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
+    \rm -r $delit; (( $? != 0 )) && echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
 
     ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
     ## get to first, and bail.
@@ -1898,9 +2078,7 @@ git-delete-worktree ()
             #it's empty
             delit=$(basename $(pwd))
             builtin cd ..
-            resp=$(yesno "Hard check on rm for a while. Continue with $delit");
-            [ "$resp" = 'n' ] && return 0
-            \rm -r $delit; (( $? != 0 )) && echo "Bad rm. Aborting." && return 1;
+            \rm -r $delit; (( $? != 0 )) && echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
         fi
     done
 
@@ -1938,12 +2116,16 @@ git-in-a-worktree ()
 {
     ##@@ none||none||git-in-a-worktree||
     ## 0 is true!
+    gitfuncs_audit "$@"
+
     [[  "$(pwd)" =~ /wt/ ]]; return $?
 }
 
 git-worktree-root ()
 {
     ##@@ none||none||git-worktree-root||print the master root where the wt dir is
+    gitfuncs_audit "$@"
+
     local in_a_wt=$(git-in-a-worktree)
     if (( in_a_wt == 1 ))
     then
@@ -1965,6 +2147,9 @@ git-worktree-root ()
 
 git-run-precommit-hook ()
 {
+    ##@@ none||none||git-run-precommit-hook||
+    gitfuncs_audit "$@"
+
     local hookroot
     local in_a_wt=$(git-in-a-worktree)
     if (( in_a_wt == 0 ))
@@ -1980,6 +2165,8 @@ git-run-precommit-hook ()
 git-worktree-diff-to-root ()
 {
     ##@@ none||none||git-worktree-diff-to-root||diff worktree file against root file
+    gitfuncs_audit "$@"
+
     local in_a_wt=$(git-in-a-worktree)
     if (( in_a_wt == 1 ))
     then
@@ -2010,6 +2197,8 @@ git-worktree-diff-to-root ()
 git-worktree-diff-from-root ()
 {
     ##@@ none||none||git-worktree-diff-rom-root||diff root file against worktree file
+    gitfuncs_audit "$@"
+
     git-worktree-diff-to-root --reverse "$@"
     return $?
 }
@@ -2029,7 +2218,8 @@ EOF
 git-add-remote ()
 {
     ##@@ none||none||git-add-remote||
-    set -x
+    gitfuncs_audit "$@"
+
     if [ "$#" != '2' ]
     then
         git-add-remote-usage; return 1
@@ -2052,6 +2242,8 @@ alias git-remotes='git remote -v '
 git-state ()
 {
     ##@@ none||none||git-state||
+    gitfuncs_audit "$@"
+
     echo
     echo "=== Log:"
     git log -1
@@ -2064,6 +2256,8 @@ alias git-st='git-state '
 git-get-current-repo-name ()
 {
     ##@@ none||none||git-get-current-repo-name||
+    gitfuncs_audit "$@"
+
     git remote -v | grep origin | sed 's|.*/||' | sed 's/ .*//' | sort -u
 }
 
@@ -2071,6 +2265,7 @@ git-branch-list ()
 {
     ##@@ none||none||git-branch-list||
     gitfuncs_audit "$@"
+
     local strip=1
     local remote=''
     local OPTSARGS=$(getoptp -o r --long strip,nostrip,remote -n 'git-branch-list' -- "$@")
@@ -2088,6 +2283,9 @@ git-branch-list ()
         esac
     done
 
+    ## Update the local branches with remote
+    git remote update
+
     local opts="--list --no-color $remote"
     if ((strip))
     then
@@ -2101,6 +2299,8 @@ git-branch-list ()
 git-logg ()
 {
     ##@@ none||none||git-logg||
+    gitfuncs_audit "$@"
+
     git log --all --graph --pretty=format:'%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative
 }
 
@@ -2109,6 +2309,8 @@ alias git-clean='git clean -e wt/ '
 git-restore ()
 {
     ##@@ none||none||git-restore||
+    gitfuncs_audit "$@"
+
     echo "Use 'git log' to find the id of the revision that contains"
     echo "the prior version of the file you want to revert to."
     echo "Then execute 'git checkout theGitID the/file/to/revert'."
@@ -2117,13 +2319,16 @@ alias git-revert='git-restore '
 
 git-find-deleted ()
 {
-    ##@@ none||none||git-find-deleted||
-    ## The revision in which $1 was deleted.
+    ##@@ none||none||git-find-deleted||The revision in which the given file was deleted.
+    gitfuncs_audit "$@"
+
     git rev-list -n 1 HEAD -- "$1"
 }
 git-checkout-deleted()
 {
     ##@@ none||none||git-checkout-deleted||
+    gitfuncs_audit "$@"
+
     ## ^ is the revision before, so the revision before deleted, i.e., the last
     ## revision in which $1 was present.
     git checkout $(git-find-deleted "$1")^ -- "$1"
@@ -2132,12 +2337,23 @@ git-checkout-deleted()
 git-root ()
 {
     ##@@ none||none||git-root||
+    local na=''
+    if [ "$1" = "-na" ]
+    then
+        na=$1
+        shift
+    else
+        gitfuncs_audit "$@"
+    fi
+
     git rev-parse --show-toplevel
 }
 
 git-gui ()
 {
     ##@@ none||none||git-gui||
+    gitfuncs_audit "$@"
+
     git gui "$@" &
 }
 
@@ -2146,10 +2362,19 @@ alias gitgui='git-gui '
 git-hold-meta-view ()
 {
     ##@@ none||none||git-hold-meta-view||
-    local hold_root=$(git-root)
+    local na=''
+    if [ "$1" = "-na" ]
+    then
+        na=$1
+        shift
+    else
+        gitfuncs_audit "$@"
+    fi
+
+    local hold_root=$(git-root $na)
     if [ ! "$hold_root" = "$(realpath $(pwd))" ]
     then
-        echo "Must be in git root ($hold_root) to run $FUNCNAME"
+        echo "Must be in git root ($hold_root) to run $FUNCNAME" >&2
         return 1
     fi
     local hold_dir=$hold_root/hold
@@ -2164,13 +2389,22 @@ git-hold-meta-view ()
 git-hold-base-view ()
 {
     ##@@ none||none||git-hold-base-view||
-    local hold_root=$(git-root)
+    local na=''
+    if [ "$1" = "-na" ]
+    then
+        na=$1
+        shift
+    else
+        gitfuncs_audit "$@"
+    fi
+
+    local hold_root=$(git-root $na)
     if [ ! "$hold_root" = "$(realpath $(pwd))" ]
     then
         echo "Must be in git root ($hold_root) to run $FUNCNAME"
         return 1
     fi
-    git-hold-meta-view \
+    git-hold-meta-view $na \
         | grep -v 'git-hold-meta' \
         | sed 's|.git-hold.*||' \
         | sort -u
@@ -2181,6 +2415,8 @@ alias git-hold-list='git-hold-base-view '
 git-hold-relative-base-dir ()
 {
     ##@@ none||none||git-hold-relative-base-dir||
+    gitfuncs_audit "$@"
+
     local hold_root=$(git-root)
     if [ ! "$hold_root" = "$(pwd)" ]
     then
@@ -2195,6 +2431,8 @@ git-hold-relative-base-dir ()
 git-hold-process-if-unmodified ()
 {
     ##@@ none||none||git-hold-process-if-unmodified||
+    gitfuncs_audit "$@"
+
     local action=$1;      shift
     local gitf=$1;        shift
     local src=$1;         shift
@@ -2226,6 +2464,8 @@ git-hold-process-if-unmodified ()
 git-hold-process-if-untracked ()
 {
     ##@@ none||none||git-hold-process-if-untracked||
+    gitfuncs_audit "$@"
+
     local action=$1;      shift
     local gitf=$1;        shift
     local src=$1;         shift
@@ -2255,6 +2495,8 @@ git-hold-process-if-untracked ()
 git-hold-process-if-unstaged ()
 {
     ##@@ none||none||git-hold-process-if-unstaged||
+    gitfuncs_audit "$@"
+
     local action=$1;      shift
     local gitf=$1;        shift
     local src=$1;         shift
@@ -2288,6 +2530,8 @@ git-hold-process-if-unstaged ()
 git-hold-process-if-staged ()
 {
     ##@@ none||none||git-hold-process-if-staged||
+    gitfuncs_audit "$@"
+
     local action=$1;      shift
     local gitf=$1;        shift
     local src=$1;         shift
@@ -2321,6 +2565,8 @@ git-hold-process-if-staged ()
 git-hold ()
 {
     ##@@ none||none||git-hold||
+    gitfuncs_audit "$@"
+
     local noexec_mode=0
     if [ "$1" = "-n" ]
     then
@@ -2398,6 +2644,8 @@ git-hold ()
 git-hold-restore ()
 {
     ##@@ none||none||git-hold-restore||
+    gitfuncs_audit "$@"
+
     local hold_root=$(git-root)
     if [ "$hold_root" != "$(pwd)" ]
     then
@@ -2432,8 +2680,6 @@ git-hold-restore ()
     done
     local opt_mv
     ((verbose)) && opt_mv='-v'
-
-    set -x
 
     local metafile
     local metatype
@@ -2486,21 +2732,33 @@ alias git-unhold='git-hold-restore '
 git-get-hold-count ()
 {
     ##@@ none||none||git-get-hold-count||
+    local na=''
+    if [ "$1" = "-na" ]
+    then
+        na=$1
+        shift
+    else
+        gitfuncs_audit "$@"
+    fi
+
     local pre=$1;shift
     local post=$1;shift
-    git-inside-work-tree
+    git-inside-work-tree $na
     if [ "$?" = '0' ]
     then
-        local c=$(git-hold-list | wc -l)
+        local c=$(git-hold-list $na | grep -v 'Must be in git root' | wc -l)
         ((c)) && c=1
         echo "${pre}${c}${post}"
     fi
+    return 0
 }
 alias git-hold-get-count='git-get-hold-count '
 
 git-hold-edit-both ()
 {
     ##@@ none||none||git-hold-edit-both||
+    gitfuncs_audit "$@"
+
     for i in $(git-hold-list)
     do
         j=${i##hold/}
@@ -2511,6 +2769,8 @@ git-hold-edit-both ()
 git-pull-with-checkpoint ()
 {
     ##@@ none||none||git-pull-with-checkpoint||Write a file with the current UUID before pulling updates.
+    gitfuncs_audit "$@"
+
     git log -1 > $(git-root).git-pull-checkpoint
     git pull "$@"
 }
@@ -2518,10 +2778,72 @@ git-pull-with-checkpoint ()
 git-diff-to-checkpoint ()
 {
     ##@@ none||none||git-diff-to-checkpoint||Diff the current state of the local repo against the state as it was stored in git-pull-with-checkpoint
+    gitfuncs_audit "$@"
+
     local oldid=$(grep $(git-root).git-pull-checkpoint| head -1 | sed 's/commit//')
     local newid=$(git log -1 | head -1 | sed 's/commit//')
     git diff $oldid $newid
 }
+
+git-to-stdout ()
+{
+    ##@@ none||none||git-to-stdout||Equivalent of cvs -p. Provide a uuid and one or more path/to/file arguments.
+    gitfuncs_audit "$@"
+
+    local file=0
+    if [ "$1" = '-file' ]
+    then
+        file=1
+        shift;
+    fi
+    local uuid=$1;shift
+    for i in $@
+    do
+        if ((file))
+        then
+            echo ${i}.${uuid}
+            git show ${uuid}:${i} > ${i}.${uuid}
+        else
+            git show ${uuid}:${i};
+        fi
+    done
+}
+
+git-merge-pull-request ()
+{
+    ##@@ none||none||git-merge-pull-request||Merge a remote pull request from command line.
+    gitfuncs_audit "$@"
+
+    local namespace=$1;shift
+    local repo=$1;shift
+    local user=$1;shift
+    local prbranch=$1;shift
+
+    echo "Clone bbgithub:$namepsace/repo..."
+    bbgithub-clone $namespace $repo
+
+    echo "Current last commit on master branch"
+    git log -1
+
+    echo "Add bbgithub:$user/$repo as a remote"
+    git remote add $user $repo
+
+    echo "Fetch only the pull request branch ($prbranch) from bbgithub:$user/$repo"
+    git fetch $user $pull-req-branch
+
+    echo "Do the merge"
+    git rebase master $user/$pull-req-branch
+
+    echo "Last two commits on master"
+    git log -2
+
+    echo "If all is well (second log entry in last log"
+    echo "command should match with the above), then"
+    echo "push back up to bbgithub:"
+    echo
+    echo 'git push origin HEAD:master'
+}
+alias git-merge-pr='git-merge-pull-request '
 
 ## Can't use local outside a function.
 typeset forlater='
