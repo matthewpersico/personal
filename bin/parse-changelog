@@ -38,6 +38,7 @@ die "Cannot set --write when one or more of --withstatus, --missingok, --diff ar
               or $opt{diff}) );
 
 my $changelog = shift;
+my $commondir=dirname($changelog);
 
 ## You must specify all the files for which you want to grab a changelog
 ## entry. If you want to infer that from the state of wherever the changelog
@@ -75,6 +76,8 @@ if($opt{diff}) {
             $entry =~ s|.*b/||;
             $entry =~ s|([/a-zA-Z0-9_.-]+).*|$1|;
             chomp $entry;
+            $entry = catfile($commondir,$entry)
+              if ($commondir eq '.');
             $diff{$entry} = [];
         }
         push @{$diff{$entry}}, $line;
@@ -83,7 +86,6 @@ if($opt{diff}) {
 
 my $clih = IO::File->new($changelog, "r")
   or die "Cannot open $changelog for read:$!";
-my $commondir=dirname($changelog);
 
 ## Parse the changelog.
 LINE: while (<$clih>) {
@@ -241,26 +243,28 @@ if( $opt{write} ) {
         my $cloldh =  IO::File->new($changelog, "w")
           or die "Cannot open $changelog for re-write:$!";
 
+        my @tmpout;
+        my @newout;
         for my $group (@oldput) {
-            my $count=0;
+            my $non_blank_non_date_count=0;
             my $prev='';
-          LINE: for (my $i=0;$i < @{$group};$i++) {
-                $count++ if (length($group->[$i])); ## count non-blank lines
-                if ($i+1 < @{$group}
-                      and
-                      $group->[$i] eq $group->[$i+1]) {
-                    ## Remove duplicate lines. The only dups should be blank
-                    ## lines.
-                    splice(@$group,$i+1,1);
-                    $i--; ## reprocess this slot
+          LINE: for my $line (@{$group}) {
+                if ($line !~ m/^\d{4,4}-\d{2,2}-\d{2,2}/) {
+                    push @newout, @tmpout
+                      if( @tmpout > 2);
+                    @tmpout = ($line);
+                    next LINE;
                 }
+
+                push @tmpout, $line
+                  if( $tmpout[-1] ne $line );
             }
-            if($count > 1) {
-                ## If there is more than the date header and a blank line,
-                ## write it. Else we don't bother.
-                $cloldh->print(join("\n", @{$group}, ''));
-            }
+
+            ## Last one
+            push @newout, @tmpout
+              if( @tmpout > 2);
         }
+        $cloldh->print(@newout);
         $cloldh->close();
     }
 }
