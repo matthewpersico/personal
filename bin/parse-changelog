@@ -3,12 +3,12 @@
 use strict;
 use warnings;
 
-use Data::Dumper;
+use Cwd;
+use Data::Dumper; ## for debugging.
 use File::Basename;
-use File::Spec::Functions;
+use File::Spec::Functions qw(abs2rel catfile rel2abs);
 use Getopt::Long;
 use IO::File;
-use List::MoreUtils qw{uniq};
 
 my @oldput;
 
@@ -18,6 +18,8 @@ my $text;
 my %current = ();
 my %output = ();
 my %opt = (
+    cl => undef,
+    ncl => undef,
     diff => 0,
     write => 0,
     withstatus => 0,
@@ -26,27 +28,46 @@ my %opt = (
 my $exit = 0;
 
 GetOptions(\%opt,
+           'cl=s',
+           'ncl=s',
            'diff',
            'write',
            'withstatus',
            'missingok' ) or die "Bad options";
 
-die "Cannot set --write when one or more of --withstatus, --missingok, --diff are specified"
-  if( $opt{write}
-        and ( $opt{withstatus}
-              or $opt{missingok}
-              or $opt{diff}) );
+die "-cl ChangeLog option required"
+  if( !$opt{cl} );
+$opt{cl} = rel2abs($opt{cl});
+my $cldir = dirname($opt{cl});
 
-my $changelog = shift;
-my $commondir=dirname($changelog);
+if( $opt{write} ) {
+    die "Cannot set --write when one or more of --withstatus, --missingok, --diff are specified"
+        if ( $opt{withstatus}
+             or $opt{missingok}
+             or $opt{diff});
+
+    if( !$opt{ncl} ) {
+        die "-ncl ChangeLog option required with --write";
+    } else {
+        $opt{ncl} = rel2abs($opt{ncl});
+    }
+} elsif( $opt{ncl} ) {
+    warn "parse-changelog: -ncl ChangeLog option ignores without --write\n";
+}
 
 ## You must specify all the files for which you want to grab a changelog
-## entry. If you want to infer that from the state of wherever the changelog
-## lives, that's an issue for the caller of this program.
+## entry. If you want to infer the list from the state of repo where the
+## changelog lives, that's an issue for the caller of this program.
 for (@ARGV) {
-    if ( ! -f $_ ) {
-        print STDERR "$_ not found\n";
+    if (substr($_, 0, 1) ne '/') {
+        warn "parse-changelog: $_ is not a fully qualified filename (does not start with '/'. Fatal.\n";
         $exit++;
+    } elsif ( ! -e $_ ) {
+        warn "parse-changelog: $_ not found." . ($opt{write} ? ' Fatal.' : '') . "\n";
+        $exit++ if $opt{write};
+    } elsif ( -d $_ ) {
+        warn "parse-changelog: $_ is a directory." . ($opt{write} ? ' Fatal.' : '') . "\n";
+        $exit++ if $opt{write};
     }
 }
 if ($exit) {
@@ -54,10 +75,15 @@ if ($exit) {
     exit 1;
 }
 
-## Because even if @ARGV is relative to some other directory where we started
-## from, we match it up here to the directory of the ChangeLog that references
-## it.
-my %files = map { catfile(dirname($_), basename($_)) => 0 } grep { -f $_ } @ARGV;
+my $cwd = cwd();
+my %files = map { $_ =>
+                    {
+                        cl_entry_found => 0,
+                        local_name => abs2rel($_, $cwd),
+                        abs_name => $_,
+                        cl_name => abs2rel($_, $cldir)
+                    }
+                } @ARGV;
 
 my @status;
 my %diff;
@@ -73,19 +99,22 @@ if($opt{diff}) {
     for my $line (@diff) {
         if ($line =~ m/^....diff --git a/) {
             $entry = $line;
-            $entry =~ s|.*b/||;
-            $entry =~ s|([/a-zA-Z0-9_.-]+).*|$1|;
             chomp $entry;
-            $entry = catfile($commondir,$entry)
-              if ($commondir eq '.');
+            $entry =~ s|.*b/||;
+            $entry =~ s|([/a-zA-Z0-9_.-]+).*|$1|; ## really need this?
+            $entry = rel2abs($entry, $cwd); ## because diff outputs relative
+                                            ## path, even if FQP is provided.
             $diff{$entry} = [];
         }
         push @{$diff{$entry}}, $line;
     }
 }
 
-my $clih = IO::File->new($changelog, "r")
-  or die "Cannot open $changelog for read:$!";
+my $clih = IO::File->new($opt{cl}, "r")
+  or die "Cannot open $opt{cl} for read:$!";
+
+my $filetag_re = qr(^\s+\* ([a-zA-Z0-9_./-]+));
+my $functag_re = qr([(]([a-zA-Z0-9_.-]+)[)]);
 
 ## Parse the changelog.
 LINE: while (<$clih>) {
@@ -104,19 +133,36 @@ LINE: while (<$clih>) {
         push @{$oldput[-1]}, '';
         %current=();
     } else {
-        if( /^\s+\* ([a-zA-Z0-9_.-]+) \(([a-zA-Z0-9_.-]+)\): (.*)/) {
+        ## Parsing assumptions:
+
+        ## 1) One ChangeLog in git-root for whole project
+
+        ## 2) No Esc-Q to wrap text. Otherwise, we cannot tell the difference
+        ## between
+
+        ## * (func): this is a very very very long
+        ##   wrapped func text
+
+        ## * file (func): this is a very short text
+        ##   this is non-func-based text
+
+        ## Unless at some point, we hijack ESC-Q to put in \ continuation
+        ## characters when we wrap or always add the file when adding
+        ## non-func-based text.
+
+        if( m|${filetag_re} ${functag_re}: (.*)|) {
             ## * file (function): text
-            $file = catfile($commondir,$1);
+            $file = catfile($cldir, $1);
             $function = $2;
             ($text = $3) =~ s/^\s+//;
             $text =~ s/\s+$//;
-        } elsif( /^\s+\* ([a-zA-Z0-9_.-]+): (.*)/) {
+        } elsif( m|${filetag_re}: (.*)|) {
             ## * file: text
-            $file = catfile($commondir,$1);
+            $file = catfile($cldir, $1);
             $function = '<generic>';
             ($text = $2) =~ s/^\s+//;
             $text =~ s/\s+$//;
-        } elsif (/^\s+\(([a-zA-Z0-9_.-]+)\): (.*)/) {
+        } elsif ( m|${functag_re}: (.*)|) {
             ## (function): text
             $file = $current{'file'};
             $function = $1;
@@ -125,7 +171,7 @@ LINE: while (<$clih>) {
         } else {
             ## text
             $file = $current{file};
-            $function = $current{function};
+            $function = '<generic>';
             ($text = $_) =~ s/^\s+//;
             $text =~ s/\s+$//;
         }
@@ -136,7 +182,7 @@ LINE: while (<$clih>) {
             ## The current entry corresponds to a file we are processing.
 
             ## Mark that a changelog entry has been found.
-            $files{$file} = 1;
+            $files{$file}->{cl_entry_found} = 1;
 
             ## Init the output if needed.
             $output{$file}->{$function} = []
@@ -154,12 +200,12 @@ $clih->close();
 
 ## See about files with no changelog entries.
 my %nocl;
-while ( my ($k, $v) = each (%files)) {
-    if( $v == 0 ) {
+for (keys %files) {
+    if( $files{$_}->{cl_entry_found} == 0 ) {
         if ($opt{missingok}) {
-            $nocl{$k} = $changelog;
+            $nocl{$_} = $opt{cl};
         } else {
-            print STDERR "$k has no entry in $changelog.\n";
+            print STDERR "$_ has no entry in $opt{cl}.\n";
             $exit++;
         }
     }
@@ -173,30 +219,33 @@ if ($exit) {
 my $clnew;
 my $clnewh;
 if( $opt{write} ) {
-    $clnew = $changelog . ".new";
+    $clnew = $opt{ncl};
     $clnewh =  IO::File->new($clnew, "w")
       or die "Cannot open $clnew for write:$!";
 } else {
     $clnewh = *STDOUT;
 }
 
+my $tracked_re_string  = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m[a-z]+:\s+<PLACEHOLDER>\x{1b}\[m);
+my $untracked_re_string = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m<PLACEHOLDER>\x{1b}\[m);
 if (@status) {
     ## Mixing in the changelog entries with git status output.
-    $clnewh->print(join("\n",
-                        '*'x(10 + length($changelog)),
-                        "**** $changelog ****",
-                        '*'x(10 + length($changelog)),
-                        ''));
     my @files = keys %output;
   STATUS: for my $sline (@status) {
         $clnewh->print($sline);
         chomp $sline;
         next STATUS if $sline eq '';
       FILE: for my $file (@files) {
-            my $comp = $file;
-            ## Special case where file is './x' and entry in status is 'x'.
-            $comp =~ s|^\./||;
-            if( $sline =~ m/$comp/) {
+            if (not defined $files{$file}->{re}) {
+                my $comp = $files{$file}->{local_name};
+                ($files{$file}->{re}->{tracked} = $tracked_re_string) =~ s/<PLACEHOLDER>/$comp/;
+                $files{$file}->{re}->{tracked} = qr($files{$file}->{re}->{tracked});
+                ($files{$file}->{re}->{untracked} = $untracked_re_string) =~ s/<PLACEHOLDER>/$comp/;
+                $files{$file}->{re}->{untracked} = qr($files{$file}->{re}->{untracked});
+            }
+            if( $sline =~ m|$files{$file}->{re}->{tracked}|
+                  or
+                  $sline =~ m|$files{$file}->{re}->{untracked}|) {
                 my $filedata = $output{$file};
                 for $function (sort keys %{$filedata}) {
                     $clnewh->print(
@@ -219,12 +268,13 @@ if (@status) {
     ## Just write the output.
     for $file (sort keys %output) {
         my $filedata = $output{$file};
-        my $printfile = $file;
+        my $printfile = $files{$file}->{cl_name};
         for $function (sort keys %{$filedata}) {
             $clnewh->print("$printfile",
                            $function ne '<generic>' ? " ($function)" : '',
                            ": @{$filedata->{$function}}\n");
-            $printfile =~ s/./ /g;
+            $printfile =~ s/./ /g; ## All chars to spaces to not repeat the
+                                   ## file name.
         }
         if(exists($diff{$file})) {
             $clnewh->print(@{$diff{$file}});
@@ -240,8 +290,8 @@ if( $opt{write} ) {
 
     if (@oldput) {
         ## Reopen the changelog.
-        my $cloldh =  IO::File->new($changelog, "w")
-          or die "Cannot open $changelog for re-write:$!";
+        my $cloldh =  IO::File->new($opt{cl}, "w")
+          or die "Cannot open $opt{cl} for re-write:$!";
 
         my @tmpout;
         my @newout;
@@ -249,7 +299,7 @@ if( $opt{write} ) {
             my $non_blank_non_date_count=0;
             my $prev='';
           LINE: for my $line (@{$group}) {
-                if ($line !~ m/^\d{4,4}-\d{2,2}-\d{2,2}/) {
+                if ($line =~ m/^\d{4,4}-\d{2,2}-\d{2,2}/) {
                     push @newout, @tmpout
                       if( @tmpout > 2);
                     @tmpout = ($line);
