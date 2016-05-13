@@ -86,8 +86,11 @@ git-st-por-usage () {
     echo "       pass to 'git status'"
 }
 
-git-st-por () {
+git-st-por ()
+{
     ##@@ none||none||git-st-por||git status in porcelain mode
+    gitfuncs_audit "$@"
+
     local usage_func=git-st-por-usage
     local opt_strip=0
     OPTSARGS=$(getoptp -o sh --long strip,help -n 'git-st-por' -- "$@")
@@ -184,7 +187,7 @@ git-find-conflicts ()
 
 git-status-with-changelog ()
 {
-    ##@@ none||none||git-status-with-changelog||Mix in ChangeLog text with correspoding file entries in git status
+    ##@@ none||none||git-status-with-changelog||Mix in ChangeLog text with correspoding file entries in git status.
     gitfuncs_audit "$@"
 
     local diff=''
@@ -197,7 +200,7 @@ git-status-with-changelog ()
     local args="$@"
     if [ -z "$args" ]
     then
-        args=$(git-status-parse --staged --unstaged)
+        args=$(git-status-parse --all) ## matches default git status setting
     fi
     local out=$(mktemp)
     git-process-changelog --withstatus $diff $args 1>$out 2>&1
@@ -214,18 +217,18 @@ git-commit-with-changelog ()
     gitfuncs_audit "$@"
 
     local args="$@"
-    ## This causes the same behavior as git commit with no args, but we need
-    ## files to find ChangeLogs.
+    ## This causes the same behavior as git commit with no args (default to
+    ## only staged files), but we need to pass files into git-process.
     [ -z "$args" ] && args=$(git-what-is-staged)
     [ "$1" = '-a' ] && args=$(git-what-is-modified)
-
-    git-process-changelog --commit "$args"
+    git-process-changelog --commit $args
     return $?
 }
 
 git-process-changelog-usage ()
 {
     echo "git-process-changelog [ --write | [ --withstatus ] [ --diff ]"
+    echo "    Only one ChangeLog in git root is supported."
 }
 
 git-process-changelog ()
@@ -234,18 +237,18 @@ git-process-changelog ()
     gitfuncs_audit "$@"
 
     local usage_func=git-process-changelog-usage
-    if [ -z $1 ]
-    then
-        echo "No files specified."
-        return 1
-    fi
 
     local action='read'
     local parse_flag=''
     local diff=''
+    local status=0
+    local parsed_cl=$(mktemp)
+    local pcl=$(which parse-changelog)
+    local pcl_flags=''
 
+    ## Options first
     OPTSARGS=$(getoptp -o h --long commit,withstatus,diff,help -n 'git-process-changelog' -- "$@")
-    local status=$?
+    status=$?
     ((status != 0)) && $usage_func && return $status
 
     eval set -- "$OPTSARGS"
@@ -253,59 +256,66 @@ git-process-changelog ()
     do
         case "$1" in
             --commit)
-                action=commit; parse_flag='--write'; shift ;;
+                action=commit;
+                pcl_flags="$pcl_flags --write --ncl $parsed_cl"
+                shift ;;
             --withstatus)
-                action=withstatus; parse_flag='--withstatus'; shift ;;
+                action=withstatus;
+                pcl_flags="$pcl_flags --withstatus";
+                shift ;;
             --diff)
-                diff='--diff'; shift;;
+                pcl_flags="$pcl_flags --diff"
+                shift ;;
             -h|--help) $usage_func; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return 1 ;;
         esac
     done
 
-    ## Adding /x/nomore allows us to get at the last set of changes in the list
-    ## using the dirspec change check and not a separate "catch" loop at the
-    ## end. We sort the inputs to gather files in common directories.
-    local filespec
+    ## Everything else is a file
+    if [ -z $1 ]
+    then
+        echo "No files specified."
+        return 1
+    fi
     local filelist
-    local current_dirspec
-    local dirspec
-    local status
-    for filespec in $(echo $@ | tr ' ' '\n' | sort -u) '/x/nomore'
+    for i in "$@"
     do
-        dirspec=$(dirname $filespec)
-        [ -z "$current_dirspec" ] && current_dirspec=$dirspec
-
-        if [ "$current_dirspec" = "$dirspec" ]
-        then
-            filelist="$filelist $filespec"
-        else
-            local cl=${current_dirspec}/ChangeLog
-            if [ ! -r $cl ]
-            then
-                echo "No changelog found in '$current_dirspec'."
-                return 1
-            fi
-
-            local pcl=$(which parse-changelog)
-            $DEBUG_PROCESS_CHANGELOG $pcl $parse_flag $diff $cl $filelist
-            status=$?
-            ((status!=0)) && return $status
-
-            if [ "$action" = 'commit' ]
-            then
-                git commit -F ${cl}.new --edit $filelist
-                status=$?
-                ((status!=0)) && return $status
-
-                \rm ${cl}.new
-            fi
-
-            current_dirspec=$dirspec
-            filelist=$filespec
-        fi
+        filelist="$filelist $(realpath $i)"
     done
+
+    ## Find the changelog
+    local changelogdir=$(git-root)
+    ((status != 0)) && $usage_func && return $status
+    local changelog="${changelogdir}/ChangeLog"
+    [ ! -r $changelog ] && echo "$changelog not readable" && return 1
+    [ "$action" = 'commit' ] && [ ! -w $changelog ] && echo "$changelog not writable" && return 1
+
+    local others=$(find $changelogdir -name ChangeLog | grep -v "$changelog")
+    [ -n "$others" ] && echo "Found $others. No ChangeLogs allowed under $changelogdir." && return 1
+
+    $DEBUG_PROCESS_CHANGELOG $pcl --cl $changelog $pcl_flags $filelist
+    status=$?
+    ((status!=0)) && return $status
+
+    if [ "$action" = 'commit' ]
+    then
+        git commit -F $parsed_cl --edit $filelist
+        status=$?
+        pause paktc
+        ((status!=0)) && return $status
+    fi
+}
+
+git-cat-cl ()
+{
+    ##@@ none||none||git-cat-cl||'cat' the ChangeLog in the git root
+    gitfuncs_audit "$@"
+
+    local cl=$(git-root)/ChangeLog
+    [ -r $cl ] && cat $cl && return 0
+    echo "$cl not found."
+    return 1
 }
 
 git-strip-repo ()
@@ -1099,112 +1109,161 @@ git-parse-remote-v ()
 }
 alias git-parse-remote-v='git-parse-remote-v '
 
-git-check-with-master ()
+git-check-with-remote ()
 {
-    ##@@ none||none||git-check-with-master||
+    ##@@ none||none||git-check-with-remote||
     gitfuncs_audit "$@"
 
-    local oldpwd=$(pwd)
-    [ -n "$1" ] && builtin cd $1
+    local opt_branch=''
+    local opt_remote='origin'
+    local opt_confirm='0'
+    local iam=${FUNCNAME[0]}
+    if [ "${FUNCNAME[1]}" = 'git-check-with-master' ]
+    then
+        iam=git-check-with-master
+    fi
+    local OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,confirm -n $iam -- "$@")
+    status=$?
+    ((status != 0)) && git-check-with-remote-usage && return $status
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -c|--confirm) opt_confirm=1; shift;;
+            -r|--remote) opt_remote="$2"; shift; shift ;;
+            -b|--branch) opt_branch="$2"; shift; shift ;;
+            -h|--help) git-check-with-remote-usage $iam; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; git-check-with-remote-usage $iam; return 1 ;;
+        esac
+    done
 
-    git fetch 1>/dev/null 2>&1
+    if [ -z "$opt_branch" ]
+    then
+        echo "--branch required"
+        git-check-with-remote-usage $iam
+        return 1
+    fi
 
-    local branchlog=$(mktemp --suffix=.git-check-with-master.branchlog)
-    git log > $branchlog
+    local cb=$(git rev-parse --abbrev-ref HEAD)
+    status=$?
+    ((status != 0 )) && return 1
 
-    local masterlog=$(mktemp --suffix=.git-check-with-master.masterlog)
-    git log origin/master > $masterlog
+    if [ "$cb" == '' ]
+    then
+        cat <<EOF
 
-    local difflog=$(mktemp --suffix=.git-check-with-master.difflog)
-    diff $branchlog $masterlog 1> $difflog 2>&1
+$iam is used to check your current git repo DEVELOPMENT branch in your local
+clone against changes in
+
+branch "${opt_branch}"
+repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
+
+However, you do not appear to even be in a repo. I'm exiting. Try again in a
+proper repo.
+
+EOF
+        return 1
+    fi
+
+    if [ "$cb" == "$opt_branch" ]
+    then
+        cat <<EOF
+
+$iam is used to check your current git repo DEVELOPMENT branch in your local
+clone against changes in
+
+branch "${opt_branch}"
+repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
+
+However, you appear to be on branch "${opt_branch}", the branch you want to
+sync with. I'm exiting. Get off the branch "${opt_branch}" and onto another
+branch Then rerun the command. Or just do a 'git pull' if you really need to
+refresh this branch.
+
+EOF
+        return 1
+    fi
+
+    ## Check the local branch against its origin
+    stcheck=$(mktemp --suffix=.git-check-with-remote)
+    git status 1>$stcheck 2>&1
+    grep "Your branch is up-to-date with 'origin/$cb'." $stcheck 1>/dev/null
+    status=$?
+    if [ "$status" != '0' ]
+    then
+        cat $stcheck
+        cat <<EOF
+Your branch should be up to date with its origin in order to simplify the
+check.
+EOF
+        local resp=$(yesno "Do you want to continue anyway" n)
+        if [ "$resp" == 'n' ]
+        then
+            return 1
+        fi
+    fi
+
+    local ok_to_pull=1
+    ((opt_confirm)) && ok_to_pull=0
+
+    ## Now grab the remote branch
+    git fetch ${opt_remote} ${opt_branch} 2>/tmp.$$
+    local rc=$?
+    if ((rc))
+    then
+        cat /tmp.$$
+        rm /tmp.$$
+        return 1
+    fi
+
+    ## Log the local branch
+    local locallog=$(mktemp --suffix=.git-check-with-remote.locallog)
+    git log > $locallog
+
+    ## Log the local copy of the remote branch
+    local remotelog=$(mktemp --suffix=.git-check-with-remote.remotelog)
+    git log ${opt_remote}/${opt_branch} > $remotelog
+
+    ## Diff 'em
+    local difflog=$(mktemp --suffix=.git-check-with-remote.difflog)
+    diff $locallog $remotelog 1> $difflog 2>&1
 
     if [ -s $difflog ]
     then
         if [ "$(cat $difflog | wc -l)" = '10' ] \
               && [ ! "$(grep -E "Merge pull request.*$(git-get-current-branch)" $difflog)" = '' ]
         then
-            echo "Only diff to master is merge pull request."
-            echo "Execute 'git-sync-with-master' to correct."
+            echo "Only diff to ${opt_remote} is merge pull request."
         else
             echo
             echo "*** git repo: $(pwd)"
-            echo "*** Current branch $(git-get-current-branch) and origin/master are not synced:"
+            echo "*** Current branch $(git-get-current-branch) and ${opt_remote}/${opt_branch} are not synced:"
             echo
             cat $difflog
         fi
     fi
 
-    rm -f $branchlog $masterlog $difflog
-
-    builtin cd $oldpwd
+    rm -f $locallog $remotelog $difflog
 }
 
-git-sync-with-master ()
+git-check-with-master ()
 {
-    ##@@ none||none||git-sync-with-master||
-    gitfuncs_audit "$@"
-
-    local status
-    local ok_to_pop=0
-    local do_stash=0
-    local needs_stash=$(git-is-staged && git-is-unstaged | wc -w)
-
-    if ((needs_stash))
-    then
-        if [ "$1" = "--stash" ]
-        then
-            do_stash=1
-        else
-            local resp=$(git st;yesno "Stash" n)
-            if [ "$resp" = 'n' ]
-            then
-                echo "Will not proceed without a stash"
-                return 1
-            else
-                do_stash=1
-            fi
-        fi
-    else
-        if [ "$1" = "--stash" ]
-        then
-            echo "stash not needed"
-        fi
-    fi
-
-    if ((do_stash))
-    then
-        git stash
-        status=$?
-        if [ "$status" = '0' ]
-        then
-            ok_to_pop=1
-        else
-            return $status
-        fi
-    fi
+    ##@@ none||none||git-check-with-master||
 
     git-parse-remote-v
-    ## clone-and-fork repos need to sync with the master in the canonical
+    ## clone-and-fork repos need to check with the master in the canonical
     ## upstream branch.  If there is no 'upstream', then it's probably a clone
-    ## only, so sync against the master in origin.
+    ## only, so check against the master in origin.
     if [ -n "${gitfuncs_remotes[upstream]}" ]
     then
-        git-sync-with-remote --remote upstream --branch master "$@"
+        git-check-with-remote --remote upstream --branch master "$@"
     elif [ -n "${gitfuncs_remotes[origin]}" ]
     then
-        git-sync-with-remote --remote origin --branch master "$@"
+        git-check-with-remote --remote origin --branch master "$@"
     fi
-    status=$?
-
-    if [ "$status" = '0' ] && [ "$ok_to_pop" = '1' ]
-    then
-        git stash pop
-        status=$?
-    fi
-    return $status
+    return $?
 }
-alias git-update='git-sync-with-master '
-alias git-rebase-on-master='git-sync-with-master '
 
 git-sync-with-remote-usage ()
 {
@@ -1289,6 +1348,7 @@ EOF
         return 1
     fi
 
+    ## Check the local branch against its origin
     stcheck=$(mktemp --suffix=.git-sync-with-remote)
     git status 1>$stcheck 2>&1
     grep "Your branch is up-to-date with 'origin/$cb'." $stcheck 1>/dev/null
@@ -1400,6 +1460,73 @@ EOF
 
 }
 alias git-sync-with-remote='git-sync-with-remote '
+
+git-sync-with-master ()
+{
+    ##@@ none||none||git-sync-with-master||
+    gitfuncs_audit "$@"
+
+    local status
+    local ok_to_pop=0
+    local do_stash=0
+    local needs_stash=$(git-is-staged && git-is-unstaged | wc -w)
+
+    if ((needs_stash))
+    then
+        if [ "$1" = "--stash" ]
+        then
+            do_stash=1
+        else
+            local resp=$(git st;yesno "Stash" n)
+            if [ "$resp" = 'n' ]
+            then
+                echo "Will not proceed without a stash"
+                return 1
+            else
+                do_stash=1
+            fi
+        fi
+    else
+        if [ "$1" = "--stash" ]
+        then
+            echo "stash not needed"
+        fi
+    fi
+
+    if ((do_stash))
+    then
+        git stash
+        status=$?
+        if [ "$status" = '0' ]
+        then
+            ok_to_pop=1
+        else
+            return $status
+        fi
+    fi
+
+    git-parse-remote-v
+    ## clone-and-fork repos need to sync with the master in the canonical
+    ## upstream branch.  If there is no 'upstream', then it's probably a clone
+    ## only, so sync against the master in origin.
+    if [ -n "${gitfuncs_remotes[upstream]}" ]
+    then
+        git-sync-with-remote --remote upstream --branch master "$@"
+    elif [ -n "${gitfuncs_remotes[origin]}" ]
+    then
+        git-sync-with-remote --remote origin --branch master "$@"
+    fi
+    status=$?
+
+    if [ "$status" = '0' ] && [ "$ok_to_pop" = '1' ]
+    then
+        git stash pop
+        status=$?
+    fi
+    return $status
+}
+alias git-update='git-sync-with-master '
+alias git-rebase-on-master='git-sync-with-master '
 
 git-diff-faq ()
 {
