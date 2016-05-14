@@ -216,18 +216,44 @@ git-commit-with-changelog ()
     ##@@ none||none||git-commit-with-changelog||Use ChangeLog entries to create commit messages
     gitfuncs_audit "$@"
 
-    local args="$@"
+    local usage_func=git-commit-with-changelog-usage
+
+    local opt_a
+    local opt_v
+
+    ## Options first
+    OPTSARGS=$(getoptp -o av -n 'git-commit-with-changelog' -- "$@")
+    status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -a)
+                opt_a=$1
+                shift ;;
+            -v)
+                opt_v=$1
+                shift;;
+            -h) $usage_func; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
+
+    local files="$@"
     ## This causes the same behavior as git commit with no args (default to
     ## only staged files), but we need to pass files into git-process.
-    [ -z "$args" ] && args=$(git-what-is-staged)
-    [ "$1" = '-a' ] && args=$(git-what-is-modified)
-    git-process-changelog --commit $args
+    [ -z "$files" ] && files=$(git-what-is-staged)
+    [ -n "$opt_a" ] && files=$(git-what-is-modified)
+    git-process-changelog --commit $opt_v $files
     return $?
 }
 
 git-process-changelog-usage ()
 {
-    echo "git-process-changelog [ --write | [ --withstatus ] [ --diff ]"
+    echo "git-process-changelog [-v] [ --write | [ --withstatus ] [ --diff ]"
     echo "    Only one ChangeLog in git root is supported."
 }
 
@@ -241,13 +267,14 @@ git-process-changelog ()
     local action='read'
     local parse_flag=''
     local diff=''
+    local opt_v='' ## passed to commit
     local status=0
     local parsed_cl=$(mktemp)
     local pcl=$(which parse-changelog)
     local pcl_flags=''
 
     ## Options first
-    OPTSARGS=$(getoptp -o h --long commit,withstatus,diff,help -n 'git-process-changelog' -- "$@")
+    OPTSARGS=$(getoptp -o hv --long commit,withstatus,diff,help -n 'git-process-changelog' -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -255,6 +282,8 @@ git-process-changelog ()
     while true
     do
         case "$1" in
+            -v) opt_v=$1
+                shift;;
             --commit)
                 action=commit;
                 pcl_flags="$pcl_flags --write --ncl $parsed_cl"
@@ -290,9 +319,13 @@ git-process-changelog ()
     local changelog="${changelogdir}/ChangeLog"
     [ ! -r $changelog ] && echo "$changelog not readable" && return 1
     [ "$action" = 'commit' ] && [ ! -w $changelog ] && echo "$changelog not writable" && return 1
+    local changelogbkp="${changelogdir}/ChangeLog.bkp"
 
     local others=$(find $changelogdir -name ChangeLog | grep -v "$changelog")
     [ -n "$others" ] && echo "Found $others. No ChangeLogs allowed under $changelogdir." && return 1
+
+    ## Backup
+    cp -f $changelog $changelogbkp
 
     $DEBUG_PROCESS_CHANGELOG $pcl --cl $changelog $pcl_flags $filelist
     status=$?
@@ -300,10 +333,15 @@ git-process-changelog ()
 
     if [ "$action" = 'commit' ]
     then
-        git commit -F $parsed_cl --edit $filelist
+        git commit -F $parsed_cl --edit $opt_v $filelist
         status=$?
-        pause paktc
-        ((status!=0)) && return $status
+        if((status!=0))
+        then
+            ## Restore
+            echo "Rolling back Changelog"
+            cp -f $changelogbkp $changelog
+            return $status
+        fi
     fi
 }
 
@@ -1109,6 +1147,11 @@ git-parse-remote-v ()
 }
 alias git-parse-remote-v='git-parse-remote-v '
 
+git-check-with-remote-usage ()
+{
+    echo "Usage: $1 --branch otherBranch [--remote remote] [gitRoot]"
+}
+
 git-check-with-remote ()
 {
     ##@@ none||none||git-check-with-remote||
@@ -1208,14 +1251,16 @@ EOF
     ((opt_confirm)) && ok_to_pull=0
 
     ## Now grab the remote branch
-    git fetch ${opt_remote} ${opt_branch} 2>/tmp.$$
+    local gflog=$(mktemp)
+    git fetch ${opt_remote} ${opt_branch} 2>$gflog
     local rc=$?
     if ((rc))
     then
-        cat /tmp.$$
-        rm /tmp.$$
+        cat $gflog
+        rm $gflog
         return 1
     fi
+    rm $gflog
 
     ## Log the local branch
     local locallog=$(mktemp --suffix=.git-check-with-remote.locallog)
@@ -1232,7 +1277,7 @@ EOF
     if [ -s $difflog ]
     then
         if [ "$(cat $difflog | wc -l)" = '10' ] \
-              && [ ! "$(grep -E "Merge pull request.*$(git-get-current-branch)" $difflog)" = '' ]
+               && [ ! "$(grep -E "Merge pull request.*$(git-get-current-branch)" $difflog)" = '' ]
         then
             echo "Only diff to ${opt_remote} is merge pull request."
         else
@@ -1245,6 +1290,7 @@ EOF
     fi
 
     rm -f $locallog $remotelog $difflog
+    return 0
 }
 
 git-check-with-master ()
