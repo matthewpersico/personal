@@ -669,7 +669,7 @@ git-go ()
     then
         ## dirlist, not builtin cd, to take advantage this cd enhancement
         dirlist ${HOME}/$(git-strip-repo $REPO)
-        git-check-hook
+        git-check-this-hook
     fi
     return
 }
@@ -908,7 +908,7 @@ git-set-locals ()
     done
 }
 
-git-update-hook ()
+git-update-this-hook ()
 {
     ##@@ none||none||git-update-hook||
     gitfuncs_audit "$@"
@@ -940,7 +940,6 @@ git-update-hook ()
         done
     done
 }
-alias git-hook-nupdate='git-update-hook '
 
 git-push-hook ()
 {
@@ -1004,15 +1003,24 @@ git-push-hook ()
                 then
                     echo "$hooktgtpath out of date. Updating from $h..."
                 fi
-                cp -v $h $hooktgtpath
+                cp -pv $h $hooktgtpath
                 chmod +x $hooktgtpath
+            elif [ $h -ot $hooktgtpath ]
+            then
+                local tmpout=$(mktemp)
+                diff  $h  $hooktgtpath 1>$tmpout 2>&1
+                if [ -s $tmpout ]
+                then
+                    echo "$hooktgtpath newer than $h. Here's the diff, older to newer:"
+                    cat $tmpout
+                fi
+                rm -f $tmpout
             fi
         done
     done
 }
-alias git-hook-push='git-push-hook '
 
-git-check-hook ()
+git-check-this-hook ()
 {
     ##@@ none||none||git-check-hook||
     gitfuncs_audit "$@"
@@ -1041,7 +1049,6 @@ git-check-hook ()
     done
     return 0
 }
-alias git-hook-check='git-check-hook '
 
 git-checkout ()
 {
@@ -1159,20 +1166,20 @@ git-check-with-remote ()
 
     local opt_branch=''
     local opt_remote='origin'
-    local opt_confirm='0'
+    local opt_bail_on_dirty='0'
     local iam=${FUNCNAME[0]}
     if [ "${FUNCNAME[1]}" = 'git-check-with-master' ]
     then
         iam=git-check-with-master
     fi
-    local OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,confirm -n $iam -- "$@")
+    local OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,bail_on_dirty -n $iam -- "$@")
     status=$?
     ((status != 0)) && git-check-with-remote-usage && return $status
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
-            -c|--confirm) opt_confirm=1; shift;;
+            --bail_on_dirty) opt_bail_on_dirty=1; shift;;
             -r|--remote) opt_remote="$2"; shift; shift ;;
             -b|--branch) opt_branch="$2"; shift; shift ;;
             -h|--help) git-check-with-remote-usage $iam; return 0 ;;
@@ -1240,10 +1247,16 @@ EOF
 Your branch should be up to date with its origin in order to simplify the
 check.
 EOF
-        local resp=$(yesno "Do you want to continue anyway" n)
-        if [ "$resp" == 'n' ]
+        if ((bail_on_dirty))
         then
+            echo Exiting.
             return 1
+        else
+            local resp=$(yesno "Do you want to continue anyway" n)
+            if [ "$resp" == 'n' ]
+            then
+                return 1
+            fi
         fi
     fi
 
@@ -1326,6 +1339,9 @@ git-sync-with-remote ()
     local opt_branch=''
     local opt_remote='origin'
     local opt_confirm='0'
+    local opt_stash='0'
+    local do_stash='0'
+
     local iam=${FUNCNAME[0]}
     if [ "${FUNCNAME[1]}" = 'git-sync-with-master' ]
     then
@@ -1338,6 +1354,7 @@ git-sync-with-remote ()
     while true
     do
         case "$1" in
+            -s|--stash) opt_stash=1; shift;;
             -c|--confirm) opt_confirm=1; shift;;
             -r|--remote) opt_remote="$2"; shift; shift ;;
             -b|--branch) opt_branch="$2"; shift; shift ;;
@@ -1394,6 +1411,43 @@ EOF
         return 1
     fi
 
+    ## Stash any modified items before checking and proceeding.
+    local needs_stash=$(git-is-staged && git-is-unstaged | wc -w)
+    if ((needs_stash))
+    then
+        if ((opt_stash))
+        then
+            do_stash=1
+        else
+            git status
+            local resp=$(yesno "Stash" n)
+            echo  resp is $rep
+            if [ "$resp" = 'n' ]
+            then
+                echo "Will not proceed without a stash"
+                return 1
+            else
+                do_stash=1
+            fi
+        fi
+    else
+        if ((opt_stash))
+        then
+            echo "stash not needed"
+        fi
+    fi
+    if ((do_stash))
+    then
+        git stash
+        status=$?
+        if [ "$status" = '0' ]
+        then
+            ok_to_pop=1
+        else
+            return $status
+        fi
+    fi
+
     ## Check the local branch against its origin
     stcheck=$(mktemp --suffix=.git-sync-with-remote)
     git status 1>$stcheck 2>&1
@@ -1409,7 +1463,7 @@ EOF
         local resp=$(yesno "Do you want to continue anyway" n)
         if [ "$resp" == 'n' ]
         then
-            return 1
+            ((do_stash)) && git stash pop && return 1
         fi
     fi
 
@@ -1446,12 +1500,12 @@ EOF
             local resp=$(yesno "Ok to pull" n)
             if [ "$resp" == 'n' ]
             then
-                return 0
+                ((do_stash)) && git stash pop && return 0
             fi
         fi
     else
         echo "No difference with remote. Exiting."
-        return 0
+        ((do_stash)) && git stash pop && return 0
     fi
 
     git pull --rebase ${opt_remote} ${opt_branch}
@@ -1474,7 +1528,7 @@ EOF
     fi
     if [ "$status" = '0' ]
     then
-        return 0
+        ((do_stash)) && git stash pop && return 0
     else
         cat <<EOF
 
@@ -1501,7 +1555,7 @@ Then push the branch up to your fork so you can submit a pull request.
 
 EOF
 
-        return 1
+        ((do_stash)) && echo "Leaving stash stashed so a not to further complicate the issue" && return 1
     fi
 
 }
@@ -1513,43 +1567,6 @@ git-sync-with-master ()
     gitfuncs_audit "$@"
 
     local status
-    local ok_to_pop=0
-    local do_stash=0
-    local needs_stash=$(git-is-staged && git-is-unstaged | wc -w)
-
-    if ((needs_stash))
-    then
-        if [ "$1" = "--stash" ]
-        then
-            do_stash=1
-        else
-            local resp=$(git st;yesno "Stash" n)
-            if [ "$resp" = 'n' ]
-            then
-                echo "Will not proceed without a stash"
-                return 1
-            else
-                do_stash=1
-            fi
-        fi
-    else
-        if [ "$1" = "--stash" ]
-        then
-            echo "stash not needed"
-        fi
-    fi
-
-    if ((do_stash))
-    then
-        git stash
-        status=$?
-        if [ "$status" = '0' ]
-        then
-            ok_to_pop=1
-        else
-            return $status
-        fi
-    fi
 
     git-parse-remote-v
     ## clone-and-fork repos need to sync with the master in the canonical
@@ -1564,11 +1581,6 @@ git-sync-with-master ()
     fi
     status=$?
 
-    if [ "$status" = '0' ] && [ "$ok_to_pop" = '1' ]
-    then
-        git stash pop
-        status=$?
-    fi
     return $status
 }
 alias git-update='git-sync-with-master '
@@ -1725,6 +1737,15 @@ _guts_clone ()
         echo "$proto is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
         return 1
     fi
+
+    local tgt="$namespace/$repo"
+    if [ -e $tgt ]
+    then
+        local resp=$(yesno "'$tgt' exists. Will not clone over it. Remove it." n)
+        [ "$resp" = 'n' ] && return 1
+        rm -rf $tgt
+    fi
+
     local cmd="git clone ${gitfuncs_gitsvcs[$proto]}$namespace/$repo $namespace/$repo"
     echo $cmd ...
     $cmd
@@ -2983,37 +3004,86 @@ git-to-stdout ()
     done
 }
 
+bbgithub-merge-pull-request ()
+{
+
+    ##@@ none||none||bbgithub-merge-pull-request||Merge a bbgithub remote pull request from command line.
+    git-merge-pull-request bbgithub "$@"
+    return $?
+}
+
 git-merge-pull-request ()
 {
     ##@@ none||none||git-merge-pull-request||Merge a remote pull request from command line.
     gitfuncs_audit "$@"
+
+    if [ -z "$1" ]
+    then
+        echo "Usage: git-merge-pull-request protocol org repo user prbranch"
+        echo "       Merge the branch 'prbranch' from user/repo"
+        echo "       into the 'master' branch in a local clone of"
+        echo "       org/repo. The clone is created fresh; if there is"
+        echo "       already a clone at that location, it will fail."
+        echo "       'protocol' is one of 'bbgithub', 'github', 'bitbucket"
+        return 1
+    fi
+    local proto=$1;shift
+    if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
+    then
+        echo "$proto is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        return 1
+    fi
+
+    if [ -z "$1" ]
+    then
+        echo "Usage: ${proto}-merge-pull-request org repo user prbranch"
+        echo "       Merge the branch 'prbranch' from user/repo"
+        echo "       into the 'master' branch in a local clone of"
+        echo "       org/repo. The clone is created fresh; if there is"
+        echo "       already a clone at that location, it will fail."
+        return 1
+    fi
 
     local namespace=$1;shift
     local repo=$1;shift
     local user=$1;shift
     local prbranch=$1;shift
 
-    echo "Clone bbgithub:$namepsace/repo..."
-    bbgithub-clone $namespace $repo
+    echo "* Clone $proto:$namepsace/repo..."
+    ${proto}-clone $namespace $repo
+    local status=$?
+    ((status)) && return $status
 
-    echo "Current last commit on master branch"
+    echo "* Current last commit on master branch"
     git log -1
+    status=$?
+    ((status)) && return $status
 
-    echo "Add bbgithub:$user/$repo as a remote"
-    git remote add $user $repo
+    echo "* Add $proto:$user/$repo as a remote"
+    git remote add $user $proto:$user/$repo
+    status=$?
+    ((status)) && return $status
 
-    echo "Fetch only the pull request branch ($prbranch) from bbgithub:$user/$repo"
-    git fetch $user $pull-req-branch
+    echo "* Fetch only the pull request branch ($prbranch) from $proto:$user/$repo"
+    git fetch $user $prbranch
+    status=$?
+    ((status)) && return $status
 
-    echo "Do the merge"
-    git rebase master $user/$pull-req-branch
+    echo "* Do the merge"
+    git rebase master $user/$prbranch
+    status=$?
+    ((status)) && return $status
 
     echo "Last two commits on master"
     git log -2
+    status=$?
+    ((status)) && return $status
 
-    echo "If all is well (second log entry in last log"
-    echo "command should match with the above), then"
-    echo "push back up to bbgithub:"
+    echo "Success is defined as"
+    echo "1) You are reading this message"
+    echo "2) The second log entry in last log"
+    echo "   command should match with the above"
+    echo "If successful, then push back up to ${proto}:"
     echo
     echo 'git push origin HEAD:master'
 }
