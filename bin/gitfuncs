@@ -205,7 +205,7 @@ git-status-with-changelog ()
     local out=$(mktemp)
     git-process-changelog --withstatus $diff $args 1>$out 2>&1
     less -R $out
-    rm -f $out
+    \rm -f $out
     return $?
 }
 alias git-st-cl='git-status-with-changelog '
@@ -343,6 +343,7 @@ git-process-changelog ()
             return $status
         fi
     fi
+    [ -f $changelogbkp ] && \rm -f $changelogbkp
 }
 
 git-cat-cl ()
@@ -544,14 +545,18 @@ git-go-usage ()
 {
     gitfuncs_audit "$@"
 
-    echo "Usage: git-go [--list] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt ] [dirmatch]"
+    echo "Usage: git-go [--list[full]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt ] [dirmatch]"
     echo "       git-go [-h|--help]"
     echo
     echo "       Presents a list of all git repos"
     echo "       in ${HOME}/gits"
     echo "       for you to choose and then cd to."
     echo
-    echo "       --list will skip the choosing part and just exit"
+    echo "       --list will skip the choosing part and just exit, printing"
+    echo "           each repo dir with ~"
+    echo
+    echo "       --listfull will skip the choosing part and just exit, printing"
+    echo "           each repo dir with ~ expanded"
     echo
     echo "       --update will rescan to pick up new and deleted"
     echo "           repos and worktrees"
@@ -581,7 +586,7 @@ git-go ()
     local opt_mbig=0
     local opt_wt=1
     local opt_subwt_only=0
-    local OPTSARGS=$(getoptp -o lurmh --long list,update,roots,mbig,wt,nowt,subwt,help -n 'git-go' -- "$@")
+    local OPTSARGS=$(getoptp -o lurmh --long list,update,roots,mbig,wt,nowt,subwt,help,listfull -n 'git-go' -- "$@")
     status=$?
     ((status != 0)) && git-go-usage && return $status
     eval set -- "$OPTSARGS"
@@ -589,6 +594,7 @@ git-go ()
     do
         case "$1" in
             -l|--list) opt_list=1; shift ;;
+            --listfull) opt_list=2; shift ;;
             -m|--mbig) opt_mbig=1; shift ;;
             -r|--roots) opt_roots=1; shift ;;
             -u|--update) opt_update=1; shift ;;
@@ -629,19 +635,26 @@ git-go ()
     then
         echo $tgt does not match any repo
         git-go-usage
-        return
+        return 1
     fi
     if [ "$(echo $REPOS | wc -w)" = '1' ]
     then
         echo "Matches only $REPOS. Going there."
         REPO=$REPOS
     else
-        if (($opt_list))
+        if (($opt_list==1))
         then
             local r
             for r in $REPOS
             do
                 echo '~'/$r
+            done
+        elif (($opt_list==2))
+        then
+            local r
+            for r in $REPOS
+            do
+                echo ~/$r
             done
         else
             REPOS=$(tail_number_select $REPOS)
@@ -1247,7 +1260,7 @@ EOF
 Your branch should be up to date with its origin in order to simplify the
 check.
 EOF
-        if ((bail_on_dirty))
+        if ((opt_bail_on_dirty))
         then
             echo Exiting.
             return 1
@@ -2519,14 +2532,38 @@ git-find-deleted ()
 
     git rev-list -n 1 HEAD -- "$1"
 }
-git-checkout-deleted()
+
+git-find-last-existed ()
 {
-    ##@@ none||none||git-checkout-deleted||
+    ##@@ none||none||git-find-last-existed||The revision before which the given file was deleted.
     gitfuncs_audit "$@"
 
-    ## ^ is the revision before, so the revision before deleted, i.e., the last
-    ## revision in which $1 was present.
-    git checkout $(git-find-deleted "$1")^ -- "$1"
+    git rev-list -n 1 $(git-find-deleted "$1")^ -- "$1"
+}
+
+git-checkout-last-existed()
+{
+    ##@@ none||none||git-checkout-last-existed||Find the revision in which the given file last existed and check it out
+    gitfuncs_audit "$@"
+
+    git checkout $(git-find-last-existed "$1") "$1"
+}
+
+git-stdout-last-existed()
+{
+    ##@@ none||none||git-checkout-last-existed||Find the revision in which the given file last existed and print to stdout (or file.uuid if --file specified).
+    gitfuncs_audit "$@"
+
+    local file=''
+    if [ "$1" = '-file' ]
+    then
+        file='-file'
+        shift;
+    fi
+    for f in "$@"
+    do
+        git-to-stdout $file $(git-find-last-existed "$f") "$f"
+    done
 }
 
 git-root ()
@@ -3088,6 +3125,102 @@ git-merge-pull-request ()
     echo 'git push origin HEAD:master'
 }
 alias git-merge-pr='git-merge-pull-request '
+
+
+git-st-ext ()
+{
+    ##@@ none||none||git-st-ext||Read or write a note about this fork's current status
+    gitfuncs_audit "$@"
+
+    local git_st_ext_file="$(git-root)/.git-st-ext"
+    if [ -n "$1" ]
+    then
+        echo "$@" > $git_st_ext_file
+    else
+        if [ -e $git_st_ext_file ]
+        then
+            cat $git_st_ext_file
+        else
+            read -p "External status for $(git-root): " resp
+            echo "$resp" > $git_st_ext_file
+        fi
+    fi
+}
+
+git-st-ext-all ()
+{
+    ##@@ none||none||git-st-ext||Read all notes about repo current statuses
+    gitfuncs_audit "$@"
+
+    for i in $(git-go --listfull | grep 152)
+    do
+        local git_st_ext_file="${i}/.git-st-ext"
+        [ -r "$git_st_ext_file" ] && echo $i: $(cat $git_st_ext_file)
+    done
+}
+
+git-delete-current-repo ()
+{
+    gitfuncs_audit "$@"
+
+    git-delete-repo $(pwd)
+    status=$?
+    return $status
+}
+
+git-delete-repo ()
+{
+    ##@@ none||none||git-delete-repo||Delete the repo
+    gitfuncs_audit "$@"
+
+    local opwd=$(pwd)
+    local repo=$1;
+    local repofull=$(realpath $1);
+
+    builtin cd $repofull
+
+    ## Make sure we are in a proper repo.
+    if [ ! -d .git ]
+    then
+        echo "$repo is not a proper repo for deletion"
+        return 1
+    fi
+
+    ## Make sure it's clean.
+    if [ -d wt ]
+    then
+        echo "wt subdir found:"
+        ls -la wt
+        echo
+        echo "Will not delete current repo"
+        return 1
+    fi
+
+    git status 1>/dev/null 2>&1
+    local rc=$?
+    if ((rc)) || \
+           [ "$(git status --porcelain | wc -l)" != '0' ] || \
+           [ "$(git status | grep 'Your branch is' | grep -v 'up-to-date' | wc -l)" != '0' ]
+    then
+        git status
+        echo
+        echo "Will not delete current repo"
+        return 1
+    fi
+
+    ## Whack it. Start and end with the current dir.
+    local delit=$(basename $(pwd))
+    builtin cd ..
+    \rm -rf $delit; (( $? != 0 )) && echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
+    echo "Done. Not touching remote repo."
+
+    [ -d $opwd ] && builtin cd ## If $opwd was the repo directory, it won't be
+                               ## there anymore. Stay where we are.
+
+    git-go-set
+
+    return 0
+}
 
 ## Can't use local outside a function.
 typeset forlater='
