@@ -2,6 +2,17 @@
 
 # auditfuncs
 
+## Because we call this before all other *funcs, we predefine this utility here
+## as well as in utilfuncs. Keep the two in sync.
+if [ ! "$(type safe_func_export 2>/dev/null | head -1 | grep 'is a function')" = 'is a function' ]
+then
+    safe_func_export ()
+    {
+        [ -n "$SHELL" ] && [ $(basename $SHELL) = "bash" ] && export -f $1
+    }
+    safe_func_export safe_func_export
+fi
+
 AUDITFUNCS_FILE=${BASH_SOURCE[0]}
 
 replm1() {
@@ -32,10 +43,11 @@ auditfuncs_edit ()
     auditfuncs_audit
     xo $AUDITFUNCS_FILE
 }
-#nxport -f auditfuncs_edit
-## I define functions with '_' and aliases with '-' because the emacs modes
-## that parse for functions to generate jump lists don't see functions with '-'
-## in their name. Ugh.
+safe_func_export auditfuncs_edit
+## I used to define functions with '_' and aliases with '-' because the emacs
+## modes that parse for functions to generate jump lists didn't see functions
+## with '-' in their name. But since I've fixed that issue, I should go back
+## and rename all these.
 alias auditfuncs-edit=auditfuncs_edit
 
 auditfuncs_reload ()
@@ -43,4 +55,5 @@ auditfuncs_reload ()
     auditfuncs_audit
     . $AUDITFUNCS_FILE
 }
+safe_func_export auditfuncs_reload
 alias auditfuncs-reload=auditfuncs_reload

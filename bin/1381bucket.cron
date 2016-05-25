@@ -1,0 +1,61 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use File::Basename;
+
+my @now = localtime();
+exit 0 if ($now[6] == 0 or $now[6] == 6);
+
+my %next = (
+    druoso    => {
+        who => 'mpersico5',
+        mail => 'mpersico5@bloomberg.net',
+    },
+    mpersico5 => {
+        who => 'jbonney4',
+        mail => 0 ## 'jbonney4@bloomberg.net',
+    },
+    jbonney4  => {
+        who => 'druoso',
+        mail => 0 ## 'druoso@bloomberg.net',
+    },
+);
+
+my ($name,$path,$suffix) = fileparse($0,'.cron');
+my $log = "${path}/${name}.log";
+my @lines;
+if ( -e $log ) {
+    open( IH, '<', $log )
+      or die "Cannot open $log for reading:$!";
+    @lines = reverse(<IH>); ## Stored new to old, want to work old -> new
+    close(IH);
+}
+my @data;
+if( @lines ) {
+    @data = split(/\s+/, $lines[-1]);
+} else {
+    $data[0] = 'jbonney4';
+}
+push @lines, sprintf('%s %04d%02d%02d%s',
+                     $next{$data[0]}->{who},
+                     $now[5]+1900,
+                     $now[4]+1,
+                     $now[3],
+                     qq(\n));
+
+open( OH, '>', $log )
+  or die "Cannot open $log for writing:$!";
+
+print OH reverse @lines;
+
+close (OH);
+
+if( $next{$data[0]}->{mail} ) {
+    qx(mailx -s '1381 Monitoring' $next{$data[0]}->{mail} <<EOM
+You are today's monitor.
+EOM
+);
+} else {
+    print "Today's monitor is $next{$data[0]}->{who}\n";
+}

@@ -13,17 +13,17 @@ typeset sedcmdfile=$(mktemp --suffix=.sedinplace)
 trap finish EXIT SIGINT
 finish ()
 {
-    if [ -e $tfile ]
+    if [ -e $sedcmdfile ]
     then
-        rm -rf $tfile
+        rm -rf $sedcmdfile
     fi
 }
 
-typeset sedopts=''		## Options to the sed command
+typeset sedopts=''	        ## Options to the sed command
 typeset sedopt_inplace='-i'	## Particular option typeset sedopts
 typeset opt_confirm=0
-typeset opt_backup=0
 typeset opt_verbose=0
+typeset opt_new=''
 typeset OPTSARGS
 typeset status
 typeset arg
@@ -36,7 +36,7 @@ typeset f
 ##
 
 ## Read the args and options from the command line
-OPTSARGS=$(getoptp -o cbv -l confirm,backup,verbose -n $0 -- "$@")
+OPTSARGS=$(getoptp -o cbvn: -l confirm,backup,verbose,new: -n $0 -- "$@")
 status=$?
 ((status != 0)) && echo "Exiting." && exit $status
 
@@ -49,12 +49,10 @@ while true ; do
 	    -c|--confirm)
 	        opt_confirm=1
 	        sedopt_inplace='-i.sip'
-	        opt_backup=1
 	        shift
 	        ;;
 	    -b|--backup)
 	        sedopt_inplace='-i.sip'
-	        opt_backup=1
 	        echo "Backups in .sip files"
 	        shift
 	        ;;
@@ -62,6 +60,11 @@ while true ; do
 	        opt_verbose=1
 	        shift
 	        ;;
+        -n|--new)
+	        sedopt_inplace='-i.sip'
+	        opt_new=$2
+            shift;shift
+            ;;
 	    --)
 	        shift
 	        break
@@ -71,6 +74,7 @@ while true ; do
 done
 
 ## process args
+
 for arg in "$@"
 do
     ## Need -e and -f. -e makes it a file system object. -f alone
@@ -80,6 +84,7 @@ do
     then
 	    files+=("$arg")
     else
+        ### TODO - NEED A WAY TO GET ARGS WITH SPACES IN HERE!!!!!!!!
 	    echo "$arg" >> $sedcmdfile
     fi
 done
@@ -114,6 +119,11 @@ do
 		        echo "No changes in $f"
             fi
 		    \rm ${f}.sip
+        elif ((opt_new))
+        then
+            \mv ${f} ${f}.${opt_new};status=$?;((status)) && echo "Rename ${f} ${f}.${opt_new} error. Exiting." && exit 1
+            \mv ${f}.sip ${f};status=$?;((status)) && echo "Rename ${f}.sip ${f} error. Exiting." && exit 1
+            ((opt_verbose)) && echo "${f}.${opt_new}"
         elif ((opt_confirm))
         then
             echo
