@@ -3,9 +3,8 @@
 use strict;
 use warnings;
 use File::Basename;
-
-my @now = localtime();
-exit 0 if ($now[6] == 0 or $now[6] == 6);
+use DateTime;
+use File::Slurp;
 
 my %next = (
     druoso    => {
@@ -14,11 +13,11 @@ my %next = (
     },
     mpersico5 => {
         who => 'jbonney4',
-        mail => 0 ## 'jbonney4@bloomberg.net',
+        mail => 0#'jbonney4@bloomberg.net',
     },
     jbonney4  => {
         who => 'druoso',
-        mail => 0 ## 'druoso@bloomberg.net',
+        mail => 0#'druoso@bloomberg.net',
     },
 );
 
@@ -26,34 +25,36 @@ my ($name,$path,$suffix) = fileparse($0,'.cron');
 my $log = "${path}/${name}.log";
 my @lines;
 if ( -e $log ) {
-    open( IH, '<', $log )
-      or die "Cannot open $log for reading:$!";
-    @lines = reverse(<IH>); ## Stored new to old, want to work old -> new
-    close(IH);
+    @lines = reverse(read_file($log, {chomp => 1}));
+    ## Stored new to old, want to work old -> new
 }
+
+if (@ARGV and $ARGV[0] eq '--cat' ) {
+    print join("\n",reverse(@lines));
+    exit 0;
+}
+
+my $now = DateTime->now;
+exit 0 if ($now->day_of_week() > 5);
+my $hol = "${path}/${name}.holidays";
+my %holidays = map { (split(/-/,$_))[0] => 1 } read_file($hol, {chomp => 1});
+exit if defined $holidays{$now->ymd('/')};
+
 my @data;
 if( @lines ) {
     @data = split(/\s+/, $lines[-1]);
 } else {
     $data[0] = 'jbonney4';
 }
-push @lines, sprintf('%s %04d%02d%02d%s',
+push @lines, sprintf('%s %s',
                      $next{$data[0]}->{who},
-                     $now[5]+1900,
-                     $now[4]+1,
-                     $now[3],
-                     qq(\n));
+                     $now->ymd('/'));
 
-open( OH, '>', $log )
-  or die "Cannot open $log for writing:$!";
-
-print OH reverse @lines;
-
-close (OH);
+write_file($log, join("\n", reverse @lines));
 
 if( $next{$data[0]}->{mail} ) {
     qx(mailx -s '1381 Monitoring' $next{$data[0]}->{mail} <<EOM
-You are today's monitor.
+You ($next{$data[0]}->{who}) are today's 1381 bucket monitor.
 EOM
 );
 } else {
