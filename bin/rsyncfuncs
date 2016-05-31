@@ -38,6 +38,7 @@ _rsync2nfs_usage ()
 #nxport -f _rsync2nfs_usage
 
 RSYNCFUNCS_LOG_HOME="${HOME}/rsync2fs"
+export RSYNCFUNCS_LOG_HOME
 
 rsync2nfs ()
 {
@@ -89,6 +90,7 @@ rsync2nfs ()
     if [ -n "$verbose" ]
     then
         echo "** Command: rsync -a -z -r -l $verbose --delete $@ $target"
+        echo "** Log: $timestamp"
         echo "** Start: $(date)"
         local start=$(date +%s)
     fi
@@ -112,7 +114,13 @@ rsync2nfs ()
         return 1
     fi
     local sshtext="ssh -i $sshfile"
-    rsync -e "$sshtext" -a -z -r -l $verbose --delete "$@" $target
+    rsync -e "$sshtext" -a -z -r -l $verbose --delete "$@" $target &
+    local rsyncpid=$!
+    if [ -n "$verbose" ]
+    then
+        echo "** Command PID: $rsyncpid"
+    fi
+    wait $rsyncpid
     status=$?
     if [ -n "$verbose" ]
     then
@@ -183,13 +191,19 @@ vmrsync ()
 
     local status
     local target="$NFSMACHINE:vmstashes/$(hostname)"
-    vmrsync-running -s
+    vmrsync-running -s | tee /tmp/vmrsync.$$.runningcheck
     if [ "$?" = '0' ]
     then
         rsync2nfs $verbose --multistamp --target $target ~
         status=$?
     else
-        echo "Another vmrsync appears to be running--^"
+        echo "Another vmrsync appears to be running--^. See:"
+        local rsyncpid=$(cat /tmp/vmrsync.$$.runningcheck | tail -1 | cols -keep 2)
+        local log=$(grep -l "Command PID: $rsyncpid" $RSYNCFUNCS_LOG_HOME | sort -r | head -1)
+        if [ -n "$log" ]
+        then
+            cat $log
+        fi
         status=1
     fi
     return $status
@@ -202,7 +216,17 @@ vmrsync-status ()
     date
     touch /tmp/now.vmrsync-status
     ls -lart $RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.* /tmp/now.vmrsync-status
-    vmrsync-running
+    vmrsync-running | tee /tmp/vmrsync-status.$$.runningcheck
+    if [ ! "$?" = '0' ]
+    then
+        local rsyncpid=$(cat /tmp/vmrsync-status.$$.runningcheck | tail -1 | cols -keep 2)
+        local log=$(grep -l "Command PID: $rsyncpid" $RSYNCFUNCS_LOG_HOME | sort -r | head -1)
+        if [ -n "$log" ]
+        then
+            cat $log
+        fi
+        status=1
+    fi
     ssh $NFSMACHINE 'ls -la ~/.snapshot'
 }
 

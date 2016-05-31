@@ -66,8 +66,10 @@ for (@ARGV) {
         warn "parse-changelog: $_ not found." . ($opt{write} ? ' Fatal.' : '') . "\n";
         $exit++ if $opt{write};
     } elsif ( -d $_ ) {
-        warn "parse-changelog: $_ is a directory." . ($opt{write} ? ' Fatal.' : '') . "\n";
-        $exit++ if $opt{write};
+        if ( $opt{write} ) {
+            warn "parse-changelog: $_ is a directory." . ($opt{write} ? ' Fatal.' : '') . "\n";
+            $exit++ ;
+        }
     }
 }
 if ($exit) {
@@ -226,7 +228,7 @@ if( $opt{write} ) {
     $clnewh = *STDOUT;
 }
 
-my $tracked_re_string  = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m[a-z]+:\s+<PLACEHOLDER>\x{1b}\[m);
+my $tracked_re_string  = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m[a-z ]+:\s+<PLACEHOLDER>\x{1b}\[m);
 my $untracked_re_string = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m<PLACEHOLDER>\x{1b}\[m);
 if (@status) {
     ## Mixing in the changelog entries with git status output.
@@ -266,19 +268,27 @@ if (@status) {
     }
 } else {
     ## Just write the output.
+    my @output;
+    my $morethan1=-1;
     for $file (sort keys %output) {
+        $morethan1++;
         my $filedata = $output{$file};
         my $printfile = $files{$file}->{cl_name};
+        push @output, "$printfile:";
         for $function (sort keys %{$filedata}) {
-            $clnewh->print("$printfile",
-                           $function ne '<generic>' ? " ($function)" : '',
-                           ": @{$filedata->{$function}}\n");
-            $printfile =~ s/./ /g; ## All chars to spaces to not repeat the
-                                   ## file name.
+            push @output, ("    "
+                             . ($function ne '<generic>' ? "($function):" : '')
+                             . "@{$filedata->{$function}}");
         }
         if(exists($diff{$file})) {
-            $clnewh->print(@{$diff{$file}});
+            push @output, map {chomp, $_} @{$diff{$file}};
         }
+    }
+    if(@output) {
+        if ($morethan1) {
+            unshift @output, "SUMMARY LINE HERE";
+        }
+        $clnewh->print(join("\n", @output));
     }
 }
 
@@ -313,8 +323,9 @@ if( $opt{write} ) {
             ## Last one
             push @newout, @tmpout
               if( @tmpout > 2);
+            @tmpout=();
         }
-        $cloldh->print(@newout);
+        $cloldh->print(join(qq(\n),@newout));
         $cloldh->close();
     }
 }

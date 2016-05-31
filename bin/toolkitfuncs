@@ -115,15 +115,21 @@ toolkit-file-maint ()
         fi
 
         ## Purge backups
-        echo Current files are
+        echo 'Current files are'
         ls -la ${TOOLKITFUNCS_TOOLKIT_FILE} ${TOOLKITFUNCS_TOOLKIT_FILE}.${now} \
            ${TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE} ${TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE}.${now}
 
-        echo Would purge
-        ls -la ${TOOLKITFUNCS_TOOLKIT_FILE}.* ${TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE}. | grep -v "${now}"
+        echo 'Will purge'
+        ls -la ${TOOLKITFUNCS_TOOLKIT_FILE}.[0-9]* ${TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE}.* | grep -v "${now}"
+        local purgem=$(ls ${TOOLKITFUNCS_TOOLKIT_FILE}.[0-9]* ${TOOLKITFUNCS_TOOLKIT_EXPIRE_FILE}.* | grep -v "${now}")
 
         ## Create
         ~/personal/bin/toolkit-login $TOOLKITFUNCS_TOOLKIT_FILE $USER
+        local status=$?
+        echo "Status is $status"
+
+        echo "Purging $purgem..."
+        rm -f $purgem
 
         ## Spread around
         local h
@@ -134,6 +140,14 @@ toolkit-file-maint ()
             then
                 echo "Copying to $h..."
                 scp ${TOOLKITFUNCS_TOOLKIT_FILE}* ${h}:.ssh
+            fi
+        done
+        for h in ${TOOLKIT_TARGETS[*]}
+        do
+            if [[ ! "$h" =~ $(hostname) ]]
+            then
+                echo "Purging from $h..."
+                ssh ${h} rm $purgem
             fi
         done
     fi

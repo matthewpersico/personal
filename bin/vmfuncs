@@ -138,7 +138,7 @@ vmrebuild ()
     local opt_berks=0
     local opt_build=0
     local opt_post=0
-    OPTSARGS=$(getoptp -o s --long berks,build,post -n 'vmbuild' -- "$@")
+    OPTSARGS=$(getoptp -o s --long berks,build,post,ip:,keypair: -n 'vmbuild' -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -149,6 +149,8 @@ vmrebuild ()
             --berks) opt_berks=1; shift ;;
             --build) opt_build=1; shift ;;
             --post) opt_post=1; shift ;;
+            --ip) opt_ip=$2; shift; shift;;
+            --keypair) opt_keypair=$2; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return 1 ;;
         esac
@@ -156,41 +158,40 @@ vmrebuild ()
 
     local strikes
 
-    ((!opt_berks)) && ((!opt_build)) && ((!opt_post)) && echo "ERROR: Need options" &&((strikes+=1))
+    ((!opt_berks)) && ((!opt_build)) && ((!opt_post)) && echo "ERROR: Need one of --berks, --build, --post options" && return 1
 
-    echo "USER is '$USER' (\$USER)"
-    echo "IP is '$1' (\$1)"
-    [ -z "$1" ] && echo "ERROR: Need floating IP from https://openstack.dob1.bcpc.bloomberg.com/horizon/project/access_and_security/ in the IP Address column of the Floating IPs tab. " \
-        && ((strikes+=1))
-
-    echo "Checking NFS:"
-    ssh nylxdev1 ls -lad /home/$USER/public_html
-    (($?)) && echo "ERROR: NFS check" && ((strikes+=1))
-
-    if ((opt_berks)) && [ -z "$(which berks)" ]
-    then
-        echo "ERROR: No berks available here"
-        ((strikes+=1))
-    fi
-
-    echo "KEYPAIR is '$2' (\$2)"
-    [ -z "$2" ] && echo "ERROR: Need keypair from https://openstack.dob1.bcpc.bloomberg.com/horizon/project/access_and_security/" \
-        && ((strikes+=1))
-
-    if [ ! -r ${USER}/.ssh/id_rsa.toolkit ]
+    if [ ! -r /home/${USER}/.ssh/id_rsa.toolkit ]
     then
         echo "ERROR: No id_rsa.toolkit file found"
         ((strikes+=1))
     fi
 
+    if ((opt_berks))
+    then
+        if [ -z "$(which berks)" ]
+        then
+            echo "ERROR: No berks available here"
+            ((strikes+=1))
+
+            echo "Checking NFS:"
+            ssh nylxdev1 ls -lad /home/${USER}/public_html
+            (($?)) && echo "ERROR: NFS check" && ((strikes+=1))
+        fi
+    fi
+
     if ((opt_build))
     then
+        [ -z "$opt_ip" ] && echo "ERROR: Missing --ip. Need floating IP from https://openstack.dob1.bcpc.bloomberg.com/horizon/project/access_and_security/ in the IP Address column of the Floating IPs tab. " \
+            && ((strikes+=1))
+        [ -z "$opt_keypair" ] && echo "ERROR: Missing --keypair. Need keypair from https://openstack.dob1.bcpc.bloomberg.com/horizon/project/access_and_security/" \
+            && ((strikes+=1))
+
         if [ ! -r ~/.ssh/openstack_dob1_dpkgdev.yml ]
         then
             echo "ERROR: openstack_dob1_dpkgdev.yml missing"
             ((strikes+=1))
         else
-            cat openstack_dob1_dpkgdev.yml
+            cat ~/.ssh/openstack_dob1_dpkgdev.yml
             echo "Is the password current?"
         fi
     fi
@@ -223,7 +224,6 @@ vmrebuild ()
         else
             cd ~/gits/bbgithub && (($?)) && return 1
             bbgithub-clone druoso bcpc-sous-chef
-            gitgo bcpc-sous-chef
         fi
 
         cookbook=${USER}-dev
@@ -241,16 +241,13 @@ vmrebuild ()
             --credentials ~/.ssh/openstack_dob1_dpkgdev.yml \
             --flavor m1.medium \
             --instance $cookbook \
-            --keypair $KEYPAIR \
+            --keypair $opt_keypair \
             --recipe-url http://devhtml.dev.bloomberg.com/~$USER/${cookbook}.tar.gz \
-            --floating-ip $IP \
+            --floating-ip $opt_ip \
             --runlist "${cookbook}::bcpc" --volume "${USER}-home"
     elif ((opt_post ))
     then
-        for f in /tmp/mpersico5-dev-cookbook-init \
-                     /tmp/mpersico5-dev-cookbook-fixpasswd \
-                     /tmp/mpersico5-dev-cookbook-cronscriptroot \
-                     /tmp/mpersico5-dev-cookbook-cronscriptuser
+        for f in /tmp/mpersico5-dev-cookbook-init
         do
             echo "** $f **"
             $f
