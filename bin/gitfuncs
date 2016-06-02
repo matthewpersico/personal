@@ -190,6 +190,21 @@ git-status-with-changelog ()
     ##@@ none||none||git-status-with-changelog||Mix in ChangeLog text with correspoding file entries in git status.
     gitfuncs_audit "$@"
 
+    ## All of the *-changelog functions work best in the git-root, which is
+    ## where the Changelog is anyway
+    local pwd=$(pwd)
+    local gr=$(git-root)
+    if [ ! "$pwd" = "$gr" ]
+    then
+        echo "Current directory ($pwd) is not the git root ($gr)"
+        local resp=$(yesno "Go there?")
+        if [ "$resp" = 'n' ]
+        then
+            return 1
+        fi
+        builtin cd $gr || return $?
+    fi
+
     local diff=''
     if [ "$1" = '--diff' ]
     then
@@ -215,6 +230,21 @@ git-commit-with-changelog ()
 {
     ##@@ none||none||git-commit-with-changelog||Use ChangeLog entries to create commit messages
     gitfuncs_audit "$@"
+
+    ## All of the *-changelog functions work best in the git-root, which is
+    ## where the Changelog is anyway
+    local pwd=$(pwd)
+    local gr=$(git-root)
+    if [ ! "$pwd" = "$gr" ]
+    then
+        echo "Current directory ($pwd) is not the git root ($gr)"
+        local resp=$(yesno "Go there?")
+        if [ "$resp" = 'n' ]
+        then
+            return 1
+        fi
+        builtin cd $gr || return $?
+    fi
 
     local usage_func=git-commit-with-changelog-usage
 
@@ -261,6 +291,21 @@ git-process-changelog ()
 {
     ##@@ none||none||git-process-changelog||'Guts' function for *-with-changelog functions
     gitfuncs_audit "$@"
+
+    ## All of the *-changelog functions work best in the git-root, which is
+    ## where the Changelog is anyway
+    local pwd=$(pwd)
+    local gr=$(git-root)
+    if [ ! "$pwd" = "$gr" ]
+    then
+        echo "Current directory ($pwd) is not the git root ($gr)"
+        local resp=$(yesno "Go there?")
+        if [ "$resp" = 'n' ]
+        then
+            return 1
+        fi
+        builtin cd $gr || return $?
+    fi
 
     local usage_func=git-process-changelog-usage
 
@@ -680,7 +725,7 @@ git-go ()
     fi
     if((!opt_list))
     then
-        ## dirlist, not builtin cd, to take advantage this cd enhancement
+        ## dirlist, not builtin cd to take advantage this cd enhancement
         dirlist ${HOME}/$(git-strip-repo $REPO)
         git-check-this-hook
     fi
@@ -1741,8 +1786,22 @@ _guts_clone ()
         echo "You must be in a local directory path ending in"
         echo "   $proto"
         echo "You are in $cwpath"
-        echo "Correct and re-execute."
-        return 1
+        local shouldbein="$gitfuncs_gitroot/$proto"
+        if [ ! -d $shouldbein ]
+        then
+            echo "Cannot find '$shouldbein'."
+            echo "Correct and re-execute."
+            return 1
+        else
+            local resp=$(yesno "cd to $shouldbein")
+            if [ "$resp" = 'n' ]
+            then
+                echo "Correct and re-execute."
+                return 1
+            else
+                cd $shouldbein
+            fi
+        fi
     fi
 
     if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
@@ -3091,10 +3150,11 @@ git-merge-pull-request ()
     local status=$?
     ((status)) && return $status
 
-    echo "* Current last commit on master branch"
+    echo "****** Current last commit on master branch"
     git log -1
     status=$?
     ((status)) && return $status
+    echo "****** ************************************"
 
     echo "* Add $proto:$user/$repo as a remote"
     git remote add $user $proto:$user/$repo
@@ -3111,18 +3171,26 @@ git-merge-pull-request ()
     status=$?
     ((status)) && return $status
 
-    echo "Last two commits on master"
+    echo "****** Last two commits on master"
     git log -2
     status=$?
     ((status)) && return $status
+    echo "****** **************************"
 
     echo "Success is defined as"
-    echo "1) You are reading this message"
-    echo "2) The second log entry in last log"
-    echo "   command should match with the above"
-    echo "If successful, then push back up to ${proto}:"
+    echo "1) You are reading this message."
+    echo "2) The second log entry from 'Last two commits on master'"
+    echo "   should match then entry from 'Current last commit on master branch'."
     echo
-    echo 'git push origin HEAD:master'
+    local resp=$(yesno "Should push back up to ${proto} with 'git push origin HEAD:master'")
+    if [ "$resp" = 'Y' ]
+    then
+        git push origin HEAD:master
+        return $?
+    else
+        echo "Ok. Remember to 'git push origin HEAD:master' soon before the master head advances."
+        return 0
+    fi
 }
 alias git-merge-pr='git-merge-pull-request '
 

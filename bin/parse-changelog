@@ -6,9 +6,15 @@ use warnings;
 use Cwd;
 use Data::Dumper; ## for debugging.
 use File::Basename;
-use File::Spec::Functions qw(abs2rel catfile rel2abs);
+use File::Spec::Functions qw(abs2rel canonpath catfile rel2abs);
 use Getopt::Long;
 use IO::File;
+
+## This script works best in the git-root, which is where the Changelog is anyway
+my $cwd = cwd();
+#my $gr = qx(git rev-parse --show-toplevel);
+#die "Current directory ($cwd) is not the git root ($gr)"
+#  if( $cwd ne $gr);
 
 my @oldput;
 
@@ -77,7 +83,6 @@ if ($exit) {
     exit 1;
 }
 
-my $cwd = cwd();
 my %files = map { $_ =>
                     {
                         cl_entry_found => 0,
@@ -262,9 +267,15 @@ if (@status) {
                 next STATUS;
             }
         }
-        (my $file_from_sline = $sline ) =~ s/.*:\s+([a-zA-Z0-9_.-]+)/$1/;
-        $clnewh->print(' ' x 21, "*** No entry in $nocl{$file_from_sline}. ***\n")
-          if (exists ($nocl{$file_from_sline}));
+        (my $local_name_from_sline = $sline ) =~ s|.*:\s+([a-zA-Z0-9_./-]+).*|$1|;
+        my $abs_name_from_sline = canonpath(catfile(cwd(), $local_name_from_sline) );
+        my $cl_name_from_sline = abs2rel($abs_name_from_sline, $cldir);
+        if (exists ($nocl{$abs_name_from_sline})) {
+            $clnewh->print(' ' x 20, "*** No Changelog entry in $nocl{$abs_name_from_sline} for $cl_name_from_sline. ***\n");
+            if(exists($diff{$abs_name_from_sline})) {
+                $clnewh->print(@{$diff{$abs_name_from_sline}});
+            }
+        }
     }
 } else {
     ## Just write the output.
