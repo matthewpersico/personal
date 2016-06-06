@@ -23,6 +23,9 @@ gitfuncs-help () {
     help_strings $GITFUNCS_FILE "$@"
 }
 
+GITFUNCS_CHANGELOG_NAME=mopChangeLog
+export GITFUNCS_CHANGELOG_NAME
+
 gitfuncs_gitroot_MBIG=${HOME}/MBIG
 gitfuncs_gitroot=${HOME}/gits
 gitfuncs_githook_root=${HOME}/.git_template
@@ -187,8 +190,23 @@ git-find-conflicts ()
 
 git-status-with-changelog ()
 {
-    ##@@ none||none||git-status-with-changelog||Mix in ChangeLog text with correspoding file entries in git status.
+    ##@@ none||none||git-status-with-changelog||Mix in $GITFUNCS_CHANGELOG_NAME text with correspoding file entries in git status.
     gitfuncs_audit "$@"
+
+    ## All of the *-changelog functions work best in the git-root, which is
+    ## where the $GITFUNCS_CHANGELOG_NAME is anyway
+    local pwd=$(pwd)
+    local gr=$(git-root)
+    if [ ! "$pwd" = "$gr" ]
+    then
+        echo "Current directory ($pwd) is not the git root ($gr)"
+        local resp=$(yesno "Go there?")
+        if [ "$resp" = 'n' ]
+        then
+            return 1
+        fi
+        builtin cd $gr || return $?
+    fi
 
     local diff=''
     if [ "$1" = '--diff' ]
@@ -213,8 +231,23 @@ alias git-st-ch='git-status-with-changelog '
 
 git-commit-with-changelog ()
 {
-    ##@@ none||none||git-commit-with-changelog||Use ChangeLog entries to create commit messages
+    ##@@ none||none||git-commit-with-changelog||Use $GITFUNCS_CHANGELOG_NAME entries to create commit messages
     gitfuncs_audit "$@"
+
+    ## All of the *-changelog functions work best in the git-root, which is
+    ## where the $GITFUNCS_CHANGELOG_NAME is anyway
+    local pwd=$(pwd)
+    local gr=$(git-root)
+    if [ ! "$pwd" = "$gr" ]
+    then
+        echo "Current directory ($pwd) is not the git root ($gr)"
+        local resp=$(yesno "Go there?")
+        if [ "$resp" = 'n' ]
+        then
+            return 1
+        fi
+        builtin cd $gr || return $?
+    fi
 
     local usage_func=git-commit-with-changelog-usage
 
@@ -254,13 +287,28 @@ git-commit-with-changelog ()
 git-process-changelog-usage ()
 {
     echo "git-process-changelog [-v] [ --write | [ --withstatus ] [ --diff ]"
-    echo "    Only one ChangeLog in git root is supported."
+    echo "    Only one $GITFUNCS_CHANGELOG_NAME in git root is supported."
 }
 
 git-process-changelog ()
 {
     ##@@ none||none||git-process-changelog||'Guts' function for *-with-changelog functions
     gitfuncs_audit "$@"
+
+    ## All of the *-changelog functions work best in the git-root, which is
+    ## where the $GITFUNCS_CHANGELOG_NAME is anyway
+    local pwd=$(pwd)
+    local gr=$(git-root)
+    if [ ! "$pwd" = "$gr" ]
+    then
+        echo "Current directory ($pwd) is not the git root ($gr)"
+        local resp=$(yesno "Go there?")
+        if [ "$resp" = 'n' ]
+        then
+            return 1
+        fi
+        builtin cd $gr || return $?
+    fi
 
     local usage_func=git-process-changelog-usage
 
@@ -316,13 +364,13 @@ git-process-changelog ()
     ## Find the changelog
     local changelogdir=$(git-root)
     ((status != 0)) && $usage_func && return $status
-    local changelog="${changelogdir}/ChangeLog"
+    local changelog="${changelogdir}/$GITFUNCS_CHANGELOG_NAME"
     [ ! -r $changelog ] && echo "$changelog not readable" && return 1
     [ "$action" = 'commit' ] && [ ! -w $changelog ] && echo "$changelog not writable" && return 1
-    local changelogbkp="${changelogdir}/ChangeLog.bkp"
+    local changelogbkp="${changelog}.bkp"
 
     local others=$(find $changelogdir -name ChangeLog | grep -v "$changelog")
-    [ -n "$others" ] && echo "Found $others. No ChangeLogs allowed under $changelogdir." && return 1
+    [ -n "$others" ] && echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir." && return 1
 
     ## Backup
     cp -f $changelog $changelogbkp
@@ -338,7 +386,7 @@ git-process-changelog ()
         if((status!=0))
         then
             ## Restore
-            echo "Rolling back Changelog"
+            echo "Rolling back $changelog"
             cp -f $changelogbkp $changelog
             return $status
         fi
@@ -351,7 +399,7 @@ git-cat-cl ()
     ##@@ none||none||git-cat-cl||'cat' the ChangeLog in the git root
     gitfuncs_audit "$@"
 
-    local cl=$(git-root)/ChangeLog
+    local cl=$(git-root)/$GITFUNCS_CHANGELOG_NAME
     [ -r $cl ] && cat $cl && return 0
     echo "$cl not found."
     return 1
@@ -680,7 +728,7 @@ git-go ()
     fi
     if((!opt_list))
     then
-        ## dirlist, not builtin cd, to take advantage this cd enhancement
+        ## dirlist, not builtin cd to take advantage this cd enhancement
         dirlist ${HOME}/$(git-strip-repo $REPO)
         git-check-this-hook
     fi
@@ -1661,8 +1709,22 @@ EOUSAGE
         echo "You must be in a local directory path ending in"
         echo "   $proto/$USER"
         echo "You are in $cwpath"
-        echo "Correct and re-execute."
-        return 1
+        local shouldbein="$gitfuncs_gitroot/$proto/$USER"
+        if [ ! -d $shouldbein ]
+        then
+            echo "Cannot find '$shouldbein'."
+            echo "Correct and re-execute."
+            return 1
+        else
+            local resp=$(yesno "cd to $shouldbein")
+            if [ "$resp" = 'n' ]
+            then
+                echo "Correct and re-execute."
+                return 1
+            else
+                cd $shouldbein
+            fi
+        fi
     fi
 
     local cmd="glow clone-fork $proto:$namespace/$repo"
@@ -1741,8 +1803,22 @@ _guts_clone ()
         echo "You must be in a local directory path ending in"
         echo "   $proto"
         echo "You are in $cwpath"
-        echo "Correct and re-execute."
-        return 1
+        local shouldbein="$gitfuncs_gitroot/$proto"
+        if [ ! -d $shouldbein ]
+        then
+            echo "Cannot find '$shouldbein'."
+            echo "Correct and re-execute."
+            return 1
+        else
+            local resp=$(yesno "cd to $shouldbein")
+            if [ "$resp" = 'n' ]
+            then
+                echo "Correct and re-execute."
+                return 1
+            else
+                cd $shouldbein
+            fi
+        fi
     fi
 
     if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
@@ -2202,6 +2278,9 @@ git-worktree-create ()
         ((verbose)) && echo "* git pull --set-upstream-to=$remote/$wt $wt"
         git pull --set-upstream-to=origin/$remote $wt
     fi
+
+    ## Add a ChangeLog
+    touch GITFUNCS_CHANGELOG_NAME
 
     ## Add this repo to the list
     git-go-set
@@ -3091,10 +3170,11 @@ git-merge-pull-request ()
     local status=$?
     ((status)) && return $status
 
-    echo "* Current last commit on master branch"
+    echo "****** Current last commit on master branch"
     git log -1
     status=$?
     ((status)) && return $status
+    echo "****** ************************************"
 
     echo "* Add $proto:$user/$repo as a remote"
     git remote add $user $proto:$user/$repo
@@ -3111,18 +3191,26 @@ git-merge-pull-request ()
     status=$?
     ((status)) && return $status
 
-    echo "Last two commits on master"
+    echo "****** Last two commits on master"
     git log -2
     status=$?
     ((status)) && return $status
+    echo "****** **************************"
 
     echo "Success is defined as"
-    echo "1) You are reading this message"
-    echo "2) The second log entry in last log"
-    echo "   command should match with the above"
-    echo "If successful, then push back up to ${proto}:"
+    echo "1) You are reading this message."
+    echo "2) The second log entry from 'Last two commits on master'"
+    echo "   should match then entry from 'Current last commit on master branch'."
     echo
-    echo 'git push origin HEAD:master'
+    local resp=$(yesno "Should push back up to ${proto} with 'git push origin HEAD:master'")
+    if [ "$resp" = 'y' ]
+    then
+        git push origin HEAD:master
+        return $?
+    else
+        echo "Ok. Remember to 'git push origin HEAD:master' soon before the master head advances."
+        return 0
+    fi
 }
 alias git-merge-pr='git-merge-pull-request '
 

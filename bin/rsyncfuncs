@@ -46,7 +46,8 @@ rsync2nfs ()
     local verbose
     local timestamp
     local multistamp
-    local OPTSARGS=$(getoptp -o t:vh --long target:,verbose,timestamp,multistamp,help -- "$@")
+    local excludeFrom
+    local OPTSARGS=$(getoptp -o t:vh --long target:,verbose,timestamp,multistamp,help,excludeFrom: -- "$@")
     status=$?
     ((status != 0)) && _rsync2nfs_usage && return $status
 
@@ -59,6 +60,7 @@ rsync2nfs ()
             -v|--verbose) verbose='-v'; shift ;;
             --timestamp) timestamp=1; shift;;
             --multistamp) timestamp=1; multistamp=1; shift;;
+            --excludeFrom) excludeFrom="--exclude-from=$2"; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; _rsync2nfs_usage; return 1 ;;
         esac
@@ -77,8 +79,8 @@ rsync2nfs ()
         mkdir -p $RSYNCFUNCS_LOG_HOME
         timestamp="$RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.$(date +%Y-%m-%dT%H-%M-%S)"
 
-        ## Purge - we don't need more than 7 days (YES +6 GIVES US 7 DAYS)
-        find $RSYNCFUNCS_LOG_HOME -type f -mtime +6 -delete
+        ## Purge - we don't need more than 4 days (YES +3 GIVES US 4 DAYS)
+        find $RSYNCFUNCS_LOG_HOME -type f -mtime +3 -delete
 
         ## STDOUT to the log
         exec 1> $timestamp
@@ -89,7 +91,7 @@ rsync2nfs ()
 
     if [ -n "$verbose" ]
     then
-        echo "** Command: rsync -a -z -r -l $verbose --delete $@ $target"
+        echo "** Command: rsync -a -z -r -l $verbose $excludeFrom --delete $@ $target"
         echo "** Log: $timestamp"
         echo "** Start: $(date)"
         local start=$(date +%s)
@@ -100,7 +102,8 @@ rsync2nfs ()
     ## -z - transport compressed
     ## -r - recurse
     ## -l - copy symlinks as symlinks
-    ## -v - verbose
+    ## $verbose: -v - verbose
+    ## $excludeFrom --excludeFrom=a file with exclusions not to sync
     ## --delete - if it was deleted in the source, delete it in the target too.
     ## -i - ssh stuff
     local sshfile
@@ -114,7 +117,7 @@ rsync2nfs ()
         return 1
     fi
     local sshtext="ssh -i $sshfile"
-    rsync -e "$sshtext" -a -z -r -l $verbose --delete "$@" $target &
+    rsync -e "$sshtext" -a -z -r -l $verbose  $excludeFrom --delete "$@" $target &
     local rsyncpid=$!
     if [ -n "$verbose" ]
     then
@@ -133,14 +136,14 @@ rsync2nfs ()
 #nxport -f rsync2nfs
 
 NFSMACHINE=nylxdev1.dev.bloomberg.com
-vmrsyncgits ()
+rsyncvmgits ()
 {
     rsync2nfs -v --timestamp --target $NFSMACHINE:vmstashes/$(hostname)/mpersico5 ~/gits
     return $?
 }
-#nxport -f vmrsyncgits
+#nxport -f rsyncvmgits
 
-vmrsync-running()
+rsyncvm-running()
 {
     local silent=0
     if [ "$1" = '-s' ]
@@ -149,7 +152,7 @@ vmrsync-running()
     fi
 
     local target="$NFSMACHINE:vmstashes/$(hostname)"
-    local running=$(mktemp --suffix=.vmrsync-running)
+    local running=$(mktemp --suffix=.rsyncvm-running)
     local ret
     ps lxf | grep -E "COMMAND|rsync.*$target" | grep -v grep  > $running
     if [ "$(cat $running | wc -l)" != 1 ]
@@ -164,42 +167,62 @@ vmrsync-running()
     return $ret
 }
 
-_vmrsync_usage ()
+_rsyncvm_usage ()
 {
-    echo "Usage: vmrsync [--verbose|-v] [--help|-h]"
+    echo "Usage: rsyncvm [--verbose|-v] [--help|-h] [--excludeFrom=FileOfExcludes]"
     echo
 }
 
-vmrsync ()
+rsyncvm ()
 {
     local verbose=''
     local silent='-s'
-    local OPTSARGS=$(getoptp -o vh --long verbose,help -- "$@")
+    local excludeFrom=''
+    local OPTSARGS=$(getoptp -o vh --long verbose,help,excludeFrom: -- "$@")
     status=$?
-    ((status != 0)) && _vmrsync_usage && return $status
+    ((status != 0)) && _rsyncvm_usage && return $status
 
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
-            -h|--help) _vmrsync_usage; return 0 ;;
-            -v|--verbose) verbose='-v'; silent=''; shift ;;
+            -h|--help)
+                _rsyncvm_usage; return 0 ;;
+            -v|--verbose)
+                verbose='-v'; silent=''; shift ;;
+            --excludeFrom)
+                excludeFrom="$2"; shift; shift
+                if [ -r $excludeFrom ]
+                then
+                    local exclusions=$(grep -v '#' $excludeFrom);
+                    if [ -n "$exclusions" ]
+                    then
+                        excludeFrom="--exclude-from=$excludeFrom"
+                        if [ ! "$exclusions" = 'nosync' ]
+                        then
+                            echo "This rsyncvm is run with the following exclusions:"
+                            cat $excludeFrom
+                        fi
+                    fi
+                fi
+                ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; _vmrsync_usage; return 1 ;;
+            *) echo "Internal error!"; _rsyncvm_usage; return 1 ;;
         esac
     done
 
     local status
     local target="$NFSMACHINE:vmstashes/$(hostname)"
-    vmrsync-running -s | tee /tmp/vmrsync.$$.runningcheck
-    if [ "$?" = '0' ]
+    rsyncvm-running -s > /tmp/rsyncvm.$$.runningcheck
+    status=$?
+    if [ "$status" = '0' ]
     then
-        rsync2nfs $verbose --multistamp --target $target ~
+        rsync2nfs $verbose $excludeFrom --multistamp --target $target ~
         status=$?
     else
-        echo "Another vmrsync appears to be running--^. See:"
-        local rsyncpid=$(cat /tmp/vmrsync.$$.runningcheck | tail -1 | cols -keep 2)
-        local log=$(grep -l "Command PID: $rsyncpid" $RSYNCFUNCS_LOG_HOME | sort -r | head -1)
+        echo "Another rsyncvm appears to be running--^. See:"
+        local rsyncpid=$(cat /tmp/rsyncvm.$$.runningcheck | tail -1 | cols -keep 2)
+        local log=$(grep -l "Command PID: $rsyncpid" $RSYNCFUNCS_LOG_HOME/* | sort -r | head -1)
         if [ -n "$log" ]
         then
             cat $log
@@ -208,37 +231,37 @@ vmrsync ()
     fi
     return $status
 }
-#nxport -f vmrsync
-alias vmsync='vmrsync '
+#nxport -f rsyncvm
+alias vmsync='rsyncvm '
 
-vmrsync-status ()
+rsyncvm-status ()
 {
     date
-    touch /tmp/now.vmrsync-status
-    ls -lart $RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.* /tmp/now.vmrsync-status
-    vmrsync-running | tee /tmp/vmrsync-status.$$.runningcheck
-    if [ ! "$?" = '0' ]
+    touch /tmp/now.rsyncvm-status
+    ls -lart $RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.* /tmp/now.rsyncvm-status
+    ssh $NFSMACHINE 'ls -la ~/.snapshot'
+    rsyncvm-running | tee /tmp/rsyncvm-status.$$.runningcheck
+    if [ ! "$(grep 'Not running' /tmp/rsyncvm-status.$$.runningcheck)" = 'Not running' ]
     then
-        local rsyncpid=$(cat /tmp/vmrsync-status.$$.runningcheck | tail -1 | cols -keep 2)
-        local log=$(grep -l "Command PID: $rsyncpid" $RSYNCFUNCS_LOG_HOME | sort -r | head -1)
+        local rsyncpid=$(cat /tmp/rsyncvm-status.$$.runningcheck | tail -1 | cols -keep 2)
+        local log=$(grep -l "Command PID: $rsyncpid" $RSYNCFUNCS_LOG_HOME/* | sort -r | head -1)
         if [ -n "$log" ]
         then
-            cat $log
+            tail -n +1 -f $log
         fi
         status=1
     fi
-    ssh $NFSMACHINE 'ls -la ~/.snapshot'
 }
 
-vmrsync-pause ()
+rsyncvm-pause ()
 {
-    touch /tmp/pause.vmrsync.cron
-    ls -lart /tmp/pause.vmrsync.cron
+    touch /tmp/pause.rsyncvm.cron
+    ls -lart /tmp/pause.rsyncvm.cron
 }
 
-vmrsync-resume ()
+rsyncvm-resume ()
 {
-    ls -lart /tmp/pause.vmrsync.cron
-    rm /tmp/pause.vmrsync.cron
-    ls -lart /tmp/pause.vmrsync.cron
+    ls -lart /tmp/pause.rsyncvm.cron
+    rm /tmp/pause.rsyncvm.cron
+    ls -lart /tmp/pause.rsyncvm.cron
 }

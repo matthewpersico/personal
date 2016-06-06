@@ -6,9 +6,20 @@ use warnings;
 use Cwd;
 use Data::Dumper; ## for debugging.
 use File::Basename;
-use File::Spec::Functions qw(abs2rel catfile rel2abs);
+use File::Spec::Functions qw(abs2rel canonpath catfile rel2abs);
 use Getopt::Long;
 use IO::File;
+use Text::Wrap qw(wrap);
+$Text::Wrap::columns = 72;
+
+use constant NOFUNC => 'File Scope';
+use constant NOCLENTRY => 'NOCLENTRY';
+
+## This script works best in the git-root, which is where the Changelog is anyway
+my $cwd = cwd();
+#my $gr = qx(git rev-parse --show-toplevel);
+#die "Current directory ($cwd) is not the git root ($gr)"
+#  if( $cwd ne $gr);
 
 my @oldput;
 
@@ -26,6 +37,9 @@ my %opt = (
     missingok => 0,
 );
 my $exit = 0;
+
+select((select(STDOUT), $| = 1)[0]);
+select((select(STDERR), $| = 1)[0]);
 
 GetOptions(\%opt,
            'cl=s',
@@ -77,31 +91,27 @@ if ($exit) {
     exit 1;
 }
 
-my $cwd = cwd();
-my %files = map { $_ =>
-                    {
-                        cl_entry_found => 0,
-                        local_name => abs2rel($_, $cwd),
-                        abs_name => $_,
-                        cl_name => abs2rel($_, $cldir)
-                    }
+my %files = map { $_ => init_file_info ($_)
                 } @ARGV;
 
 my @status;
 my %diff;
 if($opt{withstatus}) {
     $opt{missingok}=1;
-    @status = qx(git -c color.status=always status @ARGV);
+    #@status = qx(git -c color.status=always status @ARGV);
+    @status = qx(git -c color.status=always status);
 }
 
+################################
+## Grab diffs if so requested ##
+################################
 if($opt{diff}) {
     $opt{missingok}=1;
-    my @diff = qx(git -c color.diff=always diff @ARGV);
+    my @diff = map {chomp; $_} qx(git -c color.diff=always diff @ARGV);
     my $entry;
     for my $line (@diff) {
         if ($line =~ m/^....diff --git a/) {
             $entry = $line;
-            chomp $entry;
             $entry =~ s|.*b/||;
             $entry =~ s|([/a-zA-Z0-9_.-]+).*|$1|; ## really need this?
             $entry = rel2abs($entry, $cwd); ## because diff outputs relative
@@ -116,14 +126,23 @@ my $clih = IO::File->new($opt{cl}, "r")
   or die "Cannot open $opt{cl} for read:$!";
 
 my $filetag_re = qr(^\s+\* ([a-zA-Z0-9_./-]+));
-my $functag_re = qr([(]([a-zA-Z0-9_.-]+)[)]);
+my $functag_re = qr([(]([a-zA-Z0-9_.*\<\>\[\]\|/-]+)[)]);
 
-## Parse the changelog.
+my $entry_id = 0; ## A serial number, monotonically increasing. We assign one
+                  ## to each new entry because 1) we are getting a new entry
+                  ## for each comment 2) the entries are entered at the top of
+                  ## the changelog. So to get the right chronological flow to
+                  ## the output, we have to reverse the entries.
+
+#########################
+## Parse the changelog ##
+#########################
 LINE: while (<$clih>) {
     chomp;
 
     if ( /^\d{4,4}-\d{2,2}-\d{2,2}/ ) {
         ## date and user header line
+        $entry_id++;
         push @oldput, [];
         push @{$oldput[-1]}, $_;
     } elsif (length($_) == 0 ) {
@@ -136,36 +155,24 @@ LINE: while (<$clih>) {
         %current=();
     } else {
         ## Parsing assumptions:
+        ## 1) One ChangeLog in git-root for whole project.
+        ## 2) Emacs variable add-log-always-start-new-record is set to 't'.
+        ## 3) With #2, we can use Esc-Q to wrap text.
 
-        ## 1) One ChangeLog in git-root for whole project
-
-        ## 2) No Esc-Q to wrap text. Otherwise, we cannot tell the difference
-        ## between
-
-        ## * (func): this is a very very very long
-        ##   wrapped func text
-
-        ## * file (func): this is a very short text
-        ##   this is non-func-based text
-
-        ## Unless at some point, we hijack ESC-Q to put in \ continuation
-        ## characters when we wrap or always add the file when adding
-        ## non-func-based text.
-
-        if( m|${filetag_re} ${functag_re}: (.*)|) {
-            ## * file (function): text
+        if( m|${filetag_re}\s*${functag_re}:\s*(.*)|) {
+            ## * file\s*(function):\s*text
             $file = catfile($cldir, $1);
             $function = $2;
             ($text = $3) =~ s/^\s+//;
             $text =~ s/\s+$//;
-        } elsif( m|${filetag_re}: (.*)|) {
-            ## * file: text
+        } elsif( m|${filetag_re}:\s*(.*)|) {
+            ## * file:\s*text
             $file = catfile($cldir, $1);
-            $function = '<generic>';
+            $function = NOFUNC;
             ($text = $2) =~ s/^\s+//;
             $text =~ s/\s+$//;
-        } elsif ( m|${functag_re}: (.*)|) {
-            ## (function): text
+        } elsif ( m|${functag_re}:\s*(.*)|) {
+            ## (function):\s*text
             $file = $current{'file'};
             $function = $1;
             ($text = $2)=~ s/^\s+//;
@@ -173,12 +180,20 @@ LINE: while (<$clih>) {
         } else {
             ## text
             $file = $current{file};
-            $function = '<generic>';
+            $function = $current{function};
             ($text = $_) =~ s/^\s+//;
-            $text =~ s/\s+$//;
+            $text =~ s/\s*$//;
         }
 
         @current{qw(file function)} = ($file, $function);
+
+        if (not defined $file) {
+            my $dummy = 6;
+        }
+
+        if( !@ARGV and !defined $files{$file} ) {
+            $files{$file} = init_file_info($file);
+        }
 
         if( defined $files{$file} ) {
             ## The current entry corresponds to a file we are processing.
@@ -187,11 +202,11 @@ LINE: while (<$clih>) {
             $files{$file}->{cl_entry_found} = 1;
 
             ## Init the output if needed.
-            $output{$file}->{$function} = []
-              if not defined $output{$file}->{$function};
+            $output{$file}->{$function}->{$entry_id} = []
+              if not defined $output{$file}->{$function}->{$entry_id};
 
             ## Save the text.
-            push @{$output{$file}->{$function}}, $text;
+            push @{$output{$file}->{$function}->{$entry_id}}, $text;
         } else {
             ## Not wanted. Store for push back to changelog.
             push @{$oldput[-1]}, $_;
@@ -217,7 +232,9 @@ if ($exit) {
     exit 1;
 }
 
-## Where to write the entries that matched.
+#############################################
+## Where to write the entries that matched ##
+#############################################
 my $clnew;
 my $clnewh;
 if( $opt{write} ) {
@@ -228,70 +245,74 @@ if( $opt{write} ) {
     $clnewh = *STDOUT;
 }
 
+###################
+## Create output ##
+###################
+my $renamed_re_string  = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m[a-z ]+:\s+<PLACEHOLDER>\s->.*\x{1b}\[m);
 my $tracked_re_string  = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m[a-z ]+:\s+<PLACEHOLDER>\x{1b}\[m);
 my $untracked_re_string = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m<PLACEHOLDER>\x{1b}\[m);
+my @output;
+my $format_over;
 if (@status) {
+    ##
     ## Mixing in the changelog entries with git status output.
+    ##
     my @files = keys %output;
+    $format_over = ' ' x 8;
   STATUS: for my $sline (@status) {
-        $clnewh->print($sline);
         chomp $sline;
+        push @output, $sline;
         next STATUS if $sline eq '';
       FILE: for my $file (@files) {
             if (not defined $files{$file}->{re}) {
                 my $comp = $files{$file}->{local_name};
+                ($files{$file}->{re}->{renamed} = $renamed_re_string) =~ s/<PLACEHOLDER>/$comp/;
+                $files{$file}->{re}->{renamed} = qr($files{$file}->{re}->{renamed});
                 ($files{$file}->{re}->{tracked} = $tracked_re_string) =~ s/<PLACEHOLDER>/$comp/;
                 $files{$file}->{re}->{tracked} = qr($files{$file}->{re}->{tracked});
                 ($files{$file}->{re}->{untracked} = $untracked_re_string) =~ s/<PLACEHOLDER>/$comp/;
                 $files{$file}->{re}->{untracked} = qr($files{$file}->{re}->{untracked});
             }
-            if( $sline =~ m|$files{$file}->{re}->{tracked}|
+            if( $sline =~ m|$files{$file}->{re}->{renamed}|
+                  or
+                  $sline =~ m|$files{$file}->{re}->{tracked}|
                   or
                   $sline =~ m|$files{$file}->{re}->{untracked}|) {
-                my $filedata = $output{$file};
-                for $function (sort keys %{$filedata}) {
-                    $clnewh->print(
-                        ' ' x 20,
-                        $function ne '<generic>'
-                          ? "($function): " : '',
-                        "@{$filedata->{$function}}\n");
-                }
-                if(exists($diff{$file})) {
-                    $clnewh->print(@{$diff{$file}});
-                }
+                push_to_output($file);
                 next STATUS;
             }
         }
-        (my $file_from_sline = $sline ) =~ s/.*:\s+([a-zA-Z0-9_.-]+)/$1/;
-        $clnewh->print(' ' x 21, "*** No entry in $nocl{$file_from_sline}. ***\n")
-          if (exists ($nocl{$file_from_sline}));
+
+        (my $local_name_from_sline = $sline ) =~ s|.*:\s+([a-zA-Z0-9_./-]+).*|$1|;
+        my $abs_name_from_sline = canonpath(catfile(cwd(), $local_name_from_sline) );
+        my $cl_name_from_sline = abs2rel($abs_name_from_sline, $cldir);
+        if (exists ($nocl{$abs_name_from_sline})) {
+            my $function = NOCLENTRY;
+            $output{$abs_name_from_sline}->{$function}->{$entry_id++} =
+              [ "*** No Changelog entry in $nocl{$abs_name_from_sline} for $cl_name_from_sline. ***"];
+            push_to_output($abs_name_from_sline);
+        }
     }
 } else {
-    ## Just write the output.
-    my @output;
+    ##
+    ## Just write the changelog output.
+    ##
+    $format_over = '';
     my $morethan1=-1;
     for $file (sort keys %output) {
         $morethan1++;
-        my $filedata = $output{$file};
-        my $printfile = $files{$file}->{cl_name};
-        push @output, "$printfile:";
-        for $function (sort keys %{$filedata}) {
-            push @output, ("    "
-                             . ($function ne '<generic>' ? "($function):" : '')
-                             . "@{$filedata->{$function}}");
-        }
-        if(exists($diff{$file})) {
-            push @output, map {chomp, $_} @{$diff{$file}};
-        }
+        push_to_output($file, $files{$file}->{cl_name});
     }
-    if(@output) {
-        if ($morethan1) {
-            unshift @output, "SUMMARY LINE HERE";
-        }
-        $clnewh->print(join("\n", @output));
-    }
+    unshift @output, "SUMMARY LINE HERE"
+      if ($morethan1);
 }
 
+$clnewh->print(join("\n", @output))
+  if(@output);
+
+#####################
+## Post processing ##
+#####################
 if( $opt{write} ) {
     ## Now store the unused entries back in the changelog.
 
@@ -328,6 +349,76 @@ if( $opt{write} ) {
         $cloldh->print(join(qq(\n),@newout));
         $cloldh->close();
     }
+}
+
+my %format_seen;
+
+sub set_indent_from_lead {
+    return ' ' x length($_[0]);
+}
+
+sub push_to_output {
+    my ($file, $header) = @_;
+    my $filedata = $output{$file};
+    my $functions_pushed = 0;
+    for $function (sort keys %{$filedata}) {
+        my $lead = '  o ';
+        my $indent = set_indent_from_lead($lead);
+        if ( not exists ($format_seen{$file})
+               and
+               defined($header) ) {
+            push @output, join('', $format_over, $header);
+        }
+        if ( not exists ($format_seen{$file}->{$function}) ) {
+            push @output, ''
+              if ($functions_pushed);
+
+            $format_seen{$file}->{$function} = 1;
+            $functions_pushed++;
+            if ( $function ne NOCLENTRY) {
+                push @output, join('', $format_over, $function)
+                  if( $function ne NOFUNC);
+                if ($function =~ m|(.*)/$|) {
+                    substr($output[-1], length($output[-1])-1, 1) = '(env)';
+                } elsif( $function ne NOFUNC ) {
+                    $output[-1] .= '()'
+                }
+                $output[-1] .= ':';
+            }
+        }
+        for my $order (sort {$b <=> $a} keys %{$filedata->{$function}} ) {
+            if( $function eq NOCLENTRY) {
+                push @output, join('', $format_over, shift @{$filedata->{$function}->{$order}});
+            } else {
+                my @wrapped = split(/\n/,wrap('','',@{$filedata->{$function}->{$order}}));
+                my $line1;
+                if ( $function eq NOFUNC ) {
+                    $lead = 'o ';
+                    $indent = set_indent_from_lead($lead);
+                    $line1 = join('', $format_over, $lead, shift(@wrapped) );
+                } else {
+                    $line1 = join('', $format_over, $lead, shift(@wrapped) );
+                }
+                push @output,
+                  $line1,
+                  ## Line 2+
+                  map { join( '', $format_over, $indent, $_ ) } @wrapped;
+            }
+        }
+    }
+    push @output, '';
+    if (exists($diff{$file})) {
+        push @output, (map { join( '', $format_over, $_ ) } @{$diff{$file}}), '';
+    }
+}
+
+sub init_file_info {
+    return  {
+        cl_entry_found => 0,
+        local_name => abs2rel($_[0], $cwd),
+        abs_name => $_[0],
+        cl_name => abs2rel($_[0], $cldir)
+    };
 }
 
 exit 0;
