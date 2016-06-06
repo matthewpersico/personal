@@ -72,22 +72,22 @@ XTERMGEOY=200
 XTERMGEO="-geometry ${XTERMGEOW}x${XTERMGEOH}+${XTERMGEOX}+${XTERMGEOY}"
 case ${HOSTNAME} in
     *bldo* )
-        export NEWX=newxdarkred
+        export NEWXCOLOR=darkred
         XTERMFONTS="-fa 'Monospace' -fs 10"
         ;;
 
     *bcpc* )
-        export NEWX=newxgrey
+        export NEWXCOLOR=grey
         XTERMFONTS="-fa 'Monospace' -fs 10"
         ;;
 
     nylxdev* )
-        export NEWX=newxdarkblue
+        export NEWXCOLOR=darkblue
         XTERMFONTS=''
         ;;
 
     monolith* )
-        export NEWX=newxblack
+        export NEWXCOLOR=black
         if [ "$XSERVER" = 'XWin' ]
         then
             XTERMFONTS="-fa 'Monospace' -fs 10"
@@ -98,11 +98,9 @@ case ${HOSTNAME} in
         ;;
 
     * )
-        export NEWX=newxred
+        export NEWXCOLOR=red
         XTERMFONTS=''
 esac
-
-alias newx="$NEWX "
 
 ## Set these up here because they use values set above
 RXCmd ()
@@ -180,58 +178,48 @@ newxguts ()
 
 newxgrey ()
 {
-	export NEWX=newxgrey
-    export GREP_COLORS='ln=42'
     newxguts ${1:-1} ${2:-s} -fg black -bg darkgrey
 }
 
 newxdarkblue ()
 {
-	export NEWX=newxdarkblue
-    unset GREP_COLORS
     newxguts ${1:-1} ${2:-s} -fg wheat -bg darkblue
 }
 
 newxred ()
 {
-	export NEWX=newxred
-    unset GREP_COLORS
     newxguts ${1:-1} ${2:-s} -fg wheat -bg red
 }
 
 newxdarkred ()
 {
-	export NEWX=newxdarkred
-    unset GREP_COLORS
     newxguts ${1:-1} ${2:-s} -fg wheat -bg darkred
 }
 
 newxwhite ()
 {
-	export NEWX=newxwhite
-    unset GREP_COLORS
     newxguts ${1:-1} ${2:-s} -fg black -bg white
 }
 
 newxblack ()
 {
-	export NEWX=newxblack
-    unset GREP_COLORS
     newxguts ${1:-1} ${2:-s} -fg white -bg black
 }
 
 newxblue ()
 {
-	export NEWX=newxblue
-    unset GREP_COLORS
     newxguts ${1:-1} ${2:-s} -fg black -bg steelblue
 }
 
 newxgreen ()
 {
-	export NEWX=newxgreen
-    unset GREP_COLORS
     newxguts ${1:-1} ${2:-s} -fg black -bg seagreen
+}
+
+newx ()
+{
+    local bg=$(xterm-background)
+    newx${bg}
 }
 
 perlx ()
@@ -246,3 +234,85 @@ echo Sleeping 99999999 starting at $(date);echo -e "\e]0;$(tty)\a
      ";sleep 99999999' &
 }
 alias perldbx='perlx '
+
+declare -A xterm_background_map
+xterm_background_map[rgba9a9a9a9a9a9]='grey'
+xterm_background_map[rgb000000008b8b]='darkblue'
+xterm_background_map[rgbffff00000000]='red'
+xterm_background_map[rgb8b8b00000000]='darkred'
+xterm_background_map[rgbffffffffffff]='white'
+xterm_background_map[rgb000000000000]='black'
+xterm_background_map[rgb46468282b4b4]='blue'
+xterm_background_map[rgb2e2e8b8b5757]='green'
+
+xterm-background ()
+{
+    if [ -n "$XTERM_SHELL" ]
+    then
+        exec < /dev/tty
+        oldstty=$(stty -g)
+        stty raw -echo min 0
+        col=11      # background
+        #          OSC   Ps  ;Pt ST
+        echo -en "\033]${col};?\033\\" >/dev/tty  # echo opts differ w/ OSes
+        result=
+        if IFS=';' read -r -d '\' color ; then
+            result=$(echo $color | sed 's/^.*\;//;s/[^rgb:0-9a-f/]//g')
+            idxresult=$(echo $result | sed 's/[:/]//g')
+        fi
+        stty $oldstty
+        if [ -n "${xterm_background_map[$idxresult]}" ]
+        then
+            echo ${xterm_background_map[$idxresult]}
+            return
+        else
+            echo "## WARNING:xterm-background - no mapped color found for $result" >&2
+        fi
+    else
+        echo "## WARNING:xterm-background - XTERM_SHELL not defined, probably not an xterm" >&2
+    fi
+
+    if [ -n "$NEWXCOLOR" ]
+    then
+        echo $NEWXCOLOR
+        return
+    else
+        echo "## WARNING:xterm-background - NEWXCOLOR not defined" >&2
+    fi
+
+    echo "## WARNING:xterm-background - default color is grey" >&2
+    echo grey
+}
+
+tickerfg ()
+{
+    local i=0;
+    local M="::: $@ :::"
+    local T="$M$M$M$M"
+    echo "$M" > /tmp/ticker.$(hostname).$$
+    while sleep .2s && [ -r /tmp/ticker.$(hostname).$$ ]
+    do
+        echo -e "\033]0;$S\007\c"
+        (( ++i>${#M} )) && i=1
+        S=${T:i:40}
+    done
+}
+
+ticker ()
+{
+    if [ -r /tmp/ticker.$(hostname).$$ ]
+    then
+        echo Found /tmp/ticker.$(hostname).$$
+        echo Looks like there is already a ticker running
+        echo with the banner:
+        echo
+        cat /tmp/ticker.$(hostname).$$
+    else
+        tickerfg "$@" &
+    fi
+}
+
+ticker-kill ()
+{
+    rm -f /tmp/ticker.$(hostname).$$
+}
