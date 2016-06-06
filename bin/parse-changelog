@@ -38,6 +38,9 @@ my %opt = (
 );
 my $exit = 0;
 
+select((select(STDOUT), $| = 1)[0]);
+select((select(STDERR), $| = 1)[0]);
+
 GetOptions(\%opt,
            'cl=s',
            'ncl=s',
@@ -88,20 +91,15 @@ if ($exit) {
     exit 1;
 }
 
-my %files = map { $_ =>
-                    {
-                        cl_entry_found => 0,
-                        local_name => abs2rel($_, $cwd),
-                        abs_name => $_,
-                        cl_name => abs2rel($_, $cldir)
-                    }
+my %files = map { $_ => init_file_info ($_)
                 } @ARGV;
 
 my @status;
 my %diff;
 if($opt{withstatus}) {
     $opt{missingok}=1;
-    @status = qx(git -c color.status=always status @ARGV);
+    #@status = qx(git -c color.status=always status @ARGV);
+    @status = qx(git -c color.status=always status);
 }
 
 ################################
@@ -128,7 +126,7 @@ my $clih = IO::File->new($opt{cl}, "r")
   or die "Cannot open $opt{cl} for read:$!";
 
 my $filetag_re = qr(^\s+\* ([a-zA-Z0-9_./-]+));
-my $functag_re = qr([(]([a-zA-Z0-9_.-]+)[)]);
+my $functag_re = qr([(]([a-zA-Z0-9_.*\<\>\[\]\|/-]+)[)]);
 
 my $entry_id = 0; ## A serial number, monotonically increasing. We assign one
                   ## to each new entry because 1) we are getting a new entry
@@ -161,20 +159,20 @@ LINE: while (<$clih>) {
         ## 2) Emacs variable add-log-always-start-new-record is set to 't'.
         ## 3) With #2, we can use Esc-Q to wrap text.
 
-        if( m|${filetag_re} ${functag_re}: (.*)|) {
-            ## * file (function): text
+        if( m|${filetag_re}\s*${functag_re}:\s*(.*)|) {
+            ## * file\s*(function):\s*text
             $file = catfile($cldir, $1);
             $function = $2;
             ($text = $3) =~ s/^\s+//;
             $text =~ s/\s+$//;
-        } elsif( m|${filetag_re}: (.*)|) {
-            ## * file: text
+        } elsif( m|${filetag_re}:\s*(.*)|) {
+            ## * file:\s*text
             $file = catfile($cldir, $1);
             $function = NOFUNC;
             ($text = $2) =~ s/^\s+//;
             $text =~ s/\s+$//;
-        } elsif ( m|${functag_re}: (.*)|) {
-            ## (function): text
+        } elsif ( m|${functag_re}:\s*(.*)|) {
+            ## (function):\s*text
             $file = $current{'file'};
             $function = $1;
             ($text = $2)=~ s/^\s+//;
@@ -184,10 +182,18 @@ LINE: while (<$clih>) {
             $file = $current{file};
             $function = $current{function};
             ($text = $_) =~ s/^\s+//;
-            $text =~ s/\s+$//;
+            $text =~ s/\s*$//;
         }
 
         @current{qw(file function)} = ($file, $function);
+
+        if (not defined $file) {
+            my $dummy = 6;
+        }
+
+        if( !@ARGV and !defined $files{$file} ) {
+            $files{$file} = init_file_info($file);
+        }
 
         if( defined $files{$file} ) {
             ## The current entry corresponds to a file we are processing.
@@ -242,6 +248,7 @@ if( $opt{write} ) {
 ###################
 ## Create output ##
 ###################
+my $renamed_re_string  = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m[a-z ]+:\s+<PLACEHOLDER>\s->.*\x{1b}\[m);
 my $tracked_re_string  = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m[a-z ]+:\s+<PLACEHOLDER>\x{1b}\[m);
 my $untracked_re_string = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m<PLACEHOLDER>\x{1b}\[m);
 my @output;
@@ -259,12 +266,16 @@ if (@status) {
       FILE: for my $file (@files) {
             if (not defined $files{$file}->{re}) {
                 my $comp = $files{$file}->{local_name};
+                ($files{$file}->{re}->{renamed} = $renamed_re_string) =~ s/<PLACEHOLDER>/$comp/;
+                $files{$file}->{re}->{renamed} = qr($files{$file}->{re}->{renamed});
                 ($files{$file}->{re}->{tracked} = $tracked_re_string) =~ s/<PLACEHOLDER>/$comp/;
                 $files{$file}->{re}->{tracked} = qr($files{$file}->{re}->{tracked});
                 ($files{$file}->{re}->{untracked} = $untracked_re_string) =~ s/<PLACEHOLDER>/$comp/;
                 $files{$file}->{re}->{untracked} = qr($files{$file}->{re}->{untracked});
             }
-            if( $sline =~ m|$files{$file}->{re}->{tracked}|
+            if( $sline =~ m|$files{$file}->{re}->{renamed}|
+                  or
+                  $sline =~ m|$files{$file}->{re}->{tracked}|
                   or
                   $sline =~ m|$files{$file}->{re}->{untracked}|) {
                 push_to_output($file);
@@ -286,7 +297,6 @@ if (@status) {
     ##
     ## Just write the changelog output.
     ##
-    my @output;
     $format_over = '';
     my $morethan1=-1;
     for $file (sort keys %output) {
@@ -342,26 +352,35 @@ if( $opt{write} ) {
 }
 
 my %format_seen;
+
+sub set_indent_from_lead {
+    return ' ' x length($_[0]);
+}
+
 sub push_to_output {
     my ($file, $header) = @_;
     my $filedata = $output{$file};
+    my $functions_pushed = 0;
     for $function (sort keys %{$filedata}) {
         my $lead = '  o ';
-        my $indent = ' ' x length($lead);
+        my $indent = set_indent_from_lead($lead);
         if ( not exists ($format_seen{$file})
                and
                defined($header) ) {
             push @output, join('', $format_over, $header);
         }
         if ( not exists ($format_seen{$file}->{$function}) ) {
+            push @output, ''
+              if ($functions_pushed);
+
             $format_seen{$file}->{$function} = 1;
-            if( $function ne NOFUNC
-                  and $function ne NOCLENTRY) {
-                push @output, '';
-            }
+            $functions_pushed++;
             if ( $function ne NOCLENTRY) {
-                push @output, join('', $format_over, $function);
-                if( $function ne NOFUNC ) {
+                push @output, join('', $format_over, $function)
+                  if( $function ne NOFUNC);
+                if ($function =~ m|(.*)/$|) {
+                    substr($output[-1], length($output[-1])-1, 1) = '(env)';
+                } elsif( $function ne NOFUNC ) {
                     $output[-1] .= '()'
                 }
                 $output[-1] .= ':';
@@ -372,9 +391,16 @@ sub push_to_output {
                 push @output, join('', $format_over, shift @{$filedata->{$function}->{$order}});
             } else {
                 my @wrapped = split(/\n/,wrap('','',@{$filedata->{$function}->{$order}}));
+                my $line1;
+                if ( $function eq NOFUNC ) {
+                    $lead = 'o ';
+                    $indent = set_indent_from_lead($lead);
+                    $line1 = join('', $format_over, $lead, shift(@wrapped) );
+                } else {
+                    $line1 = join('', $format_over, $lead, shift(@wrapped) );
+                }
                 push @output,
-                  ## Line 1
-                  join('', $format_over, $lead, shift(@wrapped) ),
+                  $line1,
                   ## Line 2+
                   map { join( '', $format_over, $indent, $_ ) } @wrapped;
             }
@@ -382,8 +408,17 @@ sub push_to_output {
     }
     push @output, '';
     if (exists($diff{$file})) {
-        push @output, map { join( '', $format_over, $_ ) } @{$diff{$file}};
+        push @output, (map { join( '', $format_over, $_ ) } @{$diff{$file}}), '';
     }
+}
+
+sub init_file_info {
+    return  {
+        cl_entry_found => 0,
+        local_name => abs2rel($_[0], $cwd),
+        abs_name => $_[0],
+        cl_name => abs2rel($_[0], $cldir)
+    };
 }
 
 exit 0;
