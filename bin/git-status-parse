@@ -85,18 +85,26 @@ if( $flags{unmodified} ) {
 
 sub store_filename {
     my $type = $_[0];
-    my ($subtype, $name);
+    my ($subtype, $name, $newname);
     if( $type eq 'untracked') {
         $name = $_[1];
         $subtype = $type;
     } else {
-        ($subtype, $name) = (map { s/\s+//; $_} (split(/:/, $_[1])));
+        ($subtype, $name) = (map { s/\s+//g; $_} (split(/:/, $_[1])));
+        if( $subtype eq 'renamed' ) {
+            ($name, $newname) = split(/->/, $name);
+        }
     }
     return if (not defined $name
                  or
+                 ( $subtype eq 'renamed'
+                   and
+                   (! -f $newname and ! -d $newname and ! -l $newname) )
+                 or
                  ( $subtype ne 'deleted'
                    and
-                   (! -f $name and ! -d $name and ! -l $name) ) );
+                   $subtype ne 'renamed'
+                   and (! -f $name and ! -d $name and ! -l $name) ) );
     $files{$type}{$name} = $subtype;
     $files{$subtype}{$name} = 1;
     if($files{affected}{$name}) {
