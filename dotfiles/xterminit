@@ -2,6 +2,14 @@
 
 # xterminit
 
+## WARNING: This script MUST be valid KORN SHELL.
+
+## - No associative arrays.
+## - No variables with - in them. Use _ instead.
+
+## This script is run in the Bloomberg environment on dev machines under ksh
+## before Chimera switches over to bash.
+
 ## Cygwin use only
 startxserver() {
     if [ -z "$(ps -a | grep XWin)" ]
@@ -218,7 +226,7 @@ newxgreen ()
 
 newx ()
 {
-    local bg=$(xterm-background)
+    local bg=$(xterm_background)
     newx${bg}
 }
 
@@ -235,20 +243,20 @@ echo Sleeping 99999999 starting at $(date);echo -e "\e]0;$(tty)\a
 }
 alias perldbx='perlx '
 
-declare -A xterm_background_map
-xterm_background_map[rgba9a9a9a9a9a9]='grey'
-xterm_background_map[rgb000000008b8b]='darkblue'
-xterm_background_map[rgbffff00000000]='red'
-xterm_background_map[rgb8b8b00000000]='darkred'
-xterm_background_map[rgbffffffffffff]='white'
-xterm_background_map[rgb000000000000]='black'
-xterm_background_map[rgb46468282b4b4]='blue'
-xterm_background_map[rgb2e2e8b8b5757]='green'
+xterm_background_map_rgba9a9a9a9a9a9='grey'
+xterm_background_map_rgb000000008b8b='darkblue'
+xterm_background_map_rgbffff00000000='red'
+xterm_background_map_rgb8b8b00000000='darkred'
+xterm_background_map_rgbffffffffffff='white'
+xterm_background_map_rgb000000000000='black'
+xterm_background_map_rgb46468282b4b4='blue'
+xterm_background_map_rgb2e2e8b8b5757='green'
 
-xterm-background ()
+xterm_background ()
 {
     if [ -n "$XTERM_SHELL" ]
     then
+        ## from http://superuser.com/questions/157563/programmatic-access-to-current-xterm-background-color
         exec < /dev/tty
         oldstty=$(stty -g)
         stty raw -echo min 0
@@ -261,15 +269,17 @@ xterm-background ()
             idxresult=$(echo $result | sed 's/[:/]//g')
         fi
         stty $oldstty
-        if [ -n "${xterm_background_map[$idxresult]}" ]
+        local var=xterm_background_map_${idxresult}
+        local color=$(eval echo "\$$var")
+        if [ -n "${color}" ]
         then
-            echo ${xterm_background_map[$idxresult]}
+            echo ${color}
             return
         else
-            echo "## WARNING:xterm-background - no mapped color found for $result" >&2
+            echo "## WARNING:xterm_background - no mapped color found for $result" >&2
         fi
     else
-        echo "## WARNING:xterm-background - XTERM_SHELL not defined, probably not an xterm" >&2
+        echo "## WARNING:xterm_background - XTERM_SHELL not defined, probably not an xterm" >&2
     fi
 
     if [ -n "$NEWXCOLOR" ]
@@ -277,10 +287,10 @@ xterm-background ()
         echo $NEWXCOLOR
         return
     else
-        echo "## WARNING:xterm-background - NEWXCOLOR not defined" >&2
+        echo "## WARNING:xterm_background - NEWXCOLOR not defined" >&2
     fi
 
-    echo "## WARNING:xterm-background - default color is grey" >&2
+    echo "## WARNING:xterm_background - default color is grey" >&2
     echo grey
 }
 
@@ -312,7 +322,7 @@ ticker ()
     fi
 }
 
-ticker-kill ()
+tickerkill ()
 {
     rm -f /tmp/ticker.$(hostname).$$
 }
