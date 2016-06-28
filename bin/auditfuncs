@@ -2,37 +2,91 @@
 
 # auditfuncs
 
-## Because we call this before all other *funcs, we predefine this utility here
-## as well as in utilfuncs. Keep the two in sync.
-if [ ! "$(type safe_func_export 2>/dev/null | head -1 | grep 'is a function')" = 'is a function' ]
+##################################################################################
+## Because we call this script before all other *funcs scripts, we predefine a few
+## utilities here as well as in utilfuncs. Keep them all in sync.
+##################################################################################
+## Start predefs
+if [ -z "$(type is_func_defined 2>/dev/null | head -1 | grep 'is a function')" ]
+then
+    is_func_defined ()
+    {
+        ##@@ none||none||is_func_defined||Is arg1 defined as a function. Returns 0 for no, 1 for yes.
+        if [ -n "$(type $1 2>/dev/null | head -1 | grep 'is a function')" ]
+        then
+            return 1
+        else
+            return 0
+        fi
+    }
+fi
+
+is_func_defined safe_func_export
+if (($?==0))
 then
     safe_func_export ()
     {
+        ##@@ none||none||safe_func_export|||Examine the SHELL variable to see if export -f is supported. If so, do so on arg1.
         [ -n "$SHELL" ] && [ $(basename $SHELL) = "bash" ] && export -f $1
     }
     safe_func_export safe_func_export
 fi
+safe_func_export is_func_defined
+
+is_func_defined repl
+if (($?==0))
+then
+    repl ()
+    {
+        ##@@ none||none||repl||repl x N - replicate character 'X', N times. Use +n to get a newline.
+        local nl=''
+        if [ "$1" = '-n' ]
+        then
+            echo '-n not supported. repl does NOT print a newline by default.'
+            echo 'If you want a newline, use +n.'
+            return 1
+        fi
+
+        if [ "$1" = '+n' ]
+        then
+            nl=1
+            shift
+        fi
+
+        local char=$1
+        local rep=$2
+
+        if [ "$char" = '-' ]
+        then
+            printf "="'%.s' $(eval "echo {1.."$((${rep}))"}") | tr '=' "$char"
+        else
+            printf "${char}"'%.s' $(eval "echo {1.."$((${rep}))"}")
+        fi
+
+        [ -n "$nl" ] && echo;
+        return 0
+    }
+    safe_func_export repl
+fi
+
+## End predefs.
+##################################################################################
 
 AUDITFUNCS_FILE=${BASH_SOURCE[0]}
 
-replm1() {
-    local c=$1
-    local n=$2
-    ((n-=1))
-    printf "$c"'%.s' $(eval "echo {1.."$(($n))"}");
-}
-
 auditfuncs_init ()
 {
-    local audit_system=$(basename $1 | tr '[A-Z]' '[a-z]')
-    local audit_system_upper=$(basename $1 | tr '[a-z]' '[A-Z]')
-    local audit_system_file="$1.audit.$(hostname)"
+    local bn=$(basename $1)
+    local dn=$(dirname $(realpath $1))
+    local audit_system=$(echo $bn | tr '[A-Z]' '[a-z]')
+    local audit_system_upper=$(echo $bn | tr '[a-z]' '[A-Z]')
+    local audit_system_file="${dn}/../data/${bn}.audit.$(hostname)"
 
     ## cygwin does not grok "source /dev/stdin <<EOF"
     eval "
 ${audit_system}_audit ()
 {
-    echo \$(date +%Y_%m_%d_%H_%M_%S) \$(replm1 = \${#FUNCNAME[@]}) \${FUNCNAME[1]} \$@ >> $audit_system_file
+    [ ! \"\$1\" = '-na' ] && echo \$(date +%Y_%m_%d_%H_%M_%S) \$(repl = \${#FUNCNAME[@]}) \${FUNCNAME[1]} \$@ >> $audit_system_file
 }
 "
 }

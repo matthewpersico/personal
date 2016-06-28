@@ -133,6 +133,47 @@ bldo-check ()
     fi
 }
 
+bldo-go ()
+{
+    set -x
+    local arch='.*'
+    OPTSARGS=$(getoptp  --long arch: -n 'bldo-go' -- "$@")
+    local status=$?
+    ((status != 0)) && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            --arch)
+                case $2 in
+                    i|ibm|aix)
+                        arch=ibldo;;
+                    l|lnx|linux|amd64)
+                        arch=lnxbldo;;
+                    s|sun|sol|solaris)
+                        arch=sbldo;;
+                    *)
+                        echo "$2 is not a valid arch"
+                        return 1
+                        ;;
+                esac
+                shift;shift;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
+
+    machine=$( cat /bb/csdata/bldfarm/pools/*BLDO* \
+                      | grep -E "$arch" \
+                      | head -$(($RANDOM%$(cat /bb/csdata/bldfarm/pools/*BLDO* \
+                                                  | grep -E "$arch" \
+                                                  | wc -l))) | tail -1)
+
+    ssh $machine;
+    set +x
+}
+
 vmrebuild ()
 {
     local opt_berks=0

@@ -77,8 +77,11 @@ for (@ARGV) {
         warn "parse-changelog: $_ is not a fully qualified filename (does not start with '/'. Fatal.\n";
         $exit++;
     } elsif ( ! -e $_ ) {
-        warn "parse-changelog: $_ not found." . ($opt{write} ? ' Fatal.' : '') . "\n";
-        $exit++ if $opt{write};
+        my @ok=qx(git st $_ | grep deleted:);
+        if(scalar(@ok) != 1 ) {
+            warn "parse-changelog: $_ not found." . ($opt{write} ? ' Fatal.' : '') . "\n";
+            $exit++ if $opt{write};
+        }
     } elsif ( -d $_ ) {
         if ( $opt{write} ) {
             warn "parse-changelog: $_ is a directory." . ($opt{write} ? ' Fatal.' : '') . "\n";
@@ -93,13 +96,13 @@ if ($exit) {
 
 my %files = map { $_ => init_file_info ($_)
                 } @ARGV;
+my @file_list = map { $_->{cl_name} } values %files;
 
 my @status;
 my %diff;
 if($opt{withstatus}) {
     $opt{missingok}=1;
-    #@status = qx(git -c color.status=always status @ARGV);
-    @status = qx(git -c color.status=always status);
+    @status = qx(git -c color.status=always status @file_list);
 }
 
 ################################
@@ -107,7 +110,7 @@ if($opt{withstatus}) {
 ################################
 if($opt{diff}) {
     $opt{missingok}=1;
-    my @diff = map {chomp; $_} qx(git -c color.diff=always diff @ARGV);
+    my @diff = map {chomp; $_} qx(git -c color.diff=always diff @file_list);
     my $entry;
     for my $line (@diff) {
         if ($line =~ m/^....diff --git a/) {
@@ -191,7 +194,7 @@ LINE: while (<$clih>) {
             my $dummy = 6;
         }
 
-        if( !@ARGV and !defined $files{$file} ) {
+        if( !defined $files{$file} ) {
             $files{$file} = init_file_info($file);
         }
 

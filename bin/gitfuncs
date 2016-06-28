@@ -5,6 +5,7 @@
 GITFUNCS_FILE=${BASH_SOURCE[0]}
 
 auditfuncs_init $GITFUNCS_FILE
+safe_func_export gitfuncs_audit
 
 gitfuncs-edit ()
 {
@@ -30,6 +31,7 @@ gitfuncs_gitroot_MBIG=${HOME}/MBIG
 gitfuncs_gitroot=${HOME}/gits
 gitfuncs_githook_root=${HOME}/.git_template
 gitfuncs_githook_dir=${HOME}/.git_template/hooks
+
 declare -A gitfuncs_gitsvcs
 gitfuncs_gitsvcs[bbgithub]='bbgithub:'
 gitfuncs_gitsvcs[devgit]='devgit:'
@@ -60,6 +62,7 @@ fork/clone methodology, then the only 'organization' at this level should
 be your own namespace, unless you have directly cloned a 'master' repo.
 EOF
 fi
+
 
 ##
 ## Random aliases
@@ -94,9 +97,9 @@ git-st-por ()
     ##@@ none||none||git-st-por||git status in porcelain mode
     gitfuncs_audit "$@"
 
-    local usage_func=git-st-por-usage
+    local usage_func="${FUNCNAME}-usage"
     local opt_strip=0
-    OPTSARGS=$(getoptp -o sh --long strip,help -n 'git-st-por' -- "$@")
+    OPTSARGS=$(getoptp -o sh --long strip,help -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -134,10 +137,10 @@ git-find ()
     ##@@ none||none||git-find||A convenience function around: git ls-files $(git rev-parse --show-toplevel) | grep -E fileExpression'
     gitfuncs_audit "$@"
 
-    local usage_func=git-find-usage
+    local usage_func="${FUNCNAME}-usage"
     local opt_untracked_only=0
     local opt_all=0
-    OPTSARGS=$(getoptp -o auh --long all,untracked-only,help -n 'git-st-por' -- "$@")
+    OPTSARGS=$(getoptp -o auh --long all,untracked-only,help -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -205,15 +208,29 @@ git-status-with-changelog ()
         then
             return 1
         fi
-        builtin cd $gr || return $?
+        _git_cd_go $gr  || return $?
+    else
+        gr=''
     fi
 
-    local diff=''
-    if [ "$1" = '--diff' ]
-    then
-        diff='--diff'
-        shift
-    fi
+    local usage_func="${FUNCNAME}-usage"
+    local diff
+    local noless
+    OPTSARGS=$(getoptp -o sh --long diff,noless,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            --diff) diff='--diff'; shift ;;
+            --noless) noless='--noless'; shift ;;
+            -h|--help) $usage_func; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
 
     local args="$@"
     if [ -z "$args" ]
@@ -221,9 +238,16 @@ git-status-with-changelog ()
         args=$(git-status-parse --all) ## matches default git status setting
     fi
     local out=$(mktemp)
-    git-process-changelog --withstatus $diff $args 1>$out 2>&1
-    less -RE $out
+    git-process-changelog --withstatus $diff $noless $args 1>$out 2>&1
+    if [ -n "$noless" ]
+    then
+        cat $out
+    else
+        less -RE $out
+    fi
     \rm -f $out
+    status=$?
+    [ -n "$gr" ] && _git_cd_return
     return $?
 }
 alias git-st-cl='git-status-with-changelog '
@@ -246,16 +270,18 @@ git-commit-with-changelog ()
         then
             return 1
         fi
-        builtin cd $gr || return $?
+        _git_cd_go $gr || return $?
+    else
+        gr=''
     fi
 
-    local usage_func=git-commit-with-changelog-usage
+    local usage_func="${FUNCNAME}-usage"
 
     local opt_a
     local opt_v
 
     ## Options first
-    OPTSARGS=$(getoptp -o av -n 'git-commit-with-changelog' -- "$@")
+    OPTSARGS=$(getoptp -o av -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -281,7 +307,9 @@ git-commit-with-changelog ()
     [ -z "$files" ] && files=$(git-what-is-staged)
     [ -n "$opt_a" ] && files=$(git-what-is-modified)
     git-process-changelog --commit $opt_v $files
-    return $?
+    status=$?
+    [ -n "$gr" ] && _git_cd_return
+    return $status
 }
 
 git-process-changelog-usage ()
@@ -301,16 +329,12 @@ git-process-changelog ()
     local gr=$(git-root)
     if [ ! "$pwd" = "$gr" ]
     then
-        echo "Current directory ($pwd) is not the git root ($gr)"
-        local resp=$(yesno "Go there?")
-        if [ "$resp" = 'n' ]
-        then
-            return 1
-        fi
-        builtin cd $gr || return $?
+        _git_cd_go $gr  || return $?
+    else
+        gr=''
     fi
 
-    local usage_func=git-process-changelog-usage
+    local usage_func="${FUNCNAME}-usage"
 
     local action='read'
     local parse_flag=''
@@ -320,9 +344,10 @@ git-process-changelog ()
     local parsed_cl=$(mktemp)
     local pcl=$(which parse-changelog)
     local pcl_flags=''
+    local noless=''
 
     ## Options first
-    OPTSARGS=$(getoptp -o hv --long commit,withstatus,diff,help -n 'git-process-changelog' -- "$@")
+    OPTSARGS=$(getoptp -o hv --long commit,withstatus,diff,noless,help -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -343,6 +368,9 @@ git-process-changelog ()
             --diff)
                 pcl_flags="$pcl_flags --diff"
                 shift ;;
+            --noless)
+                noless=1
+                shift ;;
             -h|--help) $usage_func; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return 1 ;;
@@ -353,6 +381,7 @@ git-process-changelog ()
     if [ -z $1 ]
     then
         echo "No files specified."
+        [ -n "$gr" ] && _git_cd_return
         return 1
     fi
     local filelist
@@ -363,21 +392,47 @@ git-process-changelog ()
 
     ## Find the changelog
     local changelogdir=$(git-root)
-    ((status != 0)) && $usage_func && return $status
+    if ((status != 0))
+    then
+        $usage_func
+        [ -n "$gr" ] && _git_cd_return
+        return $status
+    fi
+
     local changelog="${changelogdir}/$GITFUNCS_CHANGELOG_NAME"
-    [ ! -r $changelog ] && echo "$changelog not readable" && return 1
-    [ "$action" = 'commit' ] && [ ! -w $changelog ] && echo "$changelog not writable" && return 1
+    if [ ! -r $changelog ]
+    then
+        echo "$changelog not readable"
+        [ -n "$gr" ] && _git_cd_return
+        return 1
+    fi
+    if [ "$action" = 'commit' ] && [ ! -w $changelog ]
+    then
+        echo "$changelog not writable"
+        [ -n "$gr" ] && _git_cd_return
+        return 1
+    fi
+
     local changelogbkp="${changelog}.bkp"
 
     local others=$(find $changelogdir -name ChangeLog | grep -v "$changelog")
-    [ -n "$others" ] && echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir." && return 1
+    if [ -n "$others" ]
+    then
+        echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir."
+        [ -n "$gr" ] && _git_cd_return
+        return 1
+    fi
 
     ## Backup
     cp -f $changelog $changelogbkp
 
     $DEBUG_PROCESS_CHANGELOG $pcl --cl $changelog $pcl_flags $filelist
     status=$?
-    ((status!=0)) && return $status
+    if ((status!=0))
+    then
+        [ -n "$gr" ] && _git_cd_return
+        return $status
+    fi
 
     if [ "$action" = 'commit' ]
     then
@@ -388,10 +443,13 @@ git-process-changelog ()
             ## Restore
             echo "Rolling back $changelog"
             cp -f $changelogbkp $changelog
+            [ -n "$gr" ] && _git_cd_return
             return $status
         fi
     fi
     [ -f $changelogbkp ] && \rm -f $changelogbkp
+    [ -n "$gr" ] && _git_cd_return
+
 }
 
 git-cat-cl ()
@@ -407,7 +465,7 @@ git-cat-cl ()
 
 git-strip-repo ()
 {
-    ##@@ none||none||git-strip-repo||
+    ##@@ none||none||git-strip-repo||Remove the text '(repo)' from the argument.
     gitfuncs_audit "$@"
 
     echo $1 | sed 's/(repo)//'
@@ -415,7 +473,7 @@ git-strip-repo ()
 
 git-add-repo-tag ()
 {
-    ##@@ none||none||git-add-repo-tag||
+    ##@@ none||none||git-add-repo-tag||Add the text '(repo)' to the argument.
     gitfuncs_audit "$@"
 
     echo "$1(repo)"
@@ -634,7 +692,7 @@ git-go ()
     local opt_mbig=0
     local opt_wt=1
     local opt_subwt_only=0
-    local OPTSARGS=$(getoptp -o lurmh --long list,update,roots,mbig,wt,nowt,subwt,help,listfull -n 'git-go' -- "$@")
+    local OPTSARGS=$(getoptp -o lurmh --long list,update,roots,mbig,wt,nowt,subwt,help,listfull -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && git-go-usage && return $status
     eval set -- "$OPTSARGS"
@@ -917,13 +975,15 @@ git-delete-branch ()
 
     if [ -n "$branch" ]
     then
-        ## $branch was either $1 or we did not ctrl-c out of the select
+        ## $branch was either $1 or we did not ctrl-c out of the select.
         if [ "$branch" = "$current_branch" ]
         then
             echo "Nope, you can't delete the current branch."
             return 1
         fi
-        git branch -d $branch || return $?;
+        git branch -d $branch || return $?; ## This could fail. If so, go clean
+                                            ## manually. Sometimes you get
+                                            ## instructions on how to do that.
         if [ "$no_remote" = '1' ]
         then
             return 0
@@ -941,7 +1001,7 @@ git-delete-branch ()
                     git push --delete $remote $branch ## This should not fail
                                                       ## since we have checked
                                                       ## that the branch exists
-                                                      ## in the remote
+                                                      ## in the remote.
                 fi
             fi
         done
@@ -1225,17 +1285,19 @@ git-check-with-remote ()
     ##@@ none||none||git-check-with-remote||
     gitfuncs_audit "$@"
 
-    local opt_branch=''
-    local opt_remote='origin'
-    local opt_bail_on_dirty='0'
+    local usage_func="${FUNCNAME}-usage"
     local iam=${FUNCNAME[0]}
     if [ "${FUNCNAME[1]}" = 'git-check-with-master' ]
     then
         iam=git-check-with-master
     fi
+
+    local opt_branch=''
+    local opt_remote='origin'
+    local opt_bail_on_dirty='0'
     local OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,bail_on_dirty -n $iam -- "$@")
     status=$?
-    ((status != 0)) && git-check-with-remote-usage && return $status
+    ((status != 0)) && $usage_func $iam && return $status
     eval set -- "$OPTSARGS"
     while true
     do
@@ -1243,9 +1305,9 @@ git-check-with-remote ()
             --bail_on_dirty) opt_bail_on_dirty=1; shift;;
             -r|--remote) opt_remote="$2"; shift; shift ;;
             -b|--branch) opt_branch="$2"; shift; shift ;;
-            -h|--help) git-check-with-remote-usage $iam; return 0 ;;
+            -h|--help) $usage-func $iam; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; git-check-with-remote-usage $iam; return 1 ;;
+            *) echo "Internal error!"; $usage_func $iam; return 1 ;;
         esac
     done
 
@@ -1463,10 +1525,10 @@ clone in sync with changes in
 branch "${opt_branch}"
 repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
 
-However, you appear to be on branch "${opt_branch}", the branch you want to
-sync with. I'm exiting. Get off the branch "${opt_branch}" and onto another
-branch Then rerun the command. Or just do a 'git pull' if you really need to
-refresh this branch.
+However, you appear to be on branch "${opt_branch}",
+the branch you want to sync with. I'm exiting. Get off this branch and onto
+another branch. Then rerun the command. Or just do a 'git status' to check this
+branch or a 'git pull' if you really need to refresh this branch.
 
 EOF
         return 1
@@ -1524,7 +1586,11 @@ EOF
         local resp=$(yesno "Do you want to continue anyway" n)
         if [ "$resp" == 'n' ]
         then
-            ((do_stash)) && git stash pop && return 1
+            if ((do_stash))
+            then
+                git stash pop
+            fi
+            return 0
         fi
     fi
 
@@ -1561,36 +1627,26 @@ EOF
             local resp=$(yesno "Ok to pull" n)
             if [ "$resp" == 'n' ]
             then
-                ((do_stash)) && git stash pop && return 0
+                if ((do_stash))
+                then
+                    git stash pop
+                    return 0
+                fi
             fi
         fi
     else
         echo "No difference with remote. Exiting."
-        ((do_stash)) && git stash pop && return 0
+        if ((do_stash))
+        then
+            git stash pop
+            return 0
+        fi
     fi
 
     git pull --rebase ${opt_remote} ${opt_branch}
     status=$?
-    if [ "$status" = '0' ]
+    if [ ! "$status" = '0' ]
     then
-        echo
-        echo "pull --rebase successful. Pushing..."
-        git push
-        status=$?
-        if [ "$status" != '0' ]
-        then
-            resp=$(yesno "'git push' complained. Shall I re-push with --force" n)
-            if [ "$resp" = 'y' ]
-            then
-                git push --force
-                status=$?
-            fi
-        fi
-    fi
-    if [ "$status" = '0' ]
-    then
-        ((do_stash)) && git stash pop && return 0
-    else
         cat <<EOF
 
 It appears the pull --rebase was not successful. Assuming the issue was not a
@@ -1615,8 +1671,56 @@ your branch.
 Then push the branch up to your fork so you can submit a pull request.
 
 EOF
+        if ((do_stash))
+        then
+            echo "Leaving stash stashed so a not to further complicate the issue"
+        fi
+        return 1
+    fi
 
-        ((do_stash)) && echo "Leaving stash stashed so a not to further complicate the issue" && return 1
+    echo
+    echo "pull --rebase successful. Pushing..."
+    git push
+    status=$?
+    if [ "$status" != '0' ]
+    then
+        resp=$(yesno "'git push' complained. Shall I re-push with --force" n)
+        if [ "$resp" = 'y' ]
+        then
+            git push --force
+            status=$?
+        fi
+    fi
+
+    local ask_pop=0
+    if [ ! "$status" = '0' ]
+    then
+        cat <<EOF
+It appears that the git push was not successful and you declined to use --force,
+or the --force was also unsuccessful.
+EOF
+        if ((do_stash))
+        then
+            cat <<EOF
+It may be that you decided not to force the push since you still have work to do,
+in which case you will want to pop the latest stash.
+EOF
+            ask_pop=1
+        fi
+    fi
+
+    if ((do_stash))
+    then
+        resp='y'
+        if ((ask_pop))
+        then
+            resp=$(yesno "Shall I pop the last git stash" n)
+        fi
+        if [ "$resp" = 'y' ]
+        then
+            git stash pop
+            return $?
+        fi
     fi
 
 }
@@ -1722,7 +1826,7 @@ EOUSAGE
                 echo "Correct and re-execute."
                 return 1
             else
-                cd $shouldbein
+                dirlist $shouldbein
             fi
         fi
     fi
@@ -1816,7 +1920,7 @@ _guts_clone ()
                 echo "Correct and re-execute."
                 return 1
             else
-                cd $shouldbein
+                _git_cd_go $shouldbein
             fi
         fi
     fi
@@ -1962,7 +2066,6 @@ _guts-whack ()
         return $status
     )
     status=$?
-    set +x
     return $status
 }
 
@@ -2114,20 +2217,13 @@ git-track-remote-branch ()
     git checkout -b $branch --track $remote/$branch
     return $?
 }
-alias git-branch-track-remote='git-track-remote-branch '
+alias git-fetch-remote-branch='git-track-remote-branch '
 
 ## Useful in prompts (PS1).
 git-inside-work-tree ()
 {
     ##@@ none||none||git-inside-work-tree||
-    local na=''
-    if [ "$1" = "-na" ]
-    then
-        na=$1
-        shift
-    else
-        gitfuncs_audit "$@"
-    fi
+    gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
 
     local print=$1;shift
     local v=$(git rev-parse  --is-inside-work-tree 2>/dev/null)
@@ -2136,29 +2232,26 @@ git-inside-work-tree ()
     [ "$print" = '-p' ] && echo $v
     return $r ## 0 if in tree, 1 if not
 }
+safe_func_export git-inside-work-tree
 alias git-inside-work-tree='git-inside-work-tree '
 
 git-get-stash-count ()
 {
     ##@@ none||none||git-get-stash-count||
-    local na=''
-    if [ "$1" = "-na" ]
-    then
-        na=$1
-        shift
-    else
-        gitfuncs_audit "$@"
-    fi
+    gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
 
+    local no0=0; [ "$1" = '-no0' ] && no0=1 && shift;
     local pre=$1;shift
     local post=$1;shift
     git-inside-work-tree $na
     if [ "$?" = '0' ]
     then
         local c=$(git stash list | wc -l)
+        ((c==0)) && ((no0)) && return
         echo "${pre}${c}${post}"
     fi
 }
+safe_func_export git-get-stash-count
 alias git-stash-get-count='git-get-stash-count '
 
 git-worktree-create-usage ()
@@ -2193,6 +2286,8 @@ git-worktree-create ()
         then
             builtin cd ./wt
         else
+            echo "* Current directory is $(pwd)."
+            echo '* No wt subdir.'
             echo '* Will not manipulate worktrees outside of wt dir. Aborting.'
             return 1
         fi
@@ -2227,6 +2322,9 @@ git-worktree-create ()
         return 1
     fi
 
+    local wtsubdir=$wt
+    local wtbranch=$wt
+
     ## TODO: Allow for suffix to append to worktree name so you can dup them if
     ## you need to.
     ((verbose)) && echo '* Check for existing branch'
@@ -2236,6 +2334,7 @@ git-worktree-create ()
     then
         echo "* Branch $wt already exists. Using it."
         create_branch=''
+        wtbranch="$wt"
     elif [ "$fetch_existing" = '1' ]
     then
         echo "* Branch $wt does not exist to be fetched."
@@ -2257,8 +2356,8 @@ git-worktree-create ()
     fi
 
     ## Now create the work tree and create/fetch the branch.
-    ((verbose)) && echo "* git worktree add $create_branch $wt $wt"
-    git worktree add $create_branch "$wt" "$wt"
+    ((verbose)) && echo "* git worktree add $create_branch $wtsubdir $wtbranch"
+    git worktree add $create_branch "$wtsubdir" "$wtbranch"
     status=$?
     if ((status))
     then
@@ -2266,21 +2365,39 @@ git-worktree-create ()
         return 1
     fi
 
-    ((verbose)) && echo "* cd $wt"
+    ((verbose)) && echo "* cd $wtsubdir"
     ## dirlist, not builtin cd, to take advantage this cd enhancement
-    dirlist $wt
+    dirlist $wtsubdir
 
     if [ -n "$create_branch" ]
     then
-        ((verbose)) && echo "* git push --set-upstream $remote $wt"
-        git push --set-upstream $remote $wt
+        ((verbose)) && echo "* git push --set-upstream $remote $wtbranch"
+        git push --set-upstream $remote $wtbranch
     else
-        ((verbose)) && echo "* git pull --set-upstream-to=$remote/$wt $wt"
-        git pull --set-upstream-to=origin/$remote $wt
+        cat <<EOF
+**** What's the best way to pull the existing branch? Should we:
+     1) git push --set-upstream $remote $wtbranch
+        even though we did not create the branch and we have
+        nothing to push at this time?
+     2) git pull
+        to get the existing branch contents?
+     3) git checkout track -b $remote/$wtbranch
+        to track?
+     4) Modify the git worktree add command to account
+        for branch existance.
+
+     Obviously, we have done none of these. Figure out the best one.
+     Then for short term:
+        - Do it.
+        - $ touch $GITFUNCS_CHANGELOG_NAME;git-go-get
+
+     For long term:
+        - Fix git-worktree-create to DTRT.
+EOF
     fi
 
     ## Add a ChangeLog
-    touch GITFUNCS_CHANGELOG_NAME
+    touch $GITFUNCS_CHANGELOG_NAME
 
     ## Add this repo to the list
     git-go-set
@@ -2296,15 +2413,43 @@ git-delete-current-worktree ()
 {
     gitfuncs_audit "$@"
 
-    git-delete-worktree $(pwd)
+    git-delete-worktree "$@" $(pwd)
     status=$?
     return $status
+}
+
+git-delete-worktree-usage ()
+{
+    echo "Usage: $1 [--force] worktree"
 }
 
 git-delete-worktree ()
 {
     ##@@ none||none||git-delete-worktree||
     gitfuncs_audit "$@"
+
+    local iam=${FUNCNAME[0]}
+    if [ "${FUNCNAME[1]}" = 'git-delete-current-worktree' ]
+    then
+        iam=${FUNCNAME[1]}
+    fi
+
+    local usage_func="${FUNCNAME}-usage"
+    local opt_force=0
+    OPTSARGS=$(getoptp -o sh --long force,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func $iam && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -s|--force) opt_force=1; shift ;;
+            -h|--help) $usage_func $iam; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func $iam; return 1 ;;
+        esac
+    done
 
     local opwd=$(pwd)
     local worktree=$1;
@@ -2320,14 +2465,17 @@ git-delete-worktree ()
         return 1
     fi
 
-    ## Make sure it's clean.
+    ## Check for cleanliness.
     if [ "$(git status --porcelain | wc -l)" != '0' ] || \
            [ "$(git status | grep 'Your branch is' | grep -v 'up-to-date' | wc -l)" != '0' ]
     then
-        git status
-        echo
-        echo "Will not delete current worktree"
-        return 1
+        if((!opt_force))
+        then
+            git status
+            echo
+            echo "Will not delete current worktree. Clean worktree or re-run command with --force."
+            return 1
+        fi
     fi
 
     ## Current branch
@@ -2335,14 +2483,12 @@ git-delete-worktree ()
 
     ## Confirm
     local current_dir=$(basename $(pwd))
-
     if [ "$current_branch" != "$current_dir" ]
     then
         echo "Branch '$current_branch' does not match current subdir '$current_dir'."
         echo "I'm bailing; you fix this mess."
         return 1
     fi
-
     git status
     local rc=$?
     local resp=$(yesno "git status returned $rc. Continue with deletion");
@@ -2357,7 +2503,7 @@ git-delete-worktree ()
     \rm -r $delit; (( $? != 0 )) && echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
 
     ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
-    ## get to first, and bail.
+    ## get to first, and stop deleting.
     while [ "$(basename $(pwd))" != 'wt' ]
     do
         if [ -z "$(ls -A $(pwd))" ]
@@ -2369,12 +2515,15 @@ git-delete-worktree ()
         fi
     done
 
-    ## Now the branch
+    ## Now fix the administrative files.
+    git worktree prune
+
+    ## Now the take care of the branch.
     local resp=$(pick  "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
     if [ "$resp" != 'k' ]
     then
 
-        ## Have to be in a git repo to do this
+        ## Have to be in a git repo to do this.
         while [ "$(basename $(pwd))" != 'wt' ]
         do
             builtin cd ..
@@ -2388,9 +2537,8 @@ git-delete-worktree ()
         fi
     fi
 
-    [ -d $opwd ] && builtin cd ## If $opwd was the worktree directory, it
-    ## won't be there anymore. Stay where we
-    ## are.
+    [ -d $opwd ] && builtin cd ## If $opwd was the worktree directory, it won't
+                               ## be there anymore. Stay where we are.
 
     git-go-set
 
@@ -2478,7 +2626,7 @@ git-worktree-diff-to-root ()
         else
             git --no-pager diff --no-index --color=always $i ${root}/$i 2>&1
         fi
-    done | less -R
+    done | less -RE
 }
 
 git-worktree-diff-from-root ()
@@ -2531,12 +2679,15 @@ git-state ()
     ##@@ none||none||git-state||
     gitfuncs_audit "$@"
 
-    echo
-    echo "=== Log:"
+    (echo
+    echo "=== Latest log entry:"
     git log -1
     echo
     echo "=== Status:"
-    git status "$@"
+    local short=$(git-st-ext)
+    [ -n "$short" ] && echo "--- Short: $short"
+    echo "--- Long:"
+    git-st-cl --noless "$@") | less -RE
 }
 alias git-st='git-state '
 
@@ -2555,7 +2706,7 @@ git-branch-list ()
 
     local strip=1
     local remote=''
-    local OPTSARGS=$(getoptp -o r --long strip,nostrip,remote -n 'git-branch-list' -- "$@")
+    local OPTSARGS=$(getoptp -o r --long strip,nostrip,remote -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && echo "Exiting." && return $status
     eval set -- "$OPTSARGS"
@@ -2648,14 +2799,7 @@ git-stdout-last-existed()
 git-root ()
 {
     ##@@ none||none||git-root||
-    local na=''
-    if [ "$1" = "-na" ]
-    then
-        na=$1
-        shift
-    else
-        gitfuncs_audit "$@"
-    fi
+    gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
 
     git rev-parse --show-toplevel
 }
@@ -2669,413 +2813,6 @@ git-gui ()
 }
 
 alias gitgui='git-gui '
-
-git-hold-meta-view ()
-{
-    ##@@ none||none||git-hold-meta-view||
-    local na=''
-    if [ "$1" = "-na" ]
-    then
-        na=$1
-        shift
-    else
-        gitfuncs_audit "$@"
-    fi
-
-    local hold_root=$(git-root $na)
-    if [ ! "$hold_root" = "$(realpath $(pwd))" ]
-    then
-        echo "Must be in git root ($hold_root) to run $FUNCNAME" >&2
-        return 1
-    fi
-    local hold_dir=$hold_root/hold
-    if [ -d $hold_dir ]
-    then
-        local found=$(find $hold_dir -type f)
-        [ -n "$found" ] && \
-            realpath --relative-to=$(pwd) $found
-    fi
-}
-
-git-hold-base-view ()
-{
-    ##@@ none||none||git-hold-base-view||
-    local na=''
-    if [ "$1" = "-na" ]
-    then
-        na=$1
-        shift
-    else
-        gitfuncs_audit "$@"
-    fi
-
-    local hold_root=$(git-root $na)
-    if [ ! "$hold_root" = "$(realpath $(pwd))" ]
-    then
-        echo "Must be in git root ($hold_root) to run $FUNCNAME"
-        return 1
-    fi
-    git-hold-meta-view $na \
-        | grep -v 'git-hold-meta' \
-        | sed 's|.git-hold.*||' \
-        | sort -u
-}
-alias git-hold-show='git-hold-base-view '
-alias git-hold-list='git-hold-base-view '
-
-git-hold-relative-base-dir ()
-{
-    ##@@ none||none||git-hold-relative-base-dir||
-    gitfuncs_audit "$@"
-
-    local hold_root=$(git-root)
-    if [ ! "$hold_root" = "$(pwd)" ]
-    then
-        echo "Must be in git root ($hold_root) to run $FUNCNAME"
-        return 1
-    fi
-    git-hold-meta-view \
-        | sed 's|/hold/.*|/hold|' \
-        | sort -u
-}
-
-git-hold-process-if-unmodified ()
-{
-    ##@@ none||none||git-hold-process-if-unmodified||
-    gitfuncs_audit "$@"
-
-    local action=$1;      shift
-    local gitf=$1;        shift
-    local src=$1;         shift
-    local tgt=$1;         shift
-    local opt_verbose=$1; shift
-    local noexec_mode=$1; shift
-
-    local verbose_cp='';
-    ((opt_verbose)) && verbose_cp='-v'
-
-    local unmodified=$(git-what-is-unmodified | grep $gitf)
-    if [ -n "$unmodified" ]
-    then
-        if [ "$action" = 'direct' ]
-        then
-            cmd="cp -Rp $verbose_cp $src $tgt.git-hold.unmodified"
-            ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
-            ((noexec_mode)) || $cmd
-
-            ((noexec_mode)) || echo $unmodified > $tgt.git-hold-meta.unmodified
-        # else
-            # No rm here or else git will think we're removing it.
-            # We use this in the case where we want to hold onto a file
-            # BEFORE we start messing with it.
-        fi
-    fi
-}
-
-git-hold-process-if-untracked ()
-{
-    ##@@ none||none||git-hold-process-if-untracked||
-    gitfuncs_audit "$@"
-
-    local action=$1;      shift
-    local gitf=$1;        shift
-    local src=$1;         shift
-    local tgt=$1;         shift
-    local opt_verbose=$1; shift
-    local noexec_mode=$1; shift
-
-    local verbose_mv='';
-    ((opt_verbose)) && verbose_mv='-v'
-
-    local untracked=$(git-what-is-untracked | grep $gitf)
-    if [ -n "$untracked" ]
-    then
-        if [ "$action" = 'direct' ]
-        then
-            cmd="mv $verbose_mv $src $tgt.git-hold.untracked"
-            ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
-            ((noexec_mode)) || $cmd
-
-            ((noexec_mode)) || echo $untracked > $tgt.git-hold-meta.untracked
-        else
-            \rm -f $src
-        fi
-    fi
-}
-
-git-hold-process-if-unstaged ()
-{
-    ##@@ none||none||git-hold-process-if-unstaged||
-    gitfuncs_audit "$@"
-
-    local action=$1;      shift
-    local gitf=$1;        shift
-    local src=$1;         shift
-    local tgt=$1;         shift
-    local opt_verbose=$1; shift
-    local noexec_mode=$1; shift
-
-    local verbose_cp='';
-    ((opt_verbose)) && verbose_cp='-v'
-
-    local unstaged=$(git-what-is-unstaged | grep $gitf)
-    if [ -n "$unstaged" ]
-    then
-        if [ "$action" = 'direct' ]
-        then
-            cmd="cp -Rp $verbose_cp $src $tgt.git-hold.unstaged"
-            ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
-            ((noexec_mode)) || $cmd
-
-            ((noexec_mode)) || echo $unstaged > $tgt.git-hold-meta.unstaged
-        fi
-
-        cmd="git checkout -- $gitf"
-        ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
-        ((noexec_mode)) || $cmd
-
-        git-hold-process-if-untracked 'indirect' $gitf $src $tgt $opt_verbose $noexec_mode
-    fi
-}
-
-git-hold-process-if-staged ()
-{
-    ##@@ none||none||git-hold-process-if-staged||
-    gitfuncs_audit "$@"
-
-    local action=$1;      shift
-    local gitf=$1;        shift
-    local src=$1;         shift
-    local tgt=$1;         shift
-    local opt_verbose=$1; shift
-    local noexec_mode=$1; shift
-
-    local verbose_cp='';
-    ((opt_verbose)) && verbose_cp='-v'
-
-    local staged=$(git-what-is-staged | grep $gitf)
-    if [ -n "$staged" ]
-    then
-        if [ "$action" = 'direct' ]
-        then
-            cmd="cp -Rp $verbose_cp $src $tgt.git-hold.staged"
-            ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
-            ((noexec_mode)) || $cmd
-
-            ((noexec_mode)) || echo $staged > $tgt.git-hold-meta.staged
-        fi
-
-        cmd="git reset -q HEAD $gitf"
-        ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
-        ((noexec_mode)) || $cmd
-
-        git-hold-process-if-unstaged 'indirect' $gitf $src $tgt $opt_verbose $noexec_mode
-    fi
-}
-
-git-hold ()
-{
-    ##@@ none||none||git-hold||
-    gitfuncs_audit "$@"
-
-    local noexec_mode=0
-    if [ "$1" = "-n" ]
-    then
-        noexec_mode=1
-        shift
-    fi
-
-    local hold_root=$(git-root)
-    if [ "$hold_root" != "$(pwd)" ]
-    then
-        echo "Must be in git root ($hold_root) to run $FUNCNAME"
-        return 1
-    fi
-    local hold_dir=$hold_root/hold
-    local ok_to_hold
-    local not_ok_to_hold
-    local opt_verbose=1
-    local gitf    ## realtive file path as seen by git
-    local src     ## absolute file path as seen by file system
-    local gitfsrc ## gitf, src pair
-    local tgt
-    [ ! -d $hold_dir ] && mkdir -p $hold_dir
-    if [ -z "$1" ]
-    then
-        echo "Must provide one or more files to hold"
-        return 1
-    fi
-    for gitf in $*
-    do
-        src=$(realpath $gitf)
-        tgt=$hold_dir/${src##$hold_root}
-        if [ -r $tgt ]
-        then
-            echo "Cannot hold $gitf - hold exists:"
-            ls -la $tgt
-            not_ok_to_hold="$not_ok_to_hold $src"
-        else
-            ok_to_hold="$ok_to_hold $gitf:$src"
-        fi
-    done
-    if [ -n "$not_ok_to_hold" ]
-    then
-        echo "Hold aborted"
-    else
-        local opt_cp
-        ((verbose)) && opt_cp='-v'
-        for gitfsrc in $ok_to_hold
-        do
-            gitf=${gitfsrc%:*} ## dump right of :
-            src=${gitfsrc#*:}  ## dump left of :
-            tgt=$hold_dir/${src##$hold_root}
-
-            ((noexec_mode)) && echo "No exec mode"
-
-            cmd="mkdir -p $(dirname $tgt)"
-            ( ((noexec_mode)) || ((opt_verbose)) ) && echo $cmd
-            ((noexec_mode)) || $cmd
-
-            git-hold-process-if-untracked 'direct' $gitf $src $tgt $opt_verbose $noexec_mode
-
-            git-hold-process-if-unstaged 'direct' $gitf $src $tgt $opt_verbose $noexec_mode
-
-            git-hold-process-if-staged 'direct' $gitf $src $tgt $opt_verbose $noexec_mode
-
-            git-hold-process-if-unmodified 'direct' $gitf $src $tgt $opt_verbose $noexec_mode
-
-        done
-    fi
-
-    echo
-    echo "*** held ***"
-    git-hold-list
-}
-
-git-hold-restore ()
-{
-    ##@@ none||none||git-hold-restore||
-    gitfuncs_audit "$@"
-
-    local hold_root=$(git-root)
-    if [ "$hold_root" != "$(pwd)" ]
-    then
-        echo "Must be in git root ($hold_root) to run $FUNCNAME"
-        return 1
-    fi
-    local hold_dir=$hold_root/hold
-    local ok_to_unhold
-    local not_ok_to_hold
-    local opt_verbose=1
-    [ ! -d $hold_dir ] && mkdir -p $hold_dir
-    basefiles="$@"
-    if [ -z "$basefiles" ]
-    then
-        basefiles=$(git-hold-base-view)
-    fi
-    for b in $basefiles
-    do
-        if [[ ! $b =~ ^hold/ ]]
-        then
-            b="hold/$b"
-        fi
-        if [ -d $b ]
-        then
-            echo "Can't pick a dir ($b)- pick files"
-            return 1
-        fi
-        for m in $(ls -t -c1 $(realpath $b)* | grep '.git-hold\.')
-        do
-            ok_to_unhold="$ok_to_unhold $b:$m"
-        done
-    done
-    local opt_mv
-    ((verbose)) && opt_mv='-v'
-
-    local metafile
-    local metatype
-    local ghrbd=$(git-hold-relative-base-dir)
-    local restored
-    for gitf_metasrc in $ok_to_unhold
-    do
-        local gitf=${gitf_metasrc%:*} ## dump right of :
-        gitf=${gitf#hold/*} ## dump left hold/
-        local metasrc=${gitf_metasrc#*:}  ## dump left of :
-        bn=$(basename $metasrc)
-        for metatype in unmodified staged unstaged untracked
-        do
-            src=$(basename $metasrc .git-hold.$metatype)
-            if [ "$bn" != "$src" ]
-            then
-                tgt=$hold_root/${metasrc##$hold_dir}
-                tgt=${tgt%.git-hold.$metatype}
-                mkdir -p $(dirname $tgt)
-                mv $opt_mv $metasrc $tgt
-                metafile="${metasrc%.git-hold.$metatype}.git-hold-meta.$metatype"
-                if [ "$metatype" = 'staged' ]
-                then
-                    git add $gitf
-                fi
-                [ -r $metafile ] && \rm $metafile
-                restored="$restored $metasrc"
-                echo "Restored $metatype $gitf"
-            fi
-        done
-    done
-
-    set +x
-
-    for i in $metasrc
-    do
-        if [ -f $i ]
-        then
-            echo "Would rm -f $i (file) for cleanup"
-        elif [ -d $i ]
-        then
-            echo "Would rm -rf $i (dir) for cleanup"
-        else
-            echo "Do not know how to clean up $i (not file, not directory)"
-        fi
-    done
-}
-alias git-unhold='git-hold-restore '
-
-git-get-hold-count ()
-{
-    ##@@ none||none||git-get-hold-count||
-    local na=''
-    if [ "$1" = "-na" ]
-    then
-        na=$1
-        shift
-    else
-        gitfuncs_audit "$@"
-    fi
-
-    local pre=$1;shift
-    local post=$1;shift
-    git-inside-work-tree $na
-    if [ "$?" = '0' ]
-    then
-        local c=$(git-hold-list $na | grep -v 'Must be in git root' | wc -l)
-        ((c)) && c=1
-        echo "${pre}${c}${post}"
-    fi
-    return 0
-}
-alias git-hold-get-count='git-get-hold-count '
-
-git-hold-edit-both ()
-{
-    ##@@ none||none||git-hold-edit-both||
-    gitfuncs_audit "$@"
-
-    for i in $(git-hold-list)
-    do
-        j=${i##hold/}
-        xo ${i}.git-hold.* $j
-    done
-}
 
 git-pull-with-checkpoint ()
 {
@@ -3096,24 +2833,50 @@ git-diff-to-checkpoint ()
     git diff $oldid $newid
 }
 
+git-to-stdout-usage ()
+{
+    echo 'Usage: git-to-stdout [--file] uuid objectname [objectname...]'
+    echo '       From the version specified by "uuid" print the objects'
+    echo '       requested to stdout. "objectname" must be fully quailifed'
+    echo '       from the repo root, not current directory. If --file'
+    echo '       is specified, then write to file to objectname.uuid instead'
+}
+
 git-to-stdout ()
 {
     ##@@ none||none||git-to-stdout||Equivalent of cvs -p. Provide a uuid and one or more path/to/file arguments.
     gitfuncs_audit "$@"
 
+    local usage_func="${FUNCNAME}-usage"
+    OPTSARGS=$(getoptp -o hf --long help,file -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
     local file=0
-    if [ "$1" = '-file' ]
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) $usage_func; return 0 ;;
+            -f|--file) file=1; shift ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
+
+    if (($# < 2 ))
     then
-        file=1
-        shift;
+        $usage_func
+        return 1
     fi
+
     local uuid=$1;shift
     for i in $@
     do
         if ((file))
         then
             echo ${i}.${uuid}
-            git show ${uuid}:${i} > ${i}.${uuid}
+            git show ${uuid}:${i} > $(git-root)/${i}.${uuid}
         else
             git show ${uuid}:${i};
         fi
@@ -3122,7 +2885,6 @@ git-to-stdout ()
 
 bbgithub-merge-pull-request ()
 {
-
     ##@@ none||none||bbgithub-merge-pull-request||Merge a bbgithub remote pull request from command line.
     git-merge-pull-request bbgithub "$@"
     return $?
@@ -3155,15 +2917,41 @@ git-merge-pull-request ()
         echo "Usage: ${proto}-merge-pull-request org repo user prbranch"
         echo "       Merge the branch 'prbranch' from user/repo"
         echo "       into the 'master' branch in a local clone of"
-        echo "       org/repo. The clone is created fresh; if there is"
-        echo "       already a clone at that location, it will fail."
+        echo "       org/repo."
+        echo
+        echo "       ${proto}-merge-pull-request org repo prbranch"
+        echo "       Merge the branch 'prbranch' from org/repo"
+        echo "       into the 'master' branch in a local clone of"
+        echo "       org/repo. WARNING - INCOMPLETE IMPLEMENTATION"
+        echo "       as of 2016-06-15"
+        echo
+        echo "       In either case, the updated clone is examined"
+        echo "       and the user is asked to push the updated"
+        echo "       local master branch back up to the origin."
+        echo
+        echo "       Note: The local clone is reconstituted"
+        echo "             each time."
         return 1
     fi
 
     local namespace=$1;shift
     local repo=$1;shift
-    local user=$1;shift
-    local prbranch=$1;shift
+    local user
+    local prbranch
+    local mergesrc
+
+    if [ "$#" = '2' ]
+    then
+        echo "Merging from branch in other repo"
+        user=$1;shift
+        prbranch=$1;shift
+        merge_src='remote'
+    elif [ "$#" = '1' ]
+    then
+        echo "Merging from branch in this repo"
+        local prbranch=$1;shift
+        merge_src='origin'
+    fi
 
     echo "* Clone $proto:$namepsace/repo..."
     ${proto}-clone $namespace $repo
@@ -3176,44 +2964,105 @@ git-merge-pull-request ()
     ((status)) && return $status
     echo "****** ************************************"
 
-    echo "* Add $proto:$user/$repo as a remote"
-    git remote add $user $proto:$user/$repo
-    status=$?
-    ((status)) && return $status
+    if [ "$merge_src" = 'remote' ]
+    then
+        echo "* Add $proto:$user/$repo as a remote"
+        git remote add $user $proto:$user/$repo
+        status=$?
+        ((status)) && return $status
 
-    echo "* Fetch only the pull request branch ($prbranch) from $proto:$user/$repo"
-    git fetch $user $prbranch
-    status=$?
-    ((status)) && return $status
+        echo "* Fetch only the pull request branch ($prbranch) from $proto:$user/$repo"
+        git fetch $user $prbranch
+        status=$?
+        ((status)) && return $status
 
-    echo "* Do the merge"
-    git rebase master $user/$prbranch
-    status=$?
-    ((status)) && return $status
+        echo "* Do the merge"
+        git rebase master $user/$prbranch
+        status=$?
+        ((status)) && return $status
 
-    echo "****** Last two commits on master"
-    git log -2
-    status=$?
-    ((status)) && return $status
-    echo "****** **************************"
+        echo "****** Last two commits on master"
+        git log -2
+        status=$?
+        ((status)) && return $status
+        echo "****** **************************"
 
-    echo "Success is defined as"
-    echo "1) You are reading this message."
-    echo "2) The second log entry from 'Last two commits on master'"
-    echo "   should match then entry from 'Current last commit on master branch'."
-    echo
+        echo "Success is defined as"
+        echo "1) You are reading this message."
+        echo "2) The second log entry from 'Last two commits on master'"
+        echo "   should match then entry from 'Current last commit on master branch'."
+        echo
+    else
+        echo "* Fetch only the pull request branch ($prbranch) from $proto:$namespace/$repo"
+        git fetch $proto:$namespace/$repo $prbranch
+        status=$?
+        ((status)) && return $status
+
+        echo "* Do the merge"
+        git rebase master origin/$prbranch
+        status=$?
+        ((status)) && return $status
+        git checkout master
+
+        pause 'Go to another terminal, do a git log and see what you got. Then quit this, come back and fix the code accordingly.'
+        ## INSERT SOME git log comparison instructions here!!!!!!
+        return 1
+    fi
+
     local resp=$(yesno "Should push back up to ${proto} with 'git push origin HEAD:master'")
+    local retval
     if [ "$resp" = 'y' ]
     then
+        pwd
         git push origin HEAD:master
-        return $?
+        retval=$?
     else
+
         echo "Ok. Remember to 'git push origin HEAD:master' soon before the master head advances."
-        return 0
+        retval=0
     fi
 }
 alias git-merge-pr='git-merge-pull-request '
 
+git-meta ()
+{
+    ##@@ none||none||git-meta||Read or write meta information for a branch
+    gitfuncs_audit "$@"
+
+    local usage_func="${FUNCNAME}-usage"
+    local branch=$(git rev-parse --abbrev-ref HEAD)
+    OPTSARGS=$(getoptp -o b: --long branch: -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            --branch-b) branch=$2; shift; shift;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
+
+    local key=$1
+    if [ -z "$key" ]
+    then
+        echo Need a key to save
+        return 1
+    fi
+
+    shift
+    local value="$@"
+
+    if [ -z "$value" ]
+    then
+        ## Read existing key
+        git config --get "branch.${branch}.${key}"
+    else
+        git config "branch.${branch}.${key}" "$value"
+    fi
+}
 
 git-st-ext ()
 {
@@ -3221,17 +3070,18 @@ git-st-ext ()
     gitfuncs_audit "$@"
 
     local git_st_ext_file="$(git-root)/.git-st-ext"
-    if [ -n "$1" ]
+    if [ -e $git_st_ext_file ]
     then
-        echo "$@" > $git_st_ext_file
+        local oldstat=$(cat $git_st_ext_file)
+        \rm $git_st_ext_file
+        git-meta local-status "$oldstat"
+    fi
+
+    if [ -n "$@" ]
+    then
+        git-meta local-status "$@"
     else
-        if [ -e $git_st_ext_file ]
-        then
-            cat $git_st_ext_file
-        else
-            read -p "External status for $(git-root): " resp
-            echo "$resp" > $git_st_ext_file
-        fi
+        git-meta local-status
     fi
 }
 
@@ -3240,10 +3090,12 @@ git-st-ext-all ()
     ##@@ none||none||git-st-ext||Read all notes about repo current statuses
     gitfuncs_audit "$@"
 
-    for i in $(git-go --listfull | grep 152)
+    for i in $(git-go --listfull)
     do
-        local git_st_ext_file="${i}/.git-st-ext"
-        [ -r "$git_st_ext_file" ] && echo $i: $(cat $git_st_ext_file)
+        ( builtin cd $i
+          local s=$(git-st-ext)
+          [ -n "$s" ] && echo $i - $s
+        )
     done
 }
 
@@ -3308,6 +3160,37 @@ git-delete-repo ()
     git-go-set
 
     return 0
+}
+
+_git_cd_go ()
+{
+    local tgt=$(realpath $1)
+    local src=$(pwd)
+    builtin cd $tgt && apush GITFUNCS_OLDPWDS "$src" ## Push only if we can get
+                                                     ## to the target
+    return $?
+
+}
+
+_git_cd_return ()
+{
+    local tgt=$(apop GITFUNCS_OLDPWDS) ## We pop no matter what so bad dirs are
+                                       ## cleared from the stack and we don't
+                                       ## get stuck on them.
+    [ -n "$tgt" ] && builtin cd $tgt
+    return $?
+}
+
+_git_cd_unwind ()
+{
+    local tgt=$(ashift GITFUNCS_OLDPWDS)
+    if [ -n "$tgt" ]
+    then
+        ## We pop no matter what so bad dirs are cleared from the stack and we
+        ## don't get stuck on them.
+        aclear GITFUNCS_OLDPWDS && builtin cd $tgt
+    fi
+    return $?
 }
 
 ## Can't use local outside a function.
