@@ -72,65 +72,6 @@ do
     fi
 done
 
-! $CRON && (cd  $PERSONALROOT; git-check-with-master --bail_on_dirty)
-
-# ALIASES
-
-# Conveniences
-alias cvs='echo cvs? Are you nuts? - Try again!'
-alias dir='ls -la '
-alias envg='env | grep '
-alias setg='set | grep '
-alias allg='(env && set) | grep '
-alias rm='rm -i '
-alias mydiff='diff -U3 '
-alias sidediff='diff -w --side-by-side --suppress-common-lines '
-alias mopquota='df -h '
-alias showfunc='type '
-
-# Fat finger protection
-alias vf='echo cd, you moron; cd '
-alias fit='echo dir, you moron; dir '
-
-# if chimera generated aliases exist, pull them into the current ENV
-[ -f ~/.bbalias ] && . ~/.bbalias
-
-## GIT
-## Probably should move this to gitfuncs
-git_contrib_loaded=$(declare -F | grep __git_ps1)
-if [ -z "$git_contrib_loaded" ]
-then
-    if [ -e ~/.git-prompt.sh ]
-    then
-        . ~/.git-prompt.sh
-    fi
-fi
-
-# Useful in subshells
-#for i in $(declare -F | grep __git | grep -v fx | sed 's/.* //')
-#do
-#    #nxport -f $i
-#done
-
-# Override prompt (assuming git stuff is loaded, either in chimera or locally)
-PS1='\n[\$? = $?]\n\n\[\e]0;\u@\h:\w\a\]what    : \u@\h\nwhen    : \d \t$(__git_ps1 "\\nbranch  : %s")$(git-get-stash-count -na "\nstashes : ")$(git-get-hold-count -na "\nholds   : ")\npwd     : \w\n\n$ '
-export PS1
-
-# MISC
-
-# STOP clearing the screen!!!
-LESS="-X"
-export LESS
-
-# Setup completion for plink - more for the example than the usage.
-complete -f -X '!*.mk' plink
-
-# for silencing emacs 24.4 dbus warning message
-export NO_AT_BRIDGE=1
-
-# AD stuff
-alias authinfo="/opt/quest/bin/vastool search CN=${USER}"
-
 if [ ! -e ~/.bbprofile ]
 then
     ## the odds are that we are not using chimera and the packaging of /opt/bb
@@ -158,6 +99,78 @@ then
   export PATH
 fi
 
+! $CRON && (cd  $PERSONALROOT
+            echo "** Check $(pwd) against master ***"
+            git-check-with-master --bail_on_dirty
+            echo "** Check $(pwd) against itself ***"
+            git status)
+
+# ALIASES
+
+# Conveniences
+alias cvs='echo cvs? Are you nuts? - Try again!'
+alias dir='ls -la '
+alias envg='env | grep '
+alias setg='set | grep '
+alias allg='(env && set) | grep '
+alias rm='rm -i '
+alias mydiff='diff -U3 '
+alias sidediff='diff -w --side-by-side --suppress-common-lines '
+alias mopquota='df -h '
+alias showfunc='type '
+
+# Fat finger protection
+alias vf='echo cd, you moron; cd '
+alias fit='echo dir, you moron; dir '
+
+# if chimera generated aliases exist, pull them into the current ENV
+[ -f ~/.bbalias ] && . ~/.bbalias
+
+## GIT - Probably should put the .git-prompt.sh code, and the exports below,
+## into gitfuncs as a function and just call the function here.
+git_contrib_loaded=$(declare -F | grep __git_ps1)
+if [ -z "$git_contrib_loaded" ]
+then
+    if [ -e ~/.git-prompt.sh ]
+    then
+        . ~/.git-prompt.sh
+    fi
+fi
+for i in $(declare -F | grep __git | grep -v -- --fx | sed 's/.* //')
+do
+    safe_func_export $i
+done
+
+if [ ! "$EMACS" = 't' ]
+then
+    ## Override prompt (assuming git stuff is loaded, either in chimera or locally)
+    ##     status of     these change
+    ##     prior command xterm title
+    ##     |             |          |
+    ##     |        +--+ |          +------+
+    ##     |        |    |                 |
+    ##     v--------v    v-----------------v
+    PS1='\n[\$? = $?]\n\n\[\e]0;\u@\h:\w\a\]what    : \u@\h\nwhen    : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")\npwd     : \w\n\n\$ '
+else
+    PS1='\n[\$? = $?]\n\nwhat    : \u@\h\nwhen    : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")\npwd     : \w\n\n\$ '
+fi
+export PS1
+
+# MISC
+
+# STOP clearing the screen!!!
+LESS="-X"
+export LESS
+
+# Setup completion for plink - more for the example than the usage.
+complete -f -X '!*.mk' plink
+
+# for silencing emacs 24.4 dbus warning message
+export NO_AT_BRIDGE=1
+
+# AD stuff
+alias authinfo="/opt/quest/bin/vastool search CN=${USER}"
+
 # Editing
 ## Do NOT use an emacs command that hooks into the gnuserver or you'll have to
 ## exit the whole session to register completion with the user of EDITOR
@@ -168,13 +181,13 @@ export EDITOR
 export LC_ALL=C
 export LANG=C
 
-## Stupid Caps Lock! (2>... when no X is in play)
+## Stupid Caps Lock! (2>... silences the errors when not under X)
 xmodmap ~/.Xmodmap 2>/dev/null
 
 ## Interference with remote dpkg stuff
 addpath -s , -p no_proxy 'blp-dpkg.dev.bloomberg.com'
 
-## Command colors frequently conflict with different terminal colors
+## Default colors frequently conflict with different terminal background colors.
 alias ls >/dev/null 2>&1
 if [ "$?" = '0' ]
 then

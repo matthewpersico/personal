@@ -5,45 +5,106 @@ use warnings;
 use File::Basename;
 use DateTime;
 use File::Slurp;
+use List::MoreUtils qw(uniq);
+use Getopt::Long;
+use FindBin qw($RealBin);
+
+my %opt= (cat => 0,
+          who => 0,
+          predict => 0,
+          mail => 0,
+          help => 0,
+          datadir => catfile($RealBin, '../data'),
+          ## do not init options with optional arg
+          ## forward
+      );
+
+GetOptions(\%opt,
+           "cat|list",
+           "who|keep",
+           "predict|next",
+           "mail!",
+           "forward:s",
+           "datadir=s",
+           "help");
+
+
+my @stdmail=(qw(mpersico5@bloomberg.net
+                dbillings1@bloomberg.net));
 
 my %next = (
     ## Key is the last monitor. Data is the next monitor.
     druoso    => {
         who => 'mpersico5',
         whonice => 'Matthew',
-        mail => 'mpersico5@bloomberg.net',
+        mail => mkmail('mpersico5@bloomberg.net'),
     },
     mpersico5 => {
         who => 'jbonney4',
         whonice => 'Jeremiah',
-        mail => 'jbonney4@bloomberg.net mpersico5@bloomberg.net',
+        mail => mkmail('jbonney4@bloomberg.net'),
     },
     jbonney4  => {
         who => 'druoso',
         whonice => 'Daniel',
-        mail => 'druoso@bloomberg.net mpersico5@bloomberg.net',
+        mail => mkmail('druoso@bloomberg.net')
     },
 );
 
 my ($name,$path,$suffix) = fileparse($0,'.cron');
-my $log = "${path}/${name}.log";
+my $log = catfile($opt{datadir}, "${name}.log");
 my @lines;
 if ( -e $log ) {
     @lines = reverse(read_file($log, {chomp => 1}));
     ## Stored new to old, want to work old -> new
 }
 
-if (@ARGV and $ARGV[0] eq '--cat' ) {
+if ($opt{cat}) {
     print join("\n",reverse(@lines));
     exit 0;
 }
 
-my $now = DateTime->now;
+if ($opt{who}) {
+    print $lines[-1];
+    exit 0;
+}
+
+my $now;
+if( ! exists $opt{forward} ) {
+    $now = DateTime->now;
+} else {
+    my @d;
+    if( length($opt{forward}) ){
+        @d = split(/\//, $opt{forward});
+        $now = DateTime->new(
+            year       => $d[0],
+            month      => $d[1],
+            day        => $d[2]);
+    } else {
+        @d = split(/\//, (split(/\s+/, $lines[-1]))[-1]);
+        $now = DateTime->new(
+            year       => $d[0],
+            month      => $d[1],
+            day        => $d[2]);
+        $now->add( days => 1 );
+    }
+}
 exit 0 if ($now->day_of_week() > 5);
-my $hol = "${path}/${name}.holidays";
+my $hol = catfile($opt{datadir}, "${name}.holidays");
+my $tdays = catfile($opt{datadir}, "${name}.tdays");
 my $today = $now->ymd('/');
 my %holidays = map { (split(/-/,$_))[0] => 1 } read_file($hol, {chomp => 1});
 exit if defined $holidays{$today};
+my %tdays = (
+    map { $_->[0] => $_->[1] }
+      map { [split(/-/,$_)] }
+      read_file($tdays, {chomp => 1})
+  );
+my @x;
+for my $k (keys %tdays) {
+    @x = split(/,/, $tdays{$k});
+    $tdays{$k} = { map { $_ => 1 } @x };
+}
 
 my @data;
 if( @lines ) {
@@ -51,15 +112,38 @@ if( @lines ) {
 } else {
     $data[0] = 'jbonney4';
 }
-push @lines, "$next{$data[0]}->{who} $today";
 
-write_file($log, join("\n", reverse @lines));
+my $limit = scalar(keys(%next));
+while($limit>0) {
+    my $n = $next{$data[0]}->{who};
+    if (!exists($tdays{$today}->{$n})) {
+        push @lines, "$n $today";
+        $limit = -1;
+    } else {
+        print "$n has a T day\n";
+        $data[0]=$n;
+        $limit--;
+    }
+}
 
-if( $next{$data[0]}->{mail} ) {
-    qx(mailx -s '1381 Monitoring' $next{$data[0]}->{mail} <<EOM
+if($limit == 0) {
+    die "Cannot find a monitor for $today: " . Data::Dumper->Dump([$tdays{$today}],[qw(*tdays_today)]);
+}
+
+if( $opt{predict} ) {
+    print "The next monitor is $next{$data[0]}->{who}\n";
+} else {
+    write_file($log, join("\n", reverse @lines));
+    if( $opt{mail} && $next{$data[0]}->{mail} ) {
+        qx(mailx -s '1381 Monitoring' $next{$data[0]}->{mail} <<EOM
 $next{$data[0]}->{whonice} is today's ($today) 1381 bucket monitor.
 EOM
 );
-} else {
-    print "Today's monitor is $next{$data[0]}->{who}\n";
+    } else {
+        print "$next{$data[0]}->{whonice} is today's ($today) 1381 bucket monitor.\n";
+    }
+}
+
+sub mkmail {
+    return join(' ', uniq(@_,@stdmail));
 }

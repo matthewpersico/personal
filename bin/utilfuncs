@@ -2,17 +2,80 @@
 
 # utilfuncs
 
-## Also defined in auditfuncs.
-if [ ! "$(type safe_func_export 2>/dev/null | head -1 | grep 'is a function')" = 'is a function' ]
+##################################################################################
+## Also defined in auditfuncs, as the first *funcs called. Keep then function bodies
+## in sync with those copies. But be aware that a utilfuncs-reload will NOT
+## reload your changes with all is-func-defined checks. Important if your are testing
+## changes to these functions.
+##################################################################################
+## Start predefs
+if [ -z "$(type is_func_defined 2>/dev/null | head -1 | grep 'is a function')" ]
+then
+    is_func_defined ()
+    {
+        ##@@ none||none||is_func_defined||Is arg1 defined as a function. Returns 0 for no, 1 for yes.
+        if [ -n "$(type $1 2>/dev/null | head -1 | grep 'is a function')" ]
+        then
+            return 1
+        else
+            return 0
+        fi
+    }
+fi
+
+is_func_defined safe_func_export
+if (($?==0))
 then
     safe_func_export ()
     {
+        ##@@ none||none||safe_func_export|||Examine the SHELL variable to see if export -f is supported. If so, do so on arg1.
         [ -n "$SHELL" ] && [ $(basename $SHELL) = "bash" ] && export -f $1
     }
     safe_func_export safe_func_export
 fi
+safe_func_export is_func_defined
+
+is_func_defined repl
+if (($?==0))
+then
+    repl ()
+    {
+        ##@@ none||none||repl||repl x N - replicate character 'X', N times. Use +n to get a newline.
+        local nl=''
+        if [ "$1" = '-n' ]
+        then
+            echo '-n not supported. repl does NOT print a newline by default.'
+            echo 'If you want a newline, use +n.'
+            return 1
+        fi
+
+        if [ "$1" = '+n' ]
+        then
+            nl=1
+            shift
+        fi
+
+        local char=$1
+        local rep=$2
+
+        if [ "$char" = '-' ]
+        then
+            printf "="'%.s' $(eval "echo {1.."$((${rep}))"}") | tr '=' "$char"
+        else
+            printf "${char}"'%.s' $(eval "echo {1.."$((${rep}))"}")
+        fi
+
+        [ -n "$nl" ] && echo;
+        return 0
+    }
+    safe_func_export repl
+fi
+
+## End predefs.
+##################################################################################
 
 UTILFUNCS_FILE=${BASH_SOURCE[0]}
+
 utilfuncs_edit ()
 {
     xo $UTILFUNCS_FILE
@@ -287,34 +350,143 @@ tail_number_strip ()
 }
 safe_func_export tail_number_strip
 
-repl ()
-{
-    ##@@ none||none||repl||repl x N - replicate character 'X', N times. Use +n to get a newline.
-    local nl=''
-    if [ "$1" = '-n' ]
-    then
-        echo '-n not supported. repl does NOT print a newline by default.'
-        echo 'If you want a newline, use +n.'
-        return 1
-    fi
+##
+## Bash array functions
+##
 
-    if [ "$1" = '+n' ]
+## References:
+## http://www.tech-recipes.com/rx/911/queue-and-stack-using-array/
+## http://stackoverflow.com/questions/12691121/bash-array-expansion-using-variable-indirection-expansion
+## http://stackoverflow.com/questions/23819839/assign-to-a-bash-array-variable-indirectly-by-dynamically-constructed-variable
+##     bash 4.3+: use declare -n to effectively create an alias ('nameref') of another variable
+
+bash_current_version_compare()
+{
+    ##@@ none||none||bash_current_version_compare||Compare current bash shell's version against the version in arg1. Return 255, 0, 1 accordingly (because -1 gets foobared in shell).
+    local other_bash_version
+    ## Can't use asplit here - catch 22
+    IFS='.' read -r -a array_alias <<< "$1"
+
+    local i
+    for i in 0 1 2 3
+    do
+        [ -z "${other_bash_version[$i]}" ] && other_bash_version[$i]=0
+        if (( ${BASH_VERSINFO[$i]} < ${other_bash_version[$i]} ))
+        then
+            return -1
+        fi
+        if (( ${BASH_VERSINFO[$i]} > ${other_bash_version[$i]} ))
+        then
+            return 1
+        fi
+    done
+    return 0
+}
+
+bash_current_version_compare 4.3
+comp=$?
+if ((comp==255))
+then
+    echo "Cannot define array functions that use declare -n in bash $BASH_VERSION. Must be >= 4.3"
+else
+
+## Don't indent or else imenu won't find the functions.
+
+asplit ()
+{
+    ##@@ none||none||asplit||Take the single string in arg3, split it by the string in arg2 and stuff it into the array named by arg1. arg2 is NOT a regexp.
+    declare -n array_alias="$1"
+    IFS="$2" read -r -a array_alias <<< "$3"
+}
+
+aclear ()
+{
+    declare -n array_alias="$1"
+    array_alias=()
+    return 0
+}
+safe_func_export aclear
+
+alength ()
+{
+    declare -n array_alias="$1"
+    echo ${#array_alias[@]}
+    return 0
+}
+safe_func_export alength
+
+alist ()
+{
+    local use_idx=0
+    if [ "$1" = '--idx' ]
     then
-        nl=1
+        use_idx=1
         shift
     fi
 
-    local char=$1
-    local rep=$2
-
-    if [ "$char" = '-' ]
+    declare -n array_alias="$1"
+    if [ "$use_idx" = 1 ]
     then
-        printf "="'%.s' $(eval "echo {1.."$((${rep}))"}") | tr '=' "$char"
+        for i in "${!array_alias[@]}"
+        do
+            printf "%s\t%s\n" "$i" "${array_alias[$i]}"
+        done
     else
-        printf "${char}"'%.s' $(eval "echo {1.."$((${rep}))"}")
+        for i in "${array_alias[@]}"
+        do
+            echo $i
+        done
     fi
-
-    [ -n "$nl" ] && echo;
     return 0
 }
-safe_func_export repl
+safe_func_export alist
+
+asplice ()
+{
+    declare -n array_alias="$1"; shift
+    local offset=0; [ -n "$1" ] && offset=$1 && shift
+    if (( $offset < 0 ))
+    then
+        ((offset=${#array_alias[@]}+$offset))
+    fi
+    local length=0; [ -n "$1" ] && length=$1 && shift
+    ((length+=1))
+
+    local removed=("${array_alias[@]:$offset:$length}")
+    alist removed
+    array_alias=("${array_alias[@]:0:$(($offset))}" "$@" "${array_alias[@]:$(($length+$offset))}")
+    return 0
+}
+
+apush ()
+{
+    local array_name="$1";shift
+    asplice $array_name $(alength $array_name) 0 "$@"
+    return $?
+}
+safe_func_export apush
+
+apop ()
+{
+    local array_name="$1";shift
+    asplice $array_name -1
+    return $?
+}
+safe_func_export apop
+
+ashift ()
+{
+    local array_name="$1";shift
+    asplice $array_name 0 1
+    return $?
+}
+safe_func_export ashift
+
+aunshift ()
+{
+    local array_name="$1";shift
+    asplice $array_name 0 0 "$@"
+    return $?
+}
+safe_func_export aunshift
+fi
