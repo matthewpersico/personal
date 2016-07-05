@@ -6,7 +6,7 @@ bin, lib, et. al. live. Also under there is dotfiles, which is the source for
 all my dot files and the location for the scripts I use to dotfiles and their
 links in sync.
 
-Right now, I use a chef recipe to spin up a VM. Initially, Once up, I logged
+Right now, I use a chef recipe to spin up a VM. Initially, once up, I logged
 in, git clone'ed this repo, ran dotfiles/makesymlinks and then, with luck, I
 would have an environment that I can use. Recently, however, I moved my home
 dir to remote mounted storage which survives VM rebuilds. But git clone and

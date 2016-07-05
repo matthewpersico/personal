@@ -12,7 +12,7 @@ usage ()
 logit [ --tee ] \\
       [ --log log_basename ] \\
       [ --dir log_directory ] \\
-      [ [--edit ] || --editor "command" ] \
+      [ [--edit ] || --editor "editorcommand" ] \\
       [ --purge | --purgeprior ] \\
       [ -- ] \\
       command [arg ..]
@@ -32,7 +32,15 @@ logit [ --help | -h ]
 
       --edit   - Run \$EDITOR ($EDITOR) on the log file when complete.
 
-      --editor - Run "command" on the log file when complete.
+      --edit-on-fail -
+                 Run \$EDITOR ($EDITOR) on the log file only if command fails.
+
+      --editor - Run the editor command "editorcommand" on the log file when
+                 complete.
+
+      --editor-on-fail -
+                 Run the editor command "editorcommand" on the log file only if
+                 command fails.
 
       --purge  - Remove all similarly named log files before
                  running the command.
@@ -56,12 +64,13 @@ logfile=''
 logdir=''
 teeit=0
 edit=''
+edit_on_fail=''
 purge=''
 
 original_argv="$0 $@"
 
 # Read the options and args from command line.
-OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,editor:,purge,purgeprior,help,cmd -n 'logit' -- "$@")
+OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,editor:,edit-on-fail,editor-on-fail:,purge,purgeprior,help, -n 'logit' -- "$@")
 status=$?
 if ((status != 0))
 then
@@ -96,6 +105,12 @@ while true ; do
             shift ;;
         --editor)
             edit="$2"
+            shift 2 ;;
+        --edit-on-fail)
+            edit_on_fail="$EDITOR"
+            shift ;;
+        --editor-on-fail)
+            edit_on_fail="$2"
             shift 2 ;;
         --purge)
             purge=all
@@ -254,6 +269,9 @@ echo "Exit status: $status"
 if [ -n "$edit" ]
 then
     $edit $logspec &
+elif [ ! "$status" = '0' ] && [ -n "$edit_on_fail" ]
+then
+    $edit_on_fail $logspec &
 fi
 
 exit $status

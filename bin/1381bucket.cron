@@ -8,7 +8,7 @@ use File::Slurp;
 use List::MoreUtils qw(uniq);
 use Getopt::Long;
 use FindBin qw($RealBin);
-
+use File::Spec::Functions qw(catfile);
 my %opt= (cat => 0,
           who => 0,
           predict => 0,
@@ -93,8 +93,17 @@ exit 0 if ($now->day_of_week() > 5);
 my $hol = catfile($opt{datadir}, "${name}.holidays");
 my $tdays = catfile($opt{datadir}, "${name}.tdays");
 my $today = $now->ymd('/');
-my %holidays = map { (split(/-/,$_))[0] => 1 } read_file($hol, {chomp => 1});
-exit if defined $holidays{$today};
+my %holidays = map { $_->[0] => $_->[1] } map { [ split(/-/,$_) ]} read_file($hol, {chomp => 1});
+if( defined $holidays{$today} ) {
+    if( $opt{mail} ) {
+        qx(mailx -s '1381 Monitoring - Holiday' @{[mkmail()]} <<EOM
+No 1381 Monitoring today. $today is $holidays{$today}.
+EOM
+);
+    }
+    exit 0;
+}
+
 my %tdays = (
     map { $_->[0] => $_->[1] }
       map { [split(/-/,$_)] }
@@ -114,6 +123,7 @@ if( @lines ) {
 }
 
 my $limit = scalar(keys(%next));
+
 while($limit>0) {
     my $n = $next{$data[0]}->{who};
     if (!exists($tdays{$today}->{$n})) {
@@ -134,13 +144,14 @@ if( $opt{predict} ) {
     print "The next monitor is $next{$data[0]}->{who}\n";
 } else {
     write_file($log, join("\n", reverse @lines));
+    my $it = "$next{$data[0]}->{whonice} is today's ($today) 1381 bucket monitor.";
     if( $opt{mail} && $next{$data[0]}->{mail} ) {
         qx(mailx -s '1381 Monitoring' $next{$data[0]}->{mail} <<EOM
-$next{$data[0]}->{whonice} is today's ($today) 1381 bucket monitor.
+$it
 EOM
 );
     } else {
-        print "$next{$data[0]}->{whonice} is today's ($today) 1381 bucket monitor.\n";
+        print "$it\n";
     }
 }
 

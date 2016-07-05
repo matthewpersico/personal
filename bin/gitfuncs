@@ -748,19 +748,17 @@ git-go ()
         echo "Matches only $REPOS. Going there."
         REPO=$REPOS
     else
-        if (($opt_list==1))
+        if (($opt_list))
         then
             local r
+            local gse
             for r in $REPOS
             do
-                echo '~'/$r
-            done
-        elif (($opt_list==2))
-        then
-            local r
-            for r in $REPOS
-            do
-                echo ~/$r
+                (($opt_list==1)) && echo -n '~'/${r}
+                (($opt_list==2)) && echo -n ~/${r}
+                gse=$(cd ~/$r; git-st-ext)
+                [ -n "$gse" ] && echo ':' && echo "    $gse"
+                [ -z "$gse" ] && echo
             done
         else
             REPOS=$(tail_number_add $REPOS)
@@ -882,7 +880,7 @@ git-close-branch ()
     local old_branch=$1
     if [ -z "$old_branch" ]
     then
-        local branchesa=($(git-branch-list))
+        local branchesa=($(git-branch-list --strip))
         if [ ${#branchesa[@]} == '0' ]
         then
             echo "No branches found. Are you in a git repo?"
@@ -944,7 +942,7 @@ git-delete-branch ()
     local current_branch=$(git-get-current-branch)
     if [ -z "$branch" ]
     then
-        local branchesa=($(git-branch-list))
+        local branchesa=($(git-branch-list --strip))
         if [ ${#branchesa[@]} == '0' ]
         then
             echo "No branches found. Are you in a git repo?"
@@ -992,7 +990,7 @@ git-delete-branch ()
         remotes=$(git remote)
         for remote in $remotes
         do
-            local inremote=$(git-branch-list -r | grep "$remote/$branch")
+            local inremote=$(git-branch-list --strip -r | grep "$remote/$branch")
             if [ -n "$inremote" ]
             then
                 local resp=$(yesno "Try deleting in remote $remote" n)
@@ -1180,7 +1178,7 @@ git-checkout ()
     local createbranch=''
     if [ -z "$newbranch" ]
     then
-        local branchesa=($(git-branch-list))
+        local branchesa=($(git-branch-list --strip))
         if [ ${#branchesa[@]} == '0' ]
         then
             echo "No branches found. Are you in a git repo?"
@@ -1544,7 +1542,6 @@ EOF
         else
             git status
             local resp=$(yesno "Stash" n)
-            echo  resp is $rep
             if [ "$resp" = 'n' ]
             then
                 echo "Will not proceed without a stash"
@@ -2329,7 +2326,7 @@ git-worktree-create ()
     ## you need to.
     ((verbose)) && echo '* Check for existing branch'
     local create_branch="-b"
-    local exists=$(git-branch-list $fetch_opt | grep $wt)
+    local exists=$(git-branch-list --strip $fetch_opt | grep $wt)
     if [ -n "$exists" ]
     then
         echo "* Branch $wt already exists. Using it."
@@ -2704,15 +2701,16 @@ git-branch-list ()
     ##@@ none||none||git-branch-list||
     gitfuncs_audit "$@"
 
-    local strip=1
+    local strip=0
     local remote=''
-    local OPTSARGS=$(getoptp -o r --long strip,nostrip,remote -n $FUNCNAME -- "$@")
+    local OPTSARGS=$(getoptp -o ra --long strip,nostrip,remote,all -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && echo "Exiting." && return $status
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
+            -a | --all) remote='-a'; shift;;
             -r | --remote) remote='-r'; shift;;
             --strip) strip=1; shift;;
             --nostrip) strip=0; shift;;
@@ -2724,10 +2722,10 @@ git-branch-list ()
     ## Update the local branches with remote
     git remote update
 
-    local opts="--list --no-color $remote"
+    local opts="--list $remote"
     if ((strip))
     then
-        git branch $opts | sed 's/.* //'
+        git branch --no-color $opts | sed 's/^[ *] //' | sed 's/ .*//'
     else
         git branch $opts
     fi
