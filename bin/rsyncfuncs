@@ -135,9 +135,9 @@ rsync2nfs ()
 }
 #nxport -f rsync2nfs
 
-NFSMACHINE=nylxdev1.dev.bloomberg.com
 rsyncvmgits ()
 {
+    set-nfsmachine; local status=$?; [ ! "$status" = 0 ] && return $status
     rsync2nfs -v --timestamp --target $NFSMACHINE:vmstashes/$(hostname)/mpersico5 ~/gits
     return $?
 }
@@ -151,10 +151,11 @@ rsyncvm-running()
         silent=1
     fi
 
+    set-nfsmachine; local status=$?; [ ! "$status" = 0 ] && return $status
     local target="$NFSMACHINE:vmstashes/$(hostname)"
     local running=$(mktemp --suffix=.rsyncvm-running)
     local ret
-    ps lxf | grep -E "COMMAND|rsync.*$target" | grep -v grep  > $running
+    ps lxf | grep -E "COMMAND|rsync.*$target" | grep -v grep > $running
     if [ "$(cat $running | wc -l)" != 1 ]
     then
         cat $running
@@ -212,6 +213,7 @@ rsyncvm ()
     done
 
     local status
+    set-nfsmachine; status=$?; [ ! "$status" = 0 ] && return $status
     local target="$NFSMACHINE:vmstashes/$(hostname)"
     rsyncvm-running -s > /tmp/rsyncvm.$$.runningcheck
     status=$?
@@ -240,6 +242,8 @@ rsyncvm-status ()
     date
     touch /tmp/now.rsyncvm-status
     ls -lart $RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.* /tmp/now.rsyncvm-status
+    set-nfsmachine; status=$?; [ ! "$status" = 0 ] && return $status
+    echo "~/.snapshot on $NFSMACHINE:"
     ssh $NFSMACHINE 'ls -la ~/.snapshot'
     rsyncvm-running | tee /tmp/rsyncvm-status.$$.runningcheck
     if [ ! "$(grep 'Not running' /tmp/rsyncvm-status.$$.runningcheck)" = 'Not running' ]
