@@ -490,3 +490,42 @@ aunshift ()
 }
 safe_func_export aunshift
 fi
+
+unset NFSMACHINE_LIST
+unset NFSMACHINE
+declare -a NFSMACHINE_LIST
+NFSMACHINE_LIST[0]=nylxdev1.dev.bloomberg.com
+NFSMACHINE_LIST[1]=nylxdev2.dev.bloomberg.com
+
+set-nfsmachine ()
+{
+    declare -a nfsmachine_list_local
+    nfsmachine_list_local=(${nfsmachine_list_local[@]})
+
+    while (( ${#nfsmachine_list_local[*]} ))
+    do
+        local idx=$(((RANDOM % ${#nfsmachine_list_local[*]})))
+        NFSMACHINE=${nfsmachine_list_local[$idx]}
+
+        ssh $NFSMACHINE "echo 'Connected!'" 1>/dev/null 2>/dev/null
+        if [ "$?" = '0' ]
+        then
+            return 0
+        else
+            unset NFSMACHINE
+            unset nfsmachine_list_local[$idx]
+        fi
+    done
+    echo "Cannot connect to an NFS machine"
+    return 1
+}
+
+check-nfs-machines ()
+{
+    local m
+    for m in ${NFSMACHINE_LIST[@]}
+    do
+        echo "Checking $m..."
+        ssh $m "echo 'Connected!'"
+    done
+}
