@@ -239,6 +239,7 @@ alias vmsync='rsyncvm '
 
 rsyncvm-status ()
 {
+    local opt_log=$1
     date
     touch /tmp/now.rsyncvm-status
     ls -lart $RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.* /tmp/now.rsyncvm-status
@@ -246,15 +247,13 @@ rsyncvm-status ()
     echo "~/.snapshot on $NFSMACHINE:"
     ssh $NFSMACHINE 'ls -la ~/.snapshot'
     rsyncvm-running | tee /tmp/rsyncvm-status.$$.runningcheck
-    if [ ! "$(grep 'Not running' /tmp/rsyncvm-status.$$.runningcheck)" = 'Not running' ]
+    local log=$(ls -rt -c1 $RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.* | tail -1)
+    if [ "$opt_log" = '--log' ]
     then
-        local rsyncpid=$(cat /tmp/rsyncvm-status.$$.runningcheck | tail -1 | cols -keep 2)
-        local log=$(grep -l "Command PID: $rsyncpid" $RSYNCFUNCS_LOG_HOME/* | sort -r | head -1)
-        if [ -n "$log" ]
-        then
-            tail -n +1 -f $log
-        fi
-        status=1
+        cat $log
+    elif [ ! "$(grep 'Not running' /tmp/rsyncvm-status.$$.runningcheck)" = 'Not running' ]
+    then
+        tail -n +1 -f $log
     fi
 }
 
