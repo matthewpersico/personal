@@ -414,7 +414,7 @@ git-process-changelog ()
 
     local changelogbkp="${changelog}.bkp"
 
-    local others=$(find $changelogdir -name ChangeLog | grep -v "$changelog")
+    local others=$(find $changelogdir -name $GITFUNCS_CHANGELOG_NAME | grep -v "$changelog")
     if [ -n "$others" ]
     then
         echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir."
@@ -2338,7 +2338,7 @@ git-worktree-create ()
     then
         echo "* Branch $wt already exists. Using it."
         create_branch=''
-        wtbranch="$wt"
+        wtbranch="$exists"
     elif [ "$fetch_existing" = '1' ]
     then
         echo "* Branch $wt does not exist to be fetched."
@@ -2378,27 +2378,11 @@ git-worktree-create ()
         ((verbose)) && echo "* git push --set-upstream $remote $wtbranch"
         git push --set-upstream $remote $wtbranch
     else
-        cat <<EOF
-**** What's the best way to pull the existing branch? Should we:
-     1) git push --set-upstream $remote $wtbranch
-        even though we did not create the branch and we have
-        nothing to push at this time?
-     2) git pull
-        to get the existing branch contents?
-     3) git checkout track -b $remote/$wtbranch
-        to track?
-     4) Modify the git worktree add command to account
-        for branch existance.
-
-     Obviously, we have done none of these. Figure out the best one.
-     Then for short term:
-        - Do it.
-        - $ touch $GITFUNCS_CHANGELOG_NAME;git-go-get
-
-     For long term:
-        - Fix git-worktree-create to DTRT.
-EOF
-    fi
+        ## Not convinced this is the optimal set of actions. Probably better to
+        ## modify or replace the add command.
+        git branch --track $wtsubdir $wtbranch
+        git checkout $wtsubdir
+     fi
 
     ## Add a ChangeLog
     touch $GITFUNCS_CHANGELOG_NAME
