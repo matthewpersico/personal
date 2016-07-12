@@ -10,7 +10,8 @@ safe_func_export gitfuncs_audit
 gitfuncs-edit ()
 {
     gitfuncs_audit "$@"
-    xo $GITFUNCS_FILE
+    local editor; editor=$(editor_opt xo "$@"); shift $?
+    $editor $GITFUNCS_FILE
 }
 
 gitfuncs-reload ()
@@ -98,6 +99,7 @@ git-st-por ()
     gitfuncs_audit "$@"
 
     local usage_func="${FUNCNAME}-usage"
+
     local opt_strip=0
     OPTSARGS=$(getoptp -o sh --long strip,help -n $FUNCNAME -- "$@")
     local status=$?
@@ -138,6 +140,7 @@ git-find ()
     gitfuncs_audit "$@"
 
     local usage_func="${FUNCNAME}-usage"
+
     local opt_untracked_only=0
     local opt_all=0
     OPTSARGS=$(getoptp -o auh --long all,untracked-only,help -n $FUNCNAME -- "$@")
@@ -196,6 +199,8 @@ git-status-with-changelog ()
     ##@@ none||none||git-status-with-changelog||Mix in $GITFUNCS_CHANGELOG_NAME text with correspoding file entries in git status.
     gitfuncs_audit "$@"
 
+    local usage_func="${FUNCNAME}-usage"
+
     ## All of the *-changelog functions work best in the git-root, which is
     ## where the $GITFUNCS_CHANGELOG_NAME is anyway
     local pwd=$(pwd)
@@ -213,7 +218,6 @@ git-status-with-changelog ()
         gr=''
     fi
 
-    local usage_func="${FUNCNAME}-usage"
     local diff
     local noless
     OPTSARGS=$(getoptp -o sh --long diff,noless,help -n $FUNCNAME -- "$@")
@@ -258,6 +262,8 @@ git-commit-with-changelog ()
     ##@@ none||none||git-commit-with-changelog||Use $GITFUNCS_CHANGELOG_NAME entries to create commit messages
     gitfuncs_audit "$@"
 
+    local usage_func="${FUNCNAME}-usage"
+
     ## All of the *-changelog functions work best in the git-root, which is
     ## where the $GITFUNCS_CHANGELOG_NAME is anyway
     local pwd=$(pwd)
@@ -275,11 +281,8 @@ git-commit-with-changelog ()
         gr=''
     fi
 
-    local usage_func="${FUNCNAME}-usage"
-
     local opt_a
     local opt_v
-
     ## Options first
     OPTSARGS=$(getoptp -o av -n $FUNCNAME -- "$@")
     status=$?
@@ -289,12 +292,8 @@ git-commit-with-changelog ()
     while true
     do
         case "$1" in
-            -a)
-                opt_a=$1
-                shift ;;
-            -v)
-                opt_v=$1
-                shift;;
+            -a) opt_a=$1; shift ;;
+            -v) opt_v=$1; shift ;;
             -h) $usage_func; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return 1 ;;
@@ -323,6 +322,8 @@ git-process-changelog ()
     ##@@ none||none||git-process-changelog||'Guts' function for *-with-changelog functions
     gitfuncs_audit "$@"
 
+    local usage_func="${FUNCNAME}-usage"
+
     ## All of the *-changelog functions work best in the git-root, which is
     ## where the $GITFUNCS_CHANGELOG_NAME is anyway
     local pwd=$(pwd)
@@ -333,8 +334,6 @@ git-process-changelog ()
     else
         gr=''
     fi
-
-    local usage_func="${FUNCNAME}-usage"
 
     local action='read'
     local parse_flag=''
@@ -685,6 +684,8 @@ git-go ()
     ##@@ none||none||git-go||
     gitfuncs_audit "$@"
 
+    local usage_func="${FUNCNAME}-usage"
+
     local PS3="Choose by number, q to quit: "
     local opt_list=0
     local opt_update=0
@@ -694,7 +695,7 @@ git-go ()
     local opt_subwt_only=0
     local OPTSARGS=$(getoptp -o lurmh --long list,update,roots,mbig,wt,nowt,subwt,help,listfull -n $FUNCNAME -- "$@")
     status=$?
-    ((status != 0)) && git-go-usage && return $status
+    ((status != 0)) && $usage_func && return $status
     eval set -- "$OPTSARGS"
     while true
     do
@@ -707,9 +708,9 @@ git-go ()
             --wt) opt_wt=1; shift ;;
             --nowt) opt_wt=0; shift ;;
             --subwt) opt_subwt_only=1; shift ;;
-            -h|--help) git-go-usage; return 0 ;;
+            -h|--help) $usage_func; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; git-go-usage; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return 1 ;;
         esac
     done
 
@@ -740,7 +741,6 @@ git-go ()
     if [ -z "$REPOS" ]
     then
         echo $tgt does not match any repo
-        git-go-usage
         return 1
     fi
     if [ "$(echo $REPOS | wc -w)" = '1' ]
@@ -835,9 +835,11 @@ git-rename-branch ()
     ##@@ none||none||git-rename-branch||
     gitfuncs_audit "$@"
 
+    local usage_func="${FUNCNAME}-usage"
+
     if (($#!=2))
     then
-        git-rename-branch-usage
+        $usage_func
         return 1
     fi
 
@@ -845,7 +847,7 @@ git-rename-branch ()
     local new_branch=$1; shift
     if (($#))
     then
-        git-rename-branch-usage
+        $usage_func
         echo "       argument(s) '$*' are illegal"
         return 1
     fi
@@ -1284,11 +1286,7 @@ git-check-with-remote ()
     gitfuncs_audit "$@"
 
     local usage_func="${FUNCNAME}-usage"
-    local iam=${FUNCNAME[0]}
-    if [ "${FUNCNAME[1]}" = 'git-check-with-master' ]
-    then
-        iam=git-check-with-master
-    fi
+    local iam=$(func-name-spoof)
 
     local opt_branch=''
     local opt_remote='origin'
@@ -1312,7 +1310,7 @@ git-check-with-remote ()
     if [ -z "$opt_branch" ]
     then
         echo "--branch required"
-        git-check-with-remote-usage $iam
+        $usage_func $iam
         return 1
     fi
 
@@ -1457,20 +1455,18 @@ git-sync-with-remote ()
     ##@@ none||none||git-sync-with-remote||
     gitfuncs_audit "$@"
 
+    local usage_func="${FUNCNAME}-usage"
+    local iam=$(func-name-spoof)
+
     local opt_branch=''
     local opt_remote='origin'
     local opt_confirm='0'
     local opt_stash='0'
     local do_stash='0'
 
-    local iam=${FUNCNAME[0]}
-    if [ "${FUNCNAME[1]}" = 'git-sync-with-master' ]
-    then
-        iam=git-sync-with-master
-    fi
     local OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,confirm -n $iam -- "$@")
     status=$?
-    ((status != 0)) && git-sync-with-remote-usage && return $status
+    ((status != 0)) && $usage_func && return $status
     eval set -- "$OPTSARGS"
     while true
     do
@@ -1479,16 +1475,16 @@ git-sync-with-remote ()
             -c|--confirm) opt_confirm=1; shift;;
             -r|--remote) opt_remote="$2"; shift; shift ;;
             -b|--branch) opt_branch="$2"; shift; shift ;;
-            -h|--help) git-sync-with-remote-usage $iam; return 0 ;;
+            -h|--help) $usage_func $iam; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; git-sync-with-remote-usage $iam; return 1 ;;
+            *) echo "Internal error!"; $usage-func $iam; return 1 ;;
         esac
     done
 
     if [ -z "$opt_branch" ]
     then
         echo "--branch required"
-        git-sync-with-remote-usage $iam
+        $usage-func $iam
         return 1
     fi
 
@@ -1533,7 +1529,7 @@ EOF
     fi
 
     ## Stash any modified items before checking and proceeding.
-    local needs_stash=$(git-is-staged && git-is-unstaged | wc -w)
+    local needs_stash=$(echo $(git-is-staged && git-is-unstaged) | wc -w)
     if ((needs_stash))
     then
         if ((opt_stash))
@@ -1716,7 +1712,16 @@ EOF
         if [ "$resp" = 'y' ]
         then
             git stash pop
-            return $?
+            status=$?
+            if ((status != 0))
+            then
+                cat <<EOF
+It appears that the stash pop failed. There may be conflicts. Once you fix the
+conflictsmay be that you decided not to force the push since you still have
+work to do,in which case you will want to pop the latest stash.
+EOF
+                return $?
+            fi
         fi
     fi
 
@@ -2271,11 +2276,13 @@ git-worktree-create ()
 {
     ##@@ none||none||git-worktree-create||
     gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
 
     local verbose=1
     local fetch_existing=0
     local fetch_opt=''
     local status=0
+
     ## Make sure pwd ends in wt
     if [[ ! "$(pwd)" =~ /wt$ ]]
     then
@@ -2300,7 +2307,7 @@ git-worktree-create ()
     if [ -z "$1" ]
     then
         echo '* Need a branch name to use for the worktree spec.'
-        git-worktree-create-usage
+        $usage_func
         return 1
     fi
     local wt=$1
@@ -2425,13 +2432,9 @@ git-delete-worktree ()
     ##@@ none||none||git-delete-worktree||
     gitfuncs_audit "$@"
 
-    local iam=${FUNCNAME[0]}
-    if [ "${FUNCNAME[1]}" = 'git-delete-current-worktree' ]
-    then
-        iam=${FUNCNAME[1]}
-    fi
-
     local usage_func="${FUNCNAME}-usage"
+    local iam=$(func-name-spoof)
+
     local opt_force=0
     OPTSARGS=$(getoptp -o sh --long force,help -n $FUNCNAME -- "$@")
     local status=$?
@@ -2517,9 +2520,10 @@ git-delete-worktree ()
 
     ## Now the take care of the branch.
     local resp=$(pick  "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
-    if [ "$resp" != 'k' ]
+    if [ "$resp" = 'k' ]
     then
-
+        echo "If you change your mind: git-[close|delete]-branch $current_branch"
+    else
         ## Have to be in a git repo to do this.
         while [ "$(basename $(pwd))" != 'wt' ]
         do
@@ -2652,9 +2656,11 @@ git-add-remote ()
     ##@@ none||none||git-add-remote||
     gitfuncs_audit "$@"
 
+    local usage_func="${FUNCNAME}-usage"
+
     if [ "$#" != '2' ]
     then
-        git-add-remote-usage; return 1
+        $usage_func; return 1
     fi
     local proto=$1; shift
     local remote=$1; shift
