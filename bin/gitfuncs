@@ -1782,40 +1782,54 @@ diff specific files between two branches:
 EOF
 }
 
-bbgithub-fork-and-clone ()
+any-fork-and-clone-usage ()
 {
-    ##@@ none||none||bbgithub-fork-and-clone||
-    gitfuncs_audit "$@"
-
-    local proto=bbgithub
-    if [ -z "$1" ]
+    local cmd=$1;shift
+    local protocol=$1
+    local protocolarg=$1
+    if [ -z "$protocol" ]
     then
-        cat <<EOUSAGE
-Usage: bbgithub-fork-and-clone namespace repo
-       forks $proto:namespace/repo
-       to    $proto:$USER/repo
-       then clones to 'repo' in a directory path
-       ending in $proto/$USER, which must be the pwd.
+        protocol='protocol'
+        protocolarg='protocol'
+    else
+        protocolarg=''
+    fi
+
+    cat <<EOUSAGE
+Usage: $cmd $protocolarg namespace repo
+       Forks $protocol:namespace/repo
+       to    $protocol:$USER/repo
+       then clones to a directory path $gitfuncs_gitroot/$protocol/$USER/repo.
+       Directory $gitfuncs_gitroot/$protocol must already exist.
 
        If the fork already exists, and all you want
        to do is make a new local clone, run this command
        anyway. It will not re-fork.
 
 EOUSAGE
-        return 1
-    fi
+    return 0
+}
+
+any-fork-and-clone ()
+{
+    ##@@ none||none||any-fork-and-clone||Provide protocol along with namespace and repo
+    gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
+
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return 1
+    local protocol=$1;shift
     local namespace=$1;shift
     local repo=$1;shift
     local cwpath=$(realpath $(pwd))
     local local_namespace=$(basename $cwpath)
-    local local_proto=$(basename $(dirname $cwpath))
+    local local_protocol=$(basename $(dirname $cwpath))
     if [ "$local_namespace" != "$USER" ] || \
-           [ "$local_proto" != "$proto" ]
+           [ "$local_protocol" != "$protocol" ]
     then
         echo "You must be in a local directory path ending in"
-        echo "   $proto/$USER"
+        echo "   $protocol/$USER"
         echo "You are in $cwpath"
-        local shouldbein="$gitfuncs_gitroot/$proto/$USER"
+        local shouldbein="$gitfuncs_gitroot/$protocol/$USER"
         if [ ! -d $shouldbein ]
         then
             echo "Cannot find '$shouldbein'."
@@ -1833,10 +1847,10 @@ EOUSAGE
         fi
     fi
 
-    local cmd="glow clone-fork $proto:$namespace/$repo"
+    local cmd="glow clone-fork $protocol:$namespace/$repo"
     ## does the fork of namespace/repo to user/repo
     ## clones user/repo to repo
-    ## does git remote add upstream $proto:namespace/repo
+    ## does git remote add upstream $protocol:namespace/repo
     echo $cmd ...
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
@@ -1878,38 +1892,63 @@ EOUSAGE
     ## Add this repo to the list
     git-go-set
 }
-alias fork-and-clone-bbgithub='bbgithub-fork-and-clone '
 
-_guts_clone ()
+bbgithub-fork-and-clone ()
 {
+    ##@@ none||none||bbgithub-fork-and-clone||
     gitfuncs_audit "$@"
 
-    if [ -z "$1" ]
+    local protocol=bbgithub
+    local usage_func="any-fork-and-clone-usage"
+
+    [ -z "$1" ] && $usage_func ${FUNCNAME[0]} bbgithub && return 1
+
+    any-fork-and-clone bbgithub "$@"
+    return $?
+}
+alias fork-and-clone-bbgithub='bbgithub-fork-and-clone '
+
+any-clone-usage ()
+{
+    local cmd=$1;shift
+    local protocol=$1
+    local protocolarg=$1
+    if [ -z "$protocol" ]
     then
-        echo "Usage: _guts_clone proto namespace repo"
-        echo "       pwd must match |/proto\$|"
-        return 1
+        protocol='protocol'
+        protocolarg='protocol'
+    else
+        protocolarg=''
     fi
 
-    local proto=$1;shift
+    cat <<EOUSAGE
+Usage: $cmd $protocolarg namespace repo
+       Clones $protocol:namespace/repo
+       to a directory path $gitfuncs_gitroot/$protocol/namespace/repo.
+       Directory $gitfuncs_gitroot/$protocol must already exist.
 
-    if [ -z "$1" ]
-    then
-        echo "Usage: ${proto}_clone namespace repo"
-        echo "       pwd must match |/$proto\$|"
-        return 1
-    fi
+EOUSAGE
+    return 0
+}
 
+any-clone ()
+{
+    ##@@ none||none||any-clone||Provide protocol along with namespace and repo
+    gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
+
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return 1
+    local protocol=$1;shift
     local namespace=$1;shift
     local repo=$1;shift
     local cwpath=$(realpath $(pwd))
-    local local_proto=$(basename $cwpath)
-    if [ "$local_proto" != "$proto" ]
+    local local_protocol=$(basename $cwpath)
+    if [ "$local_protocol" != "$protocol" ]
     then
         echo "You must be in a local directory path ending in"
-        echo "   $proto"
+        echo "   $protocol"
         echo "You are in $cwpath"
-        local shouldbein="$gitfuncs_gitroot/$proto"
+        local shouldbein="$gitfuncs_gitroot/$protocol"
         if [ ! -d $shouldbein ]
         then
             echo "Cannot find '$shouldbein'."
@@ -1927,9 +1966,9 @@ _guts_clone ()
         fi
     fi
 
-    if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
+    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
     then
-        echo "$proto is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
         return 1
     fi
 
@@ -1941,7 +1980,7 @@ _guts_clone ()
         rm -rf $tgt
     fi
 
-    local cmd="git clone ${gitfuncs_gitsvcs[$proto]}$namespace/$repo $namespace/$repo"
+    local cmd="git clone ${gitfuncs_gitsvcs[$protocol]}$namespace/$repo $namespace/$repo"
     echo $cmd ...
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
@@ -1954,30 +1993,42 @@ _guts_clone ()
     git-go-set
 }
 
-devgit-clone ()
-{
-    ##@@ none||none||devgit-clone||
-    gitfuncs_audit "$@"
-
-    _guts_clone devgit "$@"
-}
-alias git-clone-devgit='devgit-clone '
-
 bbgithub-clone ()
 {
     ##@@ none||none||bbgithub-clone||
     gitfuncs_audit "$@"
 
-    _guts_clone bbgithub "$@"
+    local usage_func="any-clone-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} bbgithub && return 1
+
+    any-clone bbgithub "$@"
+    return $?
 }
 alias git-clone-bbgithub='bbgithub-clone '
+
+devgit-clone ()
+{
+    ##@@ none||none||devgit-clone||
+    gitfuncs_audit "$@"
+
+    local usage_func="any-clone-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} devgit && return 1
+
+    any-clone devgit "$@"
+    return $?
+}
+alias git-clone-devgit='devgit-clone '
 
 github-clone ()
 {
     ##@@ none||none||github-clone||
     gitfuncs_audit "$@"
 
-    _guts_clone github "$@"
+    local usage_func="any-clone-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return 1
+
+    any-clone github "$@"
+    return $?
 }
 alias git-clone-github='github-clone '
 
@@ -1986,63 +2037,58 @@ bitbucket-clone ()
     ##@@ none||none||bitbucket-clone||
     gitfuncs_audit "$@"
 
-    _guts_clone bitbucket "$@"
+    local usage_func="any-clone-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} bitbucket && return 1
+
+    any-clone bitbucket "$@"
+    return $?
 }
 alias git-clone-bitbucket='bitbucket-clone '
 
-_guts-whack ()
+any-whack-usage ()
 {
+    local cmd=$1;shift
+    local protocol=$1
+    local protocolarg=$1
+    if [ -z "$protocol" ]
+    then
+        protocol='protocol'
+        protocolarg='protocol'
+    else
+        protocolarg=''
+    fi
+
+    cat <<EOUSAGE
+Usage: $cmd $protocolarg namespace repo
+       Whacks local repo $gitfuncs_gitroot/$protocol/namespace/repo.
+       Asks about corresponding remote.
+EOUSAGE
+    return 0
+}
+
+any-whack ()
+{
+    ##@@ none||none||any-clone||Provide protocol along with namespace and repo
     gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
 
-    if [ -z "$1" ]
-    then
-        echo "Usage: _guts-whack proto namespace repo"
-        echo "       pwd must match |/proto\$|"
-        return 1
-    fi
-
-    local proto=$1;shift
-
-    if [ -z "$1" ]
-    then
-        echo "Usage: ${proto}-whack namespace repo"
-        echo "       pwd must match |/$proto\$|"
-        return 1
-    fi
-
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return 1
+    local protocol=$1;shift
     local namespace=$1;shift
-    repo=$(basename $namespace) ## Trailing / whacking...
     local repo=$1;shift
-    repo=$(basename $repo)
-    if [ -z "$repo" ]
-    then
-        echo "Usage: ${proto}-whack namespace repo"
-        echo "       Did you namespace/repo?"
-        return 1
-    fi
-
     local cwpath=$(realpath $(pwd))
-    local local_proto=$(basename $cwpath)
-    if [ "$local_proto" != "$proto" ]
-    then
-        echo "You must be in a local directory path ending in"
-        echo "   $proto"
-        echo "You are in $cwpath"
-        echo "Correct and re-execute."
-        return 1
-    fi
 
-    if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
+    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
     then
-        echo "$proto is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
         return 1
     fi
     (
         ## subshell to avoid cd issues
 
         ## Go to what we want to whack, to make sure it's there...
-        echo gitgo $proto/$namespace/$repo
-        gitgo $proto/$namespace/$repo
+        echo gitgo $protocol/$namespace/$repo
+        gitgo $protocol/$namespace/$repo
         status=$?
         if ((status==0))
         then
@@ -2071,34 +2117,42 @@ _guts-whack ()
     return $status
 }
 
-devgit-whack ()
-{
-    ##@@ none||none||devgit-whack||
-    gitfuncs_audit "$@"
-
-    _guts-whack devgit "$@"
-}
-alias devgit-whack='devgit-whack '
-alias git-whack_devgit='devgit-whack '
-alias git-whack-devgit='devgit-whack '
-
 bbgithub-whack ()
 {
     ##@@ none||none||bbgithub-whack||
     gitfuncs_audit "$@"
 
-    _guts-whack bbgithub "$@"
+    local usage_func="any-whack-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} bbgithub && return 1
+
+    any_whack bbgithub "$@"
+    return $?
 }
-alias bbgithub-whack='bbgithub-whack '
-alias git-whack_bbgithub='bbgithub-whack '
 alias git-whack-bbgithub='bbgithub-whack '
+
+devgit-whack ()
+{
+    ##@@ none||none||devgit-whack||
+    gitfuncs_audit "$@"
+
+    local usage_func="any-whack-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} devgit && return 1
+
+    any_whack devgit "$@"
+    return $?
+}
+alias git-whack-devgit='devgit-whack '
 
 github-whack ()
 {
     ##@@ none||none||github-whack||
     gitfuncs_audit "$@"
 
-    _guts-whack github "$@"
+    local usage_func="any-whack-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return 1
+
+    any_whack github "$@"
+    return $?
 }
 alias github-whack='github-whack '
 alias git-whack_github='github-whack '
@@ -2109,7 +2163,11 @@ bitbucket-whack ()
     ##@@ none||none||bitbucket-whack||
     gitfuncs_audit "$@"
 
-    _guts-whack bitbucket "$@"
+    local usage_func="any-whack-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} bitbucket && return 1
+
+    any_whack bitbucket "$@"
+    return $?
 }
 alias bitbucket-whack='bitbucket-whack '
 alias git-whack_bitbucket='bitbucket-whack '
@@ -2627,8 +2685,8 @@ git-worktree-diff-from-root ()
 git-add-remote-usage ()
 {
     cat <<EOF
-usage: git-add-remote proto namespace"
-       Adds proto:namespace/current_repo"
+usage: git-add-remote protocol namespace"
+       Adds protocol:namespace/current_repo"
        as a remote named 'namespace'."
        Use this to get at people's"
        branches on a repo fork."
@@ -2646,10 +2704,10 @@ git-add-remote ()
     then
         $usage_func; return 1
     fi
-    local proto=$1; shift
+    local protocol=$1; shift
     local remote=$1; shift
     current_repo=$(git-get-current-repo-name)
-    git remote add $remote $proto:$remote/$current_repo
+    git remote add $remote $protocol:$remote/$current_repo
     local $status=$?
     if (( $status == 0 ))
     then
@@ -2893,21 +2951,21 @@ git-merge-pull-request ()
         echo "       'protocol' is one of 'bbgithub', 'github', 'bitbucket"
         return 1
     fi
-    local proto=$1;shift
-    if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
+    local protocol=$1;shift
+    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
     then
-        echo "$proto is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
         return 1
     fi
 
     if [ -z "$1" ]
     then
-        echo "Usage: ${proto}-merge-pull-request org repo user prbranch"
+        echo "Usage: ${protocol}-merge-pull-request org repo user prbranch"
         echo "       Merge the branch 'prbranch' from user/repo"
         echo "       into the 'master' branch in a local clone of"
         echo "       org/repo."
         echo
-        echo "       ${proto}-merge-pull-request org repo prbranch"
+        echo "       ${protocol}-merge-pull-request org repo prbranch"
         echo "       Merge the branch 'prbranch' from org/repo"
         echo "       into the 'master' branch in a local clone of"
         echo "       org/repo. WARNING - INCOMPLETE IMPLEMENTATION"
@@ -2941,8 +2999,8 @@ git-merge-pull-request ()
         merge_src='origin'
     fi
 
-    echo "* Clone $proto:$namepsace/repo..."
-    ${proto}-clone $namespace $repo
+    echo "* Clone $protocol:$namepsace/repo..."
+    ${protocol}-clone $namespace $repo
     local status=$?
     ((status)) && return $status
 
@@ -2954,12 +3012,12 @@ git-merge-pull-request ()
 
     if [ "$merge_src" = 'remote' ]
     then
-        echo "* Add $proto:$user/$repo as a remote"
-        git remote add $user $proto:$user/$repo
+        echo "* Add $protocol:$user/$repo as a remote"
+        git remote add $user $protocol:$user/$repo
         status=$?
         ((status)) && return $status
 
-        echo "* Fetch only the pull request branch ($prbranch) from $proto:$user/$repo"
+        echo "* Fetch only the pull request branch ($prbranch) from $protocol:$user/$repo"
         git fetch $user $prbranch
         status=$?
         ((status)) && return $status
@@ -2981,8 +3039,8 @@ git-merge-pull-request ()
         echo "   should match then entry from 'Current last commit on master branch'."
         echo
     else
-        echo "* Fetch only the pull request branch ($prbranch) from $proto:$namespace/$repo"
-        git fetch $proto:$namespace/$repo $prbranch
+        echo "* Fetch only the pull request branch ($prbranch) from $protocol:$namespace/$repo"
+        git fetch $protocol:$namespace/$repo $prbranch
         status=$?
         ((status)) && return $status
 
@@ -2997,15 +3055,19 @@ git-merge-pull-request ()
         return 1
     fi
 
-    local resp=$(yesno "Should push back up to ${proto} with 'git push origin HEAD:master'")
+    local resp=$(yesno "Should push back up to ${protocol} with 'git push origin HEAD:master'")
     local retval
     if [ "$resp" = 'y' ]
     then
         pwd
         git push origin HEAD:master
         retval=$?
+        if [ "$retval" = '0' ]
+        then
+            git checkout master
+            retval=$?
+        fi
     else
-
         echo "Ok. Remember to 'git push origin HEAD:master' soon before the master head advances."
         retval=0
     fi
@@ -3115,7 +3177,7 @@ git-delete-repo ()
     fi
 
     ## Make sure it's clean.
-    if [ -d wt ]
+    if [ -d wt ] && [ "$(ls wt | wc -l)" != '0' ]
     then
         echo "wt subdir found:"
         ls -la wt
