@@ -1,0 +1,101 @@
+# -*- sh -*-
+
+# dpkgfuncs
+
+DPKGFUNCS_FILE=${BASH_SOURCE[0]}
+
+auditfuncs_init $DPKGFUNCS_FILE
+safe_func_export dpkgfuncs_audit
+
+. $(which controlfuncs_build) $DPKGFUNCS_FILE
+
+dpkg-test-build-usage ()
+{
+    echo "Usage: dpkg-test-build [--src srcdir ] [ --build builddir ]"
+    echo "       dpkg-test-build --help|-h"
+    echo
+    echo "       Inits a temp directory and builds a package from"
+    echo "       code in the current directory. Prints the names"
+    echo "       of the logs and the products produced."
+    echo
+    echo "       '--src srcdir' will override using the current"
+    echo "       directory as source."
+    echo
+    echo "       '--build builddir' will create, init and build"
+    echo "       in the requested directory. If it already exists"
+    echo "       and is inited, it will be used."
+}
+
+dpkg-test-build ()
+{
+    ##@@ none||none||dpkg-test-build||
+    dpkgfuncs_audit "$@"
+
+    func-echo 'Working...'
+
+    local usage_func="${FUNCNAME}-usage"
+
+    local srcdir
+    local builddir
+    OPTSARGS=$(getoptp -o s:b:h --long src:,build:,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -s|--src) srcdir=$(realpath $2); shift; shift ;;
+            -b|--build) builddir=$(realpath $2); shift; shift ;;
+            -h|--help) $usage_func; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
+
+    [ -z "$srcdir" ] && srcdir=$(pwd)
+    [ -z "$builddir" ] && builddir=$(mktemp -d)
+
+    [ ! -d "$srcdir" ] \
+        && func-echo "$srcdir not found, or not a directory" && return 1;
+    [ ! -d "${srcdir}/debian" ] \
+        && func-echo "$srcdir/debian not found" && return 1;
+    [ ! -d $builddir ] && (mkdir -p $builddir || return 1);
+    (
+        builtin cd $builddir || return $?
+        dpkg-distro-dev init . || return $?
+        local logf=$(mktemp --tmp distro-dev-build.log.XXXXXXXXXX)
+        dpkg-distro-dev build $srcdir 2>&1 | tee $logf
+        local rc=$(grep 'Build failed with status' $logf | \
+                          perl -ne '/.*Build failed with status (\d+).*/;
+                                      $x=$1||0;chomp $x;print("$x\n")'| \
+                          sort -u)
+        if ((rc))
+        then
+            func-echo 'Error logs:'
+            grep 'build failure, log at: ' $logf | sed 's/.* //'
+        fi
+        return $rc
+    )
+    local rc=$?
+    func-echo --head "Build dir $builddir:"
+    \ls -lart $builddir
+    func-echo --head 'Logs:'
+    find $builddir -name \*\.log\*
+    func-echo --head 'Products:'
+    local oldpkg
+    for i in $(find ${builddir}/data -name \*\.deb | sort)
+    do
+        pkg=$(echo $i | sed 's|.*/||' | sed 's/\+.*//')
+        if [ ! "$oldpkg" = "$pkg" ]
+        then
+            oldpkg=$pkg
+            echo
+            echo -e "${ANSI_underline}$pkg${ANSI_reset}"
+        fi
+        echo $i
+        find ${builddir}/data -name "$pkg\.*"
+    done
+
+    return $rc
+}

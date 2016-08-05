@@ -7,27 +7,14 @@ GITFUNCS_FILE=${BASH_SOURCE[0]}
 auditfuncs_init $GITFUNCS_FILE
 safe_func_export gitfuncs_audit
 
-gitfuncs-edit ()
-{
-    gitfuncs_audit "$@"
-    local editor; editor=$(editor_opt xo "$@"); shift $?
-    $editor $GITFUNCS_FILE
-}
-
-gitfuncs-reload ()
-{
-    gitfuncs_audit "$@"
-    . $GITFUNCS_FILE
-}
-alias gitfuncs-load=gitfuncs-reload
-
-gitfuncs-help () {
-    help_strings $GITFUNCS_FILE "$@"
-}
+. $(which controlfuncs_build) $GITFUNCS_FILE
 
 GITFUNCS_CHANGELOG_NAME=mopChangeLog
 export GITFUNCS_CHANGELOG_NAME
 
+##
+## gitfuncs environment stuff
+##
 gitfuncs_gitroot_MBIG=${HOME}/MBIG
 gitfuncs_gitroot=${HOME}/gits
 gitfuncs_githook_root=${HOME}/.git_template
@@ -39,8 +26,9 @@ gitfuncs_gitsvcs[devgit]='devgit:'
 gitfuncs_gitsvcs[github]='https://github.com/'
 gitfuncs_gitsvcs[bitbucket]='https://bitbucket.org/'
 
-## This will be checked on each login and any time gitfuncs-reload is run. It's
-## only ever executed when logging into a vm just after creation.
+## This will be checked on each login and any time gitfuncs-reload is
+## run. However, it's only ever executed when logging into a system where the
+## home directory has never been used.
 if [ ! -e $gitfuncs_gitroot ]
 then
     echo "gits dir not set up. Setting up..."
@@ -64,7 +52,6 @@ be your own namespace, unless you have directly cloned a 'master' repo.
 EOF
 fi
 
-
 ##
 ## Random aliases
 ##
@@ -73,6 +60,7 @@ alias gitpush='git push '
 alias git-grep='git grep '
 alias gitgrep='git grep '
 alias gitnp='git --no-pager '
+alias git-clean='git clean -e wt/ '
 
 ##
 ## Goodies
@@ -196,31 +184,15 @@ git-find-conflicts ()
 
 git-status-with-changelog ()
 {
-    ##@@ none||none||git-status-with-changelog||Mix in $GITFUNCS_CHANGELOG_NAME text with correspoding file entries in git status.
+    ##@@ none||none||git-status-with-changelog||Mix in $GITFUNCS_CHANGELOG_NAME text with corresponding file entries in git status.
     gitfuncs_audit "$@"
 
     local usage_func="${FUNCNAME}-usage"
 
-    ## All of the *-changelog functions work best in the git-root, which is
-    ## where the $GITFUNCS_CHANGELOG_NAME is anyway
-    local pwd=$(pwd)
-    local gr=$(git-root)
-    if [ ! "$pwd" = "$gr" ]
-    then
-        echo "Current directory ($pwd) is not the git root ($gr)"
-        local resp=$(yesno "Go there?")
-        if [ "$resp" = 'n' ]
-        then
-            return 1
-        fi
-        _git_cd_go $gr  || return $?
-    else
-        gr=''
-    fi
-
     local diff
     local noless
-    OPTSARGS=$(getoptp -o sh --long diff,noless,help -n $FUNCNAME -- "$@")
+    local cdok=0
+    OPTSARGS=$(getoptp -o sh --long diff,noless,cdok,help -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -228,6 +200,7 @@ git-status-with-changelog ()
     while true
     do
         case "$1" in
+            --cdok) cdok=1; shift ;;
             --diff) diff='--diff'; shift ;;
             --noless) noless='--noless'; shift ;;
             -h|--help) $usage_func; return 0 ;;
@@ -235,6 +208,26 @@ git-status-with-changelog ()
             *) echo "Internal error!"; $usage_func; return 1 ;;
         esac
     done
+
+    ## All of the *-changelog functions work best in the git-root, which is
+    ## where the $GITFUNCS_CHANGELOG_NAME is anyway
+    local pwd=$(pwd)
+    local gr=$(git-root)
+    if [ ! "$pwd" = "$gr" ]
+    then
+        if ((!cdok))
+        then
+            echo "Current directory ($pwd) is not the git root ($gr)"
+            local resp=$(func-yesno "Go there")
+            if [ "$resp" = 'n' ]
+            then
+                return 1
+            fi
+        fi
+        _git_cd_go $gr  || return $?
+    else
+        gr=''
+    fi
 
     local args="$@"
     if [ -z "$args" ]
@@ -271,7 +264,7 @@ git-commit-with-changelog ()
     if [ ! "$pwd" = "$gr" ]
     then
         echo "Current directory ($pwd) is not the git root ($gr)"
-        local resp=$(yesno "Go there?")
+        local resp=$(func-yesno "Go there")
         if [ "$resp" = 'n' ]
         then
             return 1
@@ -675,7 +668,7 @@ git-go-usage ()
     echo "           in repos. This is the default."
     echo "       --nowt will not add them."
     echo
-    echo "       'dirmatch' will filter the list"
+    echo "       'dirmatch' will filter the list using grep"
     echo
 }
 
@@ -693,7 +686,8 @@ git-go ()
     local opt_mbig=0
     local opt_wt=1
     local opt_subwt_only=0
-    local OPTSARGS=$(getoptp -o lurmh --long list,update,roots,mbig,wt,nowt,subwt,help,listfull -n $FUNCNAME -- "$@")
+    local opt_i
+    local OPTSARGS=$(getoptp -o ilurmh --long list,update,roots,mbig,wt,nowt,subwt,help,listfull -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
     eval set -- "$OPTSARGS"
@@ -995,7 +989,7 @@ git-delete-branch ()
             local inremote=$(git-branch-list --strip -r | grep "$remote/$branch")
             if [ -n "$inremote" ]
             then
-                local resp=$(yesno "Try deleting in remote $remote" n)
+                local resp=$(func-yesno "Try deleting in remote $remote" n)
                 if [ "$resp" == 'y' ]
                 then
                     git push --delete $remote $branch ## This should not fail
@@ -1206,7 +1200,7 @@ git-checkout ()
                     done
                     if [ -d './wt' ]
                     then
-                        local resp=$(yesno "As a worktree" y)
+                        local resp=$(func-yesno "As a worktree" y)
                         if [ "$resp" == 'y' ]
                         then
                             builtin cd ./wt || return $?
@@ -1371,7 +1365,7 @@ EOF
             echo Exiting.
             return 1
         else
-            local resp=$(yesno "Do you want to continue anyway" n)
+            local resp=$(func-yesno "Do you want to continue anyway" n)
             if [ "$resp" == 'n' ]
             then
                 return 1
@@ -1477,13 +1471,13 @@ git-sync-with-remote ()
             -b|--branch) opt_branch="$2"; shift; shift ;;
             -h|--help) $usage_func $iam; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage-func $iam; return 1 ;;
+            *) func-echo "Internal error!"; $usage-func $iam; return 1 ;;
         esac
     done
 
     if [ -z "$opt_branch" ]
     then
-        echo "--branch required"
+        func-echo "--branch required"
         $usage-func $iam
         return 1
     fi
@@ -1494,6 +1488,7 @@ git-sync-with-remote ()
 
     if [ "$cb" == '' ]
     then
+        func-echo
         cat <<EOF
 
 $iam is used to keep your current git repo DEVELOPMENT branch in your local
@@ -1511,6 +1506,7 @@ EOF
 
     if [ "$cb" == "$opt_branch" ]
     then
+        func-echo
         cat <<EOF
 
 $iam is used to keep your current git repo DEVELOPMENT branch in your local
@@ -1537,10 +1533,10 @@ EOF
             do_stash=1
         else
             git status
-            local resp=$(yesno "Stash" n)
+            local resp=$(func-yesno "Stash" n)
             if [ "$resp" = 'n' ]
             then
-                echo "Will not proceed without a stash"
+                func-echo "Will not proceed without a stash"
                 return 1
             else
                 do_stash=1
@@ -1549,7 +1545,7 @@ EOF
     else
         if ((opt_stash))
         then
-            echo "stash not needed"
+            func-echo "stash not needed"
         fi
     fi
     if ((do_stash))
@@ -1564,6 +1560,9 @@ EOF
         fi
     fi
 
+    ## Grab head of log
+    local oldsha=$(git-log-grab-sha -1)
+
     ## Check the local branch against its origin
     stcheck=$(mktemp --suffix=.git-sync-with-remote)
     git status 1>$stcheck 2>&1
@@ -1571,16 +1570,18 @@ EOF
     status=$?
     if [ "$status" != '0' ]
     then
+        func-echo
         cat $stcheck
         cat <<EOF
 Your branch should be up to date with its origin in order to simplify the
 rebase.
 EOF
-        local resp=$(yesno "Do you want to continue anyway" n)
+        local resp=$(func-yesno "Do you want to continue anyway" n)
         if [ "$resp" == 'n' ]
         then
             if ((do_stash))
             then
+                func-echo 'Stash pop...'
                 git stash pop
             fi
             return 0
@@ -1590,56 +1591,61 @@ EOF
     local ok_to_pull=1
     ((opt_confirm)) && ok_to_pull=0
 
+    func-echo 'Fetching to check...'
     git fetch ${opt_remote} ${opt_branch}
 
-    local diffout=$(mktemp --suffix=.gf-syr)
-    git diff ...${opt_remote} > $diffout 2>&1
-    local diffc=$(cat $diffout | wc -l)
+    local diffoutput=$(mktemp --suffix=.gf-syr)
+    git diff ...${opt_remote} > $diffoutput 2>&1
+    local diffc=$(cat $diffoutput | wc -l)
     if ((diffc)) && ((opt_confirm))
     then
-        echo "===== diffs ====="
-        cat $diffout
-        \rm $diffout
+        func-echo --head "===== diffs ====="
+        cat $diffoutput
+        \rm $diffoutput
     fi
 
-    local logout=$(mktemp --suffix=.gf-syr)
-    git log ...${opt_remote} > $logout 2>&1
-    local logc=$(cat $logout | wc -l)
+    local logoutput=$(mktemp --suffix=.gf-syr)
+    git log ...${opt_remote} > $logoutput 2>&1
+    local logc=$(cat $logoutput | wc -l)
     if ((logc)) && ((opt_confirm))
     then
         ((diffc)) && echo
-        echo "=====  log  ====="
-        cat $logout
-        \rm $logout
+        func-echo "=====  log  ====="
+        cat $logoutput
+        \rm $logoutput
     fi
 
     if ((diffc)) || ((logc))
     then
         if ((opt_confirm))
         then
-            local resp=$(yesno "Ok to pull" n)
+            local resp=$(func-yesno "Ok to pull" n)
             if [ "$resp" == 'n' ]
             then
                 if ((do_stash))
                 then
+                    func-echo 'Stash pop...'
                     git stash pop
                     return 0
                 fi
             fi
         fi
     else
-        echo "No difference with remote. Exiting."
+        func-echo "No difference with remote."
         if ((do_stash))
         then
+            func-echo 'Stash pop...'
             git stash pop
-            return 0
         fi
+        return 0
     fi
 
+    func-echo 'Pulling to sync...'
     git pull --rebase ${opt_remote} ${opt_branch}
     status=$?
     if [ ! "$status" = '0' ]
     then
+        func-echo
         cat <<EOF
 
 It appears the pull --rebase was not successful. Assuming the issue was not a
@@ -1666,18 +1672,24 @@ Then push the branch up to your fork so you can submit a pull request.
 EOF
         if ((do_stash))
         then
-            echo "Leaving stash stashed so a not to further complicate the issue"
+            func-echo "Leaving stash stashed so a not to further complicate the issue"
         fi
         return 1
     fi
 
-    echo
-    echo "pull --rebase successful. Pushing..."
+    ## Grab head of log
+    local newsha=$(git-log-grab-sha -1)
+
+    ## Show log
+    func-echo --head 'Log after pull:'
+    git-log-shas-range $oldsha $newsha
+
+    func-echo --head "pull --rebase successful. Pushing..."
     git push
     status=$?
     if [ "$status" != '0' ]
     then
-        resp=$(yesno "'git push' complained. Shall I re-push with --force" n)
+        resp=$(func-yesno "'git push' complained. Shall I re-push with --force" n)
         if [ "$resp" = 'y' ]
         then
             git push --force
@@ -1688,12 +1700,14 @@ EOF
     local ask_pop=0
     if [ ! "$status" = '0' ]
     then
+        func-echo
         cat <<EOF
 It appears that the git push was not successful and you declined to use --force,
 or the --force was also unsuccessful.
 EOF
         if ((do_stash))
         then
+            func-echo
             cat <<EOF
 It may be that you decided not to force the push since you still have work to do,
 in which case you will want to pop the latest stash.
@@ -1707,14 +1721,16 @@ EOF
         resp='y'
         if ((ask_pop))
         then
-            resp=$(yesno "Shall I pop the last git stash" n)
+            resp=$(func-yesno "Shall I pop the last git stash" n)
         fi
         if [ "$resp" = 'y' ]
         then
+            func-echo 'Stash pop...'
             git stash pop
             status=$?
             if ((status != 0))
             then
+                func-echo
                 cat <<EOF
 It appears that the stash pop failed. There may be conflicts. Once you fix the
 conflictsmay be that you decided not to force the push since you still have
@@ -1782,50 +1798,64 @@ diff specific files between two branches:
 EOF
 }
 
-bbgithub-fork-and-clone ()
+any-fork-and-clone-usage ()
 {
-    ##@@ none||none||bbgithub-fork-and-clone||
-    gitfuncs_audit "$@"
-
-    local proto=bbgithub
-    if [ -z "$1" ]
+    local cmd=$1;shift
+    local protocol=$1
+    local protocolarg=$1
+    if [ -z "$protocol" ]
     then
-        cat <<EOUSAGE
-Usage: bbgithub-fork-and-clone namespace repo
-       forks $proto:namespace/repo
-       to    $proto:$USER/repo
-       then clones to 'repo' in a directory path
-       ending in $proto/$USER, which must be the pwd.
+        protocol='protocol'
+        protocolarg='protocol'
+    else
+        protocolarg=''
+    fi
+
+    cat <<EOUSAGE
+Usage: $cmd $protocolarg namespace repo
+       Forks $protocol:namespace/repo
+       to    $protocol:$USER/repo
+       then clones to a directory path $gitfuncs_gitroot/$protocol/$USER/repo.
+       Directory $gitfuncs_gitroot/$protocol must already exist.
 
        If the fork already exists, and all you want
        to do is make a new local clone, run this command
        anyway. It will not re-fork.
 
 EOUSAGE
-        return 1
-    fi
+    return 0
+}
+
+any-fork-and-clone ()
+{
+    ##@@ none||none||any-fork-and-clone||Provide protocol along with namespace and repo
+    gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
+
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return 1
+    local protocol=$1;shift
     local namespace=$1;shift
     local repo=$1;shift
     local cwpath=$(realpath $(pwd))
     local local_namespace=$(basename $cwpath)
-    local local_proto=$(basename $(dirname $cwpath))
+    local local_protocol=$(basename $(dirname $cwpath))
     if [ "$local_namespace" != "$USER" ] || \
-           [ "$local_proto" != "$proto" ]
+           [ "$local_protocol" != "$protocol" ]
     then
-        echo "You must be in a local directory path ending in"
-        echo "   $proto/$USER"
-        echo "You are in $cwpath"
-        local shouldbein="$gitfuncs_gitroot/$proto/$USER"
+        func-echo "You must be in a local directory path ending in"
+        func-echo "   $protocol/$USER"
+        func-echo "You are in $cwpath"
+        local shouldbein="$gitfuncs_gitroot/$protocol/$USER"
         if [ ! -d $shouldbein ]
         then
-            echo "Cannot find '$shouldbein'."
-            echo "Correct and re-execute."
+            func-echo "Cannot find '$shouldbein'."
+            func-echo "Correct and re-execute."
             return 1
         else
-            local resp=$(yesno "cd to $shouldbein")
+            local resp=$(func-yesno "cd to $shouldbein")
             if [ "$resp" = 'n' ]
             then
-                echo "Correct and re-execute."
+                func-echo "Correct and re-execute."
                 return 1
             else
                 dirlist $shouldbein
@@ -1833,11 +1863,11 @@ EOUSAGE
         fi
     fi
 
-    local cmd="glow clone-fork $proto:$namespace/$repo"
+    local cmd="glow clone-fork $protocol:$namespace/$repo"
     ## does the fork of namespace/repo to user/repo
     ## clones user/repo to repo
-    ## does git remote add upstream $proto:namespace/repo
-    echo $cmd ...
+    ## does git remote add upstream $protocol:namespace/repo
+    func-echo $cmd ...
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
 
@@ -1851,24 +1881,25 @@ EOUSAGE
 
     if [ -n "$master_exists" ]
     then
-        echo 'Dumping the origin master in favor of the upstream master...'
-        echo git checkout -b temp
-        echo status=$?; [ "$status" != '0' ] && return $status
+        func-echo --head  "WARNING: UNTESTED. NO COMMANDS ONLY ECHOS!!!"
+        func-echo 'Dumping the origin master in favor of the upstream master...'
+        func-echo git checkout -b temp
+        func-echo status=$?; [ "$status" != '0' ] && return $status
 
-        echo git branch -d master
-        echo status=$?; [ "$status" != '0' ] && return $status
+        func-echo git branch -d master
+        func-echo status=$?; [ "$status" != '0' ] && return $status
 
-        echo git branch -r -d origin/master
-        echo status=$?; [ "$status" != '0' ] && return $status
+        func-echo git branch -r -d origin/master
+        func-echo status=$?; [ "$status" != '0' ] && return $status
 
-        echo git checkout --track upstream/master
-        echo status=$?; [ "$status" != '0' ] && return $status
+        func-echo git checkout --track upstream/master
+        func-echo status=$?; [ "$status" != '0' ] && return $status
 
-        echo git checkout master
-        echo status=$?; [ "$status" != '0' ] && return $status
+        func-echo git checkout master
+        func-echo status=$?; [ "$status" != '0' ] && return $status
 
-        echo git branch -d temp
-        echo status=$?; [ "$status" != '0' ] && return $status
+        func-echo git branch -d temp
+        func-echo status=$?; [ "$status" != '0' ] && return $status
     fi
 
     echo "Setting up for worktrees..."
@@ -1878,45 +1909,70 @@ EOUSAGE
     ## Add this repo to the list
     git-go-set
 }
-alias fork-and-clone-bbgithub='bbgithub-fork-and-clone '
 
-_guts_clone ()
+bbgithub-fork-and-clone ()
 {
+    ##@@ none||none||bbgithub-fork-and-clone||
     gitfuncs_audit "$@"
 
-    if [ -z "$1" ]
+    local protocol=bbgithub
+    local usage_func="any-fork-and-clone-usage"
+
+    [ -z "$1" ] && $usage_func ${FUNCNAME[0]} bbgithub && return 1
+
+    any-fork-and-clone bbgithub "$@"
+    return $?
+}
+alias fork-and-clone-bbgithub='bbgithub-fork-and-clone '
+
+any-clone-usage ()
+{
+    local cmd=$1;shift
+    local protocol=$1
+    local protocolarg=$1
+    if [ -z "$protocol" ]
     then
-        echo "Usage: _guts_clone proto namespace repo"
-        echo "       pwd must match |/proto\$|"
-        return 1
+        protocol='protocol'
+        protocolarg='protocol'
+    else
+        protocolarg=''
     fi
 
-    local proto=$1;shift
+    cat <<EOUSAGE
+Usage: $cmd $protocolarg namespace repo
+       Clones $protocol:namespace/repo
+       to a directory path $gitfuncs_gitroot/$protocol/namespace/repo.
+       Directory $gitfuncs_gitroot/$protocol must already exist.
 
-    if [ -z "$1" ]
-    then
-        echo "Usage: ${proto}_clone namespace repo"
-        echo "       pwd must match |/$proto\$|"
-        return 1
-    fi
+EOUSAGE
+    return 0
+}
 
+any-clone ()
+{
+    ##@@ none||none||any-clone||Provide protocol along with namespace and repo
+    gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
+
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return 1
+    local protocol=$1;shift
     local namespace=$1;shift
     local repo=$1;shift
     local cwpath=$(realpath $(pwd))
-    local local_proto=$(basename $cwpath)
-    if [ "$local_proto" != "$proto" ]
+    local local_protocol=$(basename $cwpath)
+    if [ "$local_protocol" != "$protocol" ]
     then
         echo "You must be in a local directory path ending in"
-        echo "   $proto"
+        echo "   $protocol"
         echo "You are in $cwpath"
-        local shouldbein="$gitfuncs_gitroot/$proto"
+        local shouldbein="$gitfuncs_gitroot/$protocol"
         if [ ! -d $shouldbein ]
         then
             echo "Cannot find '$shouldbein'."
             echo "Correct and re-execute."
             return 1
         else
-            local resp=$(yesno "cd to $shouldbein")
+            local resp=$(func-yesno "cd to $shouldbein")
             if [ "$resp" = 'n' ]
             then
                 echo "Correct and re-execute."
@@ -1927,21 +1983,21 @@ _guts_clone ()
         fi
     fi
 
-    if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
+    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
     then
-        echo "$proto is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
         return 1
     fi
 
     local tgt="$namespace/$repo"
     if [ -e $tgt ]
     then
-        local resp=$(yesno "'$tgt' exists. Will not clone over it. Remove it." n)
+        local resp=$(func-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
         [ "$resp" = 'n' ] && return 1
         rm -rf $tgt
     fi
 
-    local cmd="git clone ${gitfuncs_gitsvcs[$proto]}$namespace/$repo $namespace/$repo"
+    local cmd="git clone ${gitfuncs_gitsvcs[$protocol]}$namespace/$repo $namespace/$repo"
     echo $cmd ...
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
@@ -1954,30 +2010,42 @@ _guts_clone ()
     git-go-set
 }
 
-devgit-clone ()
-{
-    ##@@ none||none||devgit-clone||
-    gitfuncs_audit "$@"
-
-    _guts_clone devgit "$@"
-}
-alias git-clone-devgit='devgit-clone '
-
 bbgithub-clone ()
 {
     ##@@ none||none||bbgithub-clone||
     gitfuncs_audit "$@"
 
-    _guts_clone bbgithub "$@"
+    local usage_func="any-clone-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} bbgithub && return 1
+
+    any-clone bbgithub "$@"
+    return $?
 }
 alias git-clone-bbgithub='bbgithub-clone '
+
+devgit-clone ()
+{
+    ##@@ none||none||devgit-clone||
+    gitfuncs_audit "$@"
+
+    local usage_func="any-clone-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} devgit && return 1
+
+    any-clone devgit "$@"
+    return $?
+}
+alias git-clone-devgit='devgit-clone '
 
 github-clone ()
 {
     ##@@ none||none||github-clone||
     gitfuncs_audit "$@"
 
-    _guts_clone github "$@"
+    local usage_func="any-clone-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return 1
+
+    any-clone github "$@"
+    return $?
 }
 alias git-clone-github='github-clone '
 
@@ -1986,63 +2054,58 @@ bitbucket-clone ()
     ##@@ none||none||bitbucket-clone||
     gitfuncs_audit "$@"
 
-    _guts_clone bitbucket "$@"
+    local usage_func="any-clone-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} bitbucket && return 1
+
+    any-clone bitbucket "$@"
+    return $?
 }
 alias git-clone-bitbucket='bitbucket-clone '
 
-_guts-whack ()
+any-whack-usage ()
 {
+    local cmd=$1;shift
+    local protocol=$1
+    local protocolarg=$1
+    if [ -z "$protocol" ]
+    then
+        protocol='protocol'
+        protocolarg='protocol'
+    else
+        protocolarg=''
+    fi
+
+    cat <<EOUSAGE
+Usage: $cmd $protocolarg namespace repo
+       Whacks local repo $gitfuncs_gitroot/$protocol/namespace/repo.
+       Asks about corresponding remote.
+EOUSAGE
+    return 0
+}
+
+any-whack ()
+{
+    ##@@ none||none||any-clone||Provide protocol along with namespace and repo
     gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
 
-    if [ -z "$1" ]
-    then
-        echo "Usage: _guts-whack proto namespace repo"
-        echo "       pwd must match |/proto\$|"
-        return 1
-    fi
-
-    local proto=$1;shift
-
-    if [ -z "$1" ]
-    then
-        echo "Usage: ${proto}-whack namespace repo"
-        echo "       pwd must match |/$proto\$|"
-        return 1
-    fi
-
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return 1
+    local protocol=$1;shift
     local namespace=$1;shift
-    repo=$(basename $namespace) ## Trailing / whacking...
     local repo=$1;shift
-    repo=$(basename $repo)
-    if [ -z "$repo" ]
-    then
-        echo "Usage: ${proto}-whack namespace repo"
-        echo "       Did you namespace/repo?"
-        return 1
-    fi
-
     local cwpath=$(realpath $(pwd))
-    local local_proto=$(basename $cwpath)
-    if [ "$local_proto" != "$proto" ]
-    then
-        echo "You must be in a local directory path ending in"
-        echo "   $proto"
-        echo "You are in $cwpath"
-        echo "Correct and re-execute."
-        return 1
-    fi
 
-    if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
+    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
     then
-        echo "$proto is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
         return 1
     fi
     (
         ## subshell to avoid cd issues
 
         ## Go to what we want to whack, to make sure it's there...
-        echo gitgo $proto/$namespace/$repo
-        gitgo $proto/$namespace/$repo
+        echo gitgo $protocol/$namespace/$repo
+        gitgo $protocol/$namespace/$repo
         status=$?
         if ((status==0))
         then
@@ -2071,34 +2134,42 @@ _guts-whack ()
     return $status
 }
 
-devgit-whack ()
-{
-    ##@@ none||none||devgit-whack||
-    gitfuncs_audit "$@"
-
-    _guts-whack devgit "$@"
-}
-alias devgit-whack='devgit-whack '
-alias git-whack_devgit='devgit-whack '
-alias git-whack-devgit='devgit-whack '
-
 bbgithub-whack ()
 {
     ##@@ none||none||bbgithub-whack||
     gitfuncs_audit "$@"
 
-    _guts-whack bbgithub "$@"
+    local usage_func="any-whack-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} bbgithub && return 1
+
+    any_whack bbgithub "$@"
+    return $?
 }
-alias bbgithub-whack='bbgithub-whack '
-alias git-whack_bbgithub='bbgithub-whack '
 alias git-whack-bbgithub='bbgithub-whack '
+
+devgit-whack ()
+{
+    ##@@ none||none||devgit-whack||
+    gitfuncs_audit "$@"
+
+    local usage_func="any-whack-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} devgit && return 1
+
+    any_whack devgit "$@"
+    return $?
+}
+alias git-whack-devgit='devgit-whack '
 
 github-whack ()
 {
     ##@@ none||none||github-whack||
     gitfuncs_audit "$@"
 
-    _guts-whack github "$@"
+    local usage_func="any-whack-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return 1
+
+    any_whack github "$@"
+    return $?
 }
 alias github-whack='github-whack '
 alias git-whack_github='github-whack '
@@ -2109,7 +2180,11 @@ bitbucket-whack ()
     ##@@ none||none||bitbucket-whack||
     gitfuncs_audit "$@"
 
-    _guts-whack bitbucket "$@"
+    local usage_func="any-whack-usage"
+    [ -z "$1" ] && $usage_func ${FUNCNAME} bitbucket && return 1
+
+    any_whack bitbucket "$@"
+    return $?
 }
 alias bitbucket-whack='bitbucket-whack '
 alias git-whack_bitbucket='bitbucket-whack '
@@ -2169,6 +2244,26 @@ git-what-is-modified ()
         echo 'Files altered, both staged and not staged for commit'
     else
         git-status-parse --staged --unstaged
+    fi
+}
+alias git-is-modified='git-what-is-modified '
+alias git-is-mod='git-what-is-modified '
+
+git-what-is-modified-only ()
+{
+    ##@@ none||none||git-what-is-modified-only||git-what-is-modified sans what is deleted
+    gitfuncs_audit "$@"
+
+    if [ -n "$1" ]
+    then
+        echo 'Files altered, both staged and not staged for commit, without deleted files'
+    else
+        local deleted=$(ajoin '|' $(git-what-is-deleted))
+        local modified
+        for mod in $(git-what-is-modified)
+        do
+            echo $mod | grep -v -E "$deleted";
+        done
     fi
 }
 alias git-is-modified='git-what-is-modified '
@@ -2290,9 +2385,9 @@ git-worktree-create ()
         then
             builtin cd ./wt
         else
-            echo "* Current directory is $(pwd)."
-            echo '* No wt subdir.'
-            echo '* Will not manipulate worktrees outside of wt dir. Aborting.'
+            func-echo "Current directory is $(pwd)."
+            func-echo 'No wt subdir.'
+            func-echo 'Will not manipulate worktrees outside of wt dir. Aborting.'
             return 1
         fi
     fi
@@ -2306,7 +2401,7 @@ git-worktree-create ()
 
     if [ -z "$1" ]
     then
-        echo '* Need a branch name to use for the worktree spec.'
+        func-echo 'Need a branch name to use for the worktree spec.'
         $usage_func
         return 1
     fi
@@ -2316,13 +2411,13 @@ git-worktree-create ()
     local remote=$1
     [ -n "$remote" ] && shift
     [ -z "$remote" ] && remote=origin
-    echo "* Using '$remote' as remote."
+    func-echo "Using '$remote' as remote."
 
-    ((verbose)) && echo '* Check for existing worktrees with same name'
+    ((verbose)) && func-echo 'Check for existing worktrees with same name'
     wtdir="$(pwd)/$wt"
     if [ -e $wtdir ]
     then
-        echo "* $wtdir already exists. Aborting."
+        func-echo "$wtdir already exists. Aborting."
         return 1
     fi
 
@@ -2331,17 +2426,17 @@ git-worktree-create ()
 
     ## TODO: Allow for suffix to append to worktree name so you can dup them if
     ## you need to.
-    ((verbose)) && echo '* Check for existing branch'
+    ((verbose)) && func-echo 'Check for existing branch'
     local create_branch="-b"
     local exists=$(git-branch-list --strip $fetch_opt | grep $wt)
     if [ -n "$exists" ]
     then
-        echo "* Branch $wt already exists. Using it."
+        func-echo "Branch $wt already exists. Using it."
         create_branch=''
         wtbranch="$exists"
     elif [ "$fetch_existing" = '1' ]
     then
-        echo "* Branch $wt does not exist to be fetched."
+        func-echo "Branch $wt does not exist to be fetched."
         return 1
     else
         ## Since this worktree is going to create a branch of the local master,
@@ -2349,10 +2444,10 @@ git-worktree-create ()
         ## to date.
         if [ "$(git-get-current-branch)" != 'master' ]
         then
-            echo "* Will not create a branch and worktree from a non-master branch"
+            func-echo "Will not create a branch and worktree from a non-master branch"
             return 1
         fi
-        echo "* Checking local master, starting point for branch."
+        func-echo "Checking local master, starting point for branch."
         git pull
         status=$?
         ((status)) && return 1 ## assuming the error message will be printed to
@@ -2360,22 +2455,22 @@ git-worktree-create ()
     fi
 
     ## Now create the work tree and create/fetch the branch.
-    ((verbose)) && echo "* git worktree add $create_branch $wtsubdir $wtbranch"
+    ((verbose)) && func-echo "git worktree add $create_branch $wtsubdir $wtbranch"
     git worktree add $create_branch "$wtsubdir" "$wtbranch"
     status=$?
     if ((status))
     then
-        echo "* Aborting."
+        func-echo "Aborting."
         return 1
     fi
 
-    ((verbose)) && echo "* cd $wtsubdir"
+    ((verbose)) && func-echo "cd $wtsubdir"
     ## dirlist, not builtin cd, to take advantage this cd enhancement
     dirlist $wtsubdir
 
     if [ -n "$create_branch" ]
     then
-        ((verbose)) && echo "* git push --set-upstream $remote $wtbranch"
+        ((verbose)) && func-echo "git push --set-upstream $remote $wtbranch"
         git push --set-upstream $remote $wtbranch
     else
         ## Not convinced this is the optimal set of actions. Probably better to
@@ -2385,7 +2480,7 @@ git-worktree-create ()
      fi
 
     ## Add a ChangeLog
-    touch $GITFUNCS_CHANGELOG_NAME
+    touch $(git-root)/$GITFUNCS_CHANGELOG_NAME
 
     ## Add this repo to the list
     git-go-set
@@ -2435,6 +2530,7 @@ git-delete-worktree ()
         esac
     done
 
+    func-echo --head 'Working...'
     local opwd=$(pwd)
     local worktree=$1;
     local worktreefull=$(realpath $1);
@@ -2445,7 +2541,7 @@ git-delete-worktree ()
     ## Make sure we are in a proper worktree.
     if [ ! -f .git ] || [[ ! "$(pwd)" =~ /wt/ ]]
     then
-        echo "$worktree is not a proper worktree for deletion"
+        func-echo "$worktree is not a proper worktree for deletion"
         return 1
     fi
 
@@ -2457,7 +2553,7 @@ git-delete-worktree ()
         then
             git status
             echo
-            echo "Will not delete current worktree. Clean worktree or re-run command with --force."
+            func-echo "Will not delete current worktree. Clean worktree or re-run command with --force."
             return 1
         fi
     fi
@@ -2465,26 +2561,27 @@ git-delete-worktree ()
     ## Current branch
     local current_branch=$(git-get-current-branch)
 
-    ## Confirm
+    ## Checking cleanliness and consistency
     local current_dir=$(basename $(pwd))
     if [ "$current_branch" != "$current_dir" ]
     then
-        echo "Branch '$current_branch' does not match current subdir '$current_dir'."
-        echo "I'm bailing; you fix this mess."
+        func-echo "Branch '$current_branch' does not match current subdir '$current_dir'."
+        func-echo "I'm bailing; you fix this mess."
         return 1
     fi
     git status
     local rc=$?
-    local resp=$(yesno "git status returned $rc. Continue with deletion");
-    if [ "$resp" = 'n' ]
+    if ((rc))
     then
-        return 0
+        func-echo "git status returned non-success value $rc."
+        func-echo "I'm bailing; you fix this mess."
+        return 1
     fi
 
     ## Whack it. Start with the current dir.
     local delit=$(basename $(pwd))
     builtin cd ..
-    \rm -r $delit; (( $? != 0 )) && echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
+    \rm -r $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
 
     ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
     ## get to first, and stop deleting.
@@ -2495,18 +2592,20 @@ git-delete-worktree ()
             #it's empty
             delit=$(basename $(pwd))
             builtin cd ..
-            \rm -r $delit; (( $? != 0 )) && echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
+            \rm -r $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
         fi
     done
 
+    func-echo 'Local repo deleted.'
     ## Now fix the administrative files.
     git worktree prune
+    func-echo 'Local admin files updated.'
 
     ## Now the take care of the branch.
-    local resp=$(pick  "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
+    local resp=$(func-pick "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
     if [ "$resp" = 'k' ]
     then
-        echo "If you change your mind: git-[close|delete]-branch $current_branch"
+        func-echo "If you change your mind: git-[close|delete]-branch $current_branch"
     else
         ## Have to be in a git repo to do this.
         while [ "$(basename $(pwd))" != 'wt' ]
@@ -2549,14 +2648,14 @@ git-worktree-root ()
     local in_a_wt=$(git-in-a-worktree)
     if (( in_a_wt == 1 ))
     then
-        echo "Must be in a wt"
+        func-echo "Must be in a wt"
         return 1;
     fi
 
     local files=$(git ls-files)
     if [ -z "$files" ]
     then
-        echo "No git files found. Is current dir '$(pwd)' a git repo?"
+        func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
         return 1;
     fi
 
@@ -2590,14 +2689,14 @@ git-worktree-diff-to-root ()
     local in_a_wt=$(git-in-a-worktree)
     if (( in_a_wt == 1 ))
     then
-        echo "Must be in a wt"
+        func-echo "Must be in a wt"
         return 1;
     fi
 
     local files=$(git ls-files)
     if [ -z "$files" ]
     then
-        echo "No git files found. Is current dir '$(pwd)' a git repo?"
+        func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
         return 1;
     fi
 
@@ -2627,8 +2726,8 @@ git-worktree-diff-from-root ()
 git-add-remote-usage ()
 {
     cat <<EOF
-usage: git-add-remote proto namespace"
-       Adds proto:namespace/current_repo"
+usage: git-add-remote protocol namespace"
+       Adds protocol:namespace/current_repo"
        as a remote named 'namespace'."
        Use this to get at people's"
        branches on a repo fork."
@@ -2646,10 +2745,10 @@ git-add-remote ()
     then
         $usage_func; return 1
     fi
-    local proto=$1; shift
+    local protocol=$1; shift
     local remote=$1; shift
     current_repo=$(git-get-current-repo-name)
-    git remote add $remote $proto:$remote/$current_repo
+    git remote add $remote $protocol:$remote/$current_repo
     local $status=$?
     if (( $status == 0 ))
     then
@@ -2661,22 +2760,25 @@ alias git-remote-add='git_add_remote'
 
 alias git-remotes='git remote -v '
 
-git-state ()
+git-status ()
 {
-    ##@@ none||none||git-state||
+    ##@@ none||none||git-status||
     gitfuncs_audit "$@"
 
-    (echo
-    echo "=== Latest log entry:"
-    git log -1
-    echo
-    echo "=== Status:"
-    local short=$(git-st-ext)
-    [ -n "$short" ] && echo "--- Short: $short"
-    echo "--- Long:"
-    git-st-cl --noless "$@") | less -RE
+    git-root || return 1
+    (
+        echo
+        func-echo "=== Latest log entry:"
+        git log -1
+        echo
+        func-echo "=== Status:"
+        local short=$(git-st-ext)
+        [ -n "$short" ] && func-echo "--- Short: $short"
+        func-echo "--- Long:"
+        git-st-cl --noless --cdok "$@"
+    ) | less -RE
 }
-alias git-st='git-state '
+alias git-st='git-status '
 
 git-get-current-repo-name ()
 {
@@ -2695,7 +2797,7 @@ git-branch-list ()
     local remote=''
     local OPTSARGS=$(getoptp -o ra --long strip,nostrip,remote,all -n $FUNCNAME -- "$@")
     status=$?
-    ((status != 0)) && echo "Exiting." && return $status
+    ((status != 0)) && func-echo "Exiting." && return $status
     eval set -- "$OPTSARGS"
     while true
     do
@@ -2727,10 +2829,26 @@ git-logg ()
     ##@@ none||none||git-logg||
     gitfuncs_audit "$@"
 
-    git log --all --graph --pretty=format:'%Cred%h%Creset -%C(auto)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative
+    git log --all --graph --pretty=format:'%Cred%h%Creset -%d %s (%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative
 }
 
-alias git-clean='git clean -e wt/ '
+git-log-grab-sha ()
+{
+    ##@@ none||none||git-log-grab-sha||Grab a commit from log output. Provide either a number or a sha or both.
+    gitfuncs_audit "$@"
+
+    git log "$@" | grep '^commit' | tail -1 | perl -pe 's/commit\s+//'
+}
+
+git-log-shas-range ()
+{
+    ##@@ none||none||git-log-shas||Given two shas (older newer), call git log on the range, inclusively
+    gitfuncs_audit "$@"
+    [ -z "$2" ] && echo "Usage: git-log-sha-range oldersha newersha" && return 1;
+    git log ${1}..${2}
+    [ ! "$1" = "$2" ] && echo
+    git log -1 ${1}
+}
 
 git-restore ()
 {
@@ -2790,6 +2908,8 @@ git-root ()
     gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
 
     git rev-parse --show-toplevel
+
+    return $?
 }
 
 git-gui ()
@@ -2878,138 +2998,176 @@ bbgithub-merge-pull-request ()
     return $?
 }
 
+git-merge-pull-request-usage ()
+{
+    local cmd=$1;shift
+    local protocol=$1
+    local protocolarg=$1
+    if [ -z "$protocol" ]
+    then
+        protocol='protocol'
+        protocolarg='protocol'
+    else
+        protocolarg=''
+    fi
+
+    cat <<EOUSAGE
+
+Usage: $cmd $protocolarg tgtnamespace/tgtrepo/tgtbranch srcnamespace/srcrepo/srcbranch
+
+       Merge the branch from the 'src' into the 'tgt'.
+
+       The typical usage looks like
+
+           $cmd $protocolarg dpkg/builddeb/ //mybranch
+
+       in which case:
+           - the source namespace defaults to your username
+           - the source repo defaults to the target repo name
+           - the target branch is 'master'
+
+EOUSAGE
+}
+
 git-merge-pull-request ()
 {
     ##@@ none||none||git-merge-pull-request||Merge a remote pull request from command line.
     gitfuncs_audit "$@"
+    local usage_func=git-merge-pull-request-usage
+    [ ! "$#" = '3' ] && $usage_func ${FUNCNAME} && return 1
 
-    if [ -z "$1" ]
+    local protocol=$1;shift
+    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
     then
-        echo "Usage: git-merge-pull-request protocol org repo user prbranch"
-        echo "       Merge the branch 'prbranch' from user/repo"
-        echo "       into the 'master' branch in a local clone of"
-        echo "       org/repo. The clone is created fresh; if there is"
-        echo "       already a clone at that location, it will fail."
-        echo "       'protocol' is one of 'bbgithub', 'github', 'bitbucket"
-        return 1
-    fi
-    local proto=$1;shift
-    if [ -z "${gitfuncs_gitsvcs[$proto]}" ]
-    then
-        echo "$proto is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        func-echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
         return 1
     fi
 
-    if [ -z "$1" ]
-    then
-        echo "Usage: ${proto}-merge-pull-request org repo user prbranch"
-        echo "       Merge the branch 'prbranch' from user/repo"
-        echo "       into the 'master' branch in a local clone of"
-        echo "       org/repo."
-        echo
-        echo "       ${proto}-merge-pull-request org repo prbranch"
-        echo "       Merge the branch 'prbranch' from org/repo"
-        echo "       into the 'master' branch in a local clone of"
-        echo "       org/repo. WARNING - INCOMPLETE IMPLEMENTATION"
-        echo "       as of 2016-06-15"
-        echo
-        echo "       In either case, the updated clone is examined"
-        echo "       and the user is asked to push the updated"
-        echo "       local master branch back up to the origin."
-        echo
-        echo "       Note: The local clone is reconstituted"
-        echo "             each time."
-        return 1
-    fi
+    local tgtarg=$1
+    local srcarg=$2
 
-    local namespace=$1;shift
-    local repo=$1;shift
-    local user
-    local prbranch
-    local mergesrc
+    local inamespace=0
+    local irepo=1
+    local ibranch=2
+    asplit tgt / $tgtarg
+    asplit src / $srcarg
 
-    if [ "$#" = '2' ]
-    then
-        echo "Merging from branch in other repo"
-        user=$1;shift
-        prbranch=$1;shift
-        merge_src='remote'
-    elif [ "$#" = '1' ]
-    then
-        echo "Merging from branch in this repo"
-        local prbranch=$1;shift
+    [ -z "${src[$inamespace]}" ] && src[$inamespace]=${USER}
+    [ -z "${src[$irepo]}" ]   && src[$irepo]=${tgt[$irepo]}
+    [ -z "${src[$ibranch]}" ] && src[$ibranch]=master
+    [ -z "${tgt[$ibranch]}" ] && tgt[$ibranch]=master
+    local srcurl="$protocol:${src[$inamespace]}/${src[$irepo]}"
+    local remote_ref=$(ajoin '_' ${src[@]})
+
+    local merge_src='remote'
+    [ "${src[$inamespace]}" = "${tgt[$inamespace]}" ] && \
+        [ "${src[$irepo]}" = "${tgt[$irepo]}" ] && \
         merge_src='origin'
-    fi
 
-    echo "* Clone $proto:$namepsace/repo..."
-    ${proto}-clone $namespace $repo
+    func-echo --head "Clone $protocol:${tgt[$inamespace]}/${tgt[$irepo]}..."
+    ${protocol}-clone ${tgt[$inamespace]} ${tgt[$irepo]}
     local status=$?
     ((status)) && return $status
 
-    echo "****** Current last commit on master branch"
-    git log -1
+    func-echo --head "Switch to branch ${tgt[$ibranch]}..."
+    git checkout ${tgt[$ibranch]}
+    local status=$?
+    ((status)) && return $status
+
+    local origcommitsha=$(git rev-parse HEAD)
+    local newcommitsha=$(git rev-parse HEAD)
+    local currentlogmsg="Current last commit on target branch ${tgt[$ibranch]}"
+    func-echo --head "****** $currentlogmsg"
+    git-log-shas-range ${origcommitsha} ${newcommitsha}
     status=$?
     ((status)) && return $status
-    echo "****** ************************************"
+    func-echo "******"
 
     if [ "$merge_src" = 'remote' ]
     then
-        echo "* Add $proto:$user/$repo as a remote"
-        git remote add $user $proto:$user/$repo
+        func-echo --head "Add $srcurl... as a remote"
+        func-echo "git remote add $remote_ref $srcurl"
+        git remote add $remote_ref $srcurl
         status=$?
         ((status)) && return $status
 
-        echo "* Fetch only the pull request branch ($prbranch) from $proto:$user/$repo"
-        git fetch $user $prbranch
+        func-echo --head "Fetch only the pull request branch (${src[$ibranch]}) from $srcurl (as remote ref $remote_ref)"
+        func-echo "git fetch $remote_ref ${src[$ibranch]}"
+        git fetch $remote_ref ${src[$ibranch]}
         status=$?
         ((status)) && return $status
 
-        echo "* Do the merge"
-        git rebase master $user/$prbranch
+        func-echo --head "Do the merge"
+        func-echo "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
+        git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}
         status=$?
         ((status)) && return $status
 
-        echo "****** Last two commits on master"
-        git log -2
+        newcommitsha=$(git rev-parse HEAD)
+        local lasttwologmsg="Last commits on target branch ${tgt[$ibranch]}"
+        func-echo --head "****** $lasttwologmsg"
+        git-log-shas-range ${origcommitsha} ${newcommitsha}
         status=$?
         ((status)) && return $status
-        echo "****** **************************"
+        func-echo "****** **************************"
 
-        echo "Success is defined as"
-        echo "1) You are reading this message."
-        echo "2) The second log entry from 'Last two commits on master'"
-        echo "   should match then entry from 'Current last commit on master branch'."
+        func-echo "Success is defined as"
+        func-echo "1) You are reading this message."
+        func-echo "2) The log entries from '$lasttwologmsg'"
+        func-echo "   are consistent with entry from '$currentlogmsg'."
         echo
     else
-        echo "* Fetch only the pull request branch ($prbranch) from $proto:$namespace/$repo"
-        git fetch $proto:$namespace/$repo $prbranch
+        func-echo --head "Fetch only the pull request branch (${src[$irbranch]}) from $srcurl"
+        git fetch $srcurl ${src[$ibranch]}
         status=$?
         ((status)) && return $status
+        [ "$(func-yesno cont)" = 'n' ] && echo return
 
-        echo "* Do the merge"
-        git rebase master origin/$prbranch
+        func-echo --head "Do the merge"
+        git rebase $tgt{$ibranch} origin/${src[$ibranch]}
         status=$?
         ((status)) && return $status
-        git checkout master
+        [ "$(func-yesno cont)" = 'n' ] && echo return
+        git checkout $tgt{$ibranch}
+
+        newcommitsha=$(git rev-parse HEAD)
 
         pause 'Go to another terminal, do a git log and see what you got. Then quit this, come back and fix the code accordingly.'
         ## INSERT SOME git log comparison instructions here!!!!!!
         return 1
     fi
 
-    local resp=$(yesno "Should push back up to ${proto} with 'git push origin HEAD:master'")
+    local pushback="git push origin HEAD:${tgt[$ibranch]}"
+    local resp=$(func-yesno "Push back to ${protocol} via '$pushback'")
     local retval
     if [ "$resp" = 'y' ]
     then
         pwd
-        git push origin HEAD:master
+        func-echo --head "Push back"
+        $pushback
         retval=$?
+        if [ "$retval" = '0' ]
+        then
+            func-echo --head "Refresh local"
+            git checkout ${tgt[$ibranch]}
+            retval=$?
+            if [ "$retval" = '0' ]
+            then
+                git pull
+                retval=$?
+            fi
+        fi
     else
-
-        echo "Ok. Remember to 'git push origin HEAD:master' soon before the master head advances."
+        local fmpr=$(pwd)/FINISH-merge-pull-request
+        func-echo "Ok. Remember to '$pushback' soon before the master head advances."
+        func-echo "We will write the local file $fmpr with this command for your future convenience."
+        echo "$pushback" > $fmpr
+        git-log-shas-range ${origcommitsha} ${newcommitsha} | comment-stream "## " >> $fmpr
+        chmod +x $fmpr
         retval=0
     fi
 }
+
 alias git-merge-pr='git-merge-pull-request '
 
 git-meta ()
@@ -3115,7 +3273,7 @@ git-delete-repo ()
     fi
 
     ## Make sure it's clean.
-    if [ -d wt ]
+    if [ -d wt ] && [ "$(ls wt | wc -l)" != '0' ]
     then
         echo "wt subdir found:"
         ls -la wt
@@ -3149,6 +3307,51 @@ git-delete-repo ()
 
     return 0
 }
+
+git-rebase-log ()
+{
+    ##@@ none||none||git-rebase_log||Show the log, rebase on the last commit id
+    gitfuncs_audit "$@"
+
+    local rebase_sha
+    local resp
+    if [ -z "$1" ]
+    then
+        ## Show the current commit
+        func-echo --head 'Current commits:'
+        git log -2
+        ## The first one we can rebase on is the third one in the log
+        rebase_sha=$(git-log-grab-sha -3)
+    else
+        rebase_sha=$1
+    fi
+
+    func-echo --head 'Rebaseable commits:'
+    while ((1))
+    do
+        ## show the log
+        git-log-shas-range $rebase_sha $rebase_sha
+
+        resp=$(func-pick "Rebase on $rebase_sha" "y/n/q" 'n')
+        if [ "$resp" = 'q' ]
+        then
+            return $TRUE
+        fi
+        if [ "$resp" = 'y' ]
+        then
+            git rebase -i $rebase_sha
+            local status=$?
+            func-echo --head 'Log is now:'
+            git log ${rebase_sha}^1..HEAD
+            return $status
+        fi
+
+        ## Get the next log
+        rebase_sha=$(git-log-grab-sha $rebase_sha -2)
+    done
+
+}
+alias git-log-rebase='git-rebase-log '
 
 _git_cd_go ()
 {

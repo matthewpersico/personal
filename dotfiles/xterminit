@@ -150,18 +150,18 @@ newxguts ()
     while ((checkargs))
     do
         case $1 in
-            w )
+            -w )
                 ## wide
                 ((xtermgeow*=2)) ; shift ;;
-            n )
+            -n )
                 ## narrow
                 ((xtermgeow/=2)) ; shift ;;
-            s )
+            -s )
                 ## std
                 ((xtermgeow+-0)) ; shift ;;
-            [0-9]* )
+            -[0-9]* )
                 ## number of xterms to spawn
-                count=$1 ; shift ;;
+                ((count=$1*-1)) ; shift ;;
             * )
                 ## We're done
                 checkargs=0 ;;
@@ -186,81 +186,132 @@ newxguts ()
 
 newxgrey ()
 {
-    newxguts ${1:-1} ${2:-s} -fg black -bg darkgrey
+    newxguts ${1:--1} ${2:--s} -fg black -bg darkgrey
 }
 
 newxdarkblue ()
 {
-    newxguts ${1:-1} ${2:-s} -fg wheat -bg darkblue
+    newxguts ${1:--1} ${2:--s} -fg wheat -bg darkblue
 }
 
 newxred ()
 {
-    newxguts ${1:-1} ${2:-s} -fg wheat -bg red
+    newxguts ${1:--1} ${2:--s} -fg wheat -bg red
 }
 
 newxdarkred ()
 {
-    newxguts ${1:-1} ${2:-s} -fg wheat -bg darkred
+    newxguts ${1:--1} ${2:--s} -fg wheat -bg darkred
 }
 
 newxwhite ()
 {
-    newxguts ${1:-1} ${2:-s} -fg black -bg white
+    newxguts ${1:--1} ${2:--s} -fg black -bg white
 }
 
 newxblack ()
 {
-    newxguts ${1:-1} ${2:-s} -fg white -bg black
+    newxguts ${1:--1} ${2:--s} -fg white -bg black
 }
 
 newxblue ()
 {
-    newxguts ${1:-1} ${2:-s} -fg black -bg steelblue
+    newxguts ${1:--1} ${2:--s} -fg black -bg steelblue
 }
 
 newxgreen ()
 {
-    newxguts ${1:-1} ${2:-s} -fg black -bg seagreen
+    newxguts ${1:--1} ${2:--s} -fg black -bg seagreen
 }
 
 newx ()
 {
     local bg=$(xterm_background)
-    newx${bg}
+    newx${bg} $@
 }
 
 perlx ()
 {
     ## For starting up windows for forked Perl programs in debugger to
     ## attach to.
-    xterm -e sh -c 'echo This terminal was started to receive a forked perl debugger process.;
+    local countem=$1; ## Specify as -x, like an option or x, like an arg
+    ((countem)) || countem=1
+    ((countem<0)) && ((countem=countem*-1)) ## if -x, make it positive
+    while ((countem>0))
+    do
+        xterm -e sh -c 'echo This terminal was started to receive a forked perl debugger process.;
 echo Set;
 echo \$DB::fork_TTY=q\($(tty)\);
 echo in the debugger before you reach the fork.;
 echo Sleeping 99999999 starting at $(date);echo -e "\e]0;$(tty)\a
      ";sleep 99999999' &
+        ((countem-=1))
+    done
 }
 alias perldbx='perlx '
 
-xterm_background_map_rgba9a9a9a9a9a9='grey'
-xterm_background_map_rgb000000008b8b='darkblue'
-xterm_background_map_rgbffff00000000='red'
-xterm_background_map_rgb8b8b00000000='darkred'
-xterm_background_map_rgbffffffffffff='white'
-xterm_background_map_rgb000000000000='black'
-xterm_background_map_rgb46468282b4b4='blue'
-xterm_background_map_rgb2e2e8b8b5757='green'
+##
+## Colors!
+##
+
+## Printable ANSI sequences
+
+export ANSI_reset="\e[0m"
+export ANSI_bold="\e[1m"
+export ANSI_underscore="\e[4m"
+export ANSI_blink="\e[5m"
+export ANSI_reverse="\e[7m"
+export ANSI_concealed="\e[8m"
+
+export ANSI_FG_black="\e[30m"
+export ANSI_FG_red="\e[31m"
+export ANSI_FG_green="\e[32m"
+export ANSI_FG_yellow="\e[33m"
+export ANSI_FG_blue="\e[34m"
+export ANSI_FG_magenta="\e[35m"
+export ANSI_FG_cyan="\e[36m"
+export ANSI_FG_white="\e[37m"
+
+export ANSI_BG_black="\e[40m"
+export ANSI_BG_red="\e[41m"
+export ANSI_BG_green="\e[42m"
+export ANSI_BG_yellow="\e[43m"
+export ANSI_BG_blue="\e[44m"
+export ANSI_BG_magenta="\e[45m"
+export ANSI_BG_cyan="\e[46m"
+export ANSI_BG_white="\e[47m"
+
+## Query the colors
+xterm_Xground_map_rgba9a9a9a9a9a9='grey'
+xterm_Xground_map_rgb000000008b8b='darkblue'
+xterm_Xground_map_rgbffff00000000='red'
+xterm_Xground_map_rgb8b8b00000000='darkred'
+xterm_Xground_map_rgbffffffffffff='white'
+xterm_Xground_map_rgb000000000000='black'
+xterm_Xground_map_rgb46468282b4b4='blue'
+xterm_Xground_map_rgb2e2e8b8b5757='green'
 
 xterm_background ()
 {
+    xterm_Xground 11
+}
+
+xterm_foreground ()
+{
+    xterm_Xground 10
+}
+
+xterm_Xground ()
+{
+    [ -z "$1" ] && echo "Missing arg: 11 for foreground, 10 for background" && return 1
+    local col=$1
+    local iam=$(func-name-spoof)
     if [ -n "$XTERM_SHELL" ]
     then
         ## from http://superuser.com/questions/157563/programmatic-access-to-current-xterm-background-color
         exec < /dev/tty
         oldstty=$(stty -g)
         stty raw -echo min 0
-        col=11      # background
         #          OSC   Ps  ;Pt ST
         echo -en "\033]${col};?\033\\" >/dev/tty  # echo opts differ w/ OSes
         result=
@@ -269,17 +320,17 @@ xterm_background ()
             idxresult=$(echo $result | sed 's/[:/]//g')
         fi
         stty $oldstty
-        local var=xterm_background_map_${idxresult}
+        local var=xterm_Xground_map_${idxresult}
         local color=$(eval echo "\$$var")
         if [ -n "${color}" ]
         then
             echo ${color}
             return
         else
-            echo "## WARNING:xterm_background - no mapped color found for $result" >&2
+            echo "## WARNING:$iam - no mapped color found for $result" >&2
         fi
     else
-        echo "## WARNING:xterm_background - XTERM_SHELL not defined, probably not an xterm" >&2
+        echo "## WARNING:$iam - XTERM_SHELL not defined, probably not an xterm" >&2
     fi
 
     if [ -n "$NEWXCOLOR" ]
@@ -287,10 +338,10 @@ xterm_background ()
         echo $NEWXCOLOR
         return
     else
-        echo "## WARNING:xterm_background - NEWXCOLOR not defined" >&2
+        echo "## WARNING:$iam - NEWXCOLOR not defined" >&2
     fi
 
-    echo "## WARNING:xterm_background - default color is grey" >&2
+    echo "## WARNING:$iam - default color is grey" >&2
     echo grey
 }
 
