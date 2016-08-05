@@ -4,29 +4,73 @@
 
 VMFUNCS_FILE=${BASH_SOURCE[0]}
 
-vmfuncs-edit ()
-{
-    local editor; editor=$(editor_opt xo "$@"); shift $?
-    $editor $VMFUNCS_FILE
-}
+auditfuncs_init $VMFUNCS_FILE
+safe_func_export vmfuncs_audit
 
-vmfuncs-reload ()
-{
-    . $VMFUNCS_FILE
-}
-alias vmfuncs-load=vmfuncs-reload
-
-vmfuncs-help () {
-    help_strings $VMFUNCS_FILE "$@"
-}
+. $(which controlfuncs_build) $VMFUNCS_FILE
 
 VMFUNCS_TOOLKIT_FILE=~/.ssh/id_rsa.toolkit
 VMFUNCS_TOOLKIT_EXPIRE_FILE=~/.ssh/id_rsa.toolkit.expires
 VMFUNCS_BCPCVMS_FILE=~/personal/bin/.bcpcvms
 
+unset NFSMACHINE_LIST
+unset NFSMACHINE
+declare -a NFSMACHINE_LIST
+NFSMACHINE_LIST[0]=nylxdev1.dev.bloomberg.com
+NFSMACHINE_LIST[1]=nylxdev2.dev.bloomberg.com
+
+set-nfsmachine ()
+{
+    vmfuncs_audit "$@"
+
+    if [ -n "$NFSMACHINE" ]
+    then
+        return $(true)
+    fi
+
+    declare -a nfsmachine_list_local
+    nfsmachine_list_local=(${NFSMACHINE_LIST[@]})
+
+    local nfsmachine_list_count=${#nfsmachine_list_local[*]}
+    while (( nfsmachine_list_count ))
+    do
+        local idx=$(((RANDOM % $nfsmachine_list_count)))
+        NFSMACHINE=${nfsmachine_list_local[$idx]}
+
+        ssh $NFSMACHINE "echo 'Connected!'" 1>/dev/null 2>/dev/null
+        if [ "$?" = '0' ]
+        then
+            return $(true)
+        else
+            unset NFSMACHINE
+            unset nfsmachine_list_local[$idx]
+            ((nfsmachine_list_count-=1))
+        fi
+    done
+    echo "Cannot connect to an NFS machine"
+    return $(false)
+}
+safe_func_export set-nfsmachine
+
+check-nfsmachines ()
+{
+    vmfuncs_audit "$@"
+
+    local m
+    for m in ${NFSMACHINE_LIST[@]}
+    do
+        echo "Checking $m..."
+        ssh $m "echo 'Connected!'"
+    done
+    return $(true)
+}
+safe_func_export check-nfsmachines
+
 vmchoose ()
 {
     ##@@ none||none||vmchoose||pick a VM to connect to
+    vmfuncs_audit "$@"
+
     local PS3='Pick a machine:'
     select vmname in ${!vmips[@]}
     do
@@ -41,6 +85,8 @@ vmchoose ()
 vmgo ()
 {
     ##@@ none||none||vmgo||connect to VM
+    vmfuncs_audit "$@"
+
     vm_toolkit_file_maint
 
     . $VMFUNCS_BCPCVMS_FILE
@@ -58,6 +104,8 @@ alias govm='vmgo '
 vmshow ()
 {
     ##@@ none||none||vmshow||show the list of VMs
+    vmfuncs_audit "$@"
+
     cat $VMFUNCS_BCPCVMS_FILE | grep -v 'declare -A vmips'
 }
 alias showvm='vmshow '
@@ -65,6 +113,8 @@ alias showvm='vmshow '
 vmadd ()
 {
     ##@@ none||none||vmadd||add a VM to the list
+    vmfuncs_audit "$@"
+
     if [ $# != '2' ]
     then
         echo usage vmadd name ip
@@ -84,6 +134,8 @@ alias addvm='vmadd '
 vmdel ()
 {
     ##@@ none||none||vmdel||remove a VM from the list
+    vmfuncs_audit "$@"
+
     . $VMFUNCS_BCPCVMS_FILE
     vmname=${1:-undef}
 
@@ -100,6 +152,8 @@ alias delvm='vmdel '
 cptonfs ()
 {
     ##@@ none||none||cptonfs||copy a file to the vmbounce directory of the NFS filesystem
+    vmfuncs_audit "$@"
+
     set-nfsmachine; status=$?; [ ! "$status" = 0 ] && return $status
     scp "$@" $NFSMACHINE:vmbounce
 }
@@ -109,6 +163,8 @@ alias scp-to-nfs='cptonfs '
 cpfromnfs ()
 {
     ##@@ none||none||cpfromfs||copy a file from the vmbounce directory of the NFS filesystem to the local ~/vmbounce directory
+    vmfuncs_audit "$@"
+
     mkdir -p ~/vmbounce
     set-nfsmachine; status=$?; [ ! "$status" = 0 ] && return $status
     scp $NFSMACHINE:vmbounce/* ~/vmbounce
@@ -116,9 +172,68 @@ cpfromnfs ()
 alias cp-from-nfs='cpfromnfs '
 alias scp-from-nfs='cpfromnfs '
 
+SSHFS_KEY=$HOME/.ssh/id_rsa.toolkit
+SSHFS_FTPHOST=devsftp.bloomberg.com
+SSHFS_FTPPORT=2222
+SSHFS_LOCALHOME=$HOME/nfs
+SSHFS_LOCALMBIG=$HOME/MBIG
+SSHFS_MBIGNUM=4485
+
+mount-nfs () {
+    ##@@ none||none||mount-nfs
+    vmfuncs_audit "$@"
+
+    sshfs -oIdentityFile=$SSHFS_KEY -oidmap=user -p$SSHFS_FTPPORT \
+          $SSHFS_FTPHOST:. \
+          $SSHFS_LOCALHOME
+}
+
+umount-nfs () {
+    ##@@ none||none||umount-nfs
+    vmfuncs_audit "$@"
+
+    sudo umount $SSHFS_LOCALHOME
+}
+
+mount-MBIG () {
+    ##@@ none||none||mount-MBIG
+    vmfuncs_audit "$@"
+
+    sshfs -oIdentityFile=$SSHFS_KEY -oidmap=user -p$SSHFS_FTPPORT \
+          $SSHFS_FTPHOST:/bb/mbig/mbig${SSHFS_MBIGNUM} \
+          $SSHFS_LOCALMBIG
+}
+
+umount-MBIG () {
+    ##@@ none||none||umount-MBIG
+    vmfuncs_audit "$@"
+
+    sudo umount $SSHFS_LOCALMBIG
+}
+
+mount-sshfs () {
+    ##@@ none||none||mount-sshfs
+    vmfuncs_audit "$@"
+
+    mount-nfs && mount-MBIG
+    return $?
+}
+
+umount-sshfs () {
+    ##@@ none||none||umount-sshfs
+    vmfuncs_audit "$@"
+
+    umount-nfs && umount-MBIG
+    return $?
+}
+
 bldo-check ()
 {
     ##@@ none||none||bldo-check||ssh all the BDLO machines to refresh the RSA keys
+    vmfuncs_audit "$@"
+
+    local tmpout=$(mktemp)
+    local interactive=$1
     local bldos=$(cat /bb/csdata/bldfarm/pools/*BLDO* 2>/dev/null)
     if [ -z "$bldos" ]
     then
@@ -130,14 +245,28 @@ bldo-check ()
         do
             ((hindex+=1))
             echo "*** $h ($hindex/$hcount) ***"
-            ssh $h "echo 'Connected!'"
+            ssh $h "echo 'Connected.'" 2>&1 | tee $tmpout
+            local info=$(grep 'Offending RSA key in' $tmpout | perl -pe 'chomp;chop;s/.* //')
+            if [ -n "$info" ]
+            then
+                is-interactive
+                if [ "$?" = "${TRUE}" ]
+                then
+                    local data
+                    asplit data : "$info"
+                    sedinplace "${data[1]}d" ${data[0]}
+                    ssh $h "echo 'Connected.'"
+                fi
+            fi
         done
     fi
 }
 
 bldo-go ()
 {
-    set -x
+    ##@@ none||none||bldo-go
+    vmfuncs_audit "$@"
+
     local arch='.*'
     OPTSARGS=$(getoptp  --long arch: -n 'bldo-go' -- "$@")
     local status=$?
@@ -173,11 +302,13 @@ bldo-go ()
                                                   | wc -l))) | tail -1)
 
     ssh $machine;
-    set +x
 }
 
 vmrebuild ()
 {
+    ##@@ none||none||vmrebuild
+    vmfuncs_audit "$@"
+
     local opt_berks=0
     local opt_build=0
     local opt_post=0
