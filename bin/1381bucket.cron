@@ -9,25 +9,6 @@ use List::MoreUtils qw(uniq);
 use Getopt::Long;
 use FindBin qw($RealBin);
 use File::Spec::Functions qw(catfile);
-my %opt= (cat => 0,
-          who => 0,
-          predict => 0,
-          mail => 0,
-          help => 0,
-          datadir => catfile($RealBin, '../data'),
-          ## do not init options with optional arg
-          ## forward
-      );
-
-GetOptions(\%opt,
-           "cat|list",
-           "who|keep",
-           "predict|next",
-           "mail!",
-           "forward:s",
-           "datadir=s",
-           "help");
-
 
 my @stdmail=(qw(mpersico5@bloomberg.net
                 dbillings1@bloomberg.net));
@@ -50,6 +31,25 @@ my %next = (
         mail => mkmail('druoso@bloomberg.net')
     },
 );
+
+my %opt= (cat => 0,
+          who => 0,
+          predict => 0,
+          mail => 0,
+          help => 0,
+          datadir => catfile($RealBin, '../data'),
+          ## do not init options with optional arg
+          ## forward
+      );
+
+GetOptions(\%opt,
+           "cat|list",
+           "who|keep",
+           "predict|next",
+           "mail!",
+           "forward:s",
+           "datadir=s",
+           "help");
 
 my ($name,$path,$suffix) = fileparse($0,'.cron');
 my $log = catfile($opt{datadir}, "${name}.log");
@@ -123,6 +123,7 @@ if( @lines ) {
 }
 
 my $limit = scalar(keys(%next));
+my @mailmsg;
 
 while($limit>0) {
     my $n = $next{$data[0]}->{who};
@@ -130,28 +131,29 @@ while($limit>0) {
         push @lines, "$n $today";
         $limit = -1;
     } else {
-        print "$n has a T day\n";
+        push @mailmsg, "$n has a T day\n";
         $data[0]=$n;
         $limit--;
     }
 }
 
 if($limit == 0) {
-    die "Cannot find a monitor for $today: " . Data::Dumper->Dump([$tdays{$today}],[qw(*tdays_today)]);
+    print "Cannot find a monitor for $today: " . Data::Dumper->Dump([$tdays{$today}],[qw(*tdays_today)]);
+    exit 1;
 }
 
 if( $opt{predict} ) {
     print "The next monitor is $next{$data[0]}->{who}\n";
 } else {
     write_file($log, join("\n", reverse @lines));
-    my $it = "$next{$data[0]}->{whonice} is today's ($today) 1381 bucket monitor.";
+    push @mailmsg, "$next{$data[0]}->{whonice} is today's ($today) 1381 bucket monitor.";
     if( $opt{mail} && $next{$data[0]}->{mail} ) {
         qx(mailx -s '1381 Monitoring' $next{$data[0]}->{mail} <<EOM
-$it
+@mailmsg
 EOM
 );
     } else {
-        print "$it\n";
+        print "@mailmsg\n";
     }
 }
 

@@ -4,27 +4,27 @@
 
 RSYNCFUNCS_FILE=${BASH_SOURCE[0]}
 
-rsyncfuncs_ls ()
-{
-    ls -l $RSYNCFUNCS_FILE
-}
-#nxport -f rsyncfuncs_ls
-alias rsyncfuncs-dir=rsyncfuncs_ls
+auditfuncs_init $RSYNCFUNCS_FILE
+safe_func_export rsyncfuncs_audit
 
-rsyncfuncs_edit ()
+rsyncfuncs-edit ()
 {
-    xo $RSYNCFUNCS_FILE
+    rsyncfuncs_audit "$@"
+    local editor; editor=$(editor_opt xo "$@"); shift $?
+    $editor $RSYNCFUNCS_FILE
 }
-#nxport -f rsyncfuncs_edit
-alias rsyncfuncs-edit=rsyncfuncs_edit
 
-rsyncfuncs_reload ()
+rsyncfuncs-reload ()
 {
+    rsyncfuncs_audit "$@"
     . $RSYNCFUNCS_FILE
 }
-#nxport -f rsyncfuncs_reload
-alias rsyncfuncs-reload=rsyncfuncs_reload
-alias rsyncfuncs-load=rsyncfuncs_reload
+alias rsyncfuncs-load=rsyncfuncs-reload
+
+rsyncfuncs-help () {
+    help_strings $RSYNCFUNCS_FILE "$@"
+}
+
 
 _rsync2nfs_usage ()
 {
@@ -42,6 +42,9 @@ export RSYNCFUNCS_LOG_HOME
 
 rsync2nfs ()
 {
+    ##@@ none||none||rsync2nfs||
+    rsyncfuncs_audit "$@"
+
     local target
     local verbose
     local timestamp
@@ -55,14 +58,14 @@ rsync2nfs ()
     while true
     do
         case "$1" in
-            -h|--help) _rsync2nfs_usage; return 0 ;;
+            -h|--help) _rsync2nfs_usage; return $(true) ;;
             -t|--target) shift; target=$1; shift ;;
             -v|--verbose) verbose='-v'; shift ;;
             --timestamp) timestamp=1; shift;;
             --multistamp) timestamp=1; multistamp=1; shift;;
             --excludeFrom) excludeFrom="--exclude-from=$2"; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; _rsync2nfs_usage; return 1 ;;
+            *) echo "Internal error!"; _rsync2nfs_usage; return $(false) ;;
         esac
     done
 
@@ -79,8 +82,8 @@ rsync2nfs ()
         mkdir -p $RSYNCFUNCS_LOG_HOME
         timestamp="$RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.$(date +%Y-%m-%dT%H-%M-%S)"
 
-        ## Purge - we don't need more than 4 days (YES +3 GIVES US 4 DAYS)
-        find $RSYNCFUNCS_LOG_HOME -type f -mtime +3 -delete
+        ## Purge - we don't need more than 48 hours ago (YES +1 GIVES US 2 DAYS)
+        find $RSYNCFUNCS_LOG_HOME -type f -mtime +1 -delete
 
         ## STDOUT to the log
         exec 1> $timestamp
@@ -114,7 +117,7 @@ rsync2nfs ()
     if [ -z "$sshfile" ]
     then
         echo "!! Cannot rsync - no ssh identity file found"
-        return 1
+        return $(false)
     fi
     local sshtext="ssh -i $sshfile"
     rsync -e "$sshtext" -a -z -r -l $verbose  $excludeFrom --delete "$@" $target &
@@ -137,6 +140,9 @@ rsync2nfs ()
 
 rsyncvmgits ()
 {
+    ##@@ none||none||rsyncvmgits||
+    rsyncfuncs_audit "$@"
+
     set-nfsmachine; local status=$?; [ ! "$status" = 0 ] && return $status
     rsync2nfs -v --timestamp --target $NFSMACHINE:vmstashes/$(hostname)/mpersico5 ~/gits
     return $?
@@ -145,6 +151,9 @@ rsyncvmgits ()
 
 rsyncvm-running()
 {
+    ##@@ none||none||rsyncvm-runnin||
+    rsyncfuncs_audit "$@"
+
     local silent=0
     if [ "$1" = '-s' ]
     then
@@ -176,9 +185,13 @@ _rsyncvm_usage ()
 
 rsyncvm ()
 {
+    ##@@ none||none||_rsyncvm_usage||
+    rsyncfuncs_audit "$@"
+
     local verbose=''
     local silent='-s'
-    local excludeFrom=''
+    local excludeFromFile=''
+    local excludeFromOpt=''
     local OPTSARGS=$(getoptp -o vh --long verbose,help,excludeFrom: -- "$@")
     status=$?
     ((status != 0)) && _rsyncvm_usage && return $status
@@ -188,43 +201,31 @@ rsyncvm ()
     do
         case "$1" in
             -h|--help)
-                _rsyncvm_usage; return 0 ;;
+                _rsyncvm_usage; return $(true) ;;
             -v|--verbose)
                 verbose='-v'; silent=''; shift ;;
             --excludeFrom)
-                excludeFrom="$2"; shift; shift
-                if [ -r $excludeFrom ]
-                then
-                    local exclusions=$(grep -v '#' $excludeFrom);
-                    if [ -n "$exclusions" ]
-                    then
-                        excludeFrom="--exclude-from=$excludeFrom"
-                        if [ ! "$exclusions" = 'nosync' ]
-                        then
-                            echo "This rsyncvm is run with the following exclusions:"
-                            cat $excludeFrom
-                        fi
-                    fi
-                fi
-                ;;
+                excludeFromFile="$2"; shift; shift
+                [ -r $excludeFromFile ] && excludeFromOpt="--exclude-from=$excludeFromFile" ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; _rsyncvm_usage; return 1 ;;
+            *) echo "Internal error!"; _rsyncvm_usage; return $(false) ;;
         esac
     done
 
     local status
     set-nfsmachine; status=$?; [ ! "$status" = 0 ] && return $status
     local target="$NFSMACHINE:vmstashes/$(hostname)"
-    rsyncvm-running -s > /tmp/rsyncvm.$$.runningcheck
+    local runningcheck=/tmp/rsyncvm.$$.runningcheck
+    rsyncvm-running -s > $runningcheck 2>&1
     status=$?
     if [ "$status" = '0' ]
     then
-        rsync2nfs $verbose $excludeFrom --multistamp --target $target ~
+        rsync2nfs $verbose $excludeFromOpt --multistamp --target $target ~
         status=$?
     else
         echo "Another rsyncvm appears to be running:"
-        cat /tmp/rsyncvm.$$.runningcheck
-        local rsyncpid=$(cat /tmp/rsyncvm.$$.runningcheck | tail -1 | cols -keep 2)
+        cat $runningcheck
+        local rsyncpid=$(cat $runningcheck | tail -1 | cols -keep 2)
         local log=$(grep -l "Command PID: $rsyncpid" $RSYNCFUNCS_LOG_HOME/* | sort -r | head -1)
         if [ -n "$log" ]
         then
@@ -232,6 +233,7 @@ rsyncvm ()
         fi
         status=1
     fi
+    [ -f $runningcheck ] && \rm $runningcheck
     return $status
 }
 #nxport -f rsyncvm
@@ -239,6 +241,9 @@ alias vmsync='rsyncvm '
 
 rsyncvm-status ()
 {
+    ##@@ none||none||rsyncvm-status||
+    rsyncfuncs_audit "$@"
+
     local opt_log=$1
     date
     touch /tmp/now.rsyncvm-status
@@ -246,26 +251,44 @@ rsyncvm-status ()
     set-nfsmachine; status=$?; [ ! "$status" = 0 ] && return $status
     echo "~/.snapshot on $NFSMACHINE:"
     ssh $NFSMACHINE 'ls -la ~/.snapshot'
-    rsyncvm-running | tee /tmp/rsyncvm-status.$$.runningcheck
+
+    local runningcheck=/tmp/rsyncvm-status.$$.runningcheck
+    local running=1
+    rsyncvm-running > $runningcheck 2>&1
+    if [ "$(grep 'Not running' $runningcheck)" = 'Not running' ]
+    then
+        cat $runningcheck
+        running=0
+    fi
+    [ -f $runningcheck ] && \rm $runningcheck
+
     local log=$(ls -rt -c1 $RSYNCFUNCS_LOG_HOME/rsync2fs.timestamp.* | tail -1)
     if [ "$opt_log" = '--log' ]
     then
         cat $log
-    elif [ ! "$(grep 'Not running' /tmp/rsyncvm-status.$$.runningcheck)" = 'Not running' ]
+    elif ((running))
     then
+        echo "Tailing current log. CTRL-C to end."
         tail -n +1 -f $log
     fi
 }
 
 rsyncvm-pause ()
 {
-    touch /tmp/rsyncvm.cron.pause
+    ##@@ none||none||rsyncvm-pause||
+    rsyncfuncs_audit "$@"
+
+    touch /tmp/rsyncvm.cron.pause || return $?
     ls -lart /tmp/rsyncvm.cron.pause
+    return $?
 }
 
 rsyncvm-resume ()
 {
+    ##@@ none||none||rsyncvm-resume||
+    rsyncfuncs_audit "$@"
+
     ls -lart /tmp/rsyncvm.cron.pause
-    /bin/rm /tmp/rsyncvm.cron.pause
-    ls -lart /tmp/rsyncvm.cron.pause
+    /bin/rm /tmp/rsyncvm.cron.pause || return $?
+    [ ! -f /tmp/rsyncvm.cron.pause ] && echo 'Removed' && return $(true)
 }

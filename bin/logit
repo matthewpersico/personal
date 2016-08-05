@@ -130,9 +130,28 @@ then
     usage 1
 fi
 
-command=$1
-shift
-args="$@"
+before_command=1
+after_command=0
+envs=''
+command=''
+cmdargs=''
+
+for arg in "$@"
+do
+    if (($(expr index "$arg" =))) && ((before_command))
+    then
+        envs="$envs $arg"
+    else
+        before_command=0
+        if ((after_command))
+        then
+            cmdargs="$cmdargs $arg"
+        else
+            command="$arg"
+            after_command=1
+        fi
+    fi
+done
 
 if [ ! -x $command ]
 then
@@ -191,7 +210,9 @@ then
     do
         [ -z "$termer" ] && [ -n "$(which $i 2>/dev/null)" ] && termer=$(which $i)
     done
-    $termer -g 132x40+100+100 -title "logit tee on $(hostname)" -e tail -f $logspec &
+    height=$(x-current-root-height)
+    if ((height >1024)); then height=40; else height=20; fi
+    $termer -g 132x${height}+100+100 -title "logit tee on $(hostname)" -e tail -f $logspec &
     sleep 2 ## Give the terminal a chance to come up and start tailing so we
             ## see the whole log in the tali
 fi
@@ -245,13 +266,14 @@ fi
     echo "********************"
     echo "      command"
     echo "********************"
-    echo $command $args
+    echo $envs $command $cmdargs
     echo
 
     echo "********************"
     echo "       output"
     echo "********************"
-    $command $args
+    eval $envs
+    $command $cmdargs
     status=$?
     echo
 
