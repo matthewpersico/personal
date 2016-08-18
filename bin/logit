@@ -66,7 +66,6 @@ teeit=0
 edit=''
 edit_on_fail=''
 purge=''
-
 original_argv="$0 $@"
 
 # Read the options and args from command line.
@@ -210,9 +209,10 @@ then
     do
         [ -z "$termer" ] && [ -n "$(which $i 2>/dev/null)" ] && termer=$(which $i)
     done
-    height=$(x-current-root-height)
-    if ((height >1024)); then height=40; else height=20; fi
-    $termer -g 132x${height}+100+100 -title "logit tee on $(hostname)" -e tail -f $logspec &
+    termheight=$(x-current-root-height)
+    if ((termheight >1024)); then termheight=40; else termheight=20; fi
+
+    $termer -g 132x${termheight}+100+100 -title "logit tee on $(hostname)" -e tail -f $logspec &
     sleep 2 ## Give the terminal a chance to come up and start tailing so we
             ## see the whole log in the tali
 fi
@@ -290,20 +290,25 @@ echo "Exit status: $status"
 
 if [ -n "$edit" ]
 then
-    if [[ $edit =~ macs ]]
-    then
-        width=$(perl -ne 'length($_)>$x and $x=length($_);END{print $x}' $logspec);
-        edit="$edit -g ${width}+40"
-    fi
-    $edit $logspec &
+    editcmd=$edit;
 elif [ ! "$status" = '0' ] && [ -n "$edit_on_fail" ]
 then
-    if [[ $edit =~ macs ]]
-    then
-        width=$(perl -ne 'length($_)>$x and $x=length($_);END{print $x}' $logspec);
-        edit_on_fail="$edit -g ${width}+40"
-    fi
-    $edit_on_fail -g ${width}+40 $logspec &
+    editcmd=$edit_on_fail
 fi
+
+if [[ "$editcmd" =~ macs ]]
+then
+    width=$(perl -ne 'length($_)>$x and $x=length($_);END{print $x}' $logspec);
+    lineheight=$(( ($(x-current-root-height)-100) / 30 ))
+    logheight=$(wcstrip -l $logspec)
+    if (( lineheight <= logheight ))
+    then
+        height=$lineheight
+    else
+        height=$logheight
+    fi
+    editcmd="$editcmd -g ${width}x${height}+100+100"
+fi
+[ -n "$editcmd" ] && $editcmd $logspec &
 
 exit $status
