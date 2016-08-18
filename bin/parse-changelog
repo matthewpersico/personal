@@ -12,7 +12,7 @@ use IO::File;
 use Text::Wrap qw(wrap);
 $Text::Wrap::columns = 72;
 
-use constant NOFUNC => 'File Scope';
+use constant NOFUNC => '!File Scope'; ## the ! will sort this before all function names.
 use constant NOCLENTRY => 'NOCLENTRY';
 
 ## This script works best in the git-root, which is where the Changelog is anyway
@@ -194,10 +194,6 @@ LINE: while (<$clih>) {
             my $dummy = 6;
         }
 
-        if( !defined $files{$file} ) {
-            $files{$file} = init_file_info($file);
-        }
-
         if( defined $files{$file} ) {
             ## The current entry corresponds to a file we are processing.
 
@@ -375,7 +371,7 @@ sub push_to_output {
     }
 
     for $function (sort keys %{$filedata}) {
-        my $lead = '  o ';
+        my $lead = '  o '; ## Assume indent under a function entry.
         my $indent = set_indent_from_lead($lead);
         if ( not exists ($format_seen{$file})
                and
@@ -394,9 +390,8 @@ sub push_to_output {
                 if ($function =~ m|(.*)/$|) {
                     substr($output[-1], length($output[-1])-1, 1) = '(env)';
                 } elsif( $function ne NOFUNC ) {
-                    $output[-1] .= '()'
+                    $output[-1] .= '():'
                 }
-                $output[-1] .= ':';
             }
         }
         for my $order (sort {$b <=> $a} keys %{$filedata->{$function}} ) {
@@ -406,7 +401,7 @@ sub push_to_output {
                 my @wrapped = split(/\n/,wrap('','',@{$filedata->{$function}->{$order}}));
                 my $line1;
                 if ( $function eq NOFUNC ) {
-                    $lead = 'o ';
+                    $lead = 'o '; ## Indent at file level; no func.
                     $indent = set_indent_from_lead($lead);
                     $line1 = join('', $format_over, $lead, shift(@wrapped) );
                 } else {
