@@ -165,7 +165,10 @@ git-find ()
 
     local to_find='*'
     [ -n "$@" ] && to_find="$@"
-    git ls-files $ls_files_opts $(git rev-parse --show-toplevel) | grep -E "$to_find" | sort
+    for f in "$@"
+    do
+        git ls-files $ls_files_opts $(git rev-parse --show-toplevel) | grep -E "$f" | sort
+    done
 }
 alias gitfind=git-find
 
@@ -1800,7 +1803,7 @@ diff specific files between two branches:
 EOF
 }
 
-any-fork-and-clone-usage ()
+git-fork-and-clone-usage ()
 {
     local cmd=$1;shift
     local protocol=$1
@@ -1828,9 +1831,9 @@ EOUSAGE
     return 0
 }
 
-any-fork-and-clone ()
+git-fork-and-clone ()
 {
-    ##@@ none||none||any-fork-and-clone||Provide protocol along with namespace and repo
+    ##@@ none||none||git-fork-and-clone||Provide protocol along with namespace and repo
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
 
@@ -1918,16 +1921,16 @@ bbgithub-fork-and-clone ()
     gitfuncs_audit "$@"
 
     local protocol=bbgithub
-    local usage_func="any-fork-and-clone-usage"
+    local usage_func="git-fork-and-clone-usage"
 
     [ -z "$1" ] && $usage_func ${FUNCNAME[0]} bbgithub && return 1
 
-    any-fork-and-clone bbgithub "$@"
+    git-fork-and-clone bbgithub "$@"
     return $?
 }
 alias fork-and-clone-bbgithub='bbgithub-fork-and-clone '
 
-any-clone-usage ()
+git-clone-usage ()
 {
     local cmd=$1;shift
     local protocol=$1
@@ -1942,6 +1945,7 @@ any-clone-usage ()
 
     cat <<EOUSAGE
 Usage: $cmd $protocolarg namespace repo
+       $cmd $protocolarg namespace/repo
        Clones $protocol:namespace/repo
        to a directory path $gitfuncs_gitroot/$protocol/namespace/repo.
        Directory $gitfuncs_gitroot/$protocol must already exist.
@@ -1950,16 +1954,25 @@ EOUSAGE
     return 0
 }
 
-any-clone ()
+git-clone ()
 {
-    ##@@ none||none||any-clone||Provide protocol along with namespace and repo
+    ##@@ none||none||git-clone||Provide protocol along with namespace and repo
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
 
     [ -z "$1" ] && $usage_func ${FUNCNAME} && return 1
     local protocol=$1;shift
     local namespace=$1;shift
-    local repo=$1;shift
+    local repo2
+    if [[ "$namespace" == */* ]]
+    then
+        asplit tmpa / $namespace
+        namespace=${tmpa[0]}
+        repo=${tmpa[1]}
+    else
+        repo=$1;shift
+    fi
+
     local cwpath=$(realpath $(pwd))
     local local_protocol=$(basename $cwpath)
     if [ "$local_protocol" != "$protocol" ]
@@ -2017,10 +2030,10 @@ bbgithub-clone ()
     ##@@ none||none||bbgithub-clone||
     gitfuncs_audit "$@"
 
-    local usage_func="any-clone-usage"
+    local usage_func="git-clone-usage"
     [ -z "$1" ] && $usage_func ${FUNCNAME} bbgithub && return 1
 
-    any-clone bbgithub "$@"
+    git-clone bbgithub "$@"
     return $?
 }
 alias git-clone-bbgithub='bbgithub-clone '
@@ -2030,10 +2043,10 @@ devgit-clone ()
     ##@@ none||none||devgit-clone||
     gitfuncs_audit "$@"
 
-    local usage_func="any-clone-usage"
+    local usage_func="git-clone-usage"
     [ -z "$1" ] && $usage_func ${FUNCNAME} devgit && return 1
 
-    any-clone devgit "$@"
+    git-clone devgit "$@"
     return $?
 }
 alias git-clone-devgit='devgit-clone '
@@ -2043,10 +2056,10 @@ github-clone ()
     ##@@ none||none||github-clone||
     gitfuncs_audit "$@"
 
-    local usage_func="any-clone-usage"
+    local usage_func="git-clone-usage"
     [ -z "$1" ] && $usage_func ${FUNCNAME} github && return 1
 
-    any-clone github "$@"
+    git-clone github "$@"
     return $?
 }
 alias git-clone-github='github-clone '
@@ -2056,15 +2069,15 @@ bitbucket-clone ()
     ##@@ none||none||bitbucket-clone||
     gitfuncs_audit "$@"
 
-    local usage_func="any-clone-usage"
+    local usage_func="git-clone-usage"
     [ -z "$1" ] && $usage_func ${FUNCNAME} bitbucket && return 1
 
-    any-clone bitbucket "$@"
+    git-clone bitbucket "$@"
     return $?
 }
 alias git-clone-bitbucket='bitbucket-clone '
 
-any-whack-usage ()
+git-delete-repo-usage ()
 {
     local cmd=$1;shift
     local protocol=$1
@@ -2085,9 +2098,9 @@ EOUSAGE
     return 0
 }
 
-any-whack ()
+git-delete-repo ()
 {
-    ##@@ none||none||any-clone||Provide protocol along with namespace and repo
+    ##@@ none||none||git-clone||Provide protocol along with namespace and repo
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
 
@@ -2141,56 +2154,56 @@ bbgithub-whack ()
     ##@@ none||none||bbgithub-whack||
     gitfuncs_audit "$@"
 
-    local usage_func="any-whack-usage"
+    local usage_func="git-delete-repo-usage"
     [ -z "$1" ] && $usage_func ${FUNCNAME} bbgithub && return 1
 
-    any_whack bbgithub "$@"
+    git-delete-repo bbgithub "$@"
     return $?
 }
-alias git-whack-bbgithub='bbgithub-whack '
+alias git-delete-repo-bbgithub='bbgithub-whack '
 
-devgit-whack ()
+devgit-delete-repo ()
 {
-    ##@@ none||none||devgit-whack||
+    ##@@ none||none||devgit-delete-repo||
     gitfuncs_audit "$@"
 
-    local usage_func="any-whack-usage"
+    local usage_func="git-delete-repo-usage"
     [ -z "$1" ] && $usage_func ${FUNCNAME} devgit && return 1
 
-    any_whack devgit "$@"
+    git-delete-repo devgit "$@"
     return $?
 }
-alias git-whack-devgit='devgit-whack '
+alias git-delete-repo-devgit='devgit-delete-repo '
 
 github-whack ()
 {
     ##@@ none||none||github-whack||
     gitfuncs_audit "$@"
 
-    local usage_func="any-whack-usage"
+    local usage_func="git-delete-repo-usage"
     [ -z "$1" ] && $usage_func ${FUNCNAME} github && return 1
 
-    any_whack github "$@"
+    git-delete-repo github "$@"
     return $?
 }
 alias github-whack='github-whack '
-alias git-whack_github='github-whack '
-alias git-whack-github='github-whack '
+alias git-delete-repo_github='github-whack '
+alias git-delete-repo-github='github-whack '
 
 bitbucket-whack ()
 {
     ##@@ none||none||bitbucket-whack||
     gitfuncs_audit "$@"
 
-    local usage_func="any-whack-usage"
+    local usage_func="git-delete-repo-usage"
     [ -z "$1" ] && $usage_func ${FUNCNAME} bitbucket && return 1
 
-    any_whack bitbucket "$@"
+    git-delete-repo bitbucket "$@"
     return $?
 }
 alias bitbucket-whack='bitbucket-whack '
-alias git-whack_bitbucket='bitbucket-whack '
-alias git-whack-bitbucket='bitbucket-whack '
+alias git-delete-repo_bitbucket='bitbucket-whack '
+alias git-delete-repo-bitbucket='bitbucket-whack '
 
 git-what-is-staged ()
 {
@@ -2410,8 +2423,11 @@ git-worktree-create ()
     local wt=$1
     shift
 
-    local remote=$1
-    [ -n "$remote" ] && shift
+    local remote
+    if [ -n "$1" ] && [ "$1" != '-m' ]
+    then
+        [ -n "$remote" ] && shift
+    fi
     [ -z "$remote" ] && remote=origin
     func-echo "Using '$remote' as remote."
 
@@ -2483,6 +2499,13 @@ git-worktree-create ()
 
     ## Add a ChangeLog
     touch $(git-root)/$GITFUNCS_CHANGELOG_NAME
+
+    ## Yeah, this wierd to put the option AFTER everything else...
+    if [ "$1" = '-m' ]
+    then
+        shift
+        git-st-ext "$@"
+    fi
 
     ## Add this repo to the list
     git-go-set
@@ -2762,6 +2785,15 @@ alias git-remote-add='git_add_remote'
 
 alias git-remotes='git remote -v '
 
+git-get-default-push ()
+{
+    local push_def=$(git config --global push.default)
+    if [ "$push_def" = 'simple' ]
+    then
+        git config --get remote.$(git config --get branch.$(git-get-current-branch).remote).url
+    fi
+}
+
 git-status ()
 {
     ##@@ none||none||git-status||
@@ -2996,7 +3028,22 @@ git-to-stdout ()
 bbgithub-merge-pull-request ()
 {
     ##@@ none||none||bbgithub-merge-pull-request||Merge a bbgithub remote pull request from command line.
-    git-merge-pull-request bbgithub "$@"
+    local opt_help
+    OPTSARGS=$(getoptp -o h --long help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) opt_help='-h'; shift ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "getoptp:Internal error!"; return 1 ;;
+        esac
+    done
+
+    git-merge-pull-request bbgithub $opt_help "$@"
     return $?
 }
 
@@ -3016,19 +3063,48 @@ git-merge-pull-request-usage ()
     cat <<EOUSAGE
 
 Usage: $cmd $protocolarg tgtnamespace/tgtrepo/tgtbranch srcnamespace/srcrepo/srcbranch
+       $cmd $protocolarg tgtnamespace/tgtrepo/tgtbranch srcnamespace:srcbranch
+       $cmd $protocolarg tgtnamespace/tgtrepo/tgtbranch srcbranch
+       $cmd $protocolarg --upstream srcbranch
+       $cmd $protocolarg --upstream
+       $cmd $protocolarg
 
        Merge the branch from the 'src' into the 'tgt'.
 
        The typical usage looks like
 
-           $cmd $protocolarg dpkg/builddeb/ //mybranch
+           $cmd $protocolarg dkpg/bulddeb mybranch
 
-       in which case:
+       In this case:
+
            - the source namespace defaults to your username
            - the source repo defaults to the target repo name
            - the target branch is 'master'
 
+       Merging someone else's branch looks like
+
+           $cmd $protocolarg dpkg/builddeb/ user//theirbranch
+
+       As a cut 'n paste convenience, we also accept
+
+           $cmd $protocolarg dpkg/builddeb/ user:theirbranch
+
+       Furthermore, if your local repo that has the objects to merge is clone
+       of a fork of the canonical repo, i.e. you are using the 'triangle'
+       workflow, you can replace the target spec with --upstream. In this case,
+       the target namespace and repo is the result of the command
+
+           git config --get remote.upstream.url
+
+       If the source is not specified, we assume the current branch.
+
+       If the target is not specified, we assume --upstream.
+
+       The use of --upstream and the current branch assumes you are in the
+       branch that you have just pushed up to be merged.
+
 EOUSAGE
+
 }
 
 git-merge-pull-request ()
@@ -3036,7 +3112,8 @@ git-merge-pull-request ()
     ##@@ none||none||git-merge-pull-request||Merge a remote pull request from command line.
     gitfuncs_audit "$@"
     local usage_func=git-merge-pull-request-usage
-    [ ! "$#" = '3' ] && $usage_func ${FUNCNAME} && return 1
+    local iam=$(func-name-spoof)
+    local spoofing=$?
 
     local protocol=$1;shift
     if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
@@ -3045,12 +3122,55 @@ git-merge-pull-request ()
         return 1
     fi
 
+    local usage_arg
+    [ "$spoofing" = "$(true)" ] && usage_arg=$protocol
+
+    local opt_help=0
+    OPTSARGS=$(getoptp -o h --long help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) $usage_func $iam $usage_arg ; return 0;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
+
     local tgtarg=$1
     local srcarg=$2
 
     local inamespace=0
     local irepo=1
     local ibranch=2
+
+    local confirm_args=0
+
+    ## If there is no srcarg, take the current branch
+    if [ -z "$srcarg" ]
+    then
+        srcarg=$(git-get-current-branch)
+        confirm_args=1
+    fi
+
+    ## github web interface shows merge source as 'user:branch'. We fix this up
+    ## as 'user//branch' and all our parsing further along 'just works'.
+    srcarg="${srcarg/:/\/\/}"
+
+    ## if there are no slashes in the src, we assume it's just a branch. We fix
+    ## this up as '//branch' and all our parsing further along 'just works'.
+    [[ $srcarg =~ / ]] || srcarg="//$srcarg"
+
+    ## Using the triangle workflow shortcut:
+    if [ "$tgtarg" = '--upstream' ] || [ -z "$tgtarg" ]
+    then
+        tgtarg=$(git config --get remote.upstream.url | sed 's/.*://')
+        confirm_args=1
+    fi
+
     asplit tgt / $tgtarg
     asplit src / $srcarg
 
@@ -3066,15 +3186,24 @@ git-merge-pull-request ()
         [ "${src[$irepo]}" = "${tgt[$irepo]}" ] && \
         merge_src='origin'
 
+    if ((confirm_args))
+    then
+        local resp=$(func-yesno "Merging to $protocol:${tgt[$inamespace]}/${tgt[$irepo]}/${tgt[$ibranch]} from $protocol:${src[$inamespace]}/${src[$irepo]}/${src[$ibranch]}")
+        if [ "$resp" = 'n' ]
+        then
+            return 1
+        fi
+    fi
+
     func-echo --head "Clone $protocol:${tgt[$inamespace]}/${tgt[$irepo]}..."
     ${protocol}-clone ${tgt[$inamespace]} ${tgt[$irepo]}
     local status=$?
-    ((status)) && return $status
+    ((status)) && _git_cd_unwind && return $status
 
     func-echo --head "Switch to branch ${tgt[$ibranch]}..."
     git checkout ${tgt[$ibranch]}
     local status=$?
-    ((status)) && return $status
+    ((status)) && _git_cd_unwind && return $status
 
     local origcommitsha=$(git rev-parse HEAD)
     local newcommitsha=$(git rev-parse HEAD)
@@ -3082,7 +3211,7 @@ git-merge-pull-request ()
     func-echo --head "****** $currentlogmsg"
     git-log-shas-range ${origcommitsha} ${newcommitsha}
     status=$?
-    ((status)) && return $status
+    ((status)) && _git_cd_unwind && return $status
     func-echo "******"
 
     if [ "$merge_src" = 'remote' ]
@@ -3091,26 +3220,26 @@ git-merge-pull-request ()
         func-echo "git remote add $remote_ref $srcurl"
         git remote add $remote_ref $srcurl
         status=$?
-        ((status)) && return $status
+        ((status)) && _git_cd_unwind && return $status
 
         func-echo --head "Fetch only the pull request branch (${src[$ibranch]}) from $srcurl (as remote ref $remote_ref)"
         func-echo "git fetch $remote_ref ${src[$ibranch]}"
         git fetch $remote_ref ${src[$ibranch]}
         status=$?
-        ((status)) && return $status
+        ((status)) && _git_cd_unwind && return $status
 
         func-echo --head "Do the merge"
         func-echo "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
         git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}
         status=$?
-        ((status)) && return $status
+        ((status)) && _git_cd_unwind && return $status
 
         newcommitsha=$(git rev-parse HEAD)
         local lasttwologmsg="Last commits on target branch ${tgt[$ibranch]}"
         func-echo --head "****** $lasttwologmsg"
         git-log-shas-range ${origcommitsha} ${newcommitsha}
         status=$?
-        ((status)) && return $status
+        ((status)) && _git_cd_unwind && return $status
         func-echo "****** **************************"
 
         func-echo "Success is defined as"
@@ -3122,13 +3251,13 @@ git-merge-pull-request ()
         func-echo --head "Fetch only the pull request branch (${src[$irbranch]}) from $srcurl"
         git fetch $srcurl ${src[$ibranch]}
         status=$?
-        ((status)) && return $status
+        ((status)) && _git_cd_unwind && return $status
         [ "$(func-yesno cont)" = 'n' ] && echo return
 
         func-echo --head "Do the merge"
         git rebase $tgt{$ibranch} origin/${src[$ibranch]}
         status=$?
-        ((status)) && return $status
+        ((status)) && _git_cd_unwind && return $status
         [ "$(func-yesno cont)" = 'n' ] && echo return
         git checkout $tgt{$ibranch}
 
@@ -3136,7 +3265,7 @@ git-merge-pull-request ()
 
         pause 'Go to another terminal, do a git log and see what you got. Then quit this, come back and fix the code accordingly.'
         ## INSERT SOME git log comparison instructions here!!!!!!
-        return 1
+        _git_cd_unwind && return 1
     fi
 
     local pushback="git push origin HEAD:${tgt[$ibranch]}"
@@ -3150,9 +3279,15 @@ git-merge-pull-request ()
         retval=$?
         if [ "$retval" = '0' ]
         then
-            func-echo --head "Remove local"
-            git-delete-current-repo
-            retval=$?
+            resp=$(func-yesno "Remove local master")
+            if [ "$resp" = 'y' ]
+            then
+                git-delete-current-repo
+                retval=$?
+                return $retval ## No cd unwind here. If we are keeping the
+                               ## local master, we probably need to do
+                               ## something in it, so we stay.
+            fi
         fi
     else
         local fmpr=$(pwd)/FINISH-merge-pull-request
@@ -3164,7 +3299,7 @@ git-merge-pull-request ()
         chmod +x $fmpr
         retval=0
     fi
-    return $retval
+    _git_cd_unwind && return $retval
 }
 
 alias git-merge-pr='git-merge-pull-request '
@@ -3340,6 +3475,7 @@ git-rebase-log ()
         then
             git rebase -i $rebase_sha
             local status=$?
+            (($status)) && return $status
             func-echo --head 'Log is now:'
             git log ${rebase_sha}^1..HEAD
             return $status
@@ -3351,6 +3487,11 @@ git-rebase-log ()
 
 }
 alias git-log-rebase='git-rebase-log '
+
+bbgithub-server-version ()
+{
+    curl -L $1/api/v3/user 2>/dev/null | grep documentation_url | sed 's|.*enterprise/||' | sed 's|/.*||'
+}
 
 _git_cd_go ()
 {
@@ -3371,6 +3512,7 @@ _git_cd_return ()
     return $?
 }
 
+## Express to the top of the stack
 _git_cd_unwind ()
 {
     local tgt=$(ashift GITFUNCS_OLDPWDS)

@@ -22,20 +22,6 @@ finish ()
 ## Main
 ##
 
-## Note - named daemon mode doesn't quite work. The defaults as they are now
-## allow this script to work as it used to. But, you may also have to turn off
-## (server-start) in ~/.emacs.d/taps/mpersico5/before-init.el
-daemonname=''
-daemonopt=''
-serveropt=''
-if [ "$1" = '-d' ]
-then
-    daemonname="$2"
-    daemonopt="--daemon=$daemonname"
-    serveropt="--server-file=$default"
-    shift;shift;
-fi
-
 OS=$(uname -o)
 case $OS in
     GNU/Linux )
@@ -74,11 +60,6 @@ fi
 
 ## Get potential emacs server processes
 $pscmd | grep $grepargs | grep -v grep | grep -vi 'emacs -q' >$procs 2>&1
-if [ -n "$daemonname" ]
-then
-    grep -- "$daemonopt" $procs > ${procs}.tmp
-    mv ${procs}.tmp $procs
-fi
 
 ## Count how many
 if((hasX))
@@ -91,21 +72,26 @@ fi
 ## If we are being used as the git editor or EDITOR, we don't want to start up
 ## such that the underlying process thinks we're done editing before we are.
 as_visual=0
+new_frame=0
 if [ "$1" = '--visual' ]
 then
     as_visual=1
+    shift
+elif [ "$1" = '--nf' ] || [ "$1" = '-nf' ]
+then
+    new_frame=1
     shift
 fi
 
 if ((serverup==0))
 then
-    if ((as_visual==0))
+    if ((as_visual==0)) && ((new_frame==0))
     then
         if (( hasX ))
         then
-            emacs $daemonopt "$@" &
+            emacs "$@" &
         else
-            emacs $daemonopt -nw "$@" < /dev/tty
+            emacs -nw "$@" < /dev/tty
         fi
     else
         echo "No emacs server found. Start one and try again or use -m."
@@ -114,11 +100,19 @@ elif ((serverup==1))
 then
     if [ ! "$#" = 0 ]
     then
-        if ((as_visual==0))
+        if ((new_frame))
         then
-            emacsclient $serveropt -n -a emacs "$@"
+            emacsclient -e "(find-file-other-frame \"$1\")"
+            shift
+            if [ ! "$#" = 0 ]
+            then
+                echo "xo: subsequent files ('$@') ignored in new frame mode" >&2
+            fi
+        elif ((as_visual==1))
+        then
+            emacsclient -c "$@"
         else
-            emacsclient $serveropt -c "$@"
+            emacsclient -n -a emacs "$@"
         fi
     else
         echo "Server already up. Specify a file to edit."
