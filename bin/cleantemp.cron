@@ -35,23 +35,31 @@ fi
 files=0
 dirs=0
 
-for i in $(find /tmp -depth -mtime $mtime)
+## Remove all the 'old' non directories
+for i in $(find /tmp -depth -mtime $mtime ! -type d)
 do
     if [[ $i =~ systemd ]] \
            || [[ $i =~ krb5cc ]]
     then
         echo "Skipping $i"
     else
-        if [ -f $i ]
-        then
-            [ -n "$rmv" ] && ls -la $i
-            \rm $rmv -f $i
-            ((files+=1))
-        else
-            [ -n "$rmv" ] && ls -lad $i
-            \rmdir $rmv $i
-            ((dirs+=1))
-        fi
+        [ -n "$rmv" ] && ls -la $i
+        \rm $rmv -f $i
+        ((files+=1))
+    fi
+done
+
+## Remove all the 'old' EMPTY directories.
+for i in $(find /tmp -depth -mtime $mtime -type d -empty)
+do
+    if [[ $i =~ systemd ]] \
+           || [[ $i =~ krb5cc ]]
+    then
+        echo "Skipping $i"
+    else
+        [ -n "$rmv" ] && ls -la $i
+        \rmdir $rmv $i
+        ((dirs+=1))
     fi
 done
 
