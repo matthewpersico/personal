@@ -1,0 +1,92 @@
+#!/opt/bb/bin/bash
+
+today=$(date +%a)
+if [ "$today" = 'Sat' ] || [ "$today" = 'Sun' ]
+then
+    exit 0
+fi
+
+alllog=$(mktemp)
+echo alllog is $alllog
+difflog=$(mktemp)
+export GITSROOT=/tmp/BuildDebRepos
+branch="cron-BuildDeb-sync-$(date +%Y-%m-%d)"
+(
+    . ${HOME}/.bash_profile
+
+    [ -d $GITSROOT ] && \rm -rf $GITSROOT
+    mkdir $GITSROOT
+    cd $GITSROOT
+
+    git clone bbgithub:dpkg/builddeb
+
+    glow clone-fork bbgithub:dpkg/blp-dpkg-portal
+
+    ( cd blp-dpkg-portal
+      git checkout -b $branch
+    )
+
+    diff -r builddeb/lib/perl/BuildDeb blp-dpkg-portal/lib/BuildDeb > $difflog
+    status=$?
+
+    ####cat $difflog
+
+    if ((status))
+    then
+        cmds=$(mktemp)
+        touch $cmds
+
+        ###echo "set -x" >> $cmds
+        echo "echo Fix up for GITSROOT" >> $cmds
+        perl -ne 'm/diff -r/ && do {
+    s/diff -r/cp -v/;
+    s/ (builddeb|blp-dpkg-portal)/ $ENV{GITSROOT}\/$1/g;
+    print $_}' $difflog >> $cmds
+
+        echo "echo Fix up for removals" >> $cmds
+        perl -ne 'm/Only in blp/ && do {
+    chomp;
+    s/Only in blp-dpkg-portal\//cd $ENV{GITSROOT}\/blp-dpkg-portal; git rm /;
+    s/: /\//;
+    print qq{($_);\n}}' $difflog  >> $cmds
+
+        echo "echo Fixup for additions"  >> $cmds
+        perl -ne 'm/Only in builddeb/ && do {
+    chomp;
+    m/Only in (.*)/;
+    $src=$1; $src =~ s/: /\//;
+    $mod=$src; $mod =~ s/.*BuildDeb/BuildDeb/;
+    print qq{(cp -v $ENV{GITSROOT}/$src $ENV{GITSROOT}/blp-dpkg-portal/lib/$mod);\n}}' $difflog  >> $cmds
+
+        cat <<EOF >>$cmds
+echo
+echo Do these by hand:
+echo    cd $GITSROOT/blp-dpkg-portal
+echo    git push --set-upstream origin $branch
+echo    cd lib
+echo    git add .
+echo    git commit -m "'builddeb to blp-dpkg-portal sync'"
+echo    git push
+echo
+echo Submit a PR against $(git remote -v | grep push | grep origin | sed 's/(push)//')"
+EOF
+
+        chmod +x $cmds
+        $cmds
+        exit 1
+    else
+        exit 0
+    fi
+
+) > $alllog 2>&1
+status=$?
+if ((status))
+then
+    mailx -s "BuildDeb inconsistent between builddeb and blp-dpkg-portal" \
+          mpersico5@bloomberg.net \
+<<EOM
+$(cat $alllog)
+EOM
+fi
+
+exit $?
