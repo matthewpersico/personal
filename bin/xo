@@ -5,6 +5,14 @@
 ## Filters in where parent ppid is 1 (in case emacs is running a perl debugger
 ## or some other subprocess)
 
+debug=0
+if [ "$1" = --debug ]
+then
+    set -x
+    debug=1
+    shift
+fi
+
 ## Temp file for processing and diagnostic messages.
 procs=$(mktemp --suffix=.xo)
 
@@ -59,7 +67,11 @@ then
 fi
 
 ## Get potential emacs server processes
-$pscmd | grep $grepargs | grep -v grep | grep -vi 'emacs -q' >$procs 2>&1
+$pscmd | grep $grepargs | grep -v grep | grep -vi 'emacs -Q' | grep -vi 'emacsclient -c' >$procs 2>&1
+if ((debug))
+then
+    cat $procs
+fi
 
 ## Count how many
 if((hasX))
@@ -102,12 +114,7 @@ then
     then
         if ((new_frame))
         then
-            emacsclient -e "(find-file-other-frame \"$1\")"
-            shift
-            if [ ! "$#" = 0 ]
-            then
-                echo "xo: subsequent files ('$@') ignored in new frame mode" >&2
-            fi
+            emacsclient -c "$@" | grep -v 'Waiting for Emacs' &
         elif ((as_visual==1))
         then
             emacsclient -c "$@"
