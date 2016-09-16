@@ -2,6 +2,11 @@
 
 # gitfuncs
 
+# Wrappers and extenders. Perhaps these should all be git-* commands in
+# personal/bin.
+
+# Uses auditfuncs utilfuncs
+
 GITFUNCS_FILE=${BASH_SOURCE[0]}
 
 auditfuncs_init $GITFUNCS_FILE
@@ -9,7 +14,8 @@ safe_func_export gitfuncs_audit
 
 . $(which controlfuncs_build) $GITFUNCS_FILE
 
-GITFUNCS_CHANGELOG_NAME=mopChangeLog
+## This should match the '(change-log-default-name ...) in your emacs config.
+GITFUNCS_CHANGELOG_NAME=SourceCtrlLog
 export GITFUNCS_CHANGELOG_NAME
 
 ##
@@ -2787,10 +2793,20 @@ alias git-remotes='git remote -v '
 
 git-get-default-push ()
 {
-    local push_def=$(git config --global push.default)
-    if [ "$push_def" = 'simple' ]
+    ##@@ none||none||git-get-default-push||
+    gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
+
+    local pre=$1;shift
+    local post=$1;shift
+    git-inside-work-tree $na
+    if [ "$?" = '0' ]
     then
-        git config --get remote.$(git config --get branch.$(git-get-current-branch).remote).url
+        local push_def=$(git config --global push.default)
+        if [ "$push_def" = 'simple' ]
+        then
+            local out=$(git config --get remote.$(git config --get branch.$(git-get-current-branch).remote).url)
+            echo "${pre}${out}${post}"
+        fi
     fi
 }
 
@@ -3109,6 +3125,10 @@ EOUSAGE
 
 git-merge-pull-request ()
 {
+    echo "****   git-merge-pull-request   ****"
+    echo "       This is a 'prod' type"
+    echo "     action - it needs auditing"
+    echo "****   git-merge-pull-request   ****"
     ##@@ none||none||git-merge-pull-request||Merge a remote pull request from command line.
     gitfuncs_audit "$@"
     local usage_func=git-merge-pull-request-usage
@@ -3523,6 +3543,44 @@ _git_cd_unwind ()
         aclear GITFUNCS_OLDPWDS && builtin cd $tgt
     fi
     return $?
+}
+
+git-retimestsamp ()
+{
+    ##@@ none||none||git-retimestsamp||Adjust all non-modified, tracked files to have the date of their last commit, not the pull date.
+    gitfuncs_audit "$@"
+    local verbose=0
+    if [[ "$1" =~ -v ]]
+    then
+        verbose=1
+    fi
+    for i in $(git ls-files)
+    do
+        if [ -z "$(git-is-modified | grep -E "^${i}$")" ]
+        then
+            if [ ! "$filedate" = "$gitdate" ]
+            then
+                local gitdate=$(git log --date=iso --name-only -1 $i | grep Date | perl -pe 's/Date:\s+//')
+                local filedate=$(stat -c %y $i)
+                if ((verbose))
+                then
+                    echo
+                    echo $i...
+                    ls -la $i
+                fi
+                touch -d "$gitdate" $i
+                if ((verbose))
+                then
+                    ls -la $i
+                fi
+            fi
+        elif ((verbose))
+        then
+            echo
+            echo -n "Not touching $i: "
+            git st --short $i
+        fi
+    done
 }
 
 ## Can't use local outside a function.
