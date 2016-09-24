@@ -14,7 +14,7 @@ dpkg-test-build-usage ()
     echo "Usage: dpkg-test-build [--src srcdir ] [ --build builddir ]"
     echo "       dpkg-test-build --help|-h"
     echo
-    echo "       Inits a temp directory and builds a package from"
+    echo "       Inits a temp directory and builds a package using"
     echo "       code in the current directory. Prints the names"
     echo "       of the logs and the products produced."
     echo
@@ -105,9 +105,34 @@ dpkg-query-portal ()
     ##@@ none||none||dpkg-query-portal||Get data and headers for an href
     dpkgfuncs_audit "$@"
 
-    local cmd="curl --negotiate -u x:x -H Accept:application/json"
-    func-echo --head "Data:"
-    $cmd $1
-    func-echo --head "Headers:"
-    $cmd -I $1
+    local headerfile=$(mktemp)
+    local datafile=$(mktemp)
+    curl --negotiate -u x:x -H Accept:application/json -D $headerfile -s $@ > $datafile 2>&1
+    local status=$?
+    if [ -r $datafile ]
+    then
+        func-echo --head "Data:"
+        local ok=$(grep '{' $datafile 2>/dev/null)
+        if [ -n "$ok" ]
+        then
+            cat $datafile | perl -MJSON::XS -MData::Dumper -e '$x=decode_json(<>);print Data::Dumper->Dump([\$x],[qw(*data)])'
+        else
+            cat $datafile
+        fi
+    fi
+    if [ -r $headerfile ]
+    then
+        func-echo --head "Headers:"
+        cat $headerfile
+    fi
+    return $status
+}
+
+dpkg-cancel-request ()
+{
+    ##@@ none||none||cancel request||Get data and headers for an href
+    dpkgfuncs_audit "$@"
+
+    dpkg-query-portal -X DELETE $@
+    return $?
 }
