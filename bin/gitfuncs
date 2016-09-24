@@ -56,6 +56,7 @@ This directory level indicates git repo organization.  If we are using the
 fork/clone methodology, then the only 'organization' at this level should
 be your own namespace, unless you have directly cloned a 'master' repo.
 EOF
+
 fi
 
 ##
@@ -652,7 +653,7 @@ git-go-usage ()
 {
     gitfuncs_audit "$@"
 
-    echo "Usage: git-go [--list[full]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt ] [dirmatch]"
+    echo "Usage: git-go [--list[full]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [dirmatch]"
     echo "       git-go [-h|--help]"
     echo
     echo "       Presents a list of all git repos"
@@ -676,6 +677,7 @@ git-go-usage ()
     echo "       --wt will add the worktree subdirectories"
     echo "           in repos. This is the default."
     echo "       --nowt will not add them."
+    echo "       --wto[nly] will show only worktrees."
     echo
     echo "       'dirmatch' will filter the list using grep"
     echo
@@ -696,7 +698,7 @@ git-go ()
     local opt_wt=1
     local opt_subwt_only=0
     local opt_i
-    local OPTSARGS=$(getoptp -o ilurmh --long list,update,roots,mbig,wt,nowt,subwt,help,listfull -n $FUNCNAME -- "$@")
+    local OPTSARGS=$(getoptp -o ilurmh --long list,update,roots,mbig,wt,nowt,subwt,wtonly,help,listfull -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
     eval set -- "$OPTSARGS"
@@ -711,6 +713,7 @@ git-go ()
             --wt) opt_wt=1; shift ;;
             --nowt) opt_wt=0; shift ;;
             --subwt) opt_subwt_only=1; shift ;;
+            --wtonly) opt_subwt_only=1; shift ;;
             -h|--help) $usage_func; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return 1 ;;
@@ -797,6 +800,7 @@ alias gitgo='git-go '
 alias gitog='git-go '
 alias gitwt='git-go --subwt '
 alias git-list='git-go -l '
+alias gitlist='git-go -l '
 
 git-get-current-branch ()
 {
@@ -1040,7 +1044,7 @@ git-update-this-hook ()
     local hooks="$@"
     if [ -z "$hooks" ]
     then
-        hooks=$(ls ${gitfuncs_githook_dir}/* | grep -v README.md)
+        hooks=$(ls ${gitfuncs_githook_dir}/* | grep -v README.md | grep -v $GITFUNCS_CHANGELOG_NAME)
     else
         local h
         local newh
@@ -1163,7 +1167,7 @@ git-check-this-hook ()
     fi
     ret=0
     local hookloc="${gitloc}/hooks"
-    for i in $(ls ${hookloc}/* | grep -v '.sample')
+    for i in $(ls ${hookloc}/* | grep -v '.sample' | grep -v $GITFUNCS_CHANGELOG_NAME)
     do
         if [ ! -x $i ]
         then
@@ -1174,10 +1178,34 @@ git-check-this-hook ()
     return 0
 }
 
+git-checkout-usage ()
+{
+    echo "Usage: git-checkout ..."
+    echo "       TBD"
+}
+
 git-checkout ()
 {
     ##@@ none||none||git-checkout||
     gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
+
+    local opt_m=''
+    local message=''
+    OPTSARGS=$(getoptp -o m: --long message: -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
+            -h|--help) $usage_func; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
 
     local newbranch=$1
     local createbranch=''
@@ -1213,7 +1241,7 @@ git-checkout ()
                         if [ "$resp" == 'y' ]
                         then
                             builtin cd ./wt || return $?
-                            git-worktree-create $newbranch
+                            git-worktree-create $opt_m "$message" $newbranch
                             return $?
                         fi
                     fi
@@ -1250,6 +1278,10 @@ git-checkout ()
             git push --set-upstream origin $newbranch
         fi
 
+        if [ -n "$opt_m" ]
+        then
+            git-st-ext "$message"
+        fi
         ## Update with changed branches
         git-go-set
         return $?
@@ -2394,11 +2426,6 @@ git-worktree-create ()
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
 
-    local verbose=1
-    local fetch_existing=0
-    local fetch_opt=''
-    local status=0
-
     ## Make sure pwd ends in wt
     if [[ ! "$(pwd)" =~ /wt$ ]]
     then
@@ -2413,12 +2440,27 @@ git-worktree-create ()
         fi
     fi
 
-    if [ "$1" = '--fetch' ]
-    then
-        fetch_existing=1
-        fetch_opt="-r"
-        shift
-    fi
+    local verbose=1
+    local fetch_existing=0
+    local fetch_opt=''
+    local status=0
+    local opt_m=''
+    local message=''
+    OPTSARGS=$(getoptp -o m:f --long message:,fetch -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -f|--fetch) fetch_existing=1; fetch_opt="-r"; shift ;;
+            -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
+            -h|--help) $usage_func; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Error getting options!"; $usage_func; return 1 ;;
+        esac
+    done
 
     if [ -z "$1" ]
     then
@@ -2506,11 +2548,9 @@ git-worktree-create ()
     ## Add a ChangeLog
     touch $(git-root)/$GITFUNCS_CHANGELOG_NAME
 
-    ## Yeah, this wierd to put the option AFTER everything else...
-    if [ "$1" = '-m' ]
+    if [ -n "$opt_m" ]
     then
-        shift
-        git-st-ext "$@"
+        git-st-ext "$message"
     fi
 
     ## Add this repo to the list
@@ -3125,10 +3165,6 @@ EOUSAGE
 
 git-merge-pull-request ()
 {
-    echo "****   git-merge-pull-request   ****"
-    echo "       This is a 'prod' type"
-    echo "     action - it needs auditing"
-    echo "****   git-merge-pull-request   ****"
     ##@@ none||none||git-merge-pull-request||Merge a remote pull request from command line.
     gitfuncs_audit "$@"
     local usage_func=git-merge-pull-request-usage
@@ -3219,6 +3255,7 @@ git-merge-pull-request ()
     ${protocol}-clone ${tgt[$inamespace]} ${tgt[$irepo]}
     local status=$?
     ((status)) && _git_cd_unwind && return $status
+    local tgt_repo_dir=$(pwd)
 
     func-echo --head "Switch to branch ${tgt[$ibranch]}..."
     git checkout ${tgt[$ibranch]}
@@ -3299,7 +3336,15 @@ git-merge-pull-request ()
         retval=$?
         if [ "$retval" = '0' ]
         then
-            resp=$(func-yesno "Remove local master")
+            ## These two lines record the sha of what we committed so that
+            ## later we can find all the repos/worktrees we committed from that
+            ## have not been cleaned up so we can clean them up. We store the
+            ## source with sha as key and the target with the time of merge as
+            ## the value.
+            local sha=$(git-log-grab-sha -1)
+            git-merge-write $sha $protocol ${tgt[@]} ${src[@]}
+
+            resp=$(func-yesno "Remove local tgt repo ($tgt_repo_dir)")
             if [ "$resp" = 'y' ]
             then
                 git-delete-current-repo
@@ -3307,6 +3352,10 @@ git-merge-pull-request ()
                 return $retval ## No cd unwind here. If we are keeping the
                                ## local master, we probably need to do
                                ## something in it, so we stay.
+            else
+                ## Play it purrty for 'lanta...
+                git checkout ${tgt[$ibranch]}
+                git pull
             fi
         fi
     else
@@ -3324,11 +3373,93 @@ git-merge-pull-request ()
 
 alias git-merge-pr='git-merge-pull-request '
 
+git-merge-write ()
+{
+    ##@@ none||none||git-merge-write||
+    gitfuncs_audit "$@"
+
+    local sha=$1;shift
+    local protocol=$1;shift;
+    local tgt=($1 $2 $3);shift;shift;shift
+    local src=($1 $2 $3);shift;shift;shift
+    local resp
+    local merge_audit_value="${sha}@$(date +%Y_%m_%d-%H_%M_%S)"
+
+    local merge_audit_key_by_tgt="merge-pr-by-tgt.${protocol}--${tgt[0]}--${tgt[1]}--${tgt[2]}.${protocol}--${src[0]}--${src[1]}--${src[2]}"
+    echo git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_tgt" "$merge_audit_value"
+    resp=$(func-yesno "ok to write")
+    [ "$resp" = 'y' ] && git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_tgt" "$merge_audit_value"
+
+    local merge_audit_key_by_src="merge-pr-by-src.${protocol}--${src[0]}--${src[1]}--${src[2]}.${protocol}--${tgt[0]}--${tgt[1]}--${tgt[2]}"
+    echo git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_src" "$merge_audit_value"
+    resp=$(func-yesno "ok to write")
+    git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_src" "$merge_audit_value"
+}
+
+git-merge-find-usage ()
+{
+    echo "Usage: git-merge-find-usage ..."
+    echo "       TBD"
+}
+
+git-merge-find ()
+{
+    ##@@ none||none||git-merge-find||Is there a merge record in ~/.gitconfig.merge_audit for the current branch.
+    gitfuncs_audit "$@"
+
+    local opt_silent=0
+    OPTSARGS=$(getoptp -o s --long silent -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -s|--silent) opt_silent=1; shift ;;
+            -h|--help) $usage_func; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
+
+    local r=$(git remote -v | grep origin | grep '(fetch)' | perl -ane '$F[1] =~ s/[\/:]/--/g; print $F[1]')
+    local b=$(git-get-current-branch)
+    local search="${r}--${b}"
+    merged=$(git config -f ~/.gitconfig.merge_audit --list | grep "${search}" 2>/dev/null)
+    if [ -z "$merged" ]
+    then
+        ((opt_silent)) || echo "No record of merging branch $search found"
+    else
+        echo "$merged" | perl -ne '
+chomp;
+my ($k, $v) = split(/=/);
+my ($sha,$date) = split(/@/,$v);
+my ($tag,$tgt,$src) = split(/\./, $k);
+next if ($tag eq q(merge-pr-by-src));
+my @srcparts = split(/--/, $src);
+my @tgtparts = split(/--/, $tgt);
+push @out, {
+   d => $date,
+   m => "Merged $sha to $tgtparts[0]:$tgtparts[1]/$tgtparts[2], branch $tgtparts[3] on $date\n"
+};
+END{
+print(map {$_->{m}} sort {$a->{d} cmp $b->{d}} @out)
+};
+'
+    fi
+}
+
+git-merge-find-branch ()
+{
+
+    git config -f ~/.gitconfig.merge_audit --list | grep "$@"
+}
+
 git-meta ()
 {
     ##@@ none||none||git-meta||Read or write meta information for a branch
     gitfuncs_audit "$@"
-
     local usage_func="${FUNCNAME}-usage"
     local branch=$(git rev-parse --abbrev-ref HEAD)
     OPTSARGS=$(getoptp -o b: --long branch: -n $FUNCNAME -- "$@")
@@ -3353,13 +3484,13 @@ git-meta ()
     fi
 
     shift
-    local value="$@"
 
-    if [ -z "$value" ]
+    if [ -z "$1" ]
     then
         ## Read existing key
-        git config --get "branch.${branch}.${key}"
+        git config --get "branch.${branch}.${key}" | perl -pe 's/%20/ /g'
     else
+        local value=$(echo $@ | perl -pe 's/\s/%20/g')
         git config "branch.${branch}.${key}" "$value"
     fi
 }
@@ -3369,19 +3500,12 @@ git-st-ext ()
     ##@@ none||none||git-st-ext||Read or write a note about this fork's current status
     gitfuncs_audit "$@"
 
-    local git_st_ext_file="$(git-root)/.git-st-ext"
-    if [ -e $git_st_ext_file ]
+    if [ -n "$1" ]
     then
-        local oldstat=$(cat $git_st_ext_file)
-        \rm $git_st_ext_file
-        git-meta local-status "$oldstat"
-    fi
-
-    if [ -n "$@" ]
-    then
-        git-meta local-status "$@"
+        git-meta local-status "$(date):" "$@"
     else
         git-meta local-status
+        git-merge-find --silent
     fi
 }
 
