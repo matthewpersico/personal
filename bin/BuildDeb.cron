@@ -18,46 +18,82 @@ branch="cron-BuildDeb-sync-$(date +%Y-%m-%d)"
     cd $GITSROOT
 
     git clone bbgithub:dpkg/builddeb
+    builtin cd builddeb
+    echo "Retimestamping; be patient..."
+    git-retimestamp
+    builtin cd -
 
     glow clone-fork bbgithub:dpkg/blp-dpkg-portal
+    builtin cd blp-dpkg-portal
+    git checkout -b $branch
+    echo "Retimestamping; be patient..."
+    git-retimestamp
+    builtin cd -
 
-    ( cd blp-dpkg-portal
-      git checkout -b $branch
-    )
-
-    diff -r builddeb/lib/perl/BuildDeb blp-dpkg-portal/lib/BuildDeb > $difflog
+    diff -r builddeb/lib/perl/BuildDeb blp-dpkg-portal/lib/BuildDeb > $difflog 2>&1
     status=$?
-
-    ####cat $difflog
 
     if ((status))
     then
         cmds=$(mktemp)
         touch $cmds
 
-        ###echo "set -x" >> $cmds
-        echo "echo Fix up for GITSROOT" >> $cmds
-        perl -ne 'm/diff -r/ && do {
-    s/diff -r/cp -v/;
-    s/ (builddeb|blp-dpkg-portal)/ $ENV{GITSROOT}\/$1/g;
-    print $_}' $difflog >> $cmds
+        perl -MFile::stat -ane 'm/diff -r/ && do {
+    $F[2] =~ s/(builddeb|blp-dpkg-portal)/$ENV{GITSROOT}\/$1/;
+    $F[3] =~ s/(builddeb|blp-dpkg-portal)/$ENV{GITSROOT}\/$1/;
+    chomp $F[3];
+    ## Make sure we copy newer over older
+    ($F[3], $F[2]) = ($F[2], $F[3])
+        if (stat($F[3])->mtime > stat($F[2])->mtime);
+    print q(##), join ( q(##), qx(ls -lat $F[2] $F[3]));
+    print "cp -rv $F[2] $F[3]\n"}' $difflog > ${cmds}.temp
 
-        echo "echo Fix up for removals" >> $cmds
-        perl -ne 'm/Only in blp/ && do {
+        cpcmds=$(smartwc -l ${cmds}.temp)
+        if ((cpcmds))
+        then
+            echo "echo Fix up for GITSROOT" >> $cmds
+            echo "echo We fix the timestamps on the repos," >> $cmds
+            echo "echo so that we can copy the newer file" >> $cmds
+            echo "echo over the older one, no matter which" >> $cmds
+            echo "echo repo you make the change in." >> $cmds
+            cat ${cmds}.temp >> $cmds
+        fi
+
+        perl -ane 'm/Only in blp/ && do {
     chomp;
     s/Only in blp-dpkg-portal\//cd $ENV{GITSROOT}\/blp-dpkg-portal; git rm /;
     s/: /\//;
-    print qq{($_);\n}}' $difflog  >> $cmds
+    print qq{($_);\n}}' $difflog > ${cmds}.temp
 
-        echo "echo Fixup for additions"  >> $cmds
+        cpcmds=$(smartwc -l ${cmds}.temp)
+        if ((cpcmds))
+        then
+            echo "echo Fix up for removals." >> $cmds
+            echo "echo Assuming files are removed from builddeb." >> $cmds
+            echo "echo If not the case then all bets are off!" >> $cmds
+            cat ${cmds}.temp >> $cmds
+        fi
+
         perl -ne 'm/Only in builddeb/ && do {
     chomp;
     m/Only in (.*)/;
     $src=$1; $src =~ s/: /\//;
     $mod=$src; $mod =~ s/.*BuildDeb/BuildDeb/;
-    print qq{(cp -v $ENV{GITSROOT}/$src $ENV{GITSROOT}/blp-dpkg-portal/lib/$mod);\n}}' $difflog  >> $cmds
+    print qq{(cp -v $ENV{GITSROOT}/$src $ENV{GITSROOT}/blp-dpkg-portal/lib/$mod);\n}}' $difflog > ${cmds}.temp
+        cpcmds=$(smartwc -l ${cmds}.temp)
+        if ((cpcmds))
+        then
+            echo "echo Fixup for additions."  >> $cmds
+            echo "echo Assuming files are added to builddeb." >> $cmds
+            echo "echo If not the case then all bets are off!" >> $cmds
+            cat ${cmds}.temp >> $cmds
+        fi
 
-        cat <<EOF >>$cmds
+        allcmds=$(smartwc -l ${cmds})
+        if ((allcmds))
+        then
+            builtin cd blp-dpkg-portal
+            cat <<EOF >>$cmds
 echo
 echo Do these by hand:
 echo    cd $GITSROOT/blp-dpkg-portal
@@ -67,12 +103,14 @@ echo    git add .
 echo    git commit -m "'builddeb to blp-dpkg-portal sync'"
 echo    git push
 echo
-echo Submit a PR against $(git remote -v | grep push | grep origin | sed 's/(push)//')"
+echo Now go to $(git remote -v | grep push | grep origin | perl -ane 'print $F[1]')
+echo and submit a PR against $(git remote -v | grep push | grep upstream | perl -ane 'print $F[1]')
 EOF
-
-        chmod +x $cmds
-        $cmds
-        exit 1
+            builtin cd -
+            chmod +x $cmds
+            $cmds
+            exit 1
+        fi
     else
         exit 0
     fi
@@ -83,9 +121,12 @@ if ((status))
 then
     mailx -s "BuildDeb inconsistent between builddeb and blp-dpkg-portal" \
           mpersico5@bloomberg.net \
-<<EOM
+          <<EOM
 $(cat $alllog)
 EOM
+elif [ "$today" = 'Mon' ]
+then
+    mailx -s "BuildDeb consistent between builddeb and blp-dpkg-portal (Monday check)" \
+          mpersico5@bloomberg.net
 fi
-
-exit $?
+exit
