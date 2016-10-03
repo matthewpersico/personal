@@ -287,8 +287,8 @@ if (@status) {
         my $cl_name_from_sline = abs2rel($abs_name_from_sline, $cldir);
         if (exists ($nocl{$abs_name_from_sline})) {
             my $function = NOCLENTRY;
-            $output{$abs_name_from_sline}->{$function}->{$entry_id++} =
-              [ "*** No Changelog entry in $nocl{$abs_name_from_sline} for $cl_name_from_sline. ***"];
+            $output{$abs_name_from_sline}->{$function}->{$entry_id++} = [ 'NE' ];
+###              [ "*** No Changelog entry in $nocl{$abs_name_from_sline} for $cl_name_from_sline. ***"];
             push_to_output($abs_name_from_sline);
         }
     }
@@ -370,6 +370,7 @@ sub push_to_output {
         return;
     }
 
+    my $space_files = 0;
     for $function (sort keys %{$filedata}) {
         my $lead = '  o '; ## Assume indent under a function entry.
         my $indent = set_indent_from_lead($lead);
@@ -397,6 +398,12 @@ sub push_to_output {
         for my $order (sort {$b <=> $a} keys %{$filedata->{$function}} ) {
             if( $function eq NOCLENTRY) {
                 push @output, join('', $format_over, shift @{$filedata->{$function}->{$order}});
+                $space_files = 1;
+                if ($output[-1] eq "${format_over}NE") {
+                    pop @output;
+                    $output[-1] .= ': No Changelog entry found.';
+                    $space_files = 0;
+                }
             } else {
                 my @wrapped = split(/\n/,wrap('','',@{$filedata->{$function}->{$order}}));
                 my $line1;
@@ -411,10 +418,12 @@ sub push_to_output {
                   $line1,
                   ## Line 2+
                   map { join( '', $format_over, $indent, $_ ) } @wrapped;
+                $space_files = 1;
             }
         }
     }
-    push @output, '';
+    push @output, '' if($space_files);
+
     if (exists($diff{$file})) {
         push @output, (map { join( '', $format_over, $_ ) } @{$diff{$file}}), '';
     }
