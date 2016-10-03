@@ -609,6 +609,8 @@ _git-go-get ()
     shift
     local wt=$1
     shift
+    local only_wt=$1
+    shift
     local filter=$1
     shift
 
@@ -636,6 +638,12 @@ _git-go-get ()
     if ((wt==0))
     then
         cat $tmpfile | grep -v '/wt/' > ${tmpfile}.001
+        mv ${tmpfile}.001 ${tmpfile}
+    fi
+
+    if ((only_wt==1))
+    then
+        cat $tmpfile | grep '/wt/' > ${tmpfile}.001
         mv ${tmpfile}.001 ${tmpfile}
     fi
 
@@ -726,24 +734,27 @@ git-go ()
     then
         tgt="$(dirname $tgt)/$(basename $tgt)"
     fi
-    REPOS=$(_git-go-get $opt_update $opt_roots $opt_mbig $opt_wt "$tgt")
-    if ((opt_subwt_only))
-    then
-        git-inside-work-tree
-        if [ "$?" = '1' ]
-        then
-            echo "Not in a git repo. Showing all repos."
-        else
-            local current_repo_full=$(git rev-parse --show-toplevel | sed 's|/wt/.*||')
-            local current_repo=$(echo $current_repo_full | sed "s|${HOME}/||")
-            if [ ! -d $current_repo_full/wt ]
-            then
-                echo "No worktrees here. Showing all repos."
-            else
-                REPOS=$(echo $REPOS | tr ' ' '\n' | grep $current_repo/wt)
-            fi
-        fi
-    fi
+    REPOS=$(_git-go-get $opt_update $opt_roots $opt_mbig $opt_wt $opt_subwt_only "$tgt")
+    #
+    # When we thought multiple wts under one master was a natural workflow. No need to
+    # limit to the PWD - check all, all the time. Remove if still here a
+    #    if ((opt_subwt_only))
+    #    then
+    #        git-inside-work-tree
+    #        if [ "$?" = '1' ]
+    #        then
+    #            echo "Not in a git repo. Showing all repos."
+    #        else
+    #            local current_repo_full=$(git rev-parse --show-toplevel | sed 's|/wt/.*||')
+    #            local current_repo=$(echo $current_repo_full | sed "s|${HOME}/||")
+    #            if [ ! -d $current_repo_full/wt ]
+    #            then
+    #                echo "No worktrees here ($. Showing all repos."
+    #           else
+    #                REPOS=$(echo $REPOS | tr ' ' '\n' | grep $current_repo/wt)
+    #            fi
+    #        fi
+    #    fi
     if [ -z "$REPOS" ]
     then
         echo $tgt does not match any repo
@@ -1055,7 +1066,7 @@ git-update-this-hook ()
         hooks="$newh"
     fi
     local REPOS REPO
-    REPOS=$(_git-go-get 0 0 1 0)
+    REPOS=$(_git-go-get 0 0 1 0 0)
     for REPO in $REPOS
     do
         for h in $hooks
@@ -1105,7 +1116,7 @@ git-push-hook ()
     fi
 
     local REPOS REPO
-    REPOS=$(_git-go-get 0 0 1 0 | grep -v ".git_template" )
+    REPOS=$(_git-go-get 0 0 1 0 0 | grep -v ".git_template" )
     for REPO in $REPOS
     do
 
@@ -2548,6 +2559,9 @@ git-worktree-create ()
     ## Add a ChangeLog
     touch $(git-root)/$GITFUNCS_CHANGELOG_NAME
 
+    func-echo "Setting timestamps..."
+    git-retimestamp
+
     if [ -n "$opt_m" ]
     then
         git-st-ext "$message"
@@ -2949,6 +2963,13 @@ git-restore ()
     echo "the prior version of the file you want to revert to."
     echo "Then execute 'git checkout theGitID the/file/to/revert'."
 }
+
+git-revert ()
+{
+    ##@@ none||none||git-revert||
+    git checkout -- "$@"
+}
+
 alias git-revert='git-restore '
 
 git-find-deleted ()
@@ -3213,12 +3234,12 @@ git-merge-pull-request ()
     fi
 
     ## github web interface shows merge source as 'user:branch'. We fix this up
-    ## as 'user//branch' and all our parsing further along 'just works'.
-    srcarg="${srcarg/:/\/\/}"
+    ## as 'user/tgtrepo/branch' and all our parsing further along 'just works' (but see below).
+    srcarg="${srcarg/:/\/-\/}"
 
     ## if there are no slashes in the src, we assume it's just a branch. We fix
     ## this up as '//branch' and all our parsing further along 'just works'.
-    [[ $srcarg =~ / ]] || srcarg="//$srcarg"
+    [[ $srcarg =~ / ]] || srcarg="-/-/$srcarg"
 
     ## Using the triangle workflow shortcut:
     if [ "$tgtarg" = '--upstream' ] || [ -z "$tgtarg" ]
@@ -3230,12 +3251,24 @@ git-merge-pull-request ()
     asplit tgt / $tgtarg
     asplit src / $srcarg
 
-    [ -z "${src[$inamespace]}" ] && src[$inamespace]=${USER}
-    [ -z "${src[$irepo]}" ]   && src[$irepo]=${tgt[$irepo]}
-    [ -z "${src[$ibranch]}" ] && src[$ibranch]=master
-    [ -z "${tgt[$ibranch]}" ] && tgt[$ibranch]=master
+    ## Ok, we just split on '/' assuming some form of namespace/repo/branch, but
+    ## branch could itself have slashed in it. Sooooo, we fix that up here:
+    local tmpend=${#src[@]}
+    local tmpcount=$((tmpend - ibranch))
+    tmp=(${src[$inamespace]} ${src[$irepo]} $(ajoin / ${src[@]:$ibranch:$tmpcount}))
+    src=("${tmp[@]}")
+    tmpend=${#tgt[@]}
+    tmp=(${tgt[$inamespace]} ${tgt[$irepo]} $(ajoin / ${tgt[@]:$ibranch:((tmpend-2))}))
+    tgt=("${tmp[@]}")
+
+    ## Here, we set defaults for missing data...
+    ([ "${src[$inamespace]}" = '-' ] || [ -z "${src[$inamespace]}" ] ) && src[$inamespace]=${USER}
+    ([ "${src[$irepo]}"      = '-' ] || [ -z "${src[$irepo]}"      ] ) && src[$irepo]=${tgt[$irepo]}
+    ([ "${src[$ibranch]}"    = '-' ] || [ -z "${src[$ibranch]}"    ] ) && src[$ibranch]=master
+    ([ "${tgt[$ibranch]}"    = '-' ] || [ -z "${tgt[$ibranch]}"    ] ) && tgt[$ibranch]=master
+
     local srcurl="$protocol:${src[$inamespace]}/${src[$irepo]}"
-    local remote_ref=$(ajoin '_' ${src[@]})
+    local remote_ref=$(ajoin _ $(asplit - / $(ajoin '_' ${src[@]})))
 
     local merge_src='remote'
     [ "${src[$inamespace]}" = "${tgt[$inamespace]}" ] && \
@@ -3384,14 +3417,15 @@ git-merge-write ()
     local src=($1 $2 $3);shift;shift;shift
     local resp
     local merge_audit_value="${sha}@$(date +%Y_%m_%d-%H_%M_%S)"
-
+    src[2]=$(echo "${src[2]}" | sed 's/\//---/g')
+    tgt[2]=$(echo "${tgt[2]}" | sed 's/\//---/g')
     local merge_audit_key_by_tgt="merge-pr-by-tgt.${protocol}--${tgt[0]}--${tgt[1]}--${tgt[2]}.${protocol}--${src[0]}--${src[1]}--${src[2]}"
-    echo git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_tgt" "$merge_audit_value"
+    func-echo git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_tgt" "$merge_audit_value"
     resp=$(func-yesno "ok to write")
     [ "$resp" = 'y' ] && git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_tgt" "$merge_audit_value"
 
     local merge_audit_key_by_src="merge-pr-by-src.${protocol}--${src[0]}--${src[1]}--${src[2]}.${protocol}--${tgt[0]}--${tgt[1]}--${tgt[2]}"
-    echo git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_src" "$merge_audit_value"
+    func-echo git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_src" "$merge_audit_value"
     resp=$(func-yesno "ok to write")
     git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_src" "$merge_audit_value"
 }
@@ -3437,6 +3471,8 @@ my ($k, $v) = split(/=/);
 my ($sha,$date) = split(/@/,$v);
 my ($tag,$tgt,$src) = split(/\./, $k);
 next if ($tag eq q(merge-pr-by-src));
+$src =~ s/---/\//g;
+$tgt =~ s/---/\//g;
 my @srcparts = split(/--/, $src);
 my @tgtparts = split(/--/, $tgt);
 push @out, {
@@ -3669,7 +3705,7 @@ _git_cd_unwind ()
     return $?
 }
 
-git-retimestsamp ()
+git-retimestamp ()
 {
     ##@@ none||none||git-retimestsamp||Adjust all non-modified, tracked files to have the date of their last commit, not the pull date.
     gitfuncs_audit "$@"
@@ -3682,10 +3718,10 @@ git-retimestsamp ()
     do
         if [ -z "$(git-is-modified | grep -E "^${i}$")" ]
         then
+            local gitdate=$(git log --date=iso --name-only -1 $i | grep Date | perl -pe 's/Date:\s+//')
+            local filedate=$(stat -c %y $i)
             if [ ! "$filedate" = "$gitdate" ]
             then
-                local gitdate=$(git log --date=iso --name-only -1 $i | grep Date | perl -pe 's/Date:\s+//')
-                local filedate=$(stat -c %y $i)
                 if ((verbose))
                 then
                     echo
@@ -3706,6 +3742,7 @@ git-retimestsamp ()
         fi
     done
 }
+safe_func_export git-retimestamp
 
 ## Can't use local outside a function.
 typeset forlater='
