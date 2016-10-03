@@ -21,14 +21,11 @@ export GITFUNCS_CHANGELOG_NAME
 ##
 ## gitfuncs environment stuff
 ##
-gitfuncs_gitroot_MBIG=${HOME}/MBIG
 gitfuncs_gitroot=${HOME}/gits
 gitfuncs_githook_root=${HOME}/.git_template
 gitfuncs_githook_dir=${HOME}/.git_template/hooks
 
 declare -A gitfuncs_gitsvcs
-gitfuncs_gitsvcs[bbgithub]='bbgithub:'
-gitfuncs_gitsvcs[devgit]='devgit:'
 gitfuncs_gitsvcs[github]='https://github.com/'
 gitfuncs_gitsvcs[bitbucket]='https://bitbucket.org/'
 
@@ -39,23 +36,14 @@ if [ ! -e $gitfuncs_gitroot ]
 then
     echo "gits dir not set up. Setting up..."
 
-    mkdir -vp $gitfuncs_gitroot/devgit
-    mkdir -vp $gitfuncs_gitroot/bbgithub
     mkdir -vp $gitfuncs_gitroot/github
     mkdir -vp $gitfuncs_gitroot/bitbucket
     cat <<EOF >>$gitfuncs_gitroot/README
-This directory level indicates which git system is being used.  Currently, only
-devgit, bbgithub, github, and bitbucket should be here.
+This directory level indicates which git system is being used.
 EOF
 
-    mkdir -vp $gitfuncs_gitroot/bbgithub/mpersico5
     mkdir -vp $gitfuncs_gitroot/github/matthewpersico
     mkdir -vp $gitfuncs_gitroot/bitbucket/matthew_persico
-    cat <<EOF >>$gitfuncs_gitroot//bbgithub/README
-This directory level indicates git repo organization.  If we are using the
-fork/clone methodology, then the only 'organization' at this level should
-be your own namespace, unless you have directly cloned a 'master' repo.
-EOF
 
 fi
 
@@ -520,8 +508,7 @@ git-go-set ()
     done
     local repo_tops=$(find $repo_find_roots -maxdepth 1 -mindepth 1 -type d -follow)
     ## We can use -maxdepth 3 to speed things up drastically because of the
-    ## standard host/repo for devgit, host/namespace/repo for bbgithub and
-    ## similarly for other git hosts.
+    ## host/namespace/repo setup similarly for other git hosts.
     local finds
     for d in ${HOME}/personal \
                     ${HOME}/.git_template \
@@ -835,7 +822,6 @@ git-help ()
     gitfuncs_audit "$@"
 
     local tmpfile=$(mktemp --suffix=.git-help)
-    ls -c1 $PERSONALBIN/*bbgh* 2>/dev/null | sed 's|.*/|script |' > ${tmpfile}.gh1
     ls -c1 $PERSONALBIN/*git* 2>/dev/null| sed 's|.*/|script |' > ${tmpfile}.gh2
     declare -F | grep git | grep -v _git > ${tmpfile}.gh3
 
@@ -1031,21 +1017,6 @@ git-delete-branch ()
 }
 alias git-delete-branch='git-delete-branch '
 alias git-branch-delete='git-delete-branch '
-
-git-set-locals ()
-{
-    ##@@ none||none||git-set-locals||
-    gitfuncs_audit "$@"
-
-    local localgitpaths='/home/mpersico5/gits/bbgithub/bbgh/bin
-                           /home/mpersico5/gits/bbgithub/glow/bin'
-    local lgp
-    for lgp in ${localgitpaths}
-    do
-        addpath -f -p PATH $lgp
-        echo "Using $lgp ($(git-get-current-branch $lgp))"
-    done
-}
 
 git-update-this-hook ()
 {
@@ -1964,21 +1935,6 @@ git-fork-and-clone ()
     git-go-set
 }
 
-bbgithub-fork-and-clone ()
-{
-    ##@@ none||none||bbgithub-fork-and-clone||
-    gitfuncs_audit "$@"
-
-    local protocol=bbgithub
-    local usage_func="git-fork-and-clone-usage"
-
-    [ -z "$1" ] && $usage_func ${FUNCNAME[0]} bbgithub && return 1
-
-    git-fork-and-clone bbgithub "$@"
-    return $?
-}
-alias fork-and-clone-bbgithub='bbgithub-fork-and-clone '
-
 git-clone-usage ()
 {
     local cmd=$1;shift
@@ -2073,32 +2029,6 @@ git-clone ()
     ## Add this repo to the list
     git-go-set
 }
-
-bbgithub-clone ()
-{
-    ##@@ none||none||bbgithub-clone||
-    gitfuncs_audit "$@"
-
-    local usage_func="git-clone-usage"
-    [ -z "$1" ] && $usage_func ${FUNCNAME} bbgithub && return 1
-
-    git-clone bbgithub "$@"
-    return $?
-}
-alias git-clone-bbgithub='bbgithub-clone '
-
-devgit-clone ()
-{
-    ##@@ none||none||devgit-clone||
-    gitfuncs_audit "$@"
-
-    local usage_func="git-clone-usage"
-    [ -z "$1" ] && $usage_func ${FUNCNAME} devgit && return 1
-
-    git-clone devgit "$@"
-    return $?
-}
-alias git-clone-devgit='devgit-clone '
 
 github-clone ()
 {
@@ -2197,32 +2127,6 @@ git-delete-repo ()
     status=$?
     return $status
 }
-
-bbgithub-whack ()
-{
-    ##@@ none||none||bbgithub-whack||
-    gitfuncs_audit "$@"
-
-    local usage_func="git-delete-repo-usage"
-    [ -z "$1" ] && $usage_func ${FUNCNAME} bbgithub && return 1
-
-    git-delete-repo bbgithub "$@"
-    return $?
-}
-alias git-delete-repo-bbgithub='bbgithub-whack '
-
-devgit-delete-repo ()
-{
-    ##@@ none||none||devgit-delete-repo||
-    gitfuncs_audit "$@"
-
-    local usage_func="git-delete-repo-usage"
-    [ -z "$1" ] && $usage_func ${FUNCNAME} devgit && return 1
-
-    git-delete-repo devgit "$@"
-    return $?
-}
-alias git-delete-repo-devgit='devgit-delete-repo '
 
 github-whack ()
 {
@@ -3102,28 +3006,6 @@ git-to-stdout ()
     done
 }
 
-bbgithub-merge-pull-request ()
-{
-    ##@@ none||none||bbgithub-merge-pull-request||Merge a bbgithub remote pull request from command line.
-    local opt_help
-    OPTSARGS=$(getoptp -o h --long help -n $FUNCNAME -- "$@")
-    local status=$?
-    ((status != 0)) && return $status
-
-    eval set -- "$OPTSARGS"
-    while true
-    do
-        case "$1" in
-            -h|--help) opt_help='-h'; shift ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "getoptp:Internal error!"; return 1 ;;
-        esac
-    done
-
-    git-merge-pull-request bbgithub $opt_help "$@"
-    return $?
-}
-
 git-merge-pull-request-usage ()
 {
     local cmd=$1;shift
@@ -3665,11 +3547,6 @@ git-rebase-log ()
 
 }
 alias git-log-rebase='git-rebase-log '
-
-bbgithub-server-version ()
-{
-    curl -L $1/api/v3/user 2>/dev/null | grep documentation_url | sed 's|.*enterprise/||' | sed 's|/.*||'
-}
 
 _git_cd_go ()
 {
