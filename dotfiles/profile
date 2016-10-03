@@ -6,7 +6,6 @@
 
 ## How to plug in (monkeypatch) set -x if needed
 [ -e /tmp/profile.mpersico5 ] && . /tmp/profile.mpersico5
-
 if [ ! "$(basename $SHELL)" = 'bash' ]
 then
     echo "Skipping profile.mpersico5 under '$SHELL'"
@@ -35,8 +34,6 @@ alias profile-reload=profile_reload
 ##
 export PERSONALROOT=~/personal
 export PERSONALBIN=$PERSONALROOT/bin
-export BLOOMBERGROOT=~/bloomberg
-export BLOOMBERGBIN=$BLOOMBERGROOT/bin
 
 ## Utils load first
 . $PERSONALBIN/utilfuncs
@@ -45,9 +42,6 @@ utilfuncs-load
 ## Path manips next. Now we have some minimal defs to use going forward.
 . $PERSONALBIN/pathfuncs
 pathfuncs-reload
-
-## Now add bbstuff and our stuff
-addpath -f PATH $BLOOMBERGBIN
 addpath -f PATH $PERSONALBIN
 
 ##
@@ -61,13 +55,12 @@ on_nfs ()
 
 CRON=$(~/personal/bin/pstree -p $$ | grep '/crond' | grep -qv grep && echo true || echo false)
 
-funcsinitlist='auditfuncs histfuncs utilfuncs cdfuncs gitfuncs svnfuncs dotfilesfuncs \
-         snapshotfuncs vmfuncs Xfuncs xtermfuncs yumaptfuncs rsyncfuncs perlfuncs pythonfuncs \
-         toolkitfuncs cvsfuncs builddebfuncs dpkgfuncs bbfuncs'
+funcsinitlist='auditfuncs histfuncs utilfuncs cdfuncs gitfuncs dotfilesfuncs \
+  Xfuncs xtermfuncs yumaptfuncs rsyncfuncs perlfuncs'
 
 for i in $funcsinitlist
 do
-    for d in $PERSONALBIN $BLOOMBERGBIN
+    for d in $PERSONALBIN
     do
         if [ -f $d/$i ]
         then
@@ -80,34 +73,6 @@ do
         fi
     done
 done
-
-if [ ! -e ~/.bbprofile ]
-then
-    ## the odds are that we are not using chimera and the packaging of /opt/bb
-    ## stuff has put /opt/bb items last on the path. Therefore we will move
-    ## them up.
-
-    ## Find our path. BB is after personal, so let's stick new stuff after
-    ## that.
-    pb=$(searchpath -n "^$BLOOMBERGBIN$")
-    pbi=$(echo $pb | sed 's|:.*||')
-    ## Adjust for 0 vs 1 counting
-    ((pbi+=1))
-
-    for p in /opt/bb/sbin /opt/bb/bin
-    do
-        ## Only if directory exists
-        if [ -d $p ]
-        then
-            ## Delete from path if in path
-            delpath $p
-
-            ## Add just after ours
-            addpath -i${pbi} $p
-        fi
-    done
-  export PATH
-fi
 
 ! $CRON && (cd $PERSONALROOT
             echo "** Check $(pwd) against master ***"
@@ -182,34 +147,5 @@ export EDITOR
 LOGIT_EDITOR='emacs -Q'
 export LOGIT_EDITOR
 
-if [ -f $BLOOMBERGROOT ]
-then
-    # if chimera generated aliases exist, pull them into the current ENV
-    [ -f ~/.bbalias ] && . ~/.bbalias
-
-    # Setup completion for plink - more for the example than the usage.
-    complete -f -X '!*.mk' plink
-
-    # AD stuff
-    [ -f /opt/quest/bin/vastool ] && alias authinfo="/opt/quest/bin/vastool search CN=${USER}"
-
-    ## Fix emacs flyspell on VMs
-    export LC_ALL=C
-    export LANG=C
-
-    ## Stupid Caps Lock! (2>... silences the errors when not under X)
-    xmodmap ~/.Xmodmap 2>/dev/null
-
-    ## Interference with remote dpkg stuff
-    addpath -s , -p no_proxy 'blp-dpkg.dev.bloomberg.com'
-    addpath -s , -p no_proxy 'devgit.dev.bloomberg.com'
-
-    ## Default colors frequently conflict with different terminal background colors.
-    alias ls >/dev/null 2>&1
-    if [ "$?" = '0' ]
-    then
-        unalias ls
-    fi
-fi
-
+[ -f ~/.profile.${USER}.bloomberg ] && . ~/.profile.${USER}.bloomberg
 ##DEBUG: ~/personal/bin/pstree -p $$ | grep '/crond' | grep -qv grep || # echo "$(date): ~/.profile.${USER} has run"
