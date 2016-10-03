@@ -6,7 +6,6 @@
 
 ## How to plug in (monkeypatch) set -x if needed
 [ -e /tmp/profile.mpersico5 ] && . /tmp/profile.mpersico5
-
 if [ ! "$(basename $SHELL)" = 'bash' ]
 then
     echo "Skipping profile.mpersico5 under '$SHELL'"
@@ -35,8 +34,6 @@ alias profile-reload=profile_reload
 ##
 export PERSONALROOT=~/personal
 export PERSONALBIN=$PERSONALROOT/bin
-export BLOOMBERGROOT=~/bloomberg
-export BLOOMBERGBIN=$BLOOMBERGROOT/bin
 
 ## Utils load first
 . $PERSONALBIN/utilfuncs
@@ -46,8 +43,14 @@ utilfuncs-load
 . $PERSONALBIN/pathfuncs
 pathfuncs-reload
 
-## Now add bbstuff and our stuff
-addpath -f PATH $BLOOMBERGBIN
+## Now add bbstuff...
+if [ -d ~/bloomberg ]
+then
+    export BLOOMBERGROOT=~/bloomberg
+    export BLOOMBERGBIN=$BLOOMBERGROOT/bin
+    addpath -f PATH $BLOOMBERGBIN
+fi
+## ...and our stuff
 addpath -f PATH $PERSONALBIN
 
 ##
@@ -61,13 +64,12 @@ on_nfs ()
 
 CRON=$(~/personal/bin/pstree -p $$ | grep '/crond' | grep -qv grep && echo true || echo false)
 
-funcsinitlist='auditfuncs histfuncs utilfuncs cdfuncs gitfuncs svnfuncs dotfilesfuncs \
-         snapshotfuncs vmfuncs Xfuncs xtermfuncs yumaptfuncs rsyncfuncs perlfuncs pythonfuncs \
-         toolkitfuncs cvsfuncs builddebfuncs dpkgfuncs bbfuncs'
+funcsinitlist='auditfuncs histfuncs utilfuncs cdfuncs gitfuncs dotfilesfuncs \
+  Xfuncs xtermfuncs yumaptfuncs rsyncfuncs perlfuncs'
 
 for i in $funcsinitlist
 do
-    for d in $PERSONALBIN $BLOOMBERGBIN
+    for d in $PERSONALBIN
     do
         if [ -f $d/$i ]
         then
@@ -80,34 +82,6 @@ do
         fi
     done
 done
-
-if [ ! -e ~/.bbprofile ]
-then
-    ## the odds are that we are not using chimera and the packaging of /opt/bb
-    ## stuff has put /opt/bb items last on the path. Therefore we will move
-    ## them up.
-
-    ## Find our path. BB is after personal, so let's stick new stuff after
-    ## that.
-    pb=$(searchpath -n "^$BLOOMBERGBIN$")
-    pbi=$(echo $pb | sed 's|:.*||')
-    ## Adjust for 0 vs 1 counting
-    ((pbi+=1))
-
-    for p in /opt/bb/sbin /opt/bb/bin
-    do
-        ## Only if directory exists
-        if [ -d $p ]
-        then
-            ## Delete from path if in path
-            delpath $p
-
-            ## Add just after ours
-            addpath -i${pbi} $p
-        fi
-    done
-  export PATH
-fi
 
 ! $CRON && (cd $PERSONALROOT
             echo "** Check $(pwd) against master ***"
@@ -182,8 +156,56 @@ export EDITOR
 LOGIT_EDITOR='emacs -Q'
 export LOGIT_EDITOR
 
-if [ -f $BLOOMBERGROOT ]
+if [ ! -e ~/.bbprofile ]
 then
+    ## the odds are that we are not using chimera and the packaging of /opt/bb
+    ## stuff has put /opt/bb items last on the path. Therefore we will move
+    ## them up.
+
+    ## Find our path. BB is after personal, so let's stick new stuff after
+    ## that.
+    pb=$(searchpath -n "^$BLOOMBERGBIN$")
+    pbi=$(echo $pb | sed 's|:.*||')
+    ## Adjust for 0 vs 1 counting
+    ((pbi+=1))
+
+    for p in /opt/bb/sbin /opt/bb/bin
+    do
+        ## Only if directory exists
+        if [ -d $p ]
+        then
+            ## Delete from path if in path
+            delpath $p
+
+            ## Add just after ours
+            addpath -i${pbi} $p
+        fi
+    done
+  export PATH
+fi
+
+if [ -d $BLOOMBERGROOT ]
+then
+
+    funcsinitlist='svnfuncs bbdotfilesfuncs snapshotfuncs vmfuncs rsyncfuncs \
+ pythonfuncs toolkitfuncs cvsfuncs builddebfuncs dpkgfuncs bbfuncs'
+
+    for i in $funcsinitlist
+    do
+        for d in $BLOOMBERGBIN
+        do
+            if [ -f $d/$i ]
+            then
+                case $i in
+                    histfuncs | xtermfuncs )
+                        ! $CRON && . $d/$i ;;
+                    * )
+                        . $d/$i ;;
+                esac
+            fi
+        done
+    done
+
     # if chimera generated aliases exist, pull them into the current ENV
     [ -f ~/.bbalias ] && . ~/.bbalias
 
