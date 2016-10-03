@@ -35,6 +35,8 @@ alias profile-reload=profile_reload
 ##
 export PERSONALROOT=~/personal
 export PERSONALBIN=$PERSONALROOT/bin
+export BLOOMBERGROOT=~/bloomberg
+export BLOOMBERGBIN=$BLOOMBERGROOT/bin
 
 ## Utils load first
 . $PERSONALBIN/utilfuncs
@@ -44,11 +46,9 @@ utilfuncs-load
 . $PERSONALBIN/pathfuncs
 pathfuncs-reload
 
-## Now I have my utils
+## Now add bbstuff and our stuff
+addpath -f PATH $BLOOMBERGBIN
 addpath -f PATH $PERSONALBIN
-
-## Now I add bb stuff, no chimera here
-[ -f /bb/bin ] && addpath -b PATH $PERSONALBIN
 
 ##
 ## Major initializations
@@ -67,15 +67,18 @@ funcsinitlist='auditfuncs histfuncs utilfuncs cdfuncs gitfuncs svnfuncs dotfiles
 
 for i in $funcsinitlist
 do
-    if [ -f $PERSONALBIN/$i ]
-    then
-        case $i in
-            histfuncs | xtermfuncs )
-                ! $CRON && . $PERSONALBIN/$i ;;
-            * )
-                . $PERSONALBIN/$i ;;
-        esac
-    fi
+    for d in $PERSONALBIN $BLOOMBERGBIN
+    do
+        if [ -f $d/$i ]
+        then
+            case $i in
+                histfuncs | xtermfuncs )
+                    ! $CRON && . $d/$i ;;
+                * )
+                    . $d/$i ;;
+            esac
+        fi
+    done
 done
 
 if [ ! -e ~/.bbprofile ]
@@ -84,8 +87,9 @@ then
     ## stuff has put /opt/bb items last on the path. Therefore we will move
     ## them up.
 
-    ## Find our path
-    pb=$(searchpath -n "^$PERSONALBIN$")
+    ## Find our path. BB is after personal, so let's stick new stuff after
+    ## that.
+    pb=$(searchpath -n "^$BLOOMBERGBIN$")
     pbi=$(echo $pb | sed 's|:.*||')
     ## Adjust for 0 vs 1 counting
     ((pbi+=1))
@@ -105,7 +109,7 @@ then
   export PATH
 fi
 
-! $CRON && (cd  $PERSONALROOT
+! $CRON && (cd $PERSONALROOT
             echo "** Check $(pwd) against master ***"
             git-check-with-master --bail_on_dirty
             echo "** Check $(pwd) against itself ***"
@@ -130,9 +134,6 @@ alias grepnc='grep --color=never'
 alias vf='echo cd, you moron; cd '
 alias fit='echo dir, you moron; dir '
 
-# if chimera generated aliases exist, pull them into the current ENV
-[ -f ~/.bbalias ] && . ~/.bbalias
-
 ## GIT - Probably should put the .git-prompt.sh code, and the exports below,
 ## into gitfuncs as a function and just call the function here.
 git_contrib_loaded=$(declare -F | grep __git_ps1)
@@ -147,6 +148,12 @@ for i in $(declare -F | grep __git | grep -v -- --fx | sed 's/.* //')
 do
     safe_func_export $i
 done
+
+# MISC
+
+# STOP clearing the screen!!!
+LESS="-X"
+export LESS
 
 if [ ! "$EMACS" = 't' ]
 then
@@ -163,20 +170,8 @@ else
 fi
 export PS1
 
-# MISC
-
-# STOP clearing the screen!!!
-LESS="-X"
-export LESS
-
-# Setup completion for plink - more for the example than the usage.
-complete -f -X '!*.mk' plink
-
 # for silencing emacs 24.4 dbus warning message
 export NO_AT_BRIDGE=1
-
-# AD stuff
-alias authinfo="/opt/quest/bin/vastool search CN=${USER}"
 
 # Editing
 ## Do NOT use an emacs command that hooks into the gnuserver or you'll have to
@@ -186,22 +181,35 @@ EDITOR='vi'
 export EDITOR
 LOGIT_EDITOR='emacs -Q'
 export LOGIT_EDITOR
-## Fix emacs flyspell on VMs
-export LC_ALL=C
-export LANG=C
 
-## Stupid Caps Lock! (2>... silences the errors when not under X)
-xmodmap ~/.Xmodmap 2>/dev/null
-
-## Interference with remote dpkg stuff
-addpath -s , -p no_proxy 'blp-dpkg.dev.bloomberg.com'
-addpath -s , -p no_proxy 'devgit.dev.bloomberg.com'
-
-## Default colors frequently conflict with different terminal background colors.
-alias ls >/dev/null 2>&1
-if [ "$?" = '0' ]
+if [ -f $BLOOMBERGROOT ]
 then
-    unalias ls
+    # if chimera generated aliases exist, pull them into the current ENV
+    [ -f ~/.bbalias ] && . ~/.bbalias
+
+    # Setup completion for plink - more for the example than the usage.
+    complete -f -X '!*.mk' plink
+
+    # AD stuff
+    [ -f /opt/quest/bin/vastool ] && alias authinfo="/opt/quest/bin/vastool search CN=${USER}"
+
+    ## Fix emacs flyspell on VMs
+    export LC_ALL=C
+    export LANG=C
+
+    ## Stupid Caps Lock! (2>... silences the errors when not under X)
+    xmodmap ~/.Xmodmap 2>/dev/null
+
+    ## Interference with remote dpkg stuff
+    addpath -s , -p no_proxy 'blp-dpkg.dev.bloomberg.com'
+    addpath -s , -p no_proxy 'devgit.dev.bloomberg.com'
+
+    ## Default colors frequently conflict with different terminal background colors.
+    alias ls >/dev/null 2>&1
+    if [ "$?" = '0' ]
+    then
+        unalias ls
+    fi
 fi
 
 ##DEBUG: ~/personal/bin/pstree -p $$ | grep '/crond' | grep -qv grep || # echo "$(date): ~/.profile.${USER} has run"
