@@ -11,3 +11,5 @@ A set of shell scripts I use for convenience in various places.
 * cd personal/dotfiles
 * ./dotfilesfuncs
 * makesymlinks
+* cd ../src/pstree
+* make
