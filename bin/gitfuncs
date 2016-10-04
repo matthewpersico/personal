@@ -2814,8 +2814,9 @@ git-log-grab-sha ()
 {
     ##@@ none||none||git-log-grab-sha||Grab a commit from log output. Provide either a number or a sha or both.
     gitfuncs_audit "$@"
-
-    git log "$@" | grep '^commit' | tail -1 | perl -pe 's/commit\s+//'
+    local args="$@"
+    [ -z "$args" ] && args='-1'
+    git log "$args" | grep '^commit' | tail -1 | perl -pe 's/commit\s+//'
 }
 
 git-log-shas-range ()
@@ -2823,9 +2824,9 @@ git-log-shas-range ()
     ##@@ none||none||git-log-shas||Given two shas (older newer), call git log on the range, inclusively
     gitfuncs_audit "$@"
     [ -z "$2" ] && echo "Usage: git-log-sha-range oldersha newersha" && return 1;
-    git log ${1}..${2}
+    git log ${1}..${2} ## Does not print the first one
     [ ! "$1" = "$2" ] && echo
-    git log -1 ${1}
+    git log -1 ${1}    ## Prints the first one
 }
 
 git-restore ()
@@ -3650,9 +3651,10 @@ git-create-patches ()
     then
         mkdir $patchdir || return $?
     fi
-    git format-patch -o $patchdir --root origin --full-index
+    local patchlist=$(mktemp)
+    git format-patch -o $patchdir --full-index --root origin | tee $patchlist
     echo "PATCHDIR=$patchdir ## change PATCHDIR at the target
-    for i in \$(ls -r -c1 \$PATCHDIR | grep -E '.patch$')
+    for i in $(cat $patchlist | perl -ne 'chomp;print(qq($_ \\\n))')
 do
 git am \$i
 done
@@ -3669,4 +3671,29 @@ git-diff-to-github-clone ()
          -x README.md \
          -x SourceCtrlLog \
          . ~/gits/github/matthewpersico/personal | more
+}
+
+git-init-last-patched ()
+{
+    git-log-grab-sha -1 > $(git-root)/last_patched
+}
+
+git-create-patches-from-last-patched ()
+{
+    echo "You must be in root dir of repo or worktree"
+    echo "Arg1 must be directory to store the patches"
+    local patchdir=$1
+    [ -z "$patchdir" ] && patchdir="./patches_dir"
+    if [ ! -d $patchdir ]
+    then
+        mkdir $patchdir || return $?
+    fi
+    local patchlist=$(mktemp)
+    git format-patch -o $patchdir --full-index $(cat $(git-root)/last_patched) | tee $patchlist
+    echo "PATCHDIR=$patchdir ## change PATCHDIR at the target
+    for i in $(cat $patchlist | perl -ne 'chomp;print(qq($_ \\\n))')
+do
+git am \$i
+done
+" > $patchdir/restore
 }
