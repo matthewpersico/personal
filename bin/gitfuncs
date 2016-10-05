@@ -3681,7 +3681,7 @@ git-create-patches ()
     then
         mkdir $patchdir || return $?
     fi
-    local patchlist=$(mktemp)
+    local patchlist=$(mktemp --suffix=.git-create-patches)
     local lp=$(git-root)/last_patched
     local lpsha
     if [ -r $lp ]
@@ -3696,7 +3696,10 @@ git-create-patches ()
     fi
     git format-patch -o $patchdir --full-index $patcharg | tee $patchlist
     local newsha=$(git-log-grab-sha -1)
-    echo "PATCHDIR=$patchdir ## change PATCHDIR at the target
+    local restorescript=$patchdir/restore
+    if [ -s $patchlist ]
+    then
+        echo "PATCHDIR=$patchdir ## change PATCHDIR at the target
 LAST_PATCHED=$lp
 for i in $(cat $patchlist | PATCHDIR=$patchdir perl -ne 'chomp;s|$ENV{PATCHDIR}|\$PATCHDIR|;print(qq(\\\n$_ ))')
 do
@@ -3705,8 +3708,14 @@ do
   [ ! \$status = '0' ] && exit \$status
 done
     echo $newsha > \$LAST_PATCHED
-" > $patchdir/restore
-    chmod a+rwx $patchdir/restore
+" > $restorescript
+        chmod a+rwx $restorescript
+        echo "Use '$restorescript' to apply patches."
+    else
+        \rm -f $restorescript
+        echo "No patches to apply."
+    fi
+
 }
 
 git-show-last-patched ()
