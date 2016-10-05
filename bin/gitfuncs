@@ -3639,25 +3639,6 @@ from elsewhere, extracting a tarball, etc.
 alias git-create-orphan-branch=''git_create_orphan_branch ''
 
 '
-git-create-patches ()
-{
-    echo "You must be in root dir of repo or worktree"
-    echo "Arg1 must be directory to store the patches"
-    local patchdir=$1
-    [ -z "$patchdir" ] && patchdir="./patches_dir"
-    if [ ! -d $patchdir ]
-    then
-        mkdir $patchdir || return $?
-    fi
-    local patchlist=$(mktemp)
-    git format-patch -o $patchdir --full-index --root origin | tee $patchlist
-    echo "PATCHDIR=$patchdir ## change PATCHDIR at the target
-    for i in $(cat $patchlist | perl -ne 'chomp;print(qq($_ \\\n))')
-do
-git am \$i
-done
-" > $patchdir/restore
-}
 
 git-diff-to-github-clone ()
 {
@@ -3671,29 +3652,57 @@ git-diff-to-github-clone ()
          . ~/gits/github/matthewpersico/personal | more
 }
 
-git-init-last-patched ()
-{
-    git-log-grab-sha -1 > $(git-root)/last_patched
-    git log -1 $(cat $(git-root)/last_patched)
-}
-alias git-set-last-patched='git-init-last-patched '
-
-git-create-patches-from-last-patched ()
+git-create-patches ()
 {
     echo "You must be in root dir of repo or worktree"
     echo "Arg1 must be directory to store the patches"
     local patchdir=$1
     [ -z "$patchdir" ] && patchdir="./patches_dir"
+    patchdir=$(realpath $patchdir)
     if [ ! -d $patchdir ]
     then
         mkdir $patchdir || return $?
     fi
     local patchlist=$(mktemp)
-    git format-patch -o $patchdir --full-index $(cat $(git-root)/last_patched) | tee $patchlist
+    local lp=$(git-root)/last_patched
+    local lpsha
+    if [ -r $lp ]
+    then
+        lpsha=$(cat $lp)
+        echo Creating patches for commits after $lpsha:
+        git log ${lpsha}..HEAD
+        patcharg=$lpsha
+    else
+        echo Creating patches from repo inception
+        patcharg='--root origin'
+    fi
+    git format-patch -o $patchdir --full-index $patcharg | tee $patchlist
     echo "PATCHDIR=$patchdir ## change PATCHDIR at the target
-    for i in $(cat $patchlist | perl -ne 'chomp;print(qq($_ \\\n))')
+for i in $(cat $patchlist | PATCHDIR=$patchdir perl -ne 'chomp;s|$ENV{PATCHDIR}|\$PATCHDIR|;print(qq(\\\n$_ ))')
 do
-git am \$i
+  git am \$i
 done
 " > $patchdir/restore
+    chmod a+rwx $patchdir/restore
 }
+
+git-show-last-patched ()
+{
+    if [ -r $(git-root)/last_patched ]
+    then
+        git log -1 $(cat $(git-root)/last_patched)
+        return 0
+    else
+        echo $(git-root)/last_patched not found
+        return 1
+    fi
+}
+
+git-init-last-patched ()
+{
+    git-log-grab-sha -1 > $(git-root)/last_patched
+    git-show-last-patched
+}
+alias git-set-last-patched='git-init-last-patched '
+
+alias git-set-last-patched='git-init-last-patched '
