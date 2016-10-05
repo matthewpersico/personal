@@ -3677,11 +3677,16 @@ git-create-patches ()
         patcharg='--root origin'
     fi
     git format-patch -o $patchdir --full-index $patcharg | tee $patchlist
+    local newsha=$(git-log-grab-sha -1)
     echo "PATCHDIR=$patchdir ## change PATCHDIR at the target
+LAST_PATCHED=$lp
 for i in $(cat $patchlist | PATCHDIR=$patchdir perl -ne 'chomp;s|$ENV{PATCHDIR}|\$PATCHDIR|;print(qq(\\\n$_ ))')
 do
   git am \$i
+  status=\$?
+  [ ! \$status = '0' ] && exit \$status
 done
+    echo $newsha > \$LAST_PATCHED
 " > $patchdir/restore
     chmod a+rwx $patchdir/restore
 }
@@ -3690,7 +3695,9 @@ git-show-last-patched ()
 {
     if [ -r $(git-root)/last_patched ]
     then
-        git log -1 $(cat $(git-root)/last_patched)
+        local back=$1
+        [ -z "$back" ] && back=-1
+        git log $back $(cat $(git-root)/last_patched)
         return 0
     else
         echo $(git-root)/last_patched not found
