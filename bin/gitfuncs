@@ -3287,7 +3287,7 @@ git-merge-find-usage ()
 
 git-merge-find ()
 {
-    ##@@ none||none||git-merge-find||Is there a merge record in ~/.gitconfig.merge_audit for the current branch.
+    ##@@ none||none||git-merge-find||Is there a merge record in ~/.gitconfig.merge_audit for given or current branch.
     gitfuncs_audit "$@"
 
     local opt_silent=0
@@ -3306,30 +3306,48 @@ git-merge-find ()
         esac
     done
 
-    local r=$(git remote -v | grep origin | grep '(fetch)' | perl -ane '$F[1] =~ s/[\/:]/--/g; print $F[1]')
-    local b=$(git-get-current-branch)
-    local search="${r}--${b}"
-    merged=$(git config -f ~/.gitconfig.merge_audit --list | grep "${search}" 2>/dev/null)
+    local r
+    local b
+    local search
+    local searchid
+    if [ -n "$1" ]
+    then
+        search="--${1}"
+        searchid="branch ${1}"
+    else
+        r=$(git remote -v | grep origin | grep '(fetch)' | perl -ane '$F[1] =~ s/[\/:]/--/g; print $F[1]')
+        b=$(git-get-current-branch)
+        search="${r}--${b}"
+        rid=$(git remote -v | grep origin | grep '(fetch)' | perl -ane 'print $F[1]')
+        searchid="${rid}:${b}"
+    fi
+    merged=$(git config -f ~/.gitconfig.merge_audit --list | grep -- "${search}" 2>/dev/null)
     if [ -z "$merged" ]
     then
-        ((opt_silent)) || echo "No record of merging branch $search found"
+        ((opt_silent)) || echo "No record of merging branch $searchid found"
     else
         echo "$merged" | perl -ne '
 chomp;
 my ($k, $v) = split(/=/);
 my ($sha,$date) = split(/@/,$v);
 my ($tag,$tgt,$src) = split(/\./, $k);
-next if ($tag eq q(merge-pr-by-src));
-$src =~ s/---/\//g;
-$tgt =~ s/---/\//g;
-my @srcparts = split(/--/, $src);
-my @tgtparts = split(/--/, $tgt);
-push @out, {
-   d => $date,
-   m => "Merged $sha to $tgtparts[0]:$tgtparts[1]/$tgtparts[2], branch $tgtparts[3] on $date\n"
-};
-END{
-print(map {$_->{m}} sort {$a->{d} cmp $b->{d}} @out)
+if ($tag eq q(merge-pr-by-tgt)) {
+    $src =~ s/---/\//g;
+    $tgt =~ s/---/\//g;
+    my @srcparts = split(/--/, $src);
+    my @tgtparts = split(/--/, $tgt);
+    push @out, {
+        d => $date,
+        m => join(qq(\n),
+                  qq(Merged $sha),
+                  qq(  from $srcparts[0]:$srcparts[1]/$srcparts[2]:$srcparts[3]),
+                  qq(    to $tgtparts[0]:$tgtparts[1]/$tgtparts[2]:$tgtparts[3]),
+                  qq(    on $date),
+                  q())
+   };
+}
+END {
+    print(map {$_->{m}} sort {$a->{d} cmp $b->{d}} @out)
 };
 '
     fi
