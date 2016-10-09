@@ -28,22 +28,24 @@ gitfuncs_githook_dir=${HOME}/.git_template/hooks
 declare -A gitfuncs_gitsvcs
 gitfuncs_gitsvcs[github]='https://github.com/'
 
-## This will be checked on each login and any time gitfuncs-reload is
-## run. However, it's only ever executed when logging into a system where the
-## home directory has never been used.
-if [ ! -e $gitfuncs_gitroot ]
-then
-    echo "gits dir not set up. Setting up..."
+## 'loc'ations's' outside of ~/gits to look for repos. We make this a hash even
+## though it's more naturally used as an array so that we do not erase any
+## assignments made in subsequent *funcs files.
+declare -A gitfuncs_gitlocs_extra
+gitfuncs_gitlocs_extra[personal]=${HOME}/personal
+gitfuncs_gitlocs_extra[emacsd]=${HOME}/.emacs.d
+gitfuncs_gitlocs_extra[emacsdtaps]=${HOME}/.emacs.d/taps/mpersico5
+gitfuncs_gitlocs_extra[examples]=${HOME}/examples
 
-    mkdir -vp $gitfuncs_gitroot/github
-    cat <<EOF >>$gitfuncs_gitroot/README
-This directory level indicates which git system is being used.
-EOF
+## These will be checked on each login and any time gitfuncs-reload is
+## run. However, they are only ever executed when logging into a system where
+## the home directory has never been used.
+[ ! -e $gitfuncs_gitroot ] &&  mkdir -vp $gitfuncs_gitroot
 
-    mkdir -vp $gitfuncs_gitroot/github/matthewpersico
+[ ! -e $gitfuncs_gitroot/github ] && mkdir -vp $gitfuncs_gitroot/github
+[ ! -e $gitfuncs_gitroot/github/matthewpersico ] && mkdir -vp $gitfuncs_gitroot/github/matthewpersico
 
-    touch ~/.gitconfig.merge_audit
-fi
+[ ! -e ~/.gitconfig.merge_audit ] && touch ~/.gitconfig.merge_audit
 
 ##
 ## Random aliases
@@ -54,6 +56,13 @@ alias git-grep='git grep '
 alias gitgrep='git grep '
 alias gitnp='git --no-pager '
 alias git-clean='git clean -e wt/ '
+
+##
+## To capture the git-* implemented stuff
+##
+GITFUNCSBIN=$PERSONALBIN/git
+export GITFUNCSBIN=$PERSONALBIN/git
+addpath -f -p PATH $GITFUNCSBIN
 
 ##
 ## Goodies
@@ -508,12 +517,8 @@ git-go-set ()
     ## We can use -maxdepth 3 to speed things up drastically because of the
     ## host/namespace/repo setup similarly for other git hosts.
     local finds
-    for d in ${HOME}/personal \
-                    ${HOME}/.git_template \
-                    ${HOME}/.emacs.d \
-                    ${HOME}/.emacs.d/taps/mpersico5 \
-                    ${HOME}/examples \
-                    $repo_tops
+    for d in ${gitfuncs_gitlocs_extra[@]} \
+                 $repo_tops
     do
         [ -d $d ] && finds="$finds $d"
     done
@@ -2430,11 +2435,7 @@ git-worktree-create ()
         git checkout $wtsubdir
      fi
 
-    ## Add a ChangeLog
-    touch $(git-root)/$GITFUNCS_CHANGELOG_NAME
-
-    func-echo "Setting timestamps..."
-    git-retimestamp
+    git-post-new
 
     if [ -n "$opt_m" ]
     then
@@ -2537,6 +2538,19 @@ git-delete-worktree ()
         return 1
     fi
 
+    ## Check for being merged
+    local gmfout=$(git-merge-find)
+    local status=$?
+    if ((status))
+    then
+        echo $gmfout
+        local resp=$(func-yesno 'Continue anyway')
+        if [ "$resp" = 'n' ]
+        then
+            return 1
+        fi
+    fi
+
     ## Whack it. Start with the current dir.
     local delit=$(basename $(pwd))
     builtin cd ..
@@ -2561,7 +2575,7 @@ git-delete-worktree ()
     func-echo 'Local admin files updated.'
 
     ## Now the take care of the branch.
-    local resp=$(func-pick "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
+    resp=$(func-pick "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
     if [ "$resp" = 'k' ]
     then
         func-echo "If you change your mind: git-[close|delete]-branch $current_branch"
@@ -2750,10 +2764,10 @@ git-status ()
         git log -1
         echo
         func-echo "=== Status:"
-        local short=$(git-st-ext)
-        [ -n "$short" ] && func-echo "--- Short: $short"
-        func-echo "--- Long:"
-        git-st-cl --noless --cdok "$@"
+        local tmpf=$(mktemp)
+
+        git-st-ext
+        git-st-cl --noless --cdok "$@" | grep -v "No files specified"
     ) | less -RE
 }
 alias git-st='git-status '
@@ -2824,9 +2838,9 @@ git-log-shas-range ()
     ##@@ none||none||git-log-shas||Given two shas (older newer), call git log on the range, inclusively
     gitfuncs_audit "$@"
     [ -z "$2" ] && echo "Usage: git-log-sha-range oldersha newersha" && return 1;
-    git log ${1}..${2} ## Does not print the first one
+    git --no-pager log ${1}..${2} ## Does not print the first one
     [ ! "$1" = "$2" ] && echo
-    git log -1 ${1}    ## Prints the first one
+    git --no-pager log -1 ${1}    ## Prints the first one
 }
 
 git-restore ()
@@ -2834,18 +2848,16 @@ git-restore ()
     ##@@ none||none||git-restore||
     gitfuncs_audit "$@"
 
-    echo "Use 'git log' to find the id of the revision that contains"
+    echo "Use 'git log' to find the id (sha) of the revision that contains"
     echo "the prior version of the file you want to revert to."
-    echo "Then execute 'git checkout theGitID the/file/to/revert'."
+    echo "Then execute 'git checkout sha the/file/to/revert'."
 }
 
 git-revert ()
 {
-    ##@@ none||none||git-revert||
+    ##@@ none||none||git-revert||revert to the latest unmodified version on the current branch, losing any modifications.
     git checkout -- "$@"
 }
-
-alias git-revert='git-restore '
 
 git-find-deleted ()
 {
@@ -2890,7 +2902,7 @@ git-stdout-last-existed()
 
 git-root ()
 {
-    ##@@ none||none||git-root||
+    ##@@ none||none||git-root||Print the root of the current repo
     gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
 
     git rev-parse --show-toplevel
@@ -3291,7 +3303,8 @@ git-merge-find ()
     gitfuncs_audit "$@"
 
     local opt_silent=0
-    OPTSARGS=$(getoptp -o s --long silent -n $FUNCNAME -- "$@")
+    local opt_all=0
+    OPTSARGS=$(getoptp -o sha --long silent,help,all -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -3301,6 +3314,7 @@ git-merge-find ()
         case "$1" in
             -s|--silent) opt_silent=1; shift ;;
             -h|--help) $usage_func; return 0 ;;
+            -a|--all) opt_all=1; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return 1 ;;
         esac
@@ -3315,16 +3329,27 @@ git-merge-find ()
         search="--${1}"
         searchid="branch ${1}"
     else
-        r=$(git remote -v | grep origin | grep '(fetch)' | perl -ane '$F[1] =~ s/[\/:]/--/g; print $F[1]')
-        b=$(git-get-current-branch)
+        if ((opt_all==0))
+        then
+            git-in-a-repo
+            if (( $? == 0 ))
+            then
+                r=$(git remote -v | grep origin | grep '(fetch)' | perl -ane '$F[1] =~ s/[\/:]/--/g; print $F[1]')
+                b=$(git-get-current-branch)
+            else
+                echo "Not in a repo"
+                return 1
+            fi
+        fi
         search="${r}--${b}"
         rid=$(git remote -v | grep origin | grep '(fetch)' | perl -ane 'print $F[1]')
         searchid="${rid}:${b}"
     fi
-    merged=$(git config -f ~/.gitconfig.merge_audit --list | grep -- "${search}" 2>/dev/null)
+    merged=$(git config -f ~/.gitconfig.merge_audit --list | grep -E -- "${search}" 2>/dev/null)
     if [ -z "$merged" ]
     then
-        ((opt_silent)) || echo "No record of merging branch $searchid found"
+        ((opt_silent)) || echo "No record of merging $searchid to anywhere."
+        return 1
     else
         echo "$merged" | perl -ne '
 chomp;
@@ -3350,6 +3375,7 @@ END {
     print(map {$_->{m}} sort {$a->{d} cmp $b->{d}} @out)
 };
 '
+        return 0
     fi
 }
 
@@ -3373,7 +3399,7 @@ git-meta ()
     while true
     do
         case "$1" in
-            --branch-b) branch=$2; shift; shift;;
+            --branch|-b) branch=$2; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return 1 ;;
         esac
@@ -3408,7 +3434,8 @@ git-st-ext ()
         git-meta local-status "$(date):" "$@"
     else
         git-meta local-status
-        git-merge-find --silent
+        git-merge-find
+        git-meta-pull-request
     fi
 }
 
@@ -3660,6 +3687,9 @@ alias git-create-orphan-branch=''git_create_orphan_branch ''
 
 git-diff-to-github-clone ()
 {
+    ##@@ none||none||git-diff-to-github-clone||
+    gitfuncs_audit "$@"
+
     diff -r \
          -x patches_dir \
          -x .git \
@@ -3672,6 +3702,9 @@ git-diff-to-github-clone ()
 
 git-create-patches ()
 {
+    ##@@ none||none||git-create-patches||
+    gitfuncs_audit "$@"
+
     echo "You must be in root dir of repo or worktree"
     echo "Arg1 must be directory to store the patches"
     local patchdir=$1
@@ -3715,11 +3748,13 @@ done
         \rm -f $restorescript
         echo "No patches to apply."
     fi
-
 }
 
 git-show-last-patched ()
 {
+    ##@@ none||none||git-show-last-patched||
+    gitfuncs_audit "$@"
+
     if [ -r $(git-root)/last_patched ]
     then
         local back=$1
@@ -3734,9 +3769,54 @@ git-show-last-patched ()
 
 git-init-last-patched ()
 {
+    ##@@ none||none||git-init-last-patched||
+    gitfuncs_audit "$@"
+
     git-log-grab-sha -1 > $(git-root)/last_patched
     git-show-last-patched
 }
 alias git-set-last-patched='git-init-last-patched '
 
-alias git-set-last-patched='git-init-last-patched '
+git-post-new ()
+{
+    ##@@ none||none||git-post-new||
+    gitfuncs_audit "$@"
+
+    func-echo 'Making a changelog file'
+    touch $(git-root)/$GITFUNCS_CHANGELOG_NAME
+
+    if [ "$1" = '-t' ]
+    then
+        func-echo "Setting timestamps..."
+        git-retimestamp
+    fi
+}
+
+git-in-a-repo ()
+{
+    git-root 2>/dev/null 1>&2
+    return $?
+}
+
+git-meta-pull-request ()
+{
+    ##@@ none||none||git-meta||Read or write pull request information for a branch
+    gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
+    local branch=$(git rev-parse --abbrev-ref HEAD)
+    OPTSARGS=$(getoptp -o b: --long branch: -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            --branch|-b) branch=$2; shift; shift;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return 1 ;;
+        esac
+    done
+
+    git-meta --branch $branch pull-request "$1"
+}

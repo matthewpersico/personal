@@ -76,25 +76,41 @@ setdirlist ()
         p=''
     fi
 
-    ## Pull out ~...
+    ## Pull out $HOME so we can always make it #1
 	DIRLISTTMP=$(echo $p ${DIRLIST} | sed "s|\~|$HOME|g" | tr ' ' '\n' | sort -u | grep -v "^${HOME}$")
-    local d
+
     DIRLIST=''
-    ## ...so we can always make it #1
-    for d in $HOME $DIRLISTTMP
+    local c ## cwd
+    local d
+
+    for d in $DIRLISTTMP
     do
         if [ -d $d ]
         then
             if [ $d == "$p" ]
             then
-                d="${DIRLIST_PWD_INDIC}$d"
+                ## Hold cwd in c so we can place it second in the list
+                c="${DIRLIST_PWD_INDIC}$d"
+            else
+                DIRLIST="$DIRLIST $d"
             fi
-            DIRLIST="$DIRLIST $d"
-        ## verbose else
-            ## verbose stderrcho Pruned non-existant $d from DIRLIST
         fi
     done
-	DIRLIST=$(echo ${DIRLIST} | sed "s|$HOME|\~|g" )
+
+    ## Translate HOME to ~ for brevity and sort order (~ will be first)
+	DIRLIST=$(echo ${DIRLIST} | sed "s|$HOME|\~|g" | sort)
+
+    local first_two
+    if [ ${HOME} == "$p" ]
+    then
+        ## Hold cwd in c so we can place it second in the list
+        first_two="${DIRLIST_PWD_INDIC}${HOME}"
+    else
+        first_two="${HOME} $c"
+    fi
+
+    ## Now add in HOME and c after the sort so that they are first and second
+    DIRLIST=$(echo $first_two ${DIRLIST} | sed "s|$HOME|\~|g" )
 }
 #nxport -f setdirlist
 
@@ -239,7 +255,7 @@ dirlist ()
     local target
     local current
 
-    ## Have to pull off any negative numbers first so as not to confuse getopt
+    ## Have to pull off any negative numbers first so as not to confuse getoptp
     local negs
     local args
     while [ -n "$1" ]
@@ -387,6 +403,7 @@ dirlist ()
 #nxport -f dirlist
 
 alias go='dirlist '
+alias cd+='dirlist '
 
 up ()
 {
