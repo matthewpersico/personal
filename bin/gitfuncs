@@ -237,7 +237,7 @@ git-status-with-changelog ()
     local args="$@"
     if [ -z "$args" ]
     then
-        args=$(git-status-parse --all) ## matches default git status setting
+        args=$($DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --all) ## matches default git status setting
     fi
     local out=$(mktemp)
     git-process-changelog --withstatus $diff $noless $args 1>$out 2>&1
@@ -422,7 +422,6 @@ git-process-changelog ()
 
     ## Backup
     cp -f $changelog $changelogbkp
-
     $DEBUG_PROCESS_CHANGELOG $pcl --cl $changelog $pcl_flags $filelist
     status=$?
     if ((status!=0))
@@ -2142,7 +2141,7 @@ git-what-is-staged ()
     then
         echo 'Files altered, staged for commit'
     else
-        git-status-parse --staged
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --staged
     fi
 }
 alias git-is-staged='git-what-is-staged '
@@ -2158,7 +2157,7 @@ git-what-is-unstaged ()
     then
         echo 'Files altered, not staged for commit'
     else
-        git-status-parse --unstaged
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --unstaged
     fi
 }
 alias git-is-unstaged='git-what-is-unstaged '
@@ -2172,7 +2171,7 @@ git-what-is-untracked ()
     then
         echo 'Files not tracked in the repo'
     else
-        git-status-parse --untracked
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --untracked
     fi
 }
 alias git-is-untracked='git-what-is-untracked '
@@ -2186,7 +2185,7 @@ git-what-is-modified ()
     then
         echo 'Files altered, both staged and not staged for commit'
     else
-        git-status-parse --staged --unstaged
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --staged --unstaged
     fi
 }
 alias git-is-modified='git-what-is-modified '
@@ -2221,7 +2220,7 @@ git-what-is-unmodified ()
     then
         echo 'Files unaltered, but tracked'
     else
-        git-status-parse --unmodified
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --unmodified
     fi
 }
 alias git-is-unmodified='git-what-is-unmodified '
@@ -2235,7 +2234,7 @@ git-what-is-deleted ()
     then
         echo 'Files deleted, both staged and not staged for commit'
     else
-        git-status-parse --deleted
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --deleted
     fi
 }
 alias git-is-deleted='git-what-is-deleted '
@@ -3772,7 +3771,12 @@ git-init-last-patched ()
     ##@@ none||none||git-init-last-patched||
     gitfuncs_audit "$@"
 
-    git-log-grab-sha -1 > $(git-root)/last_patched
+    local sha=$1
+    if [ -z "$sha" ]
+    then
+        sha=$(git-log-grab-sha -1)
+    fi
+    echo $sha > $(git-root)/last_patched
     git-show-last-patched
 }
 alias git-set-last-patched='git-init-last-patched '
@@ -3819,4 +3823,55 @@ git-meta-pull-request ()
     done
 
     git-meta --branch $branch pull-request "$1"
+}
+
+git-diff-two-repos-on-disk ()
+{
+    ##@@ none||none||git-meta||Read or write pull request information for a branch
+    gitfuncs_audit "$@"
+
+    local -A repos
+    repo[this]=$(pwd)
+    repo[other]=$(realpath $1)
+
+    if [ ${repo[this]} = ${repo[other]} ]
+    then
+        echo Other dir is this dir. Whoops! Bye.
+        return 1
+    fi
+
+    local -A list
+    list[this]=$(mktemp)
+    list[other]=$(mktemp)
+
+    local -A opposed
+    opposed[this]=other
+    opposed[other]=this
+
+    local edit=$(mktemp)
+    local which
+    for which in this other
+    do
+        perl -e 'chdir $ARGV[0];
+                 qx(git ls-files)' ${repo[$which]} > ${list[$which]}
+
+        local line
+        while IFS='' read -r line || [[ -n "$line" ]]
+        do
+            local output=$(diff -q "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line")
+            if [[ "$output" =~ 'No such file or directory' ]]
+            then
+                echo "Copying ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
+                cp -vf ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line
+            elif [ -n "$output" ]
+            then
+                echo ${repo[$which]}/$line >> $edit
+                echo ${repo[${opposed[$which]}]}/$line >> $edit
+            fi
+        done < ${list[$which]}
+    done
+
+    echo Compare list is in $edit
+    ls -lart $edit
+    cat $edit | sort -u
 }
