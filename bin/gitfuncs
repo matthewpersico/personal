@@ -100,9 +100,9 @@ git-st-por ()
     do
         case "$1" in
             -s|--strip) opt_strip=1; shift ;;
-            -h|--help) $usage_func; return 0 ;;
+            -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -143,9 +143,9 @@ git-find ()
         case "$1" in
             --untracked_only|-u) opt_untracked_only=1; shift ;;
             --all|-a) opt_all=1; shift ;;
-            -h|--help) $usage_func; return 0 ;;
+            -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -208,9 +208,9 @@ git-status-with-changelog ()
             --cdok) cdok=1; shift ;;
             --diff) diff='--diff'; shift ;;
             --noless) noless='--noless'; shift ;;
-            -h|--help) $usage_func; return 0 ;;
+            -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -226,7 +226,7 @@ git-status-with-changelog ()
             local resp=$(func-yesno "Go there")
             if [ "$resp" = 'n' ]
             then
-                return 1
+                return $NOT_OK
             fi
         fi
         _git_cd_go $gr  || return $?
@@ -272,7 +272,7 @@ git-commit-with-changelog ()
         local resp=$(func-yesno "Go there")
         if [ "$resp" = 'n' ]
         then
-            return 1
+            return $NOT_OK
         fi
         _git_cd_go $gr || return $?
     else
@@ -292,9 +292,9 @@ git-commit-with-changelog ()
         case "$1" in
             -a) opt_a=$1; shift ;;
             -v) opt_v=$1; shift ;;
-            -h) $usage_func; return 0 ;;
+            -h) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -368,9 +368,9 @@ git-process-changelog ()
             --noless)
                 noless=1
                 shift ;;
-            -h|--help) $usage_func; return 0 ;;
+            -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -379,7 +379,7 @@ git-process-changelog ()
     then
         echo "No files specified."
         [ -n "$gr" ] && _git_cd_return
-        return 1
+        return $NOT_OK
     fi
     local filelist
     for i in "$@"
@@ -401,13 +401,13 @@ git-process-changelog ()
     then
         echo "$changelog not readable"
         [ -n "$gr" ] && _git_cd_return
-        return 1
+        return $NOT_OK
     fi
     if [ "$action" = 'commit' ] && [ ! -w $changelog ]
     then
         echo "$changelog not writable"
         [ -n "$gr" ] && _git_cd_return
-        return 1
+        return $NOT_OK
     fi
 
     local changelogbkp="${changelog}.bkp"
@@ -417,7 +417,7 @@ git-process-changelog ()
     then
         echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir."
         [ -n "$gr" ] && _git_cd_return
-        return 1
+        return $NOT_OK
     fi
 
     ## Backup
@@ -455,9 +455,9 @@ git-cat-cl ()
     gitfuncs_audit "$@"
 
     local cl=$(git-root)/$GITFUNCS_CHANGELOG_NAME
-    [ -r $cl ] && cat $cl && return 0
+    [ -r $cl ] && cat $cl && return $OK
     echo "$cl not found."
-    return 1
+    return $NOT_OK
 }
 
 git-strip-repo ()
@@ -712,9 +712,9 @@ git-go ()
             --nowt) opt_wt=0; shift ;;
             --subwt) opt_subwt_only=1; shift ;;
             --wtonly) opt_subwt_only=1; shift ;;
-            -h|--help) $usage_func; return 0 ;;
+            -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -748,7 +748,7 @@ git-go ()
     if [ -z "$REPOS" ]
     then
         echo $tgt does not match any repo
-        return 1
+        return $NOT_OK
     fi
     if [ "$(echo $REPOS | wc -w)" = '1' ]
     then
@@ -813,7 +813,7 @@ git-get-current-branch ()
           ## dirlist, not builtin cd, to take advantage this cd enhancement
           dirlist $1
       fi
-      git rev-parse --abbrev-ref HEAD
+      git rev-parse --abbrev-ref HEAD 2>/dev/null
     )
 }
 alias git-get-current-branch='git-get-current-branch '
@@ -847,7 +847,7 @@ git-rename-branch ()
     if (($#!=2))
     then
         $usage_func
-        return 1
+        return $NOT_OK
     fi
 
     local old_branch=$1; shift
@@ -856,7 +856,7 @@ git-rename-branch ()
     then
         $usage_func
         echo "       argument(s) '$*' are illegal"
-        return 1
+        return $NOT_OK
     fi
 
     echo "git branch -m $old_branch $new_branch ..."
@@ -955,7 +955,7 @@ git-delete-branch ()
         if [ ${#branchesa[@]} == '0' ]
         then
             echo "No branches found. Are you in a git repo?"
-            return 1
+            return $NOT_OK
         fi
         local PS3="Choose by number, q to quit: "
         local selected
@@ -973,7 +973,7 @@ git-delete-branch ()
                 fi
             elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
             then
-                return 0
+                return $OK
             else
                 echo "'$REPLY' is an invalid choice"
             fi
@@ -986,14 +986,14 @@ git-delete-branch ()
         if [ "$branch" = "$current_branch" ]
         then
             echo "Nope, you can't delete the current branch."
-            return 1
+            return $NOT_OK
         fi
         git branch -d $branch || return $?; ## This could fail. If so, go clean
                                             ## manually. Sometimes you get
                                             ## instructions on how to do that.
         if [ "$no_remote" = '1' ]
         then
-            return 0
+            return $OK
         fi
 
         remotes=$(git remote)
@@ -1065,14 +1065,14 @@ git-push-hook ()
         echo "Error: Config says init.templatedir = '$current_template'"
         echo "       It should be '${gitfuncs_githook_root}'"
         echo "       Please correct."
-        return 1
+        return $NOT_OK
     fi
 
     if [ ! -d "$current_template" ]
     then
         echo "Error: Can't find '$current_template'"
         echo "       Please correct."
-        return 1
+        return $NOT_OK
     fi
 
     local hooks="$@"
@@ -1148,7 +1148,7 @@ git-check-this-hook ()
     if [ ! -d $gitloc ]
     then
         echo "Cannot run git-check-hook outside base repo dir - can't find .git"
-        return 1
+        return $NOT_OK
     fi
     ret=0
     local hookloc="${gitloc}/hooks"
@@ -1160,7 +1160,7 @@ git-check-this-hook ()
             chmod a+x $i
         fi
     done
-    return 0
+    return $OK
 }
 
 git-checkout-usage ()
@@ -1186,9 +1186,9 @@ git-checkout ()
     do
         case "$1" in
             -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
-            -h|--help) $usage_func; return 0 ;;
+            -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -1200,7 +1200,7 @@ git-checkout ()
         if [ ${#branchesa[@]} == '0' ]
         then
             echo "No branches found. Are you in a git repo?"
-            return 1
+            return $NOT_OK
         fi
         local current_branch=$(git-get-current-branch)
         local PS3="Choose by number, q to quit: "
@@ -1237,7 +1237,7 @@ git-checkout ()
                 break
             elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
             then
-                return 0
+                return $OK
             else
                 echo "'$REPLY' is an invalid choice"
             fi
@@ -1271,7 +1271,7 @@ git-checkout ()
         git-go-set
         return $?
     fi
-    return 0
+    return $OK
 }
 alias git-checkout='git-checkout '
 alias git-branches='git-checkout '
@@ -1286,7 +1286,7 @@ git-parse-remote-v ()
     gitfuncs_audit "$@"
 
     gitfuncs_remotes=()
-    for i in $( git remote -v | sed -r -e 's/\(.*//' -e 's/ +$//' -e 's/\t/=/' | sort -ru)
+    for i in $( git remote -v 2>/dev/null | sed -r -e 's/\(.*//' -e 's/ +$//' -e 's/\t/=/' | sort -ru)
     do
         key=${i%=*}
         value=${i#*=}
@@ -1321,9 +1321,9 @@ git-check-with-remote ()
             --bail_on_dirty) opt_bail_on_dirty=1; shift;;
             -r|--remote) opt_remote="$2"; shift; shift ;;
             -b|--branch) opt_branch="$2"; shift; shift ;;
-            -h|--help) $usage-func $iam; return 0 ;;
+            -h|--help) $usage-func $iam; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func $iam; return 1 ;;
+            *) echo "Internal error!"; $usage_func $iam; return $NOT_OK ;;
         esac
     done
 
@@ -1331,12 +1331,12 @@ git-check-with-remote ()
     then
         echo "--branch required"
         $usage_func $iam
-        return 1
+        return $NOT_OK
     fi
 
     local cb=$(git rev-parse --abbrev-ref HEAD)
     status=$?
-    ((status != 0 )) && return 1
+    ((status != 0 )) && return $NOT_OK
 
     if [ "$cb" == '' ]
     then
@@ -1352,7 +1352,7 @@ However, you do not appear to even be in a repo. I'm exiting. Try again in a
 proper repo.
 
 EOF
-        return 1
+        return $NOT_OK
     fi
 
     if [ "$cb" == "$opt_branch" ]
@@ -1371,7 +1371,7 @@ branch Then rerun the command. Or just do a 'git pull' if you really need to
 refresh this branch.
 
 EOF
-        return 1
+        return $NOT_OK
     fi
 
     ## Check the local branch against its origin
@@ -1389,12 +1389,12 @@ EOF
         if ((opt_bail_on_dirty))
         then
             echo Exiting.
-            return 1
+            return $NOT_OK
         else
             local resp=$(func-yesno "Do you want to continue anyway" n)
             if [ "$resp" == 'n' ]
             then
-                return 1
+                return $NOT_OK
             fi
         fi
     fi
@@ -1410,7 +1410,7 @@ EOF
     then
         cat $gflog
         rm $gflog
-        return 1
+        return $NOT_OK
     fi
     rm $gflog
 
@@ -1442,7 +1442,7 @@ EOF
     fi
 
     rm -f $locallog $remotelog $difflog
-    return 0
+    return $OK
 }
 
 git-check-with-master ()
@@ -1495,9 +1495,9 @@ git-sync-with-remote ()
             -c|--confirm) opt_confirm=1; shift;;
             -r|--remote) opt_remote="$2"; shift; shift ;;
             -b|--branch) opt_branch="$2"; shift; shift ;;
-            -h|--help) $usage_func $iam; return 0 ;;
+            -h|--help) $usage_func $iam; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) func-echo "Internal error!"; $usage-func $iam; return 1 ;;
+            *) func-echo "Internal error!"; $usage-func $iam; return $NOT_OK ;;
         esac
     done
 
@@ -1505,12 +1505,12 @@ git-sync-with-remote ()
     then
         func-echo "--branch required"
         $usage-func $iam
-        return 1
+        return $NOT_OK
     fi
 
     local cb=$(git rev-parse --abbrev-ref HEAD)
     status=$?
-    ((status != 0 )) && return 1
+    ((status != 0 )) && return $NOT_OK
 
     if [ "$cb" == '' ]
     then
@@ -1527,7 +1527,7 @@ However, you do not appear to even be in a repo. I'm exiting. Try again in a
 proper repo.
 
 EOF
-        return 1
+        return $NOT_OK
     fi
 
     if [ "$cb" == "$opt_branch" ]
@@ -1547,7 +1547,7 @@ another branch. Then rerun the command. Or just do a 'git status' to check this
 branch or a 'git pull' if you really need to refresh this branch.
 
 EOF
-        return 1
+        return $NOT_OK
     fi
 
     ## Stash any modified items before checking and proceeding.
@@ -1563,7 +1563,7 @@ EOF
             if [ "$resp" = 'n' ]
             then
                 func-echo "Will not proceed without a stash"
-                return 1
+                return $NOT_OK
             else
                 do_stash=1
             fi
@@ -1612,7 +1612,7 @@ EOF
                 func-echo 'Stash pop...'
                 git stash pop
             fi
-            return 0
+            return $OK
         fi
     fi
 
@@ -1654,7 +1654,7 @@ EOF
                 then
                     func-echo 'Stash pop...'
                     git stash pop
-                    return 0
+                    return $OK
                 fi
             fi
         fi
@@ -1665,7 +1665,7 @@ EOF
             func-echo 'Stash pop...'
             git stash pop
         fi
-        return 0
+        return $OK
     fi
 
     func-echo 'Pulling to sync...'
@@ -1702,7 +1702,7 @@ EOF
         then
             func-echo "Leaving stash stashed so a not to further complicate the issue"
         fi
-        return 1
+        return $NOT_OK
     fi
 
     ## Grab head of log
@@ -1851,7 +1851,7 @@ Usage: $cmd $protocolarg namespace repo
        anyway. It will not re-fork.
 
 EOUSAGE
-    return 0
+    return $OK
 }
 
 git-fork-and-clone ()
@@ -1860,7 +1860,7 @@ git-fork-and-clone ()
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
 
-    [ -z "$1" ] && $usage_func ${FUNCNAME} && return 1
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
     local protocol=$1;shift
     local namespace=$1;shift
     local repo=$1;shift
@@ -1878,13 +1878,13 @@ git-fork-and-clone ()
         then
             func-echo "Cannot find '$shouldbein'."
             func-echo "Correct and re-execute."
-            return 1
+            return $NOT_OK
         else
             local resp=$(func-yesno "cd to $shouldbein")
             if [ "$resp" = 'n' ]
             then
                 func-echo "Correct and re-execute."
-                return 1
+                return $NOT_OK
             else
                 dirlist $shouldbein
             fi
@@ -1959,7 +1959,7 @@ Usage: $cmd $protocolarg namespace repo
        Directory $gitfuncs_gitroot/$protocol must already exist.
 
 EOUSAGE
-    return 0
+    return $OK
 }
 
 git-clone ()
@@ -1968,7 +1968,7 @@ git-clone ()
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
 
-    [ -z "$1" ] && $usage_func ${FUNCNAME} && return 1
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
     local protocol=$1;shift
     local namespace=$1;shift
     local repo2
@@ -1993,13 +1993,13 @@ git-clone ()
         then
             echo "Cannot find '$shouldbein'."
             echo "Correct and re-execute."
-            return 1
+            return $NOT_OK
         else
             local resp=$(func-yesno "cd to $shouldbein")
             if [ "$resp" = 'n' ]
             then
                 echo "Correct and re-execute."
-                return 1
+                return $NOT_OK
             else
                 _git_cd_go $shouldbein
             fi
@@ -2009,14 +2009,14 @@ git-clone ()
     if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
     then
         echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
-        return 1
+        return $NOT_OK
     fi
 
     local tgt="$namespace/$repo"
     if [ -e $tgt ]
     then
         local resp=$(func-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
-        [ "$resp" = 'n' ] && return 1
+        [ "$resp" = 'n' ] && return $NOT_OK
         rm -rf $tgt
     fi
 
@@ -2039,7 +2039,7 @@ github-clone ()
     gitfuncs_audit "$@"
 
     local usage_func="git-clone-usage"
-    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return 1
+    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return $NOT_OK
 
     git-clone github "$@"
     return $?
@@ -2064,57 +2064,80 @@ Usage: $cmd $protocolarg namespace repo
        Whacks local repo $gitfuncs_gitroot/$protocol/namespace/repo.
        Asks about corresponding remote.
 EOUSAGE
-    return 0
+    return $OK
 }
 
 git-delete-repo ()
 {
-    ##@@ none||none||git-clone||Provide protocol along with namespace and repo
+    ##@@ none||none||git-delete-repo||protocol namespace repo
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
 
-    [ -z "$1" ] && $usage_func ${FUNCNAME} && return 1
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
     local protocol=$1;shift
     local namespace=$1;shift
     local repo=$1;shift
-    local cwpath=$(realpath $(pwd))
+    local returnpath=$(realpath $(pwd))
 
     if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
     then
         echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
-        return 1
+        return $NOT_OK
     fi
-    (
-        ## subshell to avoid cd issues
 
-        ## Go to what we want to whack, to make sure it's there...
-        echo gitgo $protocol/$namespace/$repo
-        gitgo $protocol/$namespace/$repo
-        status=$?
-        if ((status==0))
-        then
-            ## ...and make sure it's clean
-            dirty=$(git status --porcelain)
-            if [ -z "$dirty" ]
-            then
-                ## We're clean. Whack it.
-                builtin cd ..
-                pwd
-                \rm -r -i $repo
-                status=$?
-                if ((status==0))
-                then
-                    ## Remove it from the list of local git repos
-                    git-go-set
-                fi
-            else
-                status=1
-                git status
-            fi
-        fi
-        return $status
-    )
+    ## Go to what we want to whack, to make sure it's there.
+    gitgo $protocol/$namespace/$repo
     status=$?
+    ((status != 0)) && return $NOT_OK; ## If the gitgo fails, we should see
+                                       ## error messages, no need to add more.
+
+    local repopath=$(realpath $(pwd))
+
+    (
+        ## Subshell to allow cding around to be handled gracefully at the end
+
+        ## Make sure it's clean
+        if [ -d wt ] && [ "$(ls wt | wc -l)" != '0' ]
+        then
+            echo "worktrees found:"
+            ls -la wt
+            echo
+            echo "Will not delete repo"
+            return $NOT_OK
+        fi
+
+        dirty=$(git status --porcelain)
+        if [ -n "$dirty" ]
+        then
+            git status
+            echo
+            echo "Will not delete current repo"
+            return $NOT_OK
+        fi
+
+        builtin cd ..
+        \rm -r -i $repo
+        status=$?
+        ((status != 0)) && return $NOT_OK; ## If the rm fails, we should see
+                                           ## error messages, no need to add
+                                           ## more.
+
+        echo "Done. Not touching remote repo."
+
+        ## Remove the just-deleted repo from the list of local git repos.
+        git-go-set
+
+        return $OK
+    )
+
+    status=$?
+    if [ -d $returnpath ]
+    then
+        builtin cd $returnpath
+    else
+        builtin cd
+    fi
+
     return $status
 }
 
@@ -2124,7 +2147,7 @@ github-whack ()
     gitfuncs_audit "$@"
 
     local usage_func="git-delete-repo-usage"
-    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return 1
+    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return $NOT_OK
 
     git-delete-repo github "$@"
     return $?
@@ -2251,7 +2274,7 @@ git-track-remote-branch ()
     then
         echo "Usage: git-track-remote-branch remote branch"
         echo "       Missing one or both arguments"
-        return 1
+        return $NOT_OK
     fi
     git fetch $remote || return $?
     git checkout -b $branch --track $remote/$branch
@@ -2266,11 +2289,11 @@ git-inside-work-tree ()
     gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
 
     local print=$1;shift
-    local v=$(git rev-parse  --is-inside-work-tree 2>/dev/null)
-    local r=0
-    [ "$v" != "true" ] && r=1
+    local v=$(git rev-parse --is-inside-work-tree 2>/dev/null)
+    local r=$FALSE
+    [ "$v" != "true" ] && r=$TRUE
     [ "$print" = '-p' ] && echo $v
-    return $r ## 0 if in tree, 1 if not
+    return $r
 }
 safe_func_export git-inside-work-tree
 alias git-inside-work-tree='git-inside-work-tree '
@@ -2279,14 +2302,13 @@ git-get-stash-count ()
 {
     ##@@ none||none||git-get-stash-count||
     gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
-
     local no0=0; [ "$1" = '-no0' ] && no0=1 && shift;
     local pre=$1;shift
     local post=$1;shift
     git-inside-work-tree $na
     if [ "$?" = '0' ]
     then
-        local c=$(git stash list | wc -l)
+        local c=$(git stash list 2>/dev/null | wc -l)
         ((c==0)) && ((no0)) && return
         echo "${pre}${c}${post}"
     fi
@@ -2326,7 +2348,7 @@ git-worktree-create ()
             func-echo "Current directory is $(pwd)."
             func-echo 'No wt subdir.'
             func-echo 'Will not manipulate worktrees outside of wt dir. Aborting.'
-            return 1
+            return $NOT_OK
         fi
     fi
 
@@ -2346,9 +2368,9 @@ git-worktree-create ()
         case "$1" in
             -f|--fetch) fetch_existing=1; fetch_opt="-r"; shift ;;
             -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
-            -h|--help) $usage_func; return 0 ;;
+            -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Error getting options!"; $usage_func; return 1 ;;
+            *) echo "Error getting options!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -2356,7 +2378,7 @@ git-worktree-create ()
     then
         func-echo 'Need a branch name to use for the worktree spec.'
         $usage_func
-        return 1
+        return $NOT_OK
     fi
     local wt=$1
     shift
@@ -2374,7 +2396,7 @@ git-worktree-create ()
     if [ -e $wtdir ]
     then
         func-echo "$wtdir already exists. Aborting."
-        return 1
+        return $NOT_OK
     fi
 
     local wtsubdir=$wt
@@ -2393,7 +2415,7 @@ git-worktree-create ()
     elif [ "$fetch_existing" = '1' ]
     then
         func-echo "Branch $wt does not exist to be fetched."
-        return 1
+        return $NOT_OK
     else
         ## Since this worktree is going to create a branch of the local master,
         ## make sure the local master (where we should be right now) it is up
@@ -2401,12 +2423,12 @@ git-worktree-create ()
         if [ "$(git-get-current-branch)" != 'master' ]
         then
             func-echo "Will not create a branch and worktree from a non-master branch"
-            return 1
+            return $NOT_OK
         fi
         func-echo "Checking local master, starting point for branch."
         git pull
         status=$?
-        ((status)) && return 1 ## assuming the error message will be printed to
+        ((status)) && return $NOT_OK ## assuming the error message will be printed to
                                ## stderr...
     fi
 
@@ -2417,7 +2439,7 @@ git-worktree-create ()
     if ((status))
     then
         func-echo "Aborting."
-        return 1
+        return $NOT_OK
     fi
 
     ((verbose)) && func-echo "cd $wtsubdir"
@@ -2445,7 +2467,7 @@ git-worktree-create ()
     ## Add this repo to the list
     git-go-set
 
-    return 0
+    return $OK
 }
 alias git-create-worktree='git-worktree-create '
 alias git-worktree='git-worktree-create '
@@ -2484,9 +2506,9 @@ git-delete-worktree ()
     do
         case "$1" in
             -s|--force) opt_force=1; shift ;;
-            -h|--help) $usage_func $iam; return 0 ;;
+            -h|--help) $usage_func $iam; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func $iam; return 1 ;;
+            *) echo "Internal error!"; $usage_func $iam; return $NOT_OK ;;
         esac
     done
 
@@ -2502,7 +2524,7 @@ git-delete-worktree ()
     if [ ! -f .git ] || [[ ! "$(pwd)" =~ /wt/ ]]
     then
         func-echo "$worktree is not a proper worktree for deletion"
-        return 1
+        return $NOT_OK
     fi
 
     ## Check for cleanliness.
@@ -2514,7 +2536,7 @@ git-delete-worktree ()
             git status
             echo
             func-echo "Will not delete current worktree. Clean worktree or re-run command with --force."
-            return 1
+            return $NOT_OK
         fi
     fi
 
@@ -2525,9 +2547,9 @@ git-delete-worktree ()
     local current_dir=$(basename $(pwd))
     if [ "$current_branch" != "$current_dir" ]
     then
-        func-echo "Branch '$current_branch' does not match current subdir '$current_dir'."
+        func-echo "Branch name '$current_branch' does not match current subdir name '$current_dir'."
         func-echo "I'm bailing; you fix this mess."
-        return 1
+        return $NOT_OK
     fi
     git status
     local rc=$?
@@ -2535,7 +2557,7 @@ git-delete-worktree ()
     then
         func-echo "git status returned non-success value $rc."
         func-echo "I'm bailing; you fix this mess."
-        return 1
+        return $NOT_OK
     fi
 
     ## Check for being merged
@@ -2547,14 +2569,14 @@ git-delete-worktree ()
         local resp=$(func-yesno 'Continue anyway')
         if [ "$resp" = 'n' ]
         then
-            return 1
+            return $NOT_OK
         fi
     fi
 
     ## Whack it. Start with the current dir.
     local delit=$(basename $(pwd))
     builtin cd ..
-    \rm -r $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
+    \rm -r $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
 
     ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
     ## get to first, and stop deleting.
@@ -2565,7 +2587,7 @@ git-delete-worktree ()
             #it's empty
             delit=$(basename $(pwd))
             builtin cd ..
-            \rm -r $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
+            \rm -r $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
         fi
     done
 
@@ -2599,7 +2621,7 @@ git-delete-worktree ()
 
     git-go-set
 
-    return 0
+    return $OK
 }
 alias git-delete-current-worktree='git-delete-current-worktree '
 alias git-worktree-delete-current='git-delete-current-worktree '
@@ -2622,14 +2644,14 @@ git-worktree-root ()
     if (( in_a_wt == 1 ))
     then
         func-echo "Must be in a wt"
-        return 1;
+        return $NOT_OK;
     fi
 
     local files=$(git ls-files)
     if [ -z "$files" ]
     then
         func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
-        return 1;
+        return $NOT_OK;
     fi
 
     local root=$(pwd);
@@ -2663,14 +2685,14 @@ git-worktree-diff-to-root ()
     if (( in_a_wt == 1 ))
     then
         func-echo "Must be in a wt"
-        return 1;
+        return $NOT_OK;
     fi
 
     local files=$(git ls-files)
     if [ -z "$files" ]
     then
         func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
-        return 1;
+        return $NOT_OK;
     fi
 
     local root=$(pwd);
@@ -2716,7 +2738,7 @@ git-add-remote ()
 
     if [ "$#" != '2' ]
     then
-        $usage_func; return 1
+        $usage_func; return $NOT_OK
     fi
     local protocol=$1; shift
     local remote=$1; shift
@@ -2733,9 +2755,9 @@ alias git-remote-add='git_add_remote'
 
 alias git-remotes='git remote -v '
 
-git-get-default-push ()
+git-get-default-remote ()
 {
-    ##@@ none||none||git-get-default-push||
+    ##@@ none||none||git-get-default-remote||
     gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
 
     local pre=$1;shift
@@ -2743,10 +2765,10 @@ git-get-default-push ()
     git-inside-work-tree $na
     if [ "$?" = '0' ]
     then
-        local push_def=$(git config --global push.default)
+        local push_def=$(git config --global push.default 2>/dev/null)
         if [ "$push_def" = 'simple' ]
         then
-            local out=$(git config --get remote.$(git config --get branch.$(git-get-current-branch).remote).url)
+            local out=$(git config --get remote.$(git config --get branch.$(git-get-current-branch).remote 2>/dev/null).url 2>/dev/null)
             echo "${pre}${out}${post}"
         fi
     fi
@@ -2757,7 +2779,7 @@ git-status ()
     ##@@ none||none||git-status||
     gitfuncs_audit "$@"
 
-    git-root || return 1
+    git-root || return $NOT_OK
     (
         echo
         func-echo "=== Latest log entry:"
@@ -2799,7 +2821,7 @@ git-branch-list ()
             --strip) strip=1; shift;;
             --nostrip) strip=0; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; return 1 ;;
+            *) echo "Internal error!"; return $NOT_OK ;;
         esac
     done
 
@@ -2837,10 +2859,35 @@ git-log-shas-range ()
 {
     ##@@ none||none||git-log-shas||Given two shas (older newer), call git log on the range, inclusively
     gitfuncs_audit "$@"
-    [ -z "$2" ] && echo "Usage: git-log-sha-range oldersha newersha" && return 1;
-    git --no-pager log ${1}..${2} ## Does not print the first one
-    [ ! "$1" = "$2" ] && echo
-    git --no-pager log -1 ${1}    ## Prints the first one
+
+    local opt_hf=''
+    local opt_inclusive=1
+    local opt_add_names=''
+    OPTSARGS=$(getoptp -o f:ienh --long highlightfirst:,inclusive,exclusive,name-only,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -f|--higlightfirst)  opt_inclusive=1; opt_hf="$2"; shift; shift ;;
+            -i|--inclusive) opt_inclusive=1; shift ;;
+            -e|--exclusive) opt_inclusive=0; shift ;;
+            -n|--name-only) opt_add_names='--name-only'; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
+    [ -z "$2" ] && echo "Usage: git-log-sha-range oldersha newersha" && return $NOT_OK;
+    git --no-pager log $opt_add_names ${1}..${2} ## Does not print the first one
+    if((opt_inclusive))
+    then
+        [ ! "$1" = "$2" ] && echo "$hf_based"
+        git --no-pager log $opt_add_names -1 ${1}    ## Always prints the first one
+    fi
 }
 
 git-restore ()
@@ -2883,7 +2930,7 @@ git-checkout-last-existed()
     git checkout $(git-find-last-existed "$1") "$1"
 }
 
-git-stdout-last-existed()
+git-to-stdout-last-existed()
 {
     ##@@ none||none||git-checkout-last-existed||Find the revision in which the given file last existed and print to stdout (or file.uuid if --file specified).
     gitfuncs_audit "$@"
@@ -2963,17 +3010,17 @@ git-to-stdout ()
     while true
     do
         case "$1" in
-            -h|--help) $usage_func; return 0 ;;
+            -h|--help) $usage_func; return $OK ;;
             -f|--file) file=1; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
     if (($# < 2 ))
     then
         $usage_func
-        return 1
+        return $NOT_OK
     fi
 
     local uuid=$1;shift
@@ -3061,14 +3108,15 @@ git-merge-pull-request ()
     if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
     then
         func-echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
-        return 1
+        return $NOT_OK
     fi
 
     local usage_arg
     [ "$spoofing" = "$(true)" ] && usage_arg=$protocol
 
     local opt_help=0
-    OPTSARGS=$(getoptp -o h --long help -n $FUNCNAME -- "$@")
+    local opt_verbose=0
+    OPTSARGS=$(getoptp -o vh --long verbose,help -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && return $status
 
@@ -3076,9 +3124,10 @@ git-merge-pull-request ()
     while true
     do
         case "$1" in
-            -h|--help) $usage_func $iam $usage_arg ; return 0;;
+            -h|--help) $usage_func $iam $usage_arg ; return $OK;;
+            -v|--verbose) opt_verbose=1; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -3090,12 +3139,14 @@ git-merge-pull-request ()
     local ibranch=2
 
     local confirm_args=0
+    local current_branch_delete=''
 
     ## If there is no srcarg, take the current branch
     if [ -z "$srcarg" ]
     then
         srcarg=$(git-get-current-branch)
         confirm_args=1
+        current_branch_delete=$(pwd)
     fi
 
     ## github web interface shows merge source as 'user:branch'. We fix this up
@@ -3145,17 +3196,17 @@ git-merge-pull-request ()
         local resp=$(func-yesno "Merging to $protocol:${tgt[$inamespace]}/${tgt[$irepo]}/${tgt[$ibranch]} from $protocol:${src[$inamespace]}/${src[$irepo]}/${src[$ibranch]}")
         if [ "$resp" = 'n' ]
         then
-            return 1
+            return $NOT_OK
         fi
     fi
 
-    func-echo --head "Clone $protocol:${tgt[$inamespace]}/${tgt[$irepo]}..."
+    ((opt_verbose)) && func-echo --head "Clone $protocol:${tgt[$inamespace]}/${tgt[$irepo]}..."
     ${protocol}-clone ${tgt[$inamespace]} ${tgt[$irepo]}
     local status=$?
     ((status)) && _git_cd_unwind && return $status
     local tgt_repo_dir=$(pwd)
 
-    func-echo --head "Switch to branch ${tgt[$ibranch]}..."
+    ((opt_verbose)) && func-echo --head "Switch to branch ${tgt[$ibranch]}..."
     git checkout ${tgt[$ibranch]}
     local status=$?
     ((status)) && _git_cd_unwind && return $status
@@ -3171,20 +3222,20 @@ git-merge-pull-request ()
 
     if [ "$merge_src" = 'remote' ]
     then
-        func-echo --head "Add $srcurl... as a remote"
-        func-echo "git remote add $remote_ref $srcurl"
+        ((opt_verbose)) && func-echo --head "Add $srcurl... as a remote"
+        ((opt_verbose)) && func-echo "git remote add $remote_ref $srcurl"
         git remote add $remote_ref $srcurl
         status=$?
         ((status)) && _git_cd_unwind && return $status
 
-        func-echo --head "Fetch only the pull request branch (${src[$ibranch]}) from $srcurl (as remote ref $remote_ref)"
-        func-echo "git fetch $remote_ref ${src[$ibranch]}"
+        ((opt_verbose)) && func-echo --head "Fetch only the pull request branch (${src[$ibranch]}) from $srcurl (as remote ref $remote_ref)"
+        ((opt_verbose)) && func-echo "git fetch $remote_ref ${src[$ibranch]}"
         git fetch $remote_ref ${src[$ibranch]}
         status=$?
         ((status)) && _git_cd_unwind && return $status
 
-        func-echo --head "Do the merge"
-        func-echo "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
+        ((opt_verbose)) && func-echo --head "Do the merge"
+        ((opt_verbose)) && func-echo "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
         git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}
         status=$?
         ((status)) && _git_cd_unwind && return $status
@@ -3220,7 +3271,7 @@ git-merge-pull-request ()
 
         pause 'Go to another terminal, do a git log and see what you got. Then quit this, come back and fix the code accordingly.'
         ## INSERT SOME git log comparison instructions here!!!!!!
-        _git_cd_unwind && return 1
+        _git_cd_unwind && return $NOT_OK
     fi
 
     local pushback="git push origin HEAD:${tgt[$ibranch]}"
@@ -3229,7 +3280,7 @@ git-merge-pull-request ()
     if [ "$resp" = 'y' ]
     then
         pwd
-        func-echo --head "Push back"
+        ((opt_verbose)) && func-echo --head "Push back"
         $pushback
         retval=$?
         if [ "$retval" = '0' ]
@@ -3241,19 +3292,41 @@ git-merge-pull-request ()
             ## the value.
             local sha=$(git-log-grab-sha -1)
             git-merge-write $sha $protocol ${tgt[@]} ${src[@]}
+            ## Read what we just wrote
+            git-merge-find $sha
 
+            ## Cleanup the tmp repo used for the merge.
             resp=$(func-yesno "Remove local tgt repo ($tgt_repo_dir)")
             if [ "$resp" = 'y' ]
             then
                 git-delete-current-repo
                 retval=$?
-                return $retval ## No cd unwind here. If we are keeping the
-                               ## local master, we probably need to do
-                               ## something in it, so we stay.
+                if [ "$retval" != '0' ]
+                then
+                    return $retval
+                    ## No cd unwind here. If something went wrong, stay here
+                    ## and clean it up.
+                fi
             else
                 ## Play it purrty for 'lanta...
                 git checkout ${tgt[$ibranch]}
                 git pull
+                ## No cd unwind here. If we are keeping the local master, we
+                ## probably need to do something in it, so we stay.
+            fi
+
+            ## If wwe started out in a repo corresponding to the merged branch,
+            ## go back and whack it.
+            if [ -n "$current_branch_delete" ]
+            then
+                _git_cd_go $current_branch_delete
+                git_inside_worktree
+                if [ $? = $TRUE ]
+                then
+                    git-delete-current-worktree
+                else
+                    git-delete-current-repo
+                fi
             fi
         fi
     else
@@ -3280,8 +3353,10 @@ git-merge-write ()
     local protocol=$1;shift;
     local tgt=($1 $2 $3);shift;shift;shift
     local src=($1 $2 $3);shift;shift;shift
+    local merged_by=$(id -n -u)
+    [ -n "$1" ] && merged_by=$1 && shift;
     local resp
-    local merge_audit_value="${sha}@$(date +%Y_%m_%d-%H_%M_%S)"
+    local merge_audit_value="${sha}@$(date +%Y_%m_%d-%H_%M_%S)@$merged_by"
     src[2]=$(echo "${src[2]}" | sed 's/\//---/g')
     tgt[2]=$(echo "${tgt[2]}" | sed 's/\//---/g')
     local merge_audit_key_by_tgt="merge-pr-by-tgt.${protocol}--${tgt[0]}--${tgt[1]}--${tgt[2]}.${protocol}--${src[0]}--${src[1]}--${src[2]}"
@@ -3313,10 +3388,10 @@ git-merge-find ()
     do
         case "$1" in
             -s|--silent) opt_silent=1; shift ;;
-            -h|--help) $usage_func; return 0 ;;
+            -h|--help) $usage_func; return $OK ;;
             -a|--all) opt_all=1; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -3326,8 +3401,8 @@ git-merge-find ()
     local searchid
     if [ -n "$1" ]
     then
-        search="--${1}"
-        searchid="branch ${1}"
+        search="${1}"
+        searchid="${1}"
     else
         if ((opt_all==0))
         then
@@ -3338,7 +3413,7 @@ git-merge-find ()
                 b=$(git-get-current-branch)
             else
                 echo "Not in a repo"
-                return 1
+                return $NOT_OK
             fi
         fi
         search="${r}--${b}"
@@ -3349,33 +3424,36 @@ git-merge-find ()
     if [ -z "$merged" ]
     then
         ((opt_silent)) || echo "No record of merging $searchid to anywhere."
-        return 1
+        return $NOT_OK
     else
         echo "$merged" | perl -ne '
+BEGIN { $me = getlogin };
 chomp;
 my ($k, $v) = split(/=/);
-my ($sha,$date) = split(/@/,$v);
+my ($sha,$date,$who) = split(/@/,$v);
 my ($tag,$tgt,$src) = split(/\./, $k);
 if ($tag eq q(merge-pr-by-tgt)) {
     $src =~ s/---/\//g;
     $tgt =~ s/---/\//g;
     my @srcparts = split(/--/, $src);
     my @tgtparts = split(/--/, $tgt);
+    my @m = (qq(Merged $sha),
+             qq(  from $srcparts[0]:$srcparts[1]/$srcparts[2]:$srcparts[3]),
+             qq(    to $tgtparts[0]:$tgtparts[1]/$tgtparts[2]:$tgtparts[3]),
+             qq(    on $date));
+    push @m, qq(    by $who) if ($who ne $me);
+    push @m, qq();
+
     push @out, {
         d => $date,
-        m => join(qq(\n),
-                  qq(Merged $sha),
-                  qq(  from $srcparts[0]:$srcparts[1]/$srcparts[2]:$srcparts[3]),
-                  qq(    to $tgtparts[0]:$tgtparts[1]/$tgtparts[2]:$tgtparts[3]),
-                  qq(    on $date),
-                  q())
+        m => join(qq(\n),@m)
    };
 }
 END {
     print(map {$_->{m}} sort {$a->{d} cmp $b->{d}} @out)
 };
 '
-        return 0
+        return $OK
     fi
 }
 
@@ -3401,7 +3479,7 @@ git-meta ()
         case "$1" in
             --branch|-b) branch=$2; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -3409,7 +3487,7 @@ git-meta ()
     if [ -z "$key" ]
     then
         echo Need a key to save
-        return 1
+        return $NOT_OK
     fi
 
     shift
@@ -3455,65 +3533,12 @@ git-st-ext-all ()
 
 git-delete-current-repo ()
 {
+    ##@@ none||none||git-delete-current-repo||
     gitfuncs_audit "$@"
 
-    git-delete-repo $(pwd)
-    status=$?
-    return $status
-}
-
-git-delete-repo ()
-{
-    ##@@ none||none||git-delete-repo||Delete the repo
-    gitfuncs_audit "$@"
-
-    local opwd=$(pwd)
-    local repo=$1;
-    local repofull=$(realpath $1);
-
-    builtin cd $repofull
-
-    ## Make sure we are in a proper repo.
-    if [ ! -d .git ]
-    then
-        echo "$repo is not a proper repo for deletion"
-        return 1
-    fi
-
-    ## Make sure it's clean.
-    if [ -d wt ] && [ "$(ls wt | wc -l)" != '0' ]
-    then
-        echo "wt subdir found:"
-        ls -la wt
-        echo
-        echo "Will not delete current repo"
-        return 1
-    fi
-
-    git status 1>/dev/null 2>&1
-    local rc=$?
-    if ((rc)) || \
-           [ "$(git status --porcelain | wc -l)" != '0' ] || \
-           [ "$(git status | grep 'Your branch is' | grep -v 'up-to-date' | wc -l)" != '0' ]
-    then
-        git status
-        echo
-        echo "Will not delete current repo"
-        return 1
-    fi
-
-    ## Whack it. Start and end with the current dir.
-    local delit=$(basename $(pwd))
-    builtin cd ..
-    \rm -rf $delit; (( $? != 0 )) && echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
-    echo "Done. Not touching remote repo."
-
-    [ -d $opwd ] && builtin cd ## If $opwd was the repo directory, it won't be
-                               ## there anymore. Stay where we are.
-
-    git-go-set
-
-    return 0
+    git-parse-remove-v
+    git-delete-repo $(echo ${gitfuncs_remotes[origin]} | tr '[/:]' '[  ]')
+    return $?
 }
 
 git-rebase-log ()
@@ -3760,10 +3785,10 @@ git-show-last-patched ()
         local back=$1
         [ -z "$back" ] && back=-1
         git log $back $(cat $(git-root)/last_patched)
-        return 0
+        return $OK
     else
         echo $(git-root)/last_patched not found
-        return 1
+        return $NOT_OK
     fi
 }
 
@@ -3819,7 +3844,7 @@ git-meta-pull-request ()
         case "$1" in
             --branch|-b) branch=$2; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return 1 ;;
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
@@ -3838,7 +3863,7 @@ git-diff-two-repos-on-disk ()
     if [ ${repo[this]} = ${repo[other]} ]
     then
         echo Other dir is this dir. Whoops! Bye.
-        return 1
+        return $NOT_OK
     fi
 
     local -A list
@@ -3875,4 +3900,34 @@ git-diff-two-repos-on-disk ()
     echo Compare list is in $edit
     ls -lart $edit
     cat $edit | sort -u
+}
+
+git-pull ()
+{
+    ##@@ none||none||git-pull||Show log state after pull
+    gitfuncs_audit "$@"
+    local oldsha=$(git-log-grab-sha -1)
+    git pull
+    git-log-shas-range -f "pre-pull:" $oldsha $(git-log-grab-sha -1)
+}
+
+git-regressive-diffs ()
+{
+    cat <<EOF
+for i in $(git log -l bin/dpkg-buildd-cleanup | grep -E '^commit' | sed 's/commit //')
+do
+  if [ -z "$newer" ]
+  then
+     newer=$i
+  elif [ -z "$older" ]
+  then
+     older=$i;
+  else
+     git diff $older $newer
+     newer=$older
+     older=$i
+done
+## last one
+diff $older $newer
+EOF
 }
