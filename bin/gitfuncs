@@ -237,7 +237,7 @@ git-status-with-changelog ()
     local args="$@"
     if [ -z "$args" ]
     then
-        args=$(git-status-parse --all) ## matches default git status setting
+        args=$($DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --all) ## matches default git status setting
     fi
     local out=$(mktemp)
     git-process-changelog --withstatus $diff $noless $args 1>$out 2>&1
@@ -422,7 +422,6 @@ git-process-changelog ()
 
     ## Backup
     cp -f $changelog $changelogbkp
-
     $DEBUG_PROCESS_CHANGELOG $pcl --cl $changelog $pcl_flags $filelist
     status=$?
     if ((status!=0))
@@ -2165,7 +2164,7 @@ git-what-is-staged ()
     then
         echo 'Files altered, staged for commit'
     else
-        git-status-parse --staged
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --staged
     fi
 }
 alias git-is-staged='git-what-is-staged '
@@ -2181,7 +2180,7 @@ git-what-is-unstaged ()
     then
         echo 'Files altered, not staged for commit'
     else
-        git-status-parse --unstaged
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --unstaged
     fi
 }
 alias git-is-unstaged='git-what-is-unstaged '
@@ -2195,7 +2194,7 @@ git-what-is-untracked ()
     then
         echo 'Files not tracked in the repo'
     else
-        git-status-parse --untracked
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --untracked
     fi
 }
 alias git-is-untracked='git-what-is-untracked '
@@ -2209,7 +2208,7 @@ git-what-is-modified ()
     then
         echo 'Files altered, both staged and not staged for commit'
     else
-        git-status-parse --staged --unstaged
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --staged --unstaged
     fi
 }
 alias git-is-modified='git-what-is-modified '
@@ -2244,7 +2243,7 @@ git-what-is-unmodified ()
     then
         echo 'Files unaltered, but tracked'
     else
-        git-status-parse --unmodified
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --unmodified
     fi
 }
 alias git-is-unmodified='git-what-is-unmodified '
@@ -2258,7 +2257,7 @@ git-what-is-deleted ()
     then
         echo 'Files deleted, both staged and not staged for commit'
     else
-        git-status-parse --deleted
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --deleted
     fi
 }
 alias git-is-deleted='git-what-is-deleted '
@@ -3710,28 +3709,16 @@ alias git-create-orphan-branch=''git_create_orphan_branch ''
 
 '
 
-git-diff-to-github-clone ()
-{
-    ##@@ none||none||git-diff-to-github-clone||
-    gitfuncs_audit "$@"
-
-    diff -r \
-         -x patches_dir \
-         -x .git \
-         -x \*.ptkdb \
-         -x \*$(hostname) \
-         -x README.md \
-         -x SourceCtrlLog \
-         . ~/gits/github/matthewpersico/personal | more
-}
-
 git-create-patches ()
 {
     ##@@ none||none||git-create-patches||
     gitfuncs_audit "$@"
 
-    echo "You must be in root dir of repo or worktree"
-    echo "Arg1 must be directory to store the patches"
+    if [ ! "$(pwd)" = "$(git-root)" ]
+    then
+        echo "You must be in root dir of repo or worktree ($(git-root)), not $(pwd)"
+        return $NOT_OK
+    fi
     local patchdir=$1
     [ -z "$patchdir" ] && patchdir="./patches_dir"
     patchdir=$(realpath $patchdir)

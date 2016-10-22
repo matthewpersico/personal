@@ -1,19 +1,14 @@
-# README #
-
-### What is this repository for? ###
-
-A set of shell scripts I use for convenience in various places.
-
-### How do I get set up? ###
+# README
+All my UNIX goodies including dotfiles so I can put them on any machine.
 
 * cd ~
-* git clone git@github.com:matthewpersico/personal.git personal
+* git clone <THIS REPO> personal
 * cd personal/dotfiles
 * ./dotfilesfuncs
 * makesymlinks
 * makepstree
 * cd ..
-* Make a machine-specific branch. If the hostname is unique, use that. If not,
-try $(hostname)-$(uname -o). When you have a branch name, execute
-  * git checkout -b branchname
-  * git push --set-upstream origin branchname
+* Make a machine-specific branch. If the hostname is unique, ```branchname=$(hostname)```. If not,
+try ```branchname=$(hostname)-$(uname -o)```. When you have a branch name, execute
+  * git checkout -b $branchname
+  * git push --set-upstream origin $branchname
