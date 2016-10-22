@@ -3840,10 +3840,10 @@ git-meta-pull-request ()
 
 git-diff-two-repos-on-disk ()
 {
-    ##@@ none||none||git-meta||Read or write pull request information for a branch
+    ##@@ none||none||git-meta||
     gitfuncs_audit "$@"
 
-    local -A repos
+    local -A repo
     repo[this]=$(pwd)
     repo[other]=$(realpath $1)
 
@@ -3866,27 +3866,39 @@ git-diff-two-repos-on-disk ()
     for which in this other
     do
         perl -e 'chdir $ARGV[0];
-                 qx(git ls-files)' ${repo[$which]} > ${list[$which]}
+                 print qx(git ls-files)' ${repo[$which]} > ${list[$which]}
+    done
 
+    local -A seen
+    for which in this other
+    do
         local line
         while IFS='' read -r line || [[ -n "$line" ]]
         do
-            local output=$(diff -q "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line")
-            if [[ "$output" =~ 'No such file or directory' ]]
+            if [ -z "${seen[$line]}" ]
             then
-                echo "Copying ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
-                cp -vf ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line
-            elif [ -n "$output" ]
-            then
-                echo ${repo[$which]}/$line >> $edit
-                echo ${repo[${opposed[$which]}]}/$line >> $edit
+                seen[$line]=$line
+
+                local output=$(diff -q "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line")
+                if [[ "$output" =~ 'No such file or directory' ]]
+                then
+                    echo "Copying ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
+                    cp -vf ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line
+                elif [ -n "$output" ]
+                then
+                    echo '*****' >> $edit
+                    echo diff "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line" >> $edit
+                    diff -y --suppress-common-lines "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line" >> $edit
+                fi
             fi
         done < ${list[$which]}
     done
 
-    echo Compare list is in $edit
-    ls -lart $edit
-    cat $edit | sort -u
+    if [ -s $edit ]
+    then
+        echo Diffs are in $edit
+        ls -lart $edit
+    fi
 }
 
 git-pull ()
