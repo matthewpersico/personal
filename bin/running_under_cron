@@ -4,25 +4,27 @@ pid=$$
 ## Not all 'ps' commands print their columns in the same order and not all of
 ## them have format commands to just pick out the column I need (Cygwin being
 ## the biggest offender). I use this code to parse the header once, determining
-## which column has the parent PID and then generate the perl code that will
-## pick out that column later in the code. And no, I cannot just pass the
-## column number as an argument to that perl code because that code is running
-## under -n, which interprets all command line arguments as files that to be
-## read.
-perlcode=$(ps -l -p $pid |
-               grep PPID |
-               perl -ane '$i=0;
+## which column has the parent PID. Then we use a trick pointed out to me on
+## perlmonks to access that value as a command line argument in spite of the
+## fact that this code is running under -n, which interprets all command line
+## arguments as files that to be read.
+pscmd='ps -l'
+[ $(uname) = 'Cygwin' ] && pscmd='ps -l -p'
+
+ppididx=$($pscmd $pid |
+                 grep PPID |
+                 perl -ane '$i=0;
 $i++ while($i<@F && $F[$i] ne q(PPID));
-print q(print $F[) . $i . q(]) if $i < @F')
+print $i if $i < @F')
 
 while ((pid))
 do
-    command=$(ps -l -p $pid | grep -v PPID | grep '/crond')
+    command=$($pscmd $pid | grep -v PPID | grep '/crond')
     if [ -n "$command" ]
     then
         exit $(true)
     fi
 
-    pid=$(ps -l -p $pid | grep -v PPID | perl -ane "$perlcode")
+    pid=$($pscmd $pid | grep -v PPID | perl -ane 'INIT{$i=shift} print $F[$i]' $ppididx )
 done
 exit $(false)
