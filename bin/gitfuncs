@@ -229,7 +229,7 @@ git-status-with-changelog ()
                 return $NOT_OK
             fi
         fi
-        _git_cd_go $gr  || return $?
+        _git_cd_to $gr  || return $?
     else
         gr=''
     fi
@@ -274,7 +274,7 @@ git-commit-with-changelog ()
         then
             return $NOT_OK
         fi
-        _git_cd_go $gr || return $?
+        _git_cd_to $gr || return $?
     else
         gr=''
     fi
@@ -328,7 +328,7 @@ git-process-changelog ()
     local gr=$(git-root)
     if [ ! "$pwd" = "$gr" ]
     then
-        _git_cd_go $gr  || return $?
+        _git_cd_to $gr  || return $?
     else
         gr=''
     fi
@@ -2000,7 +2000,7 @@ git-clone ()
                 echo "Correct and re-execute."
                 return $NOT_OK
             else
-                _git_cd_go $shouldbein
+                _git_cd_to $shouldbein
             fi
         fi
     fi
@@ -2115,7 +2115,7 @@ git-delete-repo ()
         fi
 
         builtin cd ..
-        \rm -r -i $repo
+        \rm -rf $repo
         status=$?
         ((status != 0)) && return $NOT_OK; ## If the rm fails, we should see
                                            ## error messages, no need to add
@@ -2206,7 +2206,7 @@ git-what-is-modified ()
 
     if [ -n "$1" ]
     then
-        echo 'Files altered, both staged and not staged for commit'
+        echo 'Files altered: staged and unstaged'
     else
         $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --staged --unstaged
     fi
@@ -2221,7 +2221,7 @@ git-what-is-modified-only ()
 
     if [ -n "$1" ]
     then
-        echo 'Files altered, both staged and not staged for commit, without deleted files'
+        echo 'Files altered: staged, unstaged, without deleted files'
     else
         local deleted=$(ajoin '|' $(git-what-is-deleted))
         local modified
@@ -2233,6 +2233,20 @@ git-what-is-modified-only ()
 }
 alias git-is-modified='git-what-is-modified '
 alias git-is-mod='git-what-is-modified '
+
+git-what-is-edited ()
+{
+    ##@@ none||none||git-what-is-edited||
+    gitfuncs_audit "$@"
+
+    if [ -n "$1" ]
+    then
+        echo 'Files altered: staged, unstaged and untracked'
+    else
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --all-mod
+    fi
+}
+alias git-is-edited='git-what-is-edited '
 
 git-what-is-unmodified ()
 {
@@ -2295,7 +2309,6 @@ git-inside-work-tree ()
     return $r
 }
 safe_func_export git-inside-work-tree
-alias git-inside-work-tree='git-inside-work-tree '
 
 git-get-stash-count ()
 {
@@ -2320,7 +2333,6 @@ git-worktree-create-usage ()
     echo "Usage: git-worktree-create branch [remote]"
     echo "       default remote is 'origin'"
 }
-alias git-create-worktree-usage='git-create-worktree-usage '
 alias git-worktree-create-usage='git-create-worktree-usage '
 
 git-worktree-fetch ()
@@ -2575,7 +2587,7 @@ git-delete-worktree ()
     ## Whack it. Start with the current dir.
     local delit=$(basename $(pwd))
     builtin cd ..
-    \rm -r $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
+    \rm -rf $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
 
     ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
     ## get to first, and stop deleting.
@@ -2586,7 +2598,7 @@ git-delete-worktree ()
             #it's empty
             delit=$(basename $(pwd))
             builtin cd ..
-            \rm -r $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
+            \rm -rf $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
         fi
     done
 
@@ -2847,11 +2859,11 @@ git-logg ()
 
 git-log-grab-sha ()
 {
-    ##@@ none||none||git-log-grab-sha||Grab a commit from log output. Provide either a number or a sha or both.
+    ##@@ none||none||git-log-grab-sha||Grab a commit from log output. Takes either 1) a sha to start at or 2) a limiting number option that is optionally followed by the sha to start at.
     gitfuncs_audit "$@"
     local args="$@"
     [ -z "$args" ] && args='-1'
-    git log "$args" | grep '^commit' | tail -1 | perl -pe 's/commit\s+//'
+    git log $args | grep '^commit' | tail -1 | perl -pe 's/commit\s+//'
 }
 
 git-log-shas-range ()
@@ -3318,8 +3330,8 @@ git-merge-pull-request ()
             ## go back and whack it.
             if [ -n "$current_branch_delete" ]
             then
-                _git_cd_go $current_branch_delete
-                git_inside_worktree
+                _git_cd_to $current_branch_delete
+                git-inside-work-tree
                 if [ $? = $TRUE ]
                 then
                     git-delete-current-worktree
@@ -3343,10 +3355,18 @@ git-merge-pull-request ()
 
 alias git-merge-pr='git-merge-pull-request '
 
+git-merge-write-usage ()
+{
+    echo "Usage: git-merge-write sha protocol tgtorg tgtrepo tgtbranch srcorg srcrepo srcbranch [merged-by]"
+}
+
+
 git-merge-write ()
 {
     ##@@ none||none||git-merge-write||
     gitfuncs_audit "$@"
+
+    [ -z "$1" ] && git-merge-write-usage && return 1
 
     local sha=$1;shift
     local protocol=$1;shift;
@@ -3535,7 +3555,7 @@ git-delete-current-repo ()
     ##@@ none||none||git-delete-current-repo||
     gitfuncs_audit "$@"
 
-    git-parse-remove-v
+    git-parse-remote-v
     git-delete-repo $(echo ${gitfuncs_remotes[origin]} | tr '[/:]' '[  ]')
     return $?
 }
@@ -3580,13 +3600,12 @@ git-rebase-log ()
         fi
 
         ## Get the next log
-        rebase_sha=$(git-log-grab-sha $rebase_sha -2)
+        rebase_sha=$(git-log-grab-sha -2 $rebase_sha)
     done
-
 }
 alias git-log-rebase='git-rebase-log '
 
-_git_cd_go ()
+_git_cd_to ()
 {
     local tgt=$(realpath $1)
     local src=$(pwd)
@@ -3632,7 +3651,7 @@ git-retimestamp ()
         if [ -z "$(git-is-modified | grep -E "^${i}$")" ]
         then
             local gitdate=$(git log --date=iso --name-only -1 $i | grep Date | perl -pe 's/Date:\s+//')
-            local filedate=$(stat -c %y $i)
+            local filedate=$(stat -c %y $i | perl -pe 's/\.[0-9]+//')
             if [ ! "$filedate" = "$gitdate" ]
             then
                 if ((verbose))
@@ -3930,3 +3949,89 @@ done
 diff $older $newer
 EOF
 }
+
+git-rename-worktree-usage ()
+{
+    echo "Usage: git-rename-worktree old_worktree new_worktree"
+    echo "       where new_worktree will live in the same"
+    echo "       directory as the old_worktree. Primarily"
+    echo "       used when renaming the branch that the worktree"
+    echo "       corresponds to."
+}
+
+git-rename-worktree ()
+{
+    ##@@ none||none||git-rename-worktree||
+    gitfuncs_audit "$@"
+
+    local usage_func="${FUNCNAME}-usage"
+
+    if (($#!=2))
+    then
+        $usage_func
+        return $NOT_OK
+    fi
+
+    local status
+    local old_worktree_path=$(realpath $1)
+    local old_worktree=$(basename $1)
+    shift
+    local new_worktree=$1
+    shift
+    if [ ! $(basename $new_worktree) = $new_worktree ]
+    then
+        func-echo "Cannot move out of parent directory"
+        return $NOT_OK
+    fi
+
+    if (($#))
+    then
+        $usage_func
+        echo "       argument(s) '$*' are illegal"
+        return $NOT_OK
+    fi
+
+    local new_worktree_path=$(dirname $old_worktree_path)/$new_worktree
+    _git_go $old_worktree_path
+    local cb=$(git-get-current-branch)
+    if [ "$cb" = "$old_worktree" ]
+    then
+        func_echo "Renaming branch first..."
+        git-rename-branch $old_worktree $new_worktree
+        status=$?
+        if ((status != $OK ))
+        then
+            _git_cd_unwind
+            return $NOT_OK
+        fi
+    fi
+
+    ## Get the metadata directory for this worktree
+    local metadatadir=$(cat .git | grep -E '^gitdir:' | sed 's/.* //')
+
+    ## Get the metadata files for this worktree
+    local heregit=$(pwd)/.git
+    local theregit=${metadatadir}/gitdir
+
+    ## Change the metadata files
+    perl -pi e "s/$old_worktree/$new_worktree/g" $heregit $theregit \
+        || return $NOT_OK
+
+    ## Move the metadata dir
+    local newmetadatadir=$(dirname $metadatadir)/$new_worktree
+    mv $metadatadir $newmetadatadir || return $NOT_OPK
+
+    ## Move us
+    _git_go ..
+    mv $old_worktree_path $new_worktree_path || return $NOT_OPK
+
+    ## Clean up stuff
+    git-go-set
+    _git_go_unwind
+
+    ## Go to new worktree
+    builtin \cd  $new_worktree_path
+    return $?
+}
+alias git-rename-worktree='git-rename-worktree '
+alias git-worktree-rename='git-rename-worktree '
