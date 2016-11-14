@@ -52,8 +52,6 @@ gitfuncs_gitlocs_extra[examples]=${HOME}/examples
 ##
 alias gitpush='git push '
 ! $CRON && alias gitk="$(which gitk | tail -1 | sed 's/ +//') &"
-alias git-grep='git grep '
-alias gitgrep='git grep '
 alias gitnp='git --no-pager '
 alias git-clean='git clean -e wt/ '
 
@@ -1951,12 +1949,13 @@ git-clone-usage ()
     fi
 
     cat <<EOUSAGE
-Usage: $cmd $protocolarg namespace repo
-       $cmd $protocolarg namespace/repo
+Usage: $cmd $protocolarg [-y] [-t] namespace repo
+       $cmd $protocolarg [-y] [-t] namespace/repo
        Clones $protocol:namespace/repo
        to a directory path $gitfuncs_gitroot/$protocol/namespace/repo.
        Directory $gitfuncs_gitroot/$protocol must already exist.
-
+       -y means answer yes to any questions
+       -t resets the timestamps on the files to their commit times
 EOUSAGE
     return $OK
 }
@@ -1967,7 +1966,26 @@ git-clone ()
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
 
+    local opt_y=0
+    local opt_t=0
+    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func ${FUNCNAME} && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -y|--yes) opt_y=1; shift ;;
+            -t|--timestamp) opt_t=1; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
+        esac
+    done
+
     [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
+
     local protocol=$1;shift
     local namespace=$1;shift
     local repo2
@@ -1994,7 +2012,13 @@ git-clone ()
             echo "Correct and re-execute."
             return $NOT_OK
         else
-            local resp=$(func-yesno "cd to $shouldbein")
+            local resp
+            if ((opt_y))
+            then
+                resp='y'
+            else
+                resp=$(func-yesno "cd to $shouldbein")
+            fi
             if [ "$resp" = 'n' ]
             then
                 echo "Correct and re-execute."
@@ -2014,7 +2038,13 @@ git-clone ()
     local tgt="$namespace/$repo"
     if [ -e $tgt ]
     then
-        local resp=$(func-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
+        local resp
+        if ((opt_y))
+        then
+            resp='y'
+        else
+            resp=$(func-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
+        fi
         [ "$resp" = 'n' ] && return $NOT_OK
         rm -rf $tgt
     fi
@@ -2024,6 +2054,12 @@ git-clone ()
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
 
+    if ((opt_t))
+    then
+        func-echo "Setting timestamps..."
+        git-retimestamp
+        echo Done
+    fi
     ## dirlist, not builtin cd, to take advantage this cd enhancement
     dirlist $namespace/$repo
     git remote -v
@@ -2461,6 +2497,7 @@ git-worktree-create ()
     then
         ((verbose)) && func-echo "git push --set-upstream $remote $wtbranch"
         git push --set-upstream $remote $wtbranch
+        git-meta branch-created "$(date)"
     else
         ## Not convinced this is the optimal set of actions. Probably better to
         ## modify or replace the add command.
@@ -3502,22 +3539,33 @@ git-meta ()
         esac
     done
 
+    local get_option='--get'
+    local full_key="branch.${branch}"
     local key=$1
-    if [ -z "$key" ]
+    if [ -n "$key" ]
     then
-        echo Need a key to save
-        return $NOT_OK
+        full_key="${full_key}.${key}"
+    else
+        get_option='--get-regexp'
     fi
 
-    shift
+    shift ## $@ is now the value, all spaces will be converted to %20
 
     if [ -z "$1" ]
     then
         ## Read existing key
-        git config --get "branch.${branch}.${key}" | perl -pe 's/%20/ /g'
+        git config $get_option $full_key | \
+            perl -ne '($k, $v) = split(/ /, $_);
+                      $kl = ($kl < length($k) ? length($k) : $kl);
+                      $v =~ s/%20/ /g;
+                      push @out, {k => $k, v => $v};
+                      END {
+                          printf("%-*s: %s", $kl, @{$_}{k,v})
+                              for @out;
+                      }' | sort
     else
         local value=$(echo $@ | perl -pe 's/\s/%20/g')
-        git config "branch.${branch}.${key}" "$value"
+        git config $full_key "$value"
     fi
 }
 
@@ -3859,7 +3907,7 @@ git-meta-pull-request ()
 
 git-diff-two-repos-on-disk ()
 {
-    ##@@ none||none||git-meta||
+    ##@@ none||none||git-diff-two-repos-on-disk||
     gitfuncs_audit "$@"
 
     local -A repo
@@ -3992,11 +4040,11 @@ git-rename-worktree ()
     fi
 
     local new_worktree_path=$(dirname $old_worktree_path)/$new_worktree
-    _git_go $old_worktree_path
+    _git_cd_to $old_worktree_path
     local cb=$(git-get-current-branch)
     if [ "$cb" = "$old_worktree" ]
     then
-        func_echo "Renaming branch first..."
+        func-echo "Renaming branch first..."
         git-rename-branch $old_worktree $new_worktree
         status=$?
         if ((status != $OK ))
@@ -4022,16 +4070,42 @@ git-rename-worktree ()
     mv $metadatadir $newmetadatadir || return $NOT_OPK
 
     ## Move us
-    _git_go ..
+    _git_cd_to ..
     mv $old_worktree_path $new_worktree_path || return $NOT_OPK
 
     ## Clean up stuff
     git-go-set
-    _git_go_unwind
 
     ## Go to new worktree
-    builtin \cd  $new_worktree_path
+    builtin \cd $new_worktree_path
     return $?
 }
 alias git-rename-worktree='git-rename-worktree '
 alias git-worktree-rename='git-rename-worktree '
+
+git-grep ()
+{
+    ##@@ none||none||git-grep||
+    gitfuncs_audit "$@"
+
+    local copt
+    local cnum
+    declare -a args
+    while (($#))
+    do
+        if [ "$1" = '-C' ]
+        then
+            copt=$1;shift;
+            cnum=$1;shift
+        else
+            apush args "$1"; shift;
+        fi
+    done
+
+    if [ -z "$copt" ]
+    then
+        git grep "${args[@]}"
+    else
+        git grep -l "${args[@]}" | xargs grep $copt $cnum "${args[@]}"
+    fi
+}
