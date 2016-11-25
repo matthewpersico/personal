@@ -1,51 +1,75 @@
 #!/opt/bb/bin/bash
 
-alllog=$(mktemp)
+main () {
+    today=$(date +%a)
 
-# Environment setup here. Should create CRON.
-. ${HOME}/.bash_profile > $alllog
-if [ -z "$MAILTO" ]
-then
-    MAILTO=<insert-email-here>
-fi
-SUBJECT="Email subject"
-
-undercron=0
-$CRON
-if [ $? = '0' ]
-then
-    # Under cron. All output to $alllog.
-    undercron=1
-
-    exec 6>&1         # Link file descriptor #6 with stdout, which saves
-                      # stdout.
-    exec 1>> $alllog  # Repoint stdout to the log.
-
-    exec 7>&2         # Link file descriptor #7 with stdout, which saves
-                      # stderr.
-    exec 2>> $alllog  # Repoint stderr to the log.
-fi
-
-status=0
-## Do your work here, echoing as needed. In the process of working, set the
-## final $status to non-0 if you need to mail the log.
-status=...
-
-if ((undercron))
-then
-    # The restorations will cause any mail errors to be sent to you via the
-    # regular cron error channels.
-    exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
-    exec 2>&7 7>&-      # Restore stderr and close file descriptor #7.
-
-    if ((status))
+    alllog=$(mktemp)
+    # Environment setup here. Should create CRON.
+    . ${HOME}/.bash_profile > $alllog
+    if [ -z "$MAILTO" ]
     then
-        mailx -s "$SUBJECT" $MAILTO \
-              <<EOM
+        MAILTO=<insert-email-here>
+    fi
+    SUBJECT="Email subject"
+
+    undercron=0
+    [ "$1" = '--fakecron' ] && undercron=1 && shift
+    $CRON && undercron=1
+
+    if((undercron==1))
+    then
+        ## Logging, under cron. All output to $alllog. If there's no error, we
+        ## don't mail anything. Else, we mail all output.
+
+        exec 6>&1         # Link file descriptor #6 with stdout, which saves
+                          # stdout.
+        exec 1>> $alllog  # Repoint stdout to the log.
+
+        exec 7>&2         # Link file descriptor #7 with stdout, which saves
+                          # stderr.
+        exec 2>> $alllog  # Repoint stderr to the log.
+    fi
+
+    status=0
+    doit
+    status=$?
+
+    if ((undercron))
+    then
+        # The restorations will cause any mail errors to be sent to you via the
+        # regular cron error channels.
+        exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
+        exec 2>&7 7>&-      # Restore stderr and close file descriptor #7.
+
+        if ((status))
+        then
+            mailx -s "$SUBJECT - Issue" \
+                  $MAILTO \
+                  <<EOM
 $(cat $alllog)
 EOM
+        elif [ "$today" = 'Mon' ]
+        then
+            mailx -s "$SUBJECT - Monday check" \
+                  $MAILTO \
+                  <<EOM
+Success
+EOM
+        fi
     fi
-fi
 
-\rm -f $alllog
-exit 0
+    \rm -f $alllog
+
+    return 0
+}
+
+doit ()
+{
+    echo "Here is where you customize the script"
+    echo "make sure you return status"
+    return 0
+}
+
+main "$@"
+
+exit $?

@@ -2057,7 +2057,7 @@ git-clone ()
     if ((opt_t))
     then
         func-echo "Setting timestamps..."
-        git-retimestamp
+        (cd $namespace/$repo; git-retimestamp)
         echo Done
     fi
     ## dirlist, not builtin cd, to take advantage this cd enhancement
@@ -2475,8 +2475,8 @@ git-worktree-create ()
         func-echo "Checking local master, starting point for branch."
         git pull
         status=$?
-        ((status)) && return $NOT_OK ## assuming the error message will be printed to
-                               ## stderr...
+        ((status)) && return $NOT_OK ## assuming the error message will be
+                                     ## printed to stderr...
     fi
 
     ## Now create the work tree and create/fetch the branch.
@@ -3106,6 +3106,11 @@ Usage: $cmd $protocolarg tgtnamespace/tgtrepo/tgtbranch srcnamespace/srcrepo/src
        $cmd $protocolarg --upstream
        $cmd $protocolarg
 
+       Other options:
+           --verbose - prints blow-by-blow action descriptions
+           --keep    - unconditionally keep (do not ask about)
+                       the target clone
+
        Merge the branch from the 'src' into the 'tgt'.
 
        The typical usage looks like
@@ -3164,7 +3169,8 @@ git-merge-pull-request ()
 
     local opt_help=0
     local opt_verbose=0
-    OPTSARGS=$(getoptp -o vh --long verbose,help -n $FUNCNAME -- "$@")
+    local opt_keep=0
+    OPTSARGS=$(getoptp -o vhk --long verbose,help,keep -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && return $status
 
@@ -3173,6 +3179,7 @@ git-merge-pull-request ()
     do
         case "$1" in
             -h|--help) $usage_func $iam $usage_arg ; return $OK;;
+            -k|--keep) opt_keep=1; shift ;;
             -v|--verbose) opt_verbose=1; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
@@ -3181,7 +3188,6 @@ git-merge-pull-request ()
 
     local tgtarg=$1
     local srcarg=$2
-
     local inamespace=0
     local irepo=1
     local ibranch=2
@@ -3344,7 +3350,12 @@ git-merge-pull-request ()
             git-merge-find $sha
 
             ## Cleanup the tmp repo used for the merge.
-            resp=$(func-yesno "Remove local tgt repo ($tgt_repo_dir)")
+            if ((opt_keep))
+            then
+                resp=n
+            else
+                resp=$(func-yesno "Remove local tgt repo ($tgt_repo_dir)")
+            fi
             if [ "$resp" = 'y' ]
             then
                 git-delete-current-repo
@@ -3363,16 +3374,23 @@ git-merge-pull-request ()
                 ## probably need to do something in it, so we stay.
             fi
 
-            ## If wwe started out in a repo corresponding to the merged branch,
+            ## If we started out in a repo corresponding to the merged branch,
             ## go back and whack it.
             if [ -n "$current_branch_delete" ]
             then
+                echo "***************** current branch delete ***************"
+                echo " $(pwd) "
                 _git_cd_to $current_branch_delete
+                echo " $(pwd) "
                 git-inside-work-tree
-                if [ $? = $TRUE ]
+                local status=$?
+                echo "git-inside-work-tree status = $status, TRUE = $TRUE"
+                if [ "$status" = "$TRUE" ]
                 then
+                    pause Going to run git-delete-current-worktree
                     git-delete-current-worktree
                 else
+                    pause Going to run git-delete-current-rep
                     git-delete-current-repo
                 fi
             fi
@@ -3694,33 +3712,68 @@ git-retimestamp ()
     then
         verbose=1
     fi
+
+    ## Get the files
+    declare -A gitfiles
     for i in $(git ls-files)
     do
-        if [ -z "$(git-is-modified | grep -E "^${i}$")" ]
+        gitfiles[$i]=1
+    done
+
+    ## Remove any that are currently modified
+    local msgd=''
+    for i in $(git-is-mod)
+    do
+        if [ -z "$msgd" ]
         then
-            local gitdate=$(git log --date=iso --name-only -1 $i | grep Date | perl -pe 's/Date:\s+//')
-            local filedate=$(stat -c %y $i | perl -pe 's/\.[0-9]+//')
-            if [ ! "$filedate" = "$gitdate" ]
+            msgd=1
+            if ((verbose==0))
             then
-                if ((verbose))
+                echo Will not consider modified files
+            else
+                echo Will not consider the following modified files:
+            fi
+        fi
+        ((verbose)) && echo $i
+        unset gitfiles[$i]
+        [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
+    done
+
+    ## Parse the log
+    local gitdate
+    date > /tmp/get-retimestamp.log
+    git log  --date=iso --name-only | \
+        while read -r i;
+        do
+            if [ -z "$i" ]
+            then
+                noop=1
+            elif [[ $i =~ Date: ]]
+            then
+                gitdate=$(echo $i | sed -E 's/Date:\s+//')
+            elif [ -n "${gitfiles[$i]}" ]
+            then
+                echo "gitfiles[$i] => ${gitfiles[$i]}" >> /tmp/get-retimestamp.log
+                unset gitfiles[$i]
+                [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
+                set +x
+                local filedate=$(stat -c %y $i | sed 's/\.[0-9]+//')
+                if [ ! "$filedate" = "$gitdate" ]
                 then
-                    echo
-                    echo $i...
-                    ls -la $i
-                fi
-                touch -d "$gitdate" $i
-                if ((verbose))
-                then
-                    ls -la $i
+                    if ((verbose))
+                    then
+                        echo
+                        echo $i...
+                        ls -la $i
+                    fi
+                    touch -d "$gitdate" $i
+                    if ((verbose))
+                    then
+                        ls -la $i
+                    fi
                 fi
             fi
-        elif ((verbose))
-        then
-            echo
-            echo -n "Not touching $i: "
-            git st --short $i
-        fi
-    done
+        done
 }
 safe_func_export git-retimestamp
 
