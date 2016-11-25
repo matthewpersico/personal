@@ -487,7 +487,7 @@ else
 ## Don't indent or else imenu won't find the functions.
 ajoin()
 {
-    ##@@ none||none||ajoin||Print one string of arg2, arg3, etc, separated by arg1
+    ##@@ none||none||ajoin||Print one string that joins arg2, arg3, etc, separated by arg1
     utilfuncs_audit "$@"
 
     local IFS="$1"; shift; echo "$*";return $?
@@ -496,9 +496,10 @@ safe_func_export ajoin
 
 asplit_to_stdout ()
 {
+    ##@@ none||none||asplit||Take the single string in arg2, split it by the string in arg1 and print the pieces to stdout. arg1 is NOT a regexp.
     local tmp
     ## 'local' not needed for IFS here since it's all one command.
-    IFS="$2" read -r -a tmp <<< "$3"
+    IFS="$1" read -r -a tmp <<< "$2"
     status=$?
     echo ${tmp[@]}
     return $status
@@ -506,6 +507,7 @@ asplit_to_stdout ()
 
 asplit_to_array ()
 {
+    ##@@ none||none||asplit||Take the single string in arg3, split it by the string in arg2 and stuff it into the array named by arg1. arg2 is NOT a regexp.
     declare -n array_alias="$1"
     ## 'local' not needed for IFS here since it's all one command.
     IFS="$2" read -r -a array_alias <<< "$3"
@@ -515,12 +517,13 @@ asplit_to_array ()
 
 asplit ()
 {
-    ##@@ none||none||asplit||Take the single string in arg3, split it by the string in arg2 and stuff it into the array named by arg1. arg2 is NOT a regexp. IF arg1 is '-', then we just print the pieces.
+    ##@@ none||none||asplit||Take the single string in arg3, split it by the string in arg2 and stuff it into the array named by arg1. arg2 is NOT a regexp. If arg1 is '-', then we just print the pieces to stdout.
     utilfuncs_audit "$@"
 
     local status
     if [ "$1" = '-' ]
     then
+        shift
         asplit_to_stdout "$@"
     else
         asplit_to_array "$@"
@@ -531,6 +534,7 @@ safe_func_export asplit
 
 aclear ()
 {
+    ##@@ none||none||asplit||Remove all the elements from the array named in arg1.
     utilfuncs_audit "$@"
 
     declare -n array_alias="$1";shift
@@ -541,6 +545,7 @@ safe_func_export aclear
 
 aset ()
 {
+    ##@@ none||none||asplit||Set all the elements in the array named in arg1 to the values of arg2, args3, ...
     utilfuncs_audit "$@"
 
     declare -n array_alias="$1";shift;
@@ -551,6 +556,7 @@ safe_func_export aset
 
 acopy ()
 {
+    ##@@ none||none||asplit||Copy all the values from the array named in arg2 to the array named in arg1. arg1 is not cleared first. Sparse indicies are maintined.
     utilfuncs_audit "$@"
 
     declare -n array_alias_tgt="$1";shift;
@@ -565,16 +571,65 @@ safe_func_export acopy
 
 aindicies ()
 {
+    ##@@ none||none||asplit||Print all the index values of the array named in arg1 to stdout, separated by a space. If the -list option is specified, then print each one on a separate line.
     utilfuncs_audit "$@"
 
+    local list=0
+    if [ "$1" = '-list' ]
+    then
+        list=1
+        shift;
+    fi
     declare -n array_alias="$1"
-    echo ${!array_alias[@]}
+    if ((list))
+    then
+        for i in ${!array_alias[@]}
+        do
+            echo $i
+        done
+    else
+        echo ${!array_alias[@]}
+    fi
     return $(true)
 }
 safe_func_export aindicies
 
+avalues ()
+{
+    ##@@ none||none||avalues||Print all the values of the array named in arg1 to stdout, separated by a space. If the -list option is specified, then print each one on a separate line.
+    utilfuncs_audit "$@"
+    local list=0
+    if [ "$1" = '-list' ]
+    then
+        list=1
+        shift;
+    fi
+    declare -n array_alias="$1"
+    if ((list))
+    then
+        for v in ${array_alias[@]}
+        do
+            echo $v
+        done
+    else
+        echo ${array_alias[@]}
+    fi
+    return $(true)
+}
+safe_func_export avalues
+
+aeach ()
+{
+    ##@@ none||none||aeach||Print all the index values and values of the array named in arg1 to stdout. Each index and value is separated by a space. Each pair is printed on a separate line.
+    utilfuncs_audit "$@"
+
+    _listkv "$1"
+    return $?
+}
+
 acount ()
 {
+    ##@@ none||none||asplit||Print the number of elements in the array named in arg1 to stdout. This is not necessarily the value of the last index, due to sparseness.
     utilfuncs_audit "$@"
 
     declare -n array_alias="$1"
@@ -583,36 +638,21 @@ acount ()
 }
 safe_func_export acount
 
-alist ()
+_listkv ()
 {
     utilfuncs_audit "$@"
 
-    local use_idx=0
-    if [ "$1" = '--idx' ]
-    then
-        use_idx=1
-        shift
-    fi
-
     declare -n array_alias="$1"
-    if [ "$use_idx" = 1 ]
-    then
-        for i in "${!array_alias[@]}"
-        do
-            printf "%s\t%s\n" "$i" "${array_alias[$i]}"
-        done
-    else
-        for i in "${array_alias[@]}"
-        do
-            echo $i
-        done
-    fi
+    for i in "${!array_alias[@]}"
+    do
+        printf "%s %s\n" "$i" "${array_alias[$i]}"
+    done
     return $(true)
 }
-safe_func_export alist
 
 asplice ()
 {
+    ##@@ none||none||asplice||arg1 is the name of the array to modify. arg2 is the starting index. arg3 is the number of elements to remove. Removed elements are printed. Remaining args are what to insert at the removal point.
     utilfuncs_audit "$@"
 
     declare -n array_alias="$1"; shift
@@ -625,7 +665,7 @@ asplice ()
     ((length+=1))
 
     local removed=("${array_alias[@]:$offset:$length}")
-    alist removed
+    avalues removed
     array_alias=("${array_alias[@]:0:$(($offset))}" "$@" "${array_alias[@]:$(($length+$offset))}")
     return $(true)
 }
@@ -633,6 +673,7 @@ safe_func_export asplice
 
 apush ()
 {
+    ##@@ none||none||apush||Append arg2, arg3, etc.. to the end of the array named in arg1.
     utilfuncs_audit "$@"
 
     local array_name="$1";shift
@@ -643,6 +684,7 @@ safe_func_export apush
 
 apop ()
 {
+    ##@@ none||none||apop||Remove one value from the end of the array named in arg1 and print it.
     utilfuncs_audit "$@"
 
     local array_name="$1";shift
@@ -653,6 +695,7 @@ safe_func_export apop
 
 ashift ()
 {
+    ##@@ none||none||ashift||Remove one value from the beginning of the array named in arg1 and print it.
     utilfuncs_audit "$@"
 
     local array_name="$1";shift
@@ -663,6 +706,7 @@ safe_func_export ashift
 
 aunshift ()
 {
+    ##@@ none||none||apush||Prepend arg2, arg3, etc.. to the beginning of the array named in arg1.
     utilfuncs_audit "$@"
 
     local array_name="$1";shift
@@ -671,6 +715,65 @@ aunshift ()
 }
 safe_func_export aunshift
 fi
+
+hvalues ()
+{
+    ##@@ none||none||hvalues||Print all the values of the hash named in arg1 to stdout, separated by a space. If the -list option is specified, then print each one on a separate line.
+    utilfuncs_audit "$@"
+
+    local list=0
+    if [ "$1" = '-list' ]
+    then
+        list=1
+        shift;
+    fi
+    declare -n hash_alias="$1";shift
+    if ((list))
+    then
+        for v in ${hash_alias[@]}
+        do
+            echo $v
+        done
+    else
+        echo ${hash_alias[@]}
+    fi
+    return $?
+}
+
+hkeys ()
+{
+    ##@@ none||none||hvalues||Print all the keys of the hash named in arg1 to stdout, separated by a space. If the -list option is specified, then print each one on a separate line.
+    utilfuncs_audit "$@"
+
+    local list=0
+    if [ "$1" = '-list' ]
+    then
+        list=1
+        shift;
+    fi
+    declare -n hash_alias="$1";shift
+    if ((list))
+    then
+        for k in ${!hash_alias[@]}
+        do
+            echo $k
+        done
+    else
+        echo ${!hash_alias[@]}
+    fi
+    return $?
+}
+
+## The perl loop
+##    foreach (my ($k,$v) = each(%hash)) { ...
+## can be had in shell with
+##    heach hash | while read -r k v; do...
+heach ()
+{
+    ##@@ none||none||heach||Print all the keys and values of the array named in arg1 to stdout. Each key and value is separated by a space. Each pair is printed on a separate line.
+    _listkv $1
+    return $?
+}
 
 func-name-spoof ()
 {
@@ -797,7 +900,7 @@ wcstrip ()
 {
     asplit list ' ' "$(wc $@ )"
     apop list > /dev/null
-    ajoin ' ' $(alist list)
+    ajoin ' ' $(avalues -list list)
 }
 safe_func_export wcstrip
 
