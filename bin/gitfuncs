@@ -722,26 +722,6 @@ git-go ()
         tgt="$(dirname $tgt)/$(basename $tgt)"
     fi
     REPOS=$(_git-go-get $opt_update $opt_roots $opt_mbig $opt_wt $opt_subwt_only "$tgt")
-    #
-    # When we thought multiple wts under one master was a natural workflow. No need to
-    # limit to the PWD - check all, all the time. Remove if still here a
-    #    if ((opt_subwt_only))
-    #    then
-    #        git-inside-work-tree
-    #        if [ "$?" = '1' ]
-    #        then
-    #            echo "Not in a git repo. Showing all repos."
-    #        else
-    #            local current_repo_full=$(git rev-parse --show-toplevel | sed 's|/wt/.*||')
-    #            local current_repo=$(echo $current_repo_full | sed "s|${HOME}/||")
-    #            if [ ! -d $current_repo_full/wt ]
-    #            then
-    #                echo "No worktrees here ($. Showing all repos."
-    #           else
-    #                REPOS=$(echo $REPOS | tr ' ' '\n' | grep $current_repo/wt)
-    #            fi
-    #        fi
-    #    fi
     if [ -z "$REPOS" ]
     then
         echo $tgt does not match any repo
@@ -2334,13 +2314,13 @@ alias git-fetch-remote-branch='git-track-remote-branch '
 ## Useful in prompts (PS1).
 git-inside-work-tree ()
 {
-    ##@@ none||none||git-inside-work-tree||
+    ##@@ none||none||git-inside-work-tree||Return $TRUE or $FALSE, prints 'true' or 'false' if -p specified
     gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
 
     local print=$1;shift
     local v=$(git rev-parse --is-inside-work-tree 2>/dev/null)
     local r=$FALSE
-    [ "$v" != "true" ] && r=$TRUE
+    [ "$v" = "true" ] && r=$TRUE
     [ "$print" = '-p' ] && echo $v
     return $r
 }
@@ -2354,7 +2334,7 @@ git-get-stash-count ()
     local pre=$1;shift
     local post=$1;shift
     git-inside-work-tree $na
-    if [ "$?" = '0' ]
+    if [ "$?" = $TRUE ]
     then
         local c=$(git stash list 2>/dev/null | wc -l)
         ((c==0)) && ((no0)) && return
@@ -2674,21 +2654,12 @@ git-delete-worktree ()
 alias git-delete-current-worktree='git-delete-current-worktree '
 alias git-worktree-delete-current='git-delete-current-worktree '
 
-git-in-a-worktree ()
-{
-    ##@@ none||none||git-in-a-worktree||
-    ## 0 is true!
-    gitfuncs_audit "$@"
-
-    [[  "$(pwd)" =~ /wt/ ]]; return $?
-}
-
 git-worktree-root ()
 {
     ##@@ none||none||git-worktree-root||print the master root where the wt dir is
     gitfuncs_audit "$@"
 
-    local in_a_wt=$(git-in-a-worktree)
+    local in_a_wt=$(git-inside-a-worktree)
     if (( in_a_wt == 1 ))
     then
         func-echo "Must be in a wt"
@@ -2713,7 +2684,7 @@ git-run-precommit-hook ()
     gitfuncs_audit "$@"
 
     local hookroot
-    local in_a_wt=$(git-in-a-worktree)
+    local in_a_wt=$(git-inside-a-worktree)
     if (( in_a_wt == 0 ))
     then
         hookroot=$(git-worktree-root)
@@ -2729,7 +2700,7 @@ git-worktree-diff-to-root ()
     ##@@ none||none||git-worktree-diff-to-root||diff worktree file against root file
     gitfuncs_audit "$@"
 
-    local in_a_wt=$(git-in-a-worktree)
+    local in_a_wt=$(git-inside-a-worktree)
     if (( in_a_wt == 1 ))
     then
         func-echo "Must be in a wt"
@@ -2811,7 +2782,7 @@ git-get-default-remote ()
     local pre=$1;shift
     local post=$1;shift
     git-inside-work-tree $na
-    if [ "$?" = '0' ]
+    if [ "$?" = $TRUE ]
     then
         local push_def=$(git config --global push.default 2>/dev/null)
         if [ "$push_def" = 'simple' ]
