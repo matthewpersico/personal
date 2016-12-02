@@ -1,24 +1,37 @@
 #!/usr/bin/env perl
 
 # A replacement for shell getopt that respects long options on those machines
-# where the shell getopt does not. Only implements the most used options.
+# where the shell getopt does not. Only implements the most used options from
+# getopt, but adds Getopt::Long options.
 
 use strict;
 use warnings;
 
-use Getopt::Long qw(:config pass_through auto_abbrev);
+use Getopt::Long qw(:config
+                    pass_through
+               );
 
 ## Options to getoptp
 my %metaopt =
   ( 'o' => '',
     'l' => '',
     'n' => 'getoptp',
+    ## These control the behavior of the parsing for the caller's
+    ## options. These defaults are either getopt behavior or this scripts
+    ## default from creation.
+    'permute' => 1,
+    'auto_abbrev' => 1,
+    'ignore_case' => 1
 );
 
 GetOptions (\%metaopt,
             'o=s',
             'l|long=s',
-            'n=s');
+            'n=s',
+            'permute!',
+            'auto_abbrev!',
+            'ignore_case!'
+        );
 
 shift @ARGV if ($ARGV[0] eq '--' ); ## This should be the end of getoptp's
                                     ## options indicator.
@@ -28,6 +41,10 @@ my %optshort;
 my %optlong;
 my @optctrl;
 my %opt;
+
+for my $opt (qw(permute auto_abbrev ignore_case)) {
+    Getopt::Long::Configure(($metaopt{$opt} ? '' : 'no_') . $opt);
+}
 
 if ($metaopt{o}) {
     ## No commas between short options and some can have ':' so the split is
