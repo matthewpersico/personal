@@ -740,7 +740,7 @@ git-go ()
             do
                 (($opt_list==1)) && echo -n '~'/${r}
                 (($opt_list==2)) && echo -n ~/${r}
-                gse=$(cd ~/$r; git-st-ext)
+                gse=$(cd ~/$r; git-meta local-status)
                 [ -n "$gse" ] && echo ':' && echo "    $gse"
                 [ -z "$gse" ] && echo
             done
@@ -3519,6 +3519,7 @@ git-meta ()
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
     local branch=$(git rev-parse --abbrev-ref HEAD)
+    local timestamp='';
     OPTSARGS=$(getoptp -o b: --long branch: -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
@@ -3528,6 +3529,7 @@ git-meta ()
     do
         case "$1" in
             --branch|-b) branch=$2; shift; shift;;
+            --timestamp|-t) timestamp="[$(date)]"; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
@@ -3543,23 +3545,17 @@ git-meta ()
         get_option='--get-regexp'
     fi
 
-    shift ## $@ is now the value, all spaces will be converted to %20
-
+    shift ## $@ is now the value if writing. All spaces will be converted to
+          ## %20.
     if [ -z "$1" ]
     then
         ## Read existing key
         git config $get_option $full_key | \
-            perl -ne '($k, $v) = split(/ /, $_);
-                      $kl = ($kl < length($k) ? length($k) : $kl);
-                      $v =~ s/%20/ /g;
-                      push @out, {k => $k, v => $v};
-                      END {
-                          printf("%-*s: %s", $kl, @{$_}{k,v})
-                              for @out;
-                      }' | sort
+            perl -pe 's/%20/ /g' | \
+            sort
     else
         local value=$(echo $@ | perl -pe 's/\s/%20/g')
-        git config $full_key "$value"
+        git config $full_key "${timestamp}$value"
     fi
 }
 
@@ -3570,7 +3566,7 @@ git-st-ext ()
 
     if [ -n "$1" ]
     then
-        git-meta local-status "$(date):" "$@"
+        git-meta --timestamp local-status "$@"
     else
         git-meta local-status
         git-merge-find
