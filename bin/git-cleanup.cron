@@ -1,0 +1,137 @@
+#!/opt/bb/bin/bash
+
+main () {
+    local today=$(date +%a)
+    local alllog=$(mktemp)
+    local did_profile=0
+
+    for p in ${HOME}/.bash_profile ${HOME}/.profile
+    do
+        if [ -r $p ] && ((!did_profile))
+        then
+            # Environment setup here. Should create CRON.
+            . $p > $alllog
+            did_profile=1
+        fi
+    done
+
+    if ((!did_profile))
+    then
+        cat $alllog
+        echo "No profiles found. Whoops"
+        exit 42
+    fi
+
+    if [ -z "$MAILTO" ]
+    then
+        MAILTO=mpersico5@bloomberg.net
+    fi
+    SUBJECT="Email subject"
+
+    undercron=0
+    [ "$1" = '--fakecron' ] && undercron=1 && shift
+    $CRON && undercron=1
+
+    if((undercron==1))
+    then
+        ## Logging, under cron. All output to $alllog. If there's no error, we
+        ## don't mail anything. Else, we mail all output.
+
+        exec 6>&1         # Link file descriptor #6 with stdout, which saves
+                          # stdout.
+        exec 1>> $alllog  # Repoint stdout to the log.
+
+        exec 7>&2         # Link file descriptor #7 with stdout, which saves
+                          # stderr.
+        exec 2>> $alllog  # Repoint stderr to the log.
+    fi
+
+    status=0
+    doit "$@"
+    status=$?
+
+    if ((undercron))
+    then
+        # The restorations will cause any mail errors to be sent to you via the
+        # regular cron error channels.
+        exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
+        exec 2>&7 7>&-      # Restore stderr and close file descriptor #7.
+
+        if ((status))
+        then
+            mailx -s "$SUBJECT - Issue" \
+                  $MAILTO \
+                  <<EOM
+$(cat $alllog)
+EOM
+        elif [ "$today" = 'Mon' ]
+        then
+            mailx -s "$SUBJECT - Monday check" \
+                  $MAILTO \
+                  <<EOM
+Success
+EOM
+        fi
+    fi
+
+    \rm -f $alllog
+
+    return 0
+}
+
+doit ()
+{
+    local noexec=0
+    local verbose=0
+    local moreargs=1
+    while ((moreargs))
+    do
+        if [ "$1" = '--noexec' ]
+        then
+            shift
+            noexec=1
+        elif [ "$1" = '--verbose' ]
+        then
+            shift
+            verbose=1
+        else
+            moreargs=0
+        fi
+    done
+
+    rc=0
+    now=$(date +%s)
+    ((verbose)) && echo "Getting list of repos..."
+    for repo in $(gitgo --listfull)
+    do
+        if [ -e $repo/.git-delete-worktree ]
+        then
+            then=$(cat $repo/.git-delete-worktree)
+            if ((now >= then))
+            then
+                echo $repo ready for git-delete-worktree
+                if ((noexec))
+                then
+                    echo "not executing git-delete-worktree --yes $repo; --noexec in effect"
+                else
+                    git-delete-worktree --yes $repo
+                    status=$?
+                    ((rc += status))
+                    if [ "$status" = "$OK" ]
+                    then
+                        \rm -f $repo/.git-delete-worktree
+                    fi
+                fi
+            else
+                ((verbose)) && echo "Not ready  for git-delete-worktree: $repo ($(date --date @$then))"
+            fi
+        else
+            ((verbose)) && echo "Not marked for git-delete-worktree: $repo"
+        fi
+    done
+    return $rc
+}
+
+main "$@"
+
+exit $?
