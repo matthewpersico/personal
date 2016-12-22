@@ -648,7 +648,7 @@ git-go-usage ()
 {
     gitfuncs_audit "$@"
 
-    echo "Usage: git-go [--list[full]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [dirmatch]"
+    echo "Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [--mod] [dirmatch]"
     echo "       git-go [-h|--help]"
     echo
     echo "       Presents a list of all git repos"
@@ -660,6 +660,9 @@ git-go-usage ()
     echo
     echo "       --listfull will skip the choosing part and just exit, printing"
     echo "           each repo dir with ~ expanded"
+    echo
+    echo "       --stat with --list or --listfull add any extended status information"
+    echo "           on the next line"
     echo
     echo "       --update will rescan to pick up new and deleted"
     echo "           repos and worktrees"
@@ -673,6 +676,8 @@ git-go-usage ()
     echo "           in repos. This is the default."
     echo "       --nowt will not add them."
     echo "       --wto[nly] will show only worktrees."
+    echo
+    echo "       --mod will show status of repos that have mods outstanding"
     echo
     echo "       'dirmatch' will filter the list using grep"
     echo
@@ -692,8 +697,9 @@ git-go ()
     local opt_mbig=0
     local opt_wt=1
     local opt_subwt_only=0
-    local opt_i
-    local OPTSARGS=$(getoptp -o ilurmh --long list,update,roots,mbig,wt,nowt,subwt,wtonly,help,listfull -n $FUNCNAME -- "$@")
+    local opt_gse=0
+    local opt_mod=0
+    local OPTSARGS=$(getoptp -o slurmh --long mod,stat,list,update,roots,mbig,help,wt,nowt,subwt,wtonly,listfull -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
     eval set -- "$OPTSARGS"
@@ -709,6 +715,8 @@ git-go ()
             --nowt) opt_wt=0; shift ;;
             --subwt) opt_subwt_only=1; shift ;;
             --wtonly) opt_subwt_only=1; shift ;;
+            --stat) opt_gse=1; shift ;;
+            --mod) opt_mod=1; shift;;
             -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
@@ -732,7 +740,19 @@ git-go ()
         echo "Matches only $REPOS. Going there."
         REPO=$REPOS
     else
-        if (($opt_list))
+        if (($opt_mod))
+        then
+            for r in $REPOS
+            do
+                (cd ~/$r
+                 if (( $(git st --porcelain | wc  -l) ))
+                 then
+                     echo
+                     func-echo $r
+                     git st
+                 fi)
+            done
+        elif (($opt_list))
         then
             local r
             local gse
@@ -740,9 +760,14 @@ git-go ()
             do
                 (($opt_list==1)) && echo -n '~'/${r}
                 (($opt_list==2)) && echo -n ~/${r}
-                gse=$(cd ~/$r; git-meta local-status)
-                [ -n "$gse" ] && echo ':' && echo "    $gse"
-                [ -z "$gse" ] && echo
+                if ((opt_gse))
+                then
+                    gse=$(cd ~/$r; git-meta local-status)
+                    [ -n "$gse" ] && echo ':' && echo "    $gse"
+                    [ -z "$gse" ] && echo
+                else
+                    echo
+                fi
             done
         else
             REPOS=$(tail_number_add $REPOS)
@@ -766,7 +791,7 @@ git-go ()
             done
         fi
     fi
-    if((!opt_list))
+    if [ -n "$REPO" ]
     then
         ## dirlist, not builtin cd to take advantage this cd enhancement
         dirlist ${HOME}/$(git-strip-repo $REPO)
@@ -919,11 +944,23 @@ git-delete-branch ()
     gitfuncs_audit "$@"
 
     local no_remote=0
-    if [ "$1" = '--no-remote' ] || [ "$1" = '--local-only' ]
-    then
-        no_remote=1
-        shift;
-    fi
+    local opt_yes=0
+    OPTSARGS=$(getoptp -o y --long yes,no-remote,local-only -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -y|--yes) opt_yes=1; shift ;;
+            --no-remote|--local-only) no_remote=1; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
     local branch=$1;
     local current_branch=$(git-get-current-branch)
     if [ -z "$branch" ]
@@ -979,7 +1016,13 @@ git-delete-branch ()
             local inremote=$(git-branch-list --strip -r | grep "$remote/$branch")
             if [ -n "$inremote" ]
             then
-                local resp=$(func-yesno "Try deleting in remote $remote" n)
+                local resp
+                if ((opt_yes))
+                then
+                    resp='y'
+                else
+                    resp=$(func-yesno "Try deleting in remote $remote" n)
+                fi
                 if [ "$resp" == 'y' ]
                 then
                     git push --delete $remote $branch ## This should not fail
@@ -1887,7 +1930,20 @@ git-fork-and-clone ()
     if [ -n "$master_exists" ]
     then
         func-echo --head  "WARNING: UNTESTED. NO COMMANDS ONLY ECHOS!!!"
-        func-echo 'Dumping the origin master in favor of the upstream master...'
+        func-echo 'Dumping the origin master in favor of the upstream master.'
+        func-echo 'but check the configuration before trying the commands.'
+        func-echo 'The config may already be correct due to using "glow".'
+        func-echo 'It should look like:'
+        func-echo '[remote "upstream"]'
+        func-echo "        url = ${protocol}:${namespace}/${repo}"
+        func-echo '        fetch = +refs/heads/*:refs/remotes/upstream/*'
+        func-echo '        fetch = +refs/notes/*:refs/notes/*'
+        func-echo '[remote "origin"]'
+        func-echo "        url = ${protocol}:${USER}/${repo}"
+        func-echo '        fetch = +refs/heads/*:refs/remotes/origin/*'
+        func-echo '[remote]'
+        func-echo '        pushdefault = origin'
+
         func-echo git checkout -b temp
         func-echo status=$?; [ "$status" != '0' ] && return $status
 
@@ -2518,7 +2574,7 @@ git-delete-current-worktree ()
 
 git-delete-worktree-usage ()
 {
-    echo "Usage: $1 [--force] worktree"
+    echo "Usage: $1 [--force] [--yes] [--schedule hours] worktree"
 }
 
 git-delete-worktree ()
@@ -2529,8 +2585,11 @@ git-delete-worktree ()
     local usage_func="${FUNCNAME}-usage"
     local iam=$(func-name-spoof)
 
+    local opt_yes=0
+    local opt_yes_string
     local opt_force=0
-    OPTSARGS=$(getoptp -o sh --long force,help -n $FUNCNAME -- "$@")
+    local opt_schedule=0
+    OPTSARGS=$(getoptp -o yfs:h --long yes,force,schedule:,help -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func $iam && return $status
 
@@ -2538,7 +2597,10 @@ git-delete-worktree ()
     while true
     do
         case "$1" in
-            -s|--force) opt_force=1; shift ;;
+            -y|--yes) opt_yes=1; opt_yes_string='--yes'; shift ;;
+            -f|--force) opt_force=1; shift ;;
+            -s|--schedule) ((opt_schedule = $(date +%s) + $2*60*60))
+                           shift; shift ;;
             -h|--help) $usage_func $iam; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func $iam; return $NOT_OK ;;
@@ -2558,6 +2620,13 @@ git-delete-worktree ()
     then
         func-echo "$worktree is not a proper worktree for deletion"
         return $NOT_OK
+    fi
+
+    if ((opt_schedule))
+    then
+        echo $opt_schedule > .git-delete-worktree
+        func-echo "Scheduled for deletion on or after $( date --date=@$opt_schedule)"
+        return 0
     fi
 
     ## Check for cleanliness.
@@ -2596,7 +2665,7 @@ git-delete-worktree ()
     ## Check for being merged
     local gmfout=$(git-merge-find)
     local status=$?
-    if ((status))
+    if ((status)) && ((!opt_force)) && ((!opt_yes))
     then
         echo $gmfout
         local resp=$(func-yesno 'Continue anyway')
@@ -2630,7 +2699,12 @@ git-delete-worktree ()
     func-echo 'Local admin files updated.'
 
     ## Now the take care of the branch.
-    resp=$(func-pick "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
+    if ((opt_yes))
+    then
+        resp='d'
+    else
+        resp=$(func-pick "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
+    fi
     if [ "$resp" = 'k' ]
     then
         func-echo "If you change your mind: git-[close|delete]-branch $current_branch"
@@ -2643,7 +2717,7 @@ git-delete-worktree ()
         builtin cd ..
         if [ "$resp" = 'd' ]
         then
-            git-delete-branch $current_branch
+            git-delete-branch $opt_yes_string $current_branch
         else
             git-close-branch $current_branch
         fi
@@ -3354,18 +3428,15 @@ git-merge-pull-request ()
             ## go back and whack it.
             if [ -n "$current_branch_delete" ]
             then
-                echo "***************** current branch delete ***************"
-                echo " $(pwd) "
                 _git_cd_to $current_branch_delete
-                echo " $(pwd) "
                 git-inside-work-tree
                 local status=$?
-                echo "git-inside-work-tree status = $status, TRUE = $TRUE"
                 if [ "$status" = "$TRUE" ]
                 then
-                    pause Going to run git-delete-current-worktree
-                    git-delete-current-worktree
+                    git-delete-current-worktree --schedule 24
                 else
+                echo "***************** current branch delete ***************"
+                echo " $(pwd) "
                     pause Going to run git-delete-current-rep
                     git-delete-current-repo
                 fi
@@ -3891,7 +3962,7 @@ git-post-new ()
     ##@@ none||none||git-post-new||
     gitfuncs_audit "$@"
 
-    func-echo 'Making a changelog file'
+    func-echo "Making a $GITFUNCS_CHANGELOG_NAME file"
     touch $(git-root)/$GITFUNCS_CHANGELOG_NAME
 
     if [ "$1" = '-t' ]
@@ -4150,22 +4221,37 @@ git-grep ()
 
     local copt
     local cnum
+    local edit=0
     declare -a args
     while (($#))
     do
         if [ "$1" = '-C' ]
         then
+            ## Window around match
             copt=$1;shift;
             cnum=$1;shift
+        elif [ "$1" = '--edit' ]
+        then
+            edit=1;shift
         else
             apush args "$1"; shift;
         fi
     done
 
-    if [ -z "$copt" ]
+    if [ -n "$copt" ]
     then
-        git grep "${args[@]}"
-    else
         git grep -l "${args[@]}" | xargs grep $copt $cnum "${args[@]}"
+    elif ((edit))
+    then
+        local found=$(git grep -l "${args[@]}")
+        if [ -n "$found" ]
+        then
+            $EDITOR $found & ## If editor is a screen app, it will start up
+                             ## 'stopped' in background.
+        else
+            echo 'No files to edit'
+        fi
+    else
+        git grep "${args[@]}"
     fi
 }
