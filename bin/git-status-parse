@@ -5,6 +5,7 @@ use warnings;
 use Getopt::Long qw(:config auto_abbrev);
 my %opt;
 my %flags;
+my %count;
 GetOptions(\%opt,
            qw( staged
                unstaged
@@ -12,9 +13,10 @@ GetOptions(\%opt,
                deleted
                all-modified
                unmodified
+               ignored
                verbose)
        ) or die;
-die "Need at least one of --staged --unstaged --untracked --all-modified --unmodified"
+die "Need at least one of --staged --unstaged --untracked --all-modified --unmodified --ignored"
   if(! %opt );
 %flags = %opt;
 
@@ -23,23 +25,28 @@ if( $opt{'all-modified'} || $opt{unmodified} || $opt{deleted}) {
       for ( qw (staged unstaged untracked) );
 }
 $flags{$_} //= 0
-    for ( qw (staged unstaged deleted untracked all unmodified) );
+    for ( qw (staged unstaged deleted untracked all unmodified ignored) );
 
-my @input = qx(git status; echo GSE);
+%count = map {$_ => 0} keys %flags;
+
+my @status_flags;
+push @status_flags, '--ignored'
+  if($opt{ignored});
+my @input = qx(git status @status_flags; echo GSE);
 my %files;
 INPUT:for (@input) {
     chomp;s/^\s+//;s/\s+$//;
     length($_) == 0 && next INPUT;
+    $_ =~ /nothing to commit, working tree clean/ && next INPUT;
 
     if($flags{staged} ## quick shortcut
        && /^Changes to be committed/ .. /^Changes not staged for commit/) {
         /^Changes to be committed/ && next INPUT;
         /use "git reset HEAD <file>..." to unstage/ && next INPUT;
-        if( /^Changes not staged for commit/ ) {
-            $flags{staged} = 0;
-        } elsif( /^GSE/ ) {
+        if( /^GSE/ ) {
             last INPUT; ## S
         } else {
+            $count{'staged'}++;
             store_filename('staged',$_);
         }
     }
@@ -49,11 +56,10 @@ INPUT:for (@input) {
         /^Changes not staged for commit/ && next INPUT;
         /use "git add <file>..." to update what will be committed/ && next INPUT;
         /use "git checkout -- <file>..." to discard changes in working directory/ && next INPUT;
-        if( /^Untracked files/ ) {
-            $flags{unstaged} = 0;
-        } elsif( /^GSE/ ) {
+        if( /^GSE/ ) {
             last INPUT;
         } else {
+            $count{'unstaged'}++;
             store_filename('unstaged', $_);
         }
     }
@@ -65,9 +71,27 @@ INPUT:for (@input) {
         if( /^GSE/ ) {
             last INPUT;
         } else {
+            $count{'untracked'}++;
             store_filename('untracked', $_);
         }
     }
+
+    if($flags{ignored} ## quick shortcut
+       && /^Ignored files/ .. /^GSE$/) {
+        /^Ignored files/ && next INPUT;
+        /use "git add -f <file>..." to include in what will be committed/ && next INPUT;
+        if( /^GSE/ ) {
+            last INPUT;
+        } else {
+            $count{'ignored'}++;
+            store_filename('ignored', $_);
+        }
+    }
+
+}
+
+for (qw(staged unstaged untracked ignored)) {
+    $flags{$_} = $count{$_} > 0 ? 1 : 0;
 }
 
 if( $flags{unmodified} ) {
@@ -87,7 +111,9 @@ if( $flags{unmodified} ) {
 sub store_filename {
     my $type = $_[0];
     my ($subtype, $name, $newname);
-    if( $type eq 'untracked') {
+    if( $type eq 'untracked'
+          or
+          $type eq 'ignored') {
         $name = $_[1];
         $subtype = $type;
     } else {
