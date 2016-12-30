@@ -661,8 +661,8 @@ git-go-usage ()
     echo "       --listfull will skip the choosing part and just exit, printing"
     echo "           each repo dir with ~ expanded"
     echo
-    echo "       --stat with --list or --listfull add any extended status information"
-    echo "           on the next line"
+    echo "       --stat will invoke as if --list was specified but only for repos"
+    echo "           with extended status information"
     echo
     echo "       --update will rescan to pick up new and deleted"
     echo "           repos and worktrees"
@@ -715,7 +715,7 @@ git-go ()
             --nowt) opt_wt=0; shift ;;
             --subwt) opt_subwt_only=1; shift ;;
             --wtonly) opt_subwt_only=1; shift ;;
-            --stat) opt_gse=1; shift ;;
+            --stat) opt_gse=1; opt_list=1; shift ;;
             --mod) opt_mod=1; shift;;
             -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
@@ -756,17 +756,27 @@ git-go ()
         then
             local r
             local gse
+            local sched
+            local rr
+            local lastwasmarker=0
             for r in $REPOS
             do
-                (($opt_list==1)) && echo -n '~'/${r}
-                (($opt_list==2)) && echo -n ~/${r}
-                if ((opt_gse))
+                (($opt_list==1)) && rr=$(echo '~'/${r})
+                (($opt_list==2)) && rr=$(echo $nonl ~/${r})
+                if ((!opt_gse))
                 then
-                    gse=$(cd ~/$r; git-meta local-status)
-                    [ -n "$gse" ] && echo ':' && echo "    $gse"
-                    [ -z "$gse" ] && echo
+                    echo $rr
                 else
-                    echo
+                    gse=$(cd ~/$r; git-meta local-status)
+                    sched=$(cd ~/$r; git-meta delete-worktree)
+                    [ -n "$sched" ] && sched=$(date --date @$sched)
+                    if [ -n "$gse" ] || [ -n "$sched" ]
+                    then
+                        echo "$rr:"
+                        [ -n "$gse" ]   && echo "    $gse"
+                        [ -n "$sched" ] && echo "    Scheduled for removal on or after $sched"
+                        echo
+                    fi
                 fi
             done
         else
@@ -2348,6 +2358,20 @@ git-what-is-deleted ()
 }
 alias git-is-deleted='git-what-is-deleted '
 
+git-what-is-ignored ()
+{
+    ##@@ none||none||git-what-is-ignored||
+    gitfuncs_audit "$@"
+
+    if [ -n "$1" ]
+    then
+        echo 'Files ignored'
+    else
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --ignored
+    fi
+}
+alias git-is-ignored='git-what-is-ignored '
+
 git-track-remote-branch ()
 {
     ##@@ none||none||git-track-remote-branch||
@@ -2402,11 +2426,13 @@ alias git-stash-get-count='git-get-stash-count '
 
 git-worktree-create-usage ()
 {
-    echo "Usage: git-worktree-create [-m 'message'] [-f] [-d] branch [remote]"
+    echo "Usage: git-worktree-create [-m 'message'] [-f] [-d] [--asmaster somebranch] branch [remote]"
     echo "       default remote is 'origin'"
-    echo "       -m|--message - record a short description readable with git-st-ext"
-    echo "       -f|--fetch   - do not create the branch, but fetch existing"
-    echo "       -d|--dated   - append '_YYYY-MM-DD' to the branch name"
+    echo "       -m|--message - Record a short description readable with git-st-ext."
+    echo "       -f|--fetch   - Do not create the branch, but fetch existing."
+    echo "       -d|--dated   - Append '_YYYY-MM-DD' to the branch name."
+    echo "       --asmaster   - use 'somebranch' as the worktree basis."
+    echo "                      The default is 'master'."
 }
 alias git-worktree-create-usage='git-create-worktree-usage '
 
@@ -2445,7 +2471,8 @@ git-worktree-create ()
     local opt_m=''
     local message=''
     local dated=''
-    OPTSARGS=$(getoptp -o m:fd --long message:,fetch,dated -n $FUNCNAME -- "$@")
+    local asmaster='master'
+    OPTSARGS=$(getoptp -o m:fd --long message:,fetch,dated,asmaster: -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -2456,6 +2483,7 @@ git-worktree-create ()
             -d|--dated) dated="_$(date +%Y-%m-%d)"; shift;;
             -f|--fetch) fetch_existing=1; fetch_opt="-r"; shift ;;
             -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
+            --asmaster) asmaster=$2; shift ; shift ;;
             -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Error getting options!"; $usage_func; return $NOT_OK ;;
@@ -2479,7 +2507,7 @@ git-worktree-create ()
     [ -z "$remote" ] && remote=origin
     func-echo "Using '$remote' as remote."
 
-    ((verbose)) && func-echo 'Check for existing worktrees with same name'
+    ((verbose)) && func-echo 'Check for existing worktrees with same name.'
     wtdir="$(pwd)/$wt"
     if [ -e $wtdir ]
     then
@@ -2492,7 +2520,7 @@ git-worktree-create ()
 
     ## TODO: Allow for suffix to append to worktree name so you can dup them if
     ## you need to.
-    ((verbose)) && func-echo 'Check for existing branch'
+    ((verbose)) && func-echo 'Check for existing branch.'
     local create_branch="-b"
     local exists=$(git-branch-list --strip $fetch_opt | grep $wt)
     if [ -n "$exists" ]
@@ -2505,15 +2533,15 @@ git-worktree-create ()
         func-echo "Branch $wt does not exist to be fetched."
         return $NOT_OK
     else
-        ## Since this worktree is going to create a branch of the local master,
-        ## make sure the local master (where we should be right now) it is up
-        ## to date.
-        if [ "$(git-get-current-branch)" != 'master' ]
+        ## Since this worktree is going to create a branch of the local
+        ## $asmaster, make sure the local $asmaster (where we should be right
+        ## now) it is up to date.
+        if [ "$(git-get-current-branch)" != $asmaster ]
         then
-            func-echo "Will not create a branch and worktree from a non-master branch"
+            func-echo "Cannot create branch and worktree because the current branch '$(git-get-current-branch)' is not the master branch '$asmaster'."
             return $NOT_OK
         fi
-        func-echo "Checking local master, starting point for branch."
+        func-echo "Checking local '$asmaster', starting point for branch."
         git pull
         status=$?
         ((status)) && return $NOT_OK ## assuming the error message will be
@@ -2624,8 +2652,8 @@ git-delete-worktree ()
 
     if ((opt_schedule))
     then
-        echo $opt_schedule > .git-delete-worktree
-        func-echo "Scheduled for deletion on or after $( date --date=@$opt_schedule)"
+        git-meta delete-worktree $opt_schedule
+        func-echo "$worktree scheduled for removal on or after $( date --date=@$opt_schedule)"
         return 0
     fi
 
@@ -3586,12 +3614,13 @@ git-merge-find-branch ()
 
 git-meta ()
 {
-    ##@@ none||none||git-meta||Read or write meta information for a branch
+    ##@@ none||none||git-meta||Read, write or delete meta information for a branch
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
     local branch=$(git rev-parse --abbrev-ref HEAD)
-    local timestamp='';
-    OPTSARGS=$(getoptp -o b: --long branch: -n $FUNCNAME -- "$@")
+    local timestamp=''
+    local delete=0
+    OPTSARGS=$(getoptp -o b:tdu --long branch:,timestamp,delete,unset -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -3601,6 +3630,7 @@ git-meta ()
         case "$1" in
             --branch|-b) branch=$2; shift; shift;;
             --timestamp|-t) timestamp="[$(date)]"; shift;;
+            --delete|-d|--unset|-u) delete=1; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
@@ -3612,6 +3642,10 @@ git-meta ()
     if [ -n "$key" ]
     then
         full_key="${full_key}.${key}"
+    elif ((delete))
+    then
+        echo "Cannot delete without an exact key to match on"
+        return 1
     else
         get_option='--get-regexp'
     fi
@@ -3620,10 +3654,16 @@ git-meta ()
           ## %20.
     if [ -z "$1" ]
     then
-        ## Read existing key
-        git config $get_option $full_key | \
-            perl -pe 's/%20/ /g' | \
-            sort
+        if((delete))
+        then
+            ## Remove existing key
+            git config --unset $full_key
+        else
+            ## Read existing key
+            git config $get_option $full_key | \
+                perl -pe 's/%20/ /g' | \
+                sort
+        fi
     else
         local value=$(echo $@ | perl -pe 's/\s/%20/g')
         git config $full_key "${timestamp}$value"
@@ -3640,6 +3680,8 @@ git-st-ext ()
         git-meta --timestamp local-status "$@"
     else
         git-meta local-status
+        local gmdw=$(git-meta delete-worktree)
+        [ -n "$gmdw" ] && echo "Worktree scheduled for removal on or after $( date --date=@$gmdw)"
         git-merge-find
         git-meta-pull-request
     fi

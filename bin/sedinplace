@@ -10,7 +10,6 @@
 
 ## Cleanup out tempfiles
 typeset sedcmdfile=$(mktemp --suffix=.sedinplace)
-trap finish EXIT SIGINT
 finish ()
 {
     if [ -e $sedcmdfile ]
@@ -24,6 +23,7 @@ typeset sedopt_inplace='-i'	## Particular option typeset sedopts
 typeset opt_confirm=0
 typeset opt_verbose=0
 typeset opt_new=''
+typeset opt_keepscript=0
 typeset OPTSARGS
 typeset status
 typeset arg
@@ -36,7 +36,7 @@ typeset f
 ##
 
 ## Read the args and options from the command line
-OPTSARGS=$(getoptp -o cbvn: -l confirm,backup,verbose,new: -n $0 -- "$@")
+OPTSARGS=$(getoptp -o kcbvn: -l keepscript,confirm,backup,verbose,new: -n $0 -- "$@")
 status=$?
 ((status != 0)) && echo "Exiting." && exit $status
 
@@ -65,6 +65,10 @@ while true ; do
 	        opt_new=$2
             shift;shift
             ;;
+        -k|--keepscript)
+            opt_keepscript=1
+            shift
+            ;;
 	    --)
 	        shift
 	        break
@@ -73,8 +77,14 @@ while true ; do
     esac
 done
 
-## process args
+if ((opt_keepscript==0))
+then
+    trap finish EXIT SIGINT
+else
+    print The sed command script is $sedcmdfile
+fi
 
+## process args
 for arg in "$@"
 do
     ## Need -e and -f. -e makes it a file system object. -f alone

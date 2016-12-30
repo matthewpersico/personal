@@ -1,34 +1,40 @@
 #!/opt/bb/bin/bash
 
+BACKUP_MAILTO=mpersico5@bloomberg.net
+SUBJECT="$0"
+
 main () {
     local today=$(date +%a)
     local alllog=$(mktemp)
+    local profilelog=$(mktemp)
     local did_profile=0
+    local do_monday_check=1 ## If 1, we want to get an email on Monday, even if
+                            ## there is no log output.
 
+    local p
     for p in ${HOME}/.bash_profile ${HOME}/.profile
     do
         if [ -r $p ] && ((!did_profile))
         then
             # Environment setup here. Should create CRON.
-            . $p > $alllog
+            . $p > $profilelog
             did_profile=1
         fi
     done
 
     if ((!did_profile))
     then
-        cat $alllog
+        cat $profilelog
         echo "No profiles found. Whoops"
         exit 42
     fi
 
     if [ -z "$MAILTO" ]
     then
-        MAILTO=<insert-email-here>
+        MAILTO="$BACKUP_MAILTO"
     fi
-    SUBJECT="Email subject"
 
-    undercron=0
+    local undercron=0
     [ "$1" = '--fakecron' ] && undercron=1 && shift
     $CRON && undercron=1
 
@@ -46,7 +52,7 @@ main () {
         exec 2>> $alllog  # Repoint stderr to the log.
     fi
 
-    status=0
+    local status=0
     doit "$@"
     status=$?
 
@@ -57,19 +63,32 @@ main () {
         exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
         exec 2>&7 7>&-      # Restore stderr and close file descriptor #7.
 
+        local s=''
+        local mailthelog=''
         if ((status))
         then
-            mailx -s "$SUBJECT - Issue" \
-                  $MAILTO \
-                  <<EOM
-$(cat $alllog)
-EOM
-        elif [ "$today" = 'Mon' ]
+            mailthelog=1 ## We always grab the log if there is an issue.
+            s='Issue'
+        else
+            if [ "$today" = 'Mon' ] && ((do_monday_check))
+            then
+                mailthelog=1 ## We always grab the log if it's Monday and we do_monday_check.
+                s="Monday check"
+            else
+                ## We only grab the log if there is output in it.
+                mailthelog=$(cat $alllog | wc -l)
+                s="Success"
+            fi
+        fi
+
+        if ((mailthelog))
         then
-            mailx -s "$SUBJECT - Monday check" \
+            ## If there is an error, we include the profile log.
+            mailx -s "$s - $SUBJECT" \
                   $MAILTO \
                   <<EOM
-Success
+$s
+$( ((status)) && cat $profilelog;$(cat $alllog))
 EOM
         fi
     fi
