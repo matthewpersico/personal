@@ -1,108 +1,9 @@
-#!/opt/bb/bin/bash
-
-BACKUP_MAILTO=mpersico5@bloomberg.net
-SUBJECT="$0"
-
-main () {
-    local today=$(date +%a)
-    local alllog=$(mktemp)
-    local profilelog=$(mktemp)
-    local did_profile=0
-    local do_monday_check=1 ## If 1, we want to get an email on Monday, even if
-                            ## there is no log output.
-
-    local p
-    for p in ${HOME}/.bash_profile ${HOME}/.profile
-    do
-        if [ -r $p ] && ((!did_profile))
-        then
-            # Environment setup here. Should create CRON.
-            . $p > $profilelog
-            did_profile=1
-        fi
-    done
-
-    if ((!did_profile))
-    then
-        cat $profilelog
-        echo "No profiles found. Whoops"
-        exit 42
-    fi
-
-    if [ -z "$MAILTO" ]
-    then
-        MAILTO="$BACKUP_MAILTO"
-    fi
-
-    local undercron=0
-    [ "$1" = '--fakecron' ] && undercron=1 && shift
-    $CRON && undercron=1
-
-    if((undercron==1))
-    then
-        ## Logging, under cron. All output to $alllog. If there's no error, we
-        ## don't mail anything. Else, we mail all output.
-
-        exec 6>&1         # Link file descriptor #6 with stdout, which saves
-                          # stdout.
-        exec 1>> $alllog  # Repoint stdout to the log.
-
-        exec 7>&2         # Link file descriptor #7 with stdout, which saves
-                          # stderr.
-        exec 2>> $alllog  # Repoint stderr to the log.
-    fi
-
-    local status=0
-    doit "$@"
-    status=$?
-
-    if ((undercron))
-    then
-        # The restorations will cause any mail errors to be sent to you via the
-        # regular cron error channels.
-        exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
-        exec 2>&7 7>&-      # Restore stderr and close file descriptor #7.
-
-        local s=''
-        local mailthelog=''
-        if ((status))
-        then
-            mailthelog=1 ## We always grab the log if there is an issue.
-            s='Issue'
-        else
-            if [ "$today" = 'Mon' ] && ((do_monday_check))
-            then
-                mailthelog=1 ## We always grab the log if it's Monday and we do_monday_check.
-                s="Monday check"
-            else
-                ## We only grab the log if there is output in it.
-                mailthelog=$(cat $alllog | wc -l)
-                s="Success"
-            fi
-        fi
-
-        if ((mailthelog))
-        then
-            ## If there is an error, we include the profile log.
-            mailx -s "$s - $SUBJECT" \
-                  $MAILTO \
-                  <<EOM
-$s
-$( ((status)) && cat $profilelog;cat $alllog)
-EOM
-        fi
-    fi
-
-    \rm -f $alllog
-
-    return 0
-}
-
 doit ()
 {
     local noexec=0
     local verbose=0
     local moreargs=1
+    local printit=0
     while ((moreargs))
     do
         if [ "$1" = '--noexec' ]
@@ -145,15 +46,16 @@ doit ()
                     then
                         git-meta --delete delete-worktree
                     fi
+                    printit=1
                 fi
             else
                 ((verbose)) && echo "Not ready for git-delete-worktree: $repo ($(date --date @$then))"
             fi
         fi
     done
-    return $rc
+    return $((rc+printit))
 }
 
-main "$@"
+doit "$@"
 
 exit $?

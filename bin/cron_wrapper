@@ -1,0 +1,134 @@
+#!/opt/bb/bin/bash
+## Control when cron jobs mail output
+
+## Keeping it simple - all args are positional
+
+## mail type - If mon or tue, etc. then on-error other days, always on that day
+mail_type=$1; shift
+[ -z "$mail_type" ] && echo "Mail type required" && exit 1
+mail_type=$(echo $mail_type | tr '[A-Z]' '[a-z]')
+
+## mail to - overrides MAILTO from crontab. "" to accept MAILTO
+mail_to=$1; shift
+[ -z "$mail_to" ] && mail_to=$MAILTO
+
+mail_subject=$1; shift
+
+dayofweek=$(date +%a | tr '[A-Z]' '[a-z]')
+args_ok=0
+while ((!args_ok))
+do
+    case $mail_type in
+        never )
+            args_ok=1
+            break
+            ;;
+        on-error | if-output | if-no-output | today | always )
+            [ -z "$mail_to" ] && echo "Need valid email" && exit 1
+            [ -z "$mail_subject" ] && echo "Need valid email subject" && exit 1
+            args_ok=1
+            break
+            ;;
+        $dayofweek )
+            mail_type=today
+            break
+            ;;
+        sun | mon | tue | wed | thu | fri | sat )
+            ## We get here if the day in the mail type does not match today
+            mail_type=on-error
+            break
+            ;;
+        * )
+            echo "Invalid mail type $mail_type"
+            exit 1
+            break
+            ;;
+    esac
+done
+
+alllog=$(mktemp)
+profilelog=$(mktemp)
+did_profile=0
+
+for p in ${HOME}/.bash_profile ${HOME}/.profile
+do
+    if [ -r $p ] && ((!did_profile))
+    then
+        # Environment setup here.
+        . $p > $profilelog
+        did_profile=1
+    fi
+done
+
+if ((!did_profile))
+then
+    cat $profilelog
+    echo "No profiles found. Whoops!"
+    exit 42
+fi
+
+exec 6>&1         # Link file descriptor #6 with stdout, which saves stdout.
+exec 1>> $alllog  # Re-point stdout to the log.
+
+exec 7>&2         # Link file descriptor #7 with stdout, which saves stderr.
+exec 2>> $alllog  # Re-point stderr to the log.
+
+##
+## Here is where the command gets executed
+##
+status=0
+"$@"
+status=$?
+
+# The restorations will cause any mail errors to be sent to you via the regular
+# cron error channels.
+exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
+exec 2>&7 7>&-      # Restore stderr and close file descriptor #7.
+
+subsubject=''
+mailthelog=''
+if ((status))
+then
+    if [ ! "$mail_type" = 'never' ]
+    then
+        mailthelog=1 ## We always grab the log if there is an issue.
+        subsubject="Issue - Exit status: $status"
+    fi
+elif [ ! "$mail_type" = 'on-error' ]
+then
+    subsubject="Success"
+    if [ "$mail_type" = 'if-no-output' ]
+    then
+        mailthelog=$(cat $alllog | wc -l)
+        if ((mailthelog==0))
+        then
+            mailthelog=1
+            subsubject='Issue - No output'
+        fi
+    elif [ "$mail_type" = 'if-output' ]
+    then
+        mailthelog=$(cat $alllog | wc -l)
+    elif [ "$mail_type" = 'today' ]
+    then
+        mailthelog=1
+        subsubject="Success, $(date +%A) check"
+    else
+        ## mail_type is 'always'
+        mailthelog=1
+    fi
+fi
+
+if ((mailthelog))
+then
+    ## If there is an error, we include the profile log.
+    mailx -s "$subsubject - $mail_subject" \
+          $mail_to \
+          <<EOM
+$subsubject
+$( ((status)) && cat $profilelog;cat $alllog)
+EOM
+fi
+
+\rm -f $alllog $profilelog
+
+exit 0
