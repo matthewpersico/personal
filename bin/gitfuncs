@@ -25,17 +25,15 @@ gitfuncs_gitroot=${HOME}/gits; export gitfuncs_gitroot
 gitfuncs_githook_root=${HOME}/.git_template; export gitfuncs_githook_root
 gitfuncs_githook_dir=${HOME}/.git_template/hooks; export gitfuncs_githook_dir
 
-declare -A gitfuncs_gitsvcs
-gitfuncs_gitsvcs[github]='https://github.com/'
+kvstoreinit --exists-ok gitfuncs_gitsvcs
+kvputinit gitfuncs_gitsvcs github 'https://github.com/'
 
-## 'loc'ations's' outside of ~/gits to look for repos. We make this a hash even
-## though it's more naturally used as an array so that we do not erase any
-## assignments made in subsequent *funcs files.
-declare -A gitfuncs_gitlocs_extra
-gitfuncs_gitlocs_extra[personal]=${HOME}/personal
-gitfuncs_gitlocs_extra[emacsd]=${HOME}/.emacs.d
-gitfuncs_gitlocs_extra[emacsdtaps]=${HOME}/.emacs.d/taps/mpersico5
-gitfuncs_gitlocs_extra[examples]=${HOME}/examples
+## 'loc'ations's' outside of ~/gits to look for repos.
+kvstoreinit --exists-ok gitfuncs_gitlocs_extra
+kvputinit gitfuncs_gitlocs_extra personal   ${HOME}/personal
+kvputinit gitfuncs_gitlocs_extra emacsd     ${HOME}/.emacs.d
+kvputinit gitfuncs_gitlocs_extra emacsdtaps ${HOME}/.emacs.d/taps/mpersico5
+kvputinit gitfuncs_gitlocs_extra examples   ${HOME}/examples
 
 ## These will be checked on each login and any time gitfuncs-reload is
 ## run. However, they are only ever executed when logging into a system where
@@ -546,7 +544,7 @@ git-go-set ()
     ## We can use -maxdepth 3 to speed things up drastically because of the
     ## host/namespace/repo setup similarly for other git hosts.
     local finds
-    for d in ${gitfuncs_gitlocs_extra[@]} \
+    for d in $(kvgetvalues gitfuncs_gitlocs_extra) \
                  $repo_tops
     do
         [ -d $d ] && finds="$finds $d"
@@ -594,7 +592,7 @@ git-go-set ()
     ls ${HOME}/gits/.git-go* | grep -v $gitfuncs_git_go_file | xargs \rm -f
     if [ "$set_x" = '1' ]
     then
-        set +x
+        set +x ## set by envvar
     fi
 }
 safe_func_export git-go-set
@@ -671,7 +669,7 @@ _git-go-get ()
 
     if [ -n "$filter" ]
     then
-        cat $tmpfile | grep $filter > ${tmpfile}.001
+        cat $tmpfile | grep -i $filter > ${tmpfile}.001
         mv ${tmpfile}.001 ${tmpfile}
     fi
 
@@ -960,72 +958,6 @@ git-branch-rename ()
     git-rename-branch "$@"
 }
 safe_func_export git-branch-rename
-
-## I prefer not to delete branches. I'd rather rename them
-git-close-branch ()
-{
-    ##@@ none||none||git-close-branch||
-    gitfuncs_audit "$@"
-
-    local old_branch=$1
-    if [ -z "$old_branch" ]
-    then
-        local branchesa=($(git-branch-list --strip))
-        if [ ${#branchesa[@]} == '0' ]
-        then
-            echo "No branches found. Are you in a git repo?"
-            return
-        fi
-        local PS3="Choose by number, q to quit: "
-        local selected
-        COLUMNS=1 ## One character wide terminal, forces list to be one column.
-        select selected in ${branchesa[@]}
-        do
-            if [ -n "$selected" ]
-            then
-                old_branch=$selected
-                break
-            elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
-            then
-                return
-            else
-                echo "'$REPLY' is an invalid choice"
-            fi
-        done
-    fi
-
-    local new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
-    git-rename-branch $old_branch $new_branch
-    status=$?
-    ((status != 0)) && return $status
-
-    ## Update with changed branches
-    git-go-set
-    return $?
-}
-safe_func_export git-close-branch
-
-git-branch-close ()
-{
-    git-close-branch "$@"
-}
-safe_func_export git-branch-close
-
-git-close-current-branch ()
-{
-    ##@@ none||none||git-close-current-branch||
-    gitfuncs_audit "$@"
-
-    git-close-branch $(git-get-current-branch)
-    return $?
-}
-safe_func_export git-close-current-branch
-
-git-branch-close-current ()
-{
-    git-close-current-branch "$@"
-}
-safe_func_export git-branch-close-current
 
 git-delete-branch ()
 {
@@ -2071,38 +2003,53 @@ git-fork-and-clone ()
 
     if [ -n "$master_exists" ]
     then
-        func-echo --head  "WARNING: UNTESTED. NO COMMANDS ONLY ECHOS!!!"
-        func-echo 'Dumping the origin master in favor of the upstream master.'
-        func-echo 'but check the configuration before trying the commands.'
-        func-echo 'The config may already be correct due to using "glow".'
-        func-echo 'It should look like:'
-        func-echo '[remote "upstream"]'
-        func-echo "        url = ${protocol}:${namespace}/${repo}"
-        func-echo '        fetch = +refs/heads/*:refs/remotes/upstream/*'
-        func-echo '        fetch = +refs/notes/*:refs/notes/*'
-        func-echo '[remote "origin"]'
-        func-echo "        url = ${protocol}:${USER}/${repo}"
-        func-echo '        fetch = +refs/heads/*:refs/remotes/origin/*'
-        func-echo '[remote]'
-        func-echo '        pushdefault = origin'
+        declare -A threeway_workflow
+        threeway_workflow[remote.upstream.url]="${protocol}:${namespace}/${repo}"
+        threeway_workflow[remote.upstream.fetch]='+refs/heads/*:refs/remotes/upstream/*'
+        threeway_workflow[remote.upstream.fetch]='+refs/notes/*:refs/notes/*'
+        threeway_workflow[remote.origin.url]="${protocol}:${USER}/${repo}"
+        threeway_workflow[remote.origin.fetch]='+refs/heads/*:refs/remotes/origin/*'
+        local key
+        local good=0
+        for key in ${!threeway_workflow[@]}
+        do
+            [ $(git config --get $key) = "${threeway_workflow[$key]}" ] && ((good+=1))
+        done
+        if ((good==5))
+        then
+            func-echo "It appears that the repo has been created using"
+            func-echo "threeway fork and clone workflow:"
+            for key in ${!threeway_workflow[@]}
+            do
+                echo "$key=${threeway_workflow[$key]}"
+            done
+        elif ((good==0))
+        then
+            func-echo --head  "WARNING: UNTESTED. NO COMMANDS ONLY ECHOS!!!"
+            func-echo 'Dumping the origin master in favor of the upstream master.'
 
-        func-echo git checkout -b temp
-        func-echo status=$?; [ "$status" != '0' ] && return $status
+            func-echo git checkout -b temp
+            func-echo status=$?; [ "$status" != '0' ] && return $status
 
-        func-echo git branch -d master
-        func-echo status=$?; [ "$status" != '0' ] && return $status
+            func-echo git branch -d master
+            func-echo status=$?; [ "$status" != '0' ] && return $status
 
-        func-echo git branch -r -d origin/master
-        func-echo status=$?; [ "$status" != '0' ] && return $status
+            func-echo git branch -r -d origin/master
+            func-echo status=$?; [ "$status" != '0' ] && return $status
 
-        func-echo git checkout --track upstream/master
-        func-echo status=$?; [ "$status" != '0' ] && return $status
+            func-echo git checkout --track upstream/master
+            func-echo status=$?; [ "$status" != '0' ] && return $status
 
-        func-echo git checkout master
-        func-echo status=$?; [ "$status" != '0' ] && return $status
+            func-echo git checkout master
+            func-echo status=$?; [ "$status" != '0' ] && return $status
 
-        func-echo git branch -d temp
-        func-echo status=$?; [ "$status" != '0' ] && return $status
+            func-echo git branch -d temp
+            func-echo status=$?; [ "$status" != '0' ] && return $status
+        else
+            func-echo --head  "WARNING: Checked for threeway workflow"
+            func-echo "but found only $good out of 5 entries."
+            func-echo "Check the remote origin and upstream config entries."
+        fi
     fi
 
     echo "Setting up for worktrees..."
@@ -2160,7 +2107,7 @@ git-clone ()
             -t|--timestamp) opt_t=1; shift ;;
             -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
+            *) func-echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
         esac
     done
 
@@ -2182,26 +2129,27 @@ git-clone ()
     local local_protocol=$(basename $cwpath)
     if [ "$local_protocol" != "$protocol" ]
     then
-        echo "You must be in a local directory path ending in"
-        echo "   $protocol"
-        echo "You are in $cwpath"
+        func-echo "You must be in a local directory path ending in"
+        func-echo "   $protocol"
+        func-echo "You are in $cwpath"
         local shouldbein="$gitfuncs_gitroot/$protocol"
         if [ ! -d $shouldbein ]
         then
-            echo "Cannot find '$shouldbein'."
-            echo "Correct and re-execute."
+            func-echo "Cannot find '$shouldbein'."
+            func-echo "Correct and re-execute."
             return $NOT_OK
         else
             local resp
             if ((opt_y))
             then
+                func-echo "Going to $shouldbein"
                 resp='y'
             else
                 resp=$(func-yesno "cd to $shouldbein")
             fi
             if [ "$resp" = 'n' ]
             then
-                echo "Correct and re-execute."
+                func-echo "Correct and re-execute."
                 return $NOT_OK
             else
                 _git_cd_to $shouldbein
@@ -2209,9 +2157,10 @@ git-clone ()
         fi
     fi
 
-    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
+    local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
+    if [ -z "$protocol_url" ]
     then
-        echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        func-echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
         return $NOT_OK
     fi
 
@@ -2229,16 +2178,15 @@ git-clone ()
         rm -rf $tgt
     fi
 
-    local cmd="git clone ${gitfuncs_gitsvcs[$protocol]}$namespace/$repo $namespace/$repo"
-    echo $cmd ...
+    local cmd="git clone ${protocol_url}$namespace/$repo $namespace/$repo"
+    func-echo $cmd ...
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
-
     if ((opt_t))
     then
-        func-echo "Setting timestamps..."
-        (cd $namespace/$repo; git-retimestamp)
-        func-echo Done
+        func-echo 'Setting timestamps...'
+        (builtin cd $namespace/$repo; git-retimestamp)
+        func-echo 'Done'
     fi
     ## dirlist, not builtin cd, to take advantage this cd enhancement
     dirlist $namespace/$repo
@@ -2302,9 +2250,10 @@ git-delete-repo ()
     local repo=$1;shift
     local returnpath=$(realpath $(pwd))
 
-    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
+    local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
+    if [ -z "$protocol_url" ]
     then
-        echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
         return $NOT_OK
     fi
 
@@ -2975,11 +2924,11 @@ git-delete-worktree ()
     then
         resp='d'
     else
-        resp=$(func-pick "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
+        resp=$(func-pick "Keep, delete associated branch $current_branch" 'k/d' '' )
     fi
     if [ "$resp" = 'k' ]
     then
-        func-echo "If you change your mind: git-[close|delete]-branch $current_branch"
+        func-echo "If you change your mind: git-delete-branch $current_branch"
     else
         ## Have to be in a git repo to do this.
         while [ "$(basename $(pwd))" != 'wt' ]
@@ -2990,8 +2939,6 @@ git-delete-worktree ()
         if [ "$resp" = 'd' ]
         then
             git-delete-branch $opt_yes_string $current_branch
-        else
-            git-close-branch $current_branch
         fi
     fi
 
@@ -3528,9 +3475,10 @@ git-merge-pull-request ()
     local spoofing=$?
 
     local protocol=$1;shift
-    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
+    local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
+    if [ -z "$protocol_url" ]
     then
-        func-echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
         return $NOT_OK
     fi
 
@@ -3623,7 +3571,6 @@ git-merge-pull-request ()
             return $NOT_OK
         fi
     fi
-
     ((opt_verbose)) && func-echo --head "Clone $protocol:${tgt[$inamespace]}/${tgt[$irepo]}..."
     ${protocol}-clone ${tgt[$inamespace]} ${tgt[$irepo]}
     local status=$?
@@ -4155,7 +4102,6 @@ git-retimestamp ()
                 echo "gitfiles[$i] => ${gitfiles[$i]}" >> /tmp/get-retimestamp.log
                 unset gitfiles[$i]
                 [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
-                set +x
                 local filedate=$(stat -c %y $i | sed 's/\.[0-9]+//')
                 if [ ! "$filedate" = "$gitdate" ]
                 then

@@ -89,61 +89,24 @@ editor_opt () {
     return $shifts
 }
 
+## FPATH in bash. Hooray!
+
+. $PERSONALBIN/autoload
+
 # End early defs
 ##################################################################################
 
 UTILFUNCS_FILE=${BASH_SOURCE[0]}
-
 ## Load auditfuncs here so we can audit the utils
-
 . $(dirname $UTILFUNCS_FILE)/auditfuncs
-
-
 auditfuncs_init $UTILFUNCS_FILE
 safe_func_export utilfuncs_audit
-
-utilfuncs_edit ()
-{
-    utilfuncs_audit "$@"
-    local editor; editor=$(editor_opt xo "$@"); shift $?
-    $editor $UTILFUNCS_FILE
-}
-safe_func_export utilfuncs_edit
-utilfuncs-edit ()
-{
-    utilfuncs_edit "$@"
-}
-safe_func_export utilfuncs-edit
-
-utilfuncs_reload ()
-{
-    utilfuncs_audit "$@"
-    . $UTILFUNCS_FILE
-}
-safe_func_export utilfuncs_reload
-utilfuncs-reload ()
-{
-    utilfuncs_reload "$@"
-}
-safe_func_export utilfuncs-reload
-utilfuncs-load ()
-{
-    utilfuncs_reload "$@"
-}
-safe_func_export utilfuncs-load
+. $(dirname $UTILFUNCS_FILE)/controlfuncs_build $UTILFUNCS_FILE
 
 utilfuncs-help () {
     help_strings $UTILFUNCS_FILE "$@"
 }
-
-add_bb ()
-{
-    ##@@ none||none||add_bb||
-    utilfuncs_audit "$@"
-
-    addpath -x -f /bb/bin
-}
-safe_func_export add_bb
+safe_func_export utilfuncs-help
 
 ## 0-as-success is the correct way to return from commands and functions in
 ## UNIX so that the typical 0-success-from-UNIX-commands paradigm "just works"
@@ -194,6 +157,9 @@ export OK
 NOT_OK=$FALSE
 export NOT_OK
 
+##############
+## Numerics ##
+##############
 is_int ()
 {
     ##@@ none||none||is_int||Is an integer. Return 0 if true.
@@ -228,6 +194,16 @@ is_pos ()
     return $(true)
 }
 safe_func_export is_pos
+
+###################
+## Interactivity ##
+###################
+is-interactive ()
+{
+    tty > /dev/null
+    return $?
+}
+safe_func_export is-interactive
 
 pause ()
 {
@@ -307,160 +283,9 @@ yesno ()
 }
 safe_func_export yesno
 
-dowhich ()
-{
-    ##@@ none||none||dowhich||Find the executable and then run it with any args.
-    utilfuncs_audit "$@"
-
-    declare file=$1;shift
-    declare args="$@"
-
-    declare foundit=$(which $file)
-    if [ -z "$foundit" ]
-    then
-        echo "$file not found on PATH"
-        return $(false)
-    else
-        echo -n "Do $foundit $@"
-        yesno "" 'n' $foundit "$@"
-        return $?
-    fi
-}
-safe_func_export dowhich
-
-tarcopy ()
-{
-    ##@@ none||none||tarcopy||Use the tar trick to copy  arg1/* to arg2/* or arg2/arg1/*, with some intelligence.
-    utilfuncs_audit "$@"
-
-    local srcdir=$1
-    local tgtdir=$2
-    if [ ! -e $srcdir ]
-    then
-        echo "$srcdir not found"
-        return $(false)
-    fi
-    if [ ! -d $srcdir ]
-    then
-        echo "Source '$srcdir' must be a directory"
-        return $(false)
-    fi
-    if [ $(basename $srcdir) = $(basename $tgtdir) ]
-    then
-        echo "You're trying to copy $srcdir to $tgtdir."
-        echo "You probably want to use $(dirname $tgtdir)"
-        echo "as the target instead."
-        return $(false)
-    fi
-    if [ ! -e $tgtdir ]
-    then
-        echo "$tgtdir not found. Creating..."
-        mkdir $tgtdir || return $(false)
-    fi
-    if [ ! -d $tgtdir ]
-    then
-        echo "Target '$tgtdir' must be a directory"
-        return $(false)
-    fi
-    tgtdir=$(realpath $tgtdir)
-    startdir=$(pwd)
-    if [ "$srcdir" != '.' ]
-    then
-        echo "WARNING: You are about to copy $srcdir into $tgtdir"
-        echo "instead of copying the CONTENTS of $srcdir into $tgtdir"
-        read -p "Do you want to copy the (d)irectory or its (c)ontents? " resp
-        if [ "$resp" = 'd' ]
-        then
-            echo 'Ok...'
-        elif [ "$resp" = 'c' ]
-        then
-            echo "Yeah, that's what I figured"
-            echo "*** builtin cd $srcdir"
-            builtin cd $srcdir
-            srcdir='.'
-        else
-            echo "d or c, how hard could that have been???"
-            return $(false)
-        fi
-    fi
-    echo "*** tar cf - $srcdir | ( builtin cd $tgtdir; tar xvfp -)"
-    tar cf - $srcdir | ( builtin cd $tgtdir; tar xvfp -)
-    if [ $(pwd) != "$startdir" ]
-    then
-        echo "*** builtin cd $startdir"
-        builtin cd $startdir
-    fi
-    return $(true)
-}
-safe_func_export tarcopy
-tarcp ()
-{
-    tarcopy
-}
-safe_func_export tarcp
-
-list ()
-{
-    ##@@ none||none||list||Print each argument on its own line.
-    utilfuncs_audit "$@"
-
-    for i in "$@"
-    do
-        echo $i
-    done
-    return $(true)
-}
-safe_func_export list
-
-cattail ()
-{
-    ##@@ none||none||cattail||cat the whole file then continue tail -f
-    utilfuncs_audit "$@"
-
-    tail -n +1 -f "$@"
-    return $?
-}
-safe_func_export cattail
-
-tail_number_add ()
-{
-    ##@@ none||none||tail_number_add||Add a '(' and an index number to each argument.
-    utilfuncs_audit "$@"
-
-    local count=$#
-    local pad=${#count}
-    local i=0
-    local out
-    for a in "$@"
-    do
-        ((i+=1))
-        local e=$(printf '%s(%d' "$a" $i)
-        out="$out $e"
-    done
-    echo "$out"
-    return $?
-}
-safe_func_export tail_number_add
-
-tail_number_strip ()
-{
-    ##@@ none||none||tail_number_strip||From each argument (in theory the product of tail_number_add), strip from the '(' to the end.
-    utilfuncs_audit "$@"
-
-    local out
-    local a
-    for a in "$@"
-    do
-        out="$out ${a%(*}"
-    done
-    echo "$out"
-    return $?
-}
-safe_func_export tail_number_strip
-
-##
-## Bash array functions
-##
+##########################
+## Bash array functions ##
+##########################
 
 ## References:
 ## http://www.tech-recipes.com/rx/911/queue-and-stack-using-array/
@@ -497,10 +322,9 @@ bash_current_version_compare 4.3
 comp=$?
 if ((comp==255))
 then
-    echo "Cannot define array functions that use declare -n in bash $BASH_VERSION. Must be >= 4.3"
+    echo "Cannot define array and hash functions that use declare -n in bash $BASH_VERSION. Must be >= 4.3"
 else
-
-## Don't indent or else imenu won't find the functions.
+## Don't indent off of the else, or else imenu won't find the functions.
 ajoin()
 {
     ##@@ none||none||ajoin||Print one string that joins arg2, arg3, etc, separated by arg1
@@ -748,8 +572,11 @@ aunshift ()
     return $?
 }
 safe_func_export aunshift
-fi ##     echo "Cannot define array functions that use declare -n in bash $BASH_VERSION. Must be >= 4.3"
 
+########################################
+## Bash hash (assoc. array) functions ##
+########################################
+## References:
 hvalues ()
 {
     ##@@ none||none||hvalues||Print all the values of the hash named in arg1 to stdout, separated by a space. If the -list option is specified, then print each one on a separate line.
@@ -811,7 +638,11 @@ heach ()
     return $?
 }
 safe_func_export heach
+fi ##     echo "Cannot define array functions that use declare -n in bash $BASH_VERSION. Must be >= 4.3"
 
+########################
+## Function functions ##
+########################
 func-name-spoof ()
 {
     utilfuncs_audit "$@"
@@ -926,12 +757,358 @@ func-yesno ()
 }
 safe_func_export func-yesno
 
-is-interactive ()
+#####################
+## Key value store ##
+#####################
+kvstoreinit ()
 {
-    tty > /dev/null
+    local exists_ok=0
+    local unique=0
+    local reset=0
+    while [[ "$1" =~ ^- ]] && ((endofopts==0))
+    do
+        case "$1" in
+            --exists-ok ) exists_ok=1; shift ;;
+            --unique    ) unique=1; shift ;;
+            --reset     ) reset=1; shift ;;
+            --     ) endofopts=1; shift;;
+            -*     ) echo "$1 is an invalid option."; return 1;;
+        esac
+    done
+
+    if [ ! -d ~/.kvdbs ]
+    then
+        echo Initializing kv storage at ~/.kvdbs
+        mkdir ~/.kvdbs
+    fi
+
+    local db=$1;
+
+    if [ ! "$(basename $db)" = "$db" ]
+    then
+        echo "ERROR - kv store name cannot include directories"
+        return 1
+    fi
+
+    local dbfile=~/.kvdbs/$db
+
+    if [ -e $dbfile ]
+    then
+        if ((reset))
+        then
+            \rm $dbfile
+        elif ((exists_ok))
+        then
+            return 0
+        else
+            echo "ERROR - kv store name $db exists"
+            return 1
+        fi
+    fi
+
+    if ((unique))
+    then
+        ## 'unique' has the use case where multiple processes would need their
+        ## own copies of the database. Instead, we generate a UUID and give it
+        ## back to the caller to pass back into subsequent calls. This is not
+        ## yet implemented in subsequent calls.
+        local u=$(uuid)
+        echo $u
+        sqlite3 $dbfile "create table keyval (uuid text, key text, value text,
+                             primary key (uuid, key)"
+        local status=$?
+        return
+    else
+        sqlite3 $dbfile "create table keyval (key text primary key, value text)"
+        return $?
+    fi
+}
+safe_func_export kvstoreinit
+
+kvget ()
+{
+    _kvgetany "value" "$@"
     return $?
 }
-safe_func_export is-interactive
+safe_func_export kvget
+
+kvgetvalues ()
+{
+    _kvgetany "value" "$@"
+    return $?
+}
+safe_func_export kvgetvalues
+
+kvgetkeys ()
+{
+    _kvgetany "key" "$@"
+    return $?
+}
+safe_func_export kvgetkeys
+
+kvgetboth ()
+{
+    _kvgetany "key,value" "$@"
+    return $?
+}
+safe_func_export kvgetboth
+
+_kvgetany ()
+{
+    local columns=$1; shift
+
+    local endofopts=0
+    local sort=''
+    local where=''
+    local separator=''
+    while [[ "$1" =~ ^- ]] && ((endofopts==0))
+    do
+        case "$1" in
+            --sort ) sort='order by 1'; shift ;;
+            --rev* ) sort='order by 1 desc'; shift ;;
+            --sep* ) separator="--separator $2"; shift; shift ;;
+            --     ) endofopts=1; shift;;
+            -*     ) echo "$1 is an invalid option."; return 1;;
+        esac
+    done
+
+    local db=$1; shift
+
+    local dbfile=~/.kvdbs/$db
+
+    if [ ! -e $dbfile ]
+    then
+        echo "ERROR - kv store name $db does not exist"
+        return 1
+    fi
+
+    local key="$1"; shift
+    local where=''
+
+    [ -n "$key" ] && where="where key like '$key'" ## These databases should be
+                                                   ## small enough that using
+                                                   ## like in all cases will be
+                                                   ## fast enough. Maybe the
+                                                   ## SQL engine will convert a
+                                                   ## like with no wildcards to
+                                                   ## an equal anyway.
+
+    sqlite3 --noheader $separator $dbfile "select $columns from keyval $where $sort"
+
+    return $?
+}
+safe_func_export _kvgetany
+
+kvput ()
+{
+    ## Insert if DNE, update if it does.
+    local db=$1; shift
+    local dbfile=~/.kvdbs/$db
+
+    if [ ! -e $dbfile ]
+    then
+        echo "ERROR - kv store name $db does not exist"
+        return 1
+    fi
+
+    local key="$1"; shift
+
+    sqlite3 --noheader $dbfile \
+            "update keyval
+             set key = '$key', value = '$@'
+             where key = '$key';
+
+             insert into keyval (key, value)
+             select '$key', '$@'
+             where (Select Changes() = 0)"
+    return $?
+}
+safe_func_export kvput
+
+kvputinit ()
+{
+    ## Put if DNE, ok if exists and same, bark if exists and different.
+    local db=$1; shift
+    local dbfile=~/.kvdbs/$db
+
+    if [ ! -e $dbfile ]
+    then
+        echo "ERROR - kv store name $db does not exist"
+        return 1
+    fi
+
+    local key="$1"; shift
+
+    local value=$(sqlite3 --noheader $dbfile "select value from keyval where key = '$key'");
+    if [ "$value" = "$@" ]
+    then
+        return 0
+    elif [ -z "$value" ]
+    then
+        sqlite3 --noheader $dbfile "insert into keyval values ('$key', '$@')"
+        return $?
+    else
+        echo "ERROR - kvputinit. Key = '$key'. Init value '$@' does not match existing value '$value'"
+        return 1
+    fi
+}
+safe_func_export kvputinit
+
+###################
+## Miscellaneous ##
+###################
+dowhich ()
+{
+    ##@@ none||none||dowhich||Find the executable and then run it with any args.
+    utilfuncs_audit "$@"
+
+    declare file=$1;shift
+    declare args="$@"
+
+    declare foundit=$(which $file)
+    if [ -z "$foundit" ]
+    then
+        echo "$file not found on PATH"
+        return $(false)
+    else
+        echo -n "Do $foundit $@"
+        yesno "" 'n' $foundit "$@"
+        return $?
+    fi
+}
+safe_func_export dowhich
+
+tarcopy ()
+{
+    ##@@ none||none||tarcopy||Use the tar trick to copy  arg1/* to arg2/* or arg2/arg1/*, with some intelligence.
+    utilfuncs_audit "$@"
+
+    local srcdir=$1
+    local tgtdir=$2
+    if [ ! -e $srcdir ]
+    then
+        echo "$srcdir not found"
+        return $(false)
+    fi
+    if [ ! -d $srcdir ]
+    then
+        echo "Source '$srcdir' must be a directory"
+        return $(false)
+    fi
+    if [ $(basename $srcdir) = $(basename $tgtdir) ]
+    then
+        echo "You're trying to copy $srcdir to $tgtdir."
+        echo "You probably want to use $(dirname $tgtdir)"
+        echo "as the target instead."
+        return $(false)
+    fi
+    if [ ! -e $tgtdir ]
+    then
+        echo "$tgtdir not found. Creating..."
+        mkdir $tgtdir || return $(false)
+    fi
+    if [ ! -d $tgtdir ]
+    then
+        echo "Target '$tgtdir' must be a directory"
+        return $(false)
+    fi
+    tgtdir=$(realpath $tgtdir)
+    startdir=$(pwd)
+    if [ "$srcdir" != '.' ]
+    then
+        echo "WARNING: You are about to copy $srcdir into $tgtdir"
+        echo "instead of copying the CONTENTS of $srcdir into $tgtdir"
+        read -p "Do you want to copy the (d)irectory or its (c)ontents? " resp
+        if [ "$resp" = 'd' ]
+        then
+            echo 'Ok...'
+        elif [ "$resp" = 'c' ]
+        then
+            echo "Yeah, that's what I figured"
+            echo "*** builtin cd $srcdir"
+            builtin cd $srcdir
+            srcdir='.'
+        else
+            echo "d or c, how hard could that have been???"
+            return $(false)
+        fi
+    fi
+    echo "*** tar cf - $srcdir | ( builtin cd $tgtdir; tar xvfp -)"
+    tar cf - $srcdir | ( builtin cd $tgtdir; tar xvfp -)
+    if [ $(pwd) != "$startdir" ]
+    then
+        echo "*** builtin cd $startdir"
+        builtin cd $startdir
+    fi
+    return $(true)
+}
+safe_func_export tarcopy
+tarcp ()
+{
+    tarcopy
+}
+safe_func_export tarcp
+
+list ()
+{
+    ##@@ none||none||list||Print each argument on its own line.
+    utilfuncs_audit "$@"
+
+    ## Don't use echo "$@" | tr ' ' '\n'; it will not respect spaces inside of
+    ## an argument.
+    for i in "$@"
+    do
+        echo $i
+    done
+    return $(true)
+}
+safe_func_export list
+
+cattail ()
+{
+    ##@@ none||none||cattail||cat the whole file then continue tail -f
+    utilfuncs_audit "$@"
+
+    tail -n +1 -f "$@"
+    return $?
+}
+safe_func_export cattail
+
+tail_number_add ()
+{
+    ##@@ none||none||tail_number_add||Add a '(' and an index number to each argument.
+    utilfuncs_audit "$@"
+
+    local count=$#
+    local pad=${#count}
+    local i=0
+    local out
+    for a in "$@"
+    do
+        ((i+=1))
+        local e=$(printf '%s(%d' "$a" $i)
+        out="$out $e"
+    done
+    echo "$out"
+    return $?
+}
+safe_func_export tail_number_add
+
+tail_number_strip ()
+{
+    ##@@ none||none||tail_number_strip||From each argument (in theory the product of tail_number_add), strip from the '(' to the end.
+    utilfuncs_audit "$@"
+
+    local out
+    local a
+    for a in "$@"
+    do
+        out="$out ${a%(*}"
+    done
+    echo "$out"
+    return $?
+}
+safe_func_export tail_number_strip
 
 wcstrip ()
 {
@@ -968,3 +1145,47 @@ grep-not-in ()
     grep -L "$@"
 }
 safe_func_export grep-not-in
+
+uuid ()
+{
+    perl -e 'open my $FH, "/dev/urandom"
+      or die "Cannot generate UUID\n";
+    sysread( $FH, my $r, 16 );
+    close $FH;
+
+    # treat $r as 8 16bit quantities using vec, format as a v4 uuid by
+    # grouping appropriately and setting the appropriate variant and version
+    # bits
+
+    printf "%04x%04x-%04x-%04x-%04x-%04x%04x%04x",
+      vec( $r, 0, 16 ), vec( $r, 1, 16 ),
+      vec( $r, 2, 16 ),
+      ( ( vec( $r, 3, 16 ) & 0x0FFF ) | 0x4000 ),
+      ( ( vec( $r, 4, 16 ) & 0x3FFF ) | 0x8000 ),
+      vec( $r, 5, 16 ), vec( $r, 6, 16 ), vec( $r, 7, 16 );'
+}
+safe_func_export uuid
+
+get-next-descriptor ()
+{
+    ##@@ none||none||get-next-descriptor||print the next free shell io descriptor number.
+    utilfuncs_audit "$@"
+    local found=none
+    local fd
+    local rco
+    local rci
+    for fd in {0..255}
+    do
+        rco="$(true 2>/dev/null >&${fd}; echo $?)";
+        rci="$(true 2>/dev/null <&${fd}; echo $?)";
+        [[ "${rco}${rci}" = "11" ]] && found=${fd} && break
+    done
+    if [ -z "$found" ]
+    then
+        return 1
+    else
+        echo $found
+        return 0
+    fi
+}
+safe_func_export get-next-descriptor

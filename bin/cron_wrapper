@@ -1,45 +1,79 @@
 #!/opt/bb/bin/bash
 ## Control when cron jobs mail output
 
-## Keeping it simple - all args are positional
+CW_bin=$(realpath $(dirname $0))
+OPTSARGS=$($CW_bin/getoptp --long mailtype:,to:,subject:,checkkinit,id:,x,keeplog -n $(basename $0) -- "$@")
+status=$?
+((status != 0)) && exit $status
 
-## mail type - If mon or tue, etc. then on-error other days, always on that day
-mail_type=$1; shift
-[ -z "$mail_type" ] && echo "Mail type required" && exit 1
-mail_type=$(echo $mail_type | tr '[A-Z]' '[a-z]')
+eval set -- "$OPTSARGS"
 
-## mail to - overrides MAILTO from crontab. "" to accept MAILTO
-mail_to=$1; shift
-[ -z "$mail_to" ] && mail_to=$MAILTO
+mailtype=''
+mailto=$MAILTO
+mailsubject=''
+checkkinit=0
+setx=0
+keeplog=0
 
-mail_subject=$1; shift
+while true
+do
+    ## Remeber to add new options to the getoptp call above, in addition to
+    ## adding them here.
+    case "$1" in
+        --x)
+            setx=1;
+            shift;;
+        --mailtype)
+            mailtype=$(echo "$2" | tr '[A-Z]' '[a-z]')
+            shift; shift;;
+        --to)
+            mailto="$2"
+            MAILTO=$mailto; export MAILTO
+            shift; shift;;
+        --keeplog)
+            keeplog=1; shift;;
+        --subject)
+            mailsubject="$2"
+            shift; shift;;
+        --checkkinit)
+            checkkinit=1
+            shift;;
+        --id ) shift; shift;; ## used so that there is something unique on the
+                              ## command line for email subjects if there's a
+                              ## hard die
+        --) shift; break ;; ## end of opts, remaining $*, if any, are args
+        *) echo "Internal error!"; exit 1;;
+    esac
+done
+
+[ -z "$mailtype" ] && echo "Mail type required" && exit 1
 
 dayofweek=$(date +%a | tr '[A-Z]' '[a-z]')
 args_ok=0
 while ((!args_ok))
 do
-    case $mail_type in
+    case $mailtype in
         never )
             args_ok=1
             break
             ;;
-        on-error | if-output | if-no-output | today | always )
-            [ -z "$mail_to" ] && echo "Need valid email" && exit 1
-            [ -z "$mail_subject" ] && echo "Need valid email subject" && exit 1
+        non-zero | on-error | if-output | if-no-output | today | always )
+            [ -z "$mailto" ] && echo "Need valid email" && exit 1
+            [ -z "$mailsubject" ] && echo "Need valid email subject" && exit 1
             args_ok=1
             break
             ;;
         $dayofweek )
-            mail_type=today
+            mailtype=today
             break
             ;;
         sun | mon | tue | wed | thu | fri | sat )
             ## We get here if the day in the mail type does not match today
-            mail_type=on-error
+            mailtype=on-error
             break
             ;;
         * )
-            echo "Invalid mail type $mail_type"
+            echo "Invalid mail type $mailtype"
             exit 1
             break
             ;;
@@ -62,42 +96,90 @@ done
 
 if ((!did_profile))
 then
+    echo 'ERROR - No profiles found before trying to run'
+    echo "$@"
+    echo
     cat $profilelog
-    echo "No profiles found. Whoops!"
     exit 42
 fi
 
-exec 6>&1         # Link file descriptor #6 with stdout, which saves stdout.
+if((checkkinit))
+then
+    klist -s
+    status=$?
+    if((status))
+    then
+        backoff="$(dirname $(realpath $0))/../data/cron_wrapper.kinit.$(echo $mailsubject | sed 's/ /_/g')"
+        if [ -e $backoff ]
+        then
+            was=$(cat $backoff)
+            now=$(date +%s)
+            if ((now-was<86399))
+            then
+                exit 0 ## Once a day email on a kerberos expiration
+            fi
+        fi
+        echo 'ERROR - kerberos ticket has expired before trying to run'
+        echo "$@"
+        echo
+        echo 'Expiration(s):'
+        klist | cut -d ' ' -f4,5 | sort -u | grep '/'
+        date +%s > $backoff
+        echo 'Now:'
+        date '+%m/%d/%y %H:%M:%S'
+        echo
+        echo 'This is a ONCE-A-DAY notification, regardless of cron schedule.'
+        exit $status
+    fi
+fi
+
+## We use 6 and 7 because 3 & 4 are usually used
+holdstdout=$(get-next-descriptor)
+eval "exec $holdstdout>&1"  # Link file descriptor with stdout, which saves stdout.
 exec 1>> $alllog  # Re-point stdout to the log.
 
-exec 7>&2         # Link file descriptor #7 with stdout, which saves stderr.
+holdstderr=$(get-next-descriptor)
+eval "exec $holdstderr>&2"  # Link file descriptor with stderr, which saves stderr.
 exec 2>> $alllog  # Re-point stderr to the log.
 
 ##
 ## Here is where the command gets executed
 ##
 status=0
+
+## We set up a trap here to make sure that if the command dies so hard that the
+## rest of this script does not run, we get something from the shunted output.
+trap "eval ""exec 1>&$holdstdout $holdstdout>&-""      # Restore stdout and close file descriptor.
+      eval ""exec 2>&$holdstderr $holdstderr>&-""      # Restore stderr and close file descriptor.
+      [ -f $profilelog ] && cat $profilelog
+      [ -f $alllog ]     && cat $alllog
+     " SIGTERM SIGINT SIGFPE SIGBUS
 "$@"
 status=$?
 
 # The restorations will cause any mail errors to be sent to you via the regular
 # cron error channels.
-exec 1>&6 6>&-      # Restore stdout and close file descriptor #6.
-exec 2>&7 7>&-      # Restore stderr and close file descriptor #7.
+eval "exec 1>&$holdstdout $holdstdout>&-"      # Restore stdout and close file descriptor.
+eval "exec 2>&$holdstderr $holdstderr>&-"      # Restore stderr and close file descriptor.
 
+((setx)) && set -x
 subsubject=''
-mailthelog=''
+mailthelog=0
 if ((status))
 then
-    if [ ! "$mail_type" = 'never' ]
+    if [ "$mailtype" = 'non-zero' ]
+    then
+        mailthelog=1
+        subsubject="Non-zero exit ($status)"
+    elif [ ! "$mailtype" = 'never' ]
     then
         mailthelog=1 ## We always grab the log if there is an issue.
         subsubject="Issue - Exit status: $status"
     fi
-elif [ ! "$mail_type" = 'on-error' ]
+elif [ ! "$mailtype" = 'on-error' ]
 then
     subsubject="Success"
-    if [ "$mail_type" = 'if-no-output' ]
+    if [ "$mailtype" = 'if-no-output' ]
     then
         mailthelog=$(cat $alllog | wc -l)
         if ((mailthelog==0))
@@ -105,30 +187,60 @@ then
             mailthelog=1
             subsubject='Issue - No output'
         fi
-    elif [ "$mail_type" = 'if-output' ]
+    elif [ "$mailtype" = 'if-output' ]
     then
         mailthelog=$(cat $alllog | wc -l)
-    elif [ "$mail_type" = 'today' ]
+    elif [ "$mailtype" = 'today' ]
     then
         mailthelog=1
         subsubject="Success, $(date +%A) check"
+    elif [ "$mailtype" = 'never' ] || [ "$mailtype" = 'non-zero' ]
+    then
+        mailthelog=0
+    elif [ "$mailtype" = 'always' ]
+    then
+        mailthelog=1
     else
-        ## mail_type is 'always'
+        subsubject="Success, but unknown mailtype $mailtype. Mailing the log."
         mailthelog=1
     fi
 fi
 
+exitstatus=0
+
 if ((mailthelog))
 then
-    ## If there is an error, we include the profile log.
-    mailx -s "$subsubject - $mail_subject" \
-          $mail_to \
-          <<EOM
+    if [ -n "$mailto" ]
+    then
+        mailx -s "$subsubject - $mailsubject" \
+              $mailto \
+              <<EOM
 $subsubject
 $( ((status)) && cat $profilelog;cat $alllog)
 EOM
+        exitstatus=0 ## we mailed off the error, if any
+        exit 0
+    else
+        cat <<EOM
+$subsubject
+$( ((status)) && cat $profilelog;cat $alllog)
+EOM
+        exitstatus=$status ## we need to force the mail of the log, to at least
+                           ## the cron owner.
+    fi
 fi
 
-\rm -f $alllog $profilelog
+if ((keeplog))
+then
+    ## Writing anything to stdout or stderr forces what is written to be
+    ## mailed. This will happen despite any settings to the contrary above. It
+    ## will also use the default MAILTO, unless you have specified --to, in
+    ## which case we override MAILTO with the argument of --to.
+    echo "--keeplog specified. Logs are"
+    echo "alllog - $alllog"
+    echo "profilelog - $profilelog"
+else
+    \rm -f $alllog $profilelog
+fi
 
-exit 0
+exit $exitstatus
