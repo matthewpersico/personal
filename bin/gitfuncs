@@ -880,7 +880,7 @@ git-get-current-branch ()
           ## dirlist, not builtin cd, to take advantage this cd enhancement
           dirlist $1
       fi
-      git rev-parse --abbrev-ref HEAD 2>/dev/null
+      git symbolic-ref HEAD | sed 's!refs\/heads\/!!'
     )
 }
 safe_func_export git-get-current-branch
@@ -4185,86 +4185,72 @@ git-create-patches ()
     fi
     local patchdir=$1
     [ -z "$patchdir" ] && patchdir="./patches_dir"
-    patchdir=$(realpath $patchdir)
-    if [ ! -d $patchdir ]
+    patchpath=$(realpath $patchdir)
+    if [ ! -d $patchpath ]
     then
-        mkdir $patchdir || return $?
+        mkdir $patchpath || return $?
     fi
+    echo "Creating patches from repo inception"
     local patchlist=$(mktemp --suffix=.git-create-patches)
-    local lp=$(git-root)/last_patched
-    local lpsha
-    if [ -r $lp ]
-    then
-        lpsha=$(cat $lp)
-        echo Creating patches for commits after $lpsha:
-        git log ${lpsha}..HEAD
-        patcharg=$lpsha
-    else
-        echo Creating patches from repo inception
-        patcharg='--root origin'
-    fi
-    git format-patch -o $patchdir --full-index $patcharg | tee $patchlist
+    git format-patch -o $patchpath --full-index --root origin | tee $patchlist
     local newsha=$(git-log-grab-sha -1)
-    local restorescript=$patchdir/restore
+    local restorescript=$patchpath/restore.${newsha}
     if [ -s $patchlist ]
     then
-        echo "PATCHDIR=$patchdir ## change PATCHDIR at the target
-LAST_PATCHED=$lp
-for i in $(cat $patchlist | PATCHDIR=$patchdir perl -ne 'chomp;s|$ENV{PATCHDIR}|\$PATCHDIR|;print(qq(\\\n$_ ))')
+        echo "## -*- sh -*-
+PATCHPATH=\$(dirname \$(realpath \$0))
+last_applied=''
+current_branch=\$(git symbolic-ref HEAD | sed 's!refs\/heads\/!!')
+config_key_root=\"branch.\${current_branch}.lastpatched-\"
+last_applied=\$(git config --get \${config_key_root}patch )
+if [ -z \"\$last_applied\" ]
+then
+  git config --add \${config_key_root}patch 'none'
+  git config --add \${config_key_root}date  'none'
+fi
+patchcount=$(cat $patchlist | wc -l)
+patchnum=0
+restart=\$(realpath \$0).restart
+for i in $(cat $patchlist | PATCHPATH=$patchpath perl -ne 'chomp;s|$ENV{PATCHPATH}|\$PATCHPATH|;print(qq(\\\n$_ ))')
 do
-  git am \$i
-  status=\$?
-  [ ! \$status = '0' ] && exit \$status
+  ((patchnum+=1))
+  echo \"-- \$patchnum/$patchcount --\"
+  if [ \"\$i\" \\> \"\$last_applied\" ]
+  then
+    git am \$i
+    status=\$?
+    if [ ! \$status = '0' ]
+    then
+      echo \"git config \${config_key_root}patch \$i;\" \> \$restart
+      echo \"git config \${config_key_root}date  \\\"\\\$(date)\\\"\" \> \$restart
+      echo \"\$0\" \> \$restart
+      chmod +x \$restart
+      echo \"After you have fixed the issue with the appropriate\"
+      echo \"git incantation, restart by executing\"
+      echo \"    \$restart\"
+      exit \$status
+    fi
+    git config \${config_key_root}patch \$i
+    git config \${config_key_root}date  \"\$(date)\"
+    read -p 'Return or CTRL-C'
+  else
+    echo \"\$i <= \$last_applied, skipping\"
+  fi
 done
-    echo $newsha > \$LAST_PATCHED
 " > $restorescript
         chmod a+rwx $restorescript
-        echo "Use '$restorescript' to apply patches."
+        local sharfile=$(git-root)/$(basename $(git-root)).shar
+        shar -o $(git-root)/$(basename $(git-root)).shar $patchdir
+        echo "1 - Copy ${sharfile}* to the git root of the target."
+        echo "2 - $ unshar $(basename $sharfile)*"
+        echo "3 - $ cd $patchdir"
+        echo "4 - $ ./$(basename $restorescript)"
     else
         \rm -f $restorescript
         echo "No patches to apply."
     fi
 }
 safe_func_export git-create-patches
-
-git-show-last-patched ()
-{
-    ##@@ none||none||git-show-last-patched||
-    gitfuncs_audit "$@"
-
-    if [ -r $(git-root)/last_patched ]
-    then
-        local back=$1
-        [ -z "$back" ] && back=-1
-        git log $back $(cat $(git-root)/last_patched)
-        return $OK
-    else
-        echo $(git-root)/last_patched not found
-        return $NOT_OK
-    fi
-}
-safe_func_export git-show-last-patched
-
-git-init-last-patched ()
-{
-    ##@@ none||none||git-init-last-patched||
-    gitfuncs_audit "$@"
-
-    local sha=$1
-    if [ -z "$sha" ]
-    then
-        sha=$(git-log-grab-sha -1)
-    fi
-    echo $sha > $(git-root)/last_patched
-    git-show-last-patched
-}
-safe_func_export git-init-last-patched
-
-git-set-last-patched ()
-{
-    git-init-last-patched "$@"
-}
-safe_func_export git-set-last-patched
 
 git-post-new ()
 {
