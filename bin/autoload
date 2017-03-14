@@ -1,0 +1,290 @@
+## -*- sh -*-
+
+## From http://git.savannah.gnu.org/cgit/bash.git/tree/examples/functions/autoload.v3
+## with the addition of -x option to autoload by MOP.
+
+## How to use:
+## o One function per file.
+## o File and function name match exactly.
+## o File is located in a directory that is in FPATH.
+## o This script (autoload) must be sourced in as early as possible.
+## o autoload must be called for each function before the it can be used. If
+##   autoloads are in directories where there are nothing but autoloads, then
+##   'autoload /path/to/files/*' suffices.
+## o The call must be made in the current environment, not a subshell.
+## o The command line suffices as "current environment". If you have autoload
+##   calls in a script, that script must be dotted into the process.
+
+#From: Mark Kennedy <mark.t.kennedy@gmail.com> (<mtk@ny.ubs.com>)
+#Message-ID: <35E2B899.63A02DF5@ny.ubs.com>
+#Date: Tue, 25 Aug 1998 09:14:01 -0400
+#To: chet@nike.ins.cwru.edu
+#Subject: a newer version of the ksh-style 'autoload'
+
+#enclosed you'll find 'autoload.v3',  a version of the autoloader
+#that emulates the ksh semantics of delaying the resolution (and loading) of the function
+#until its first use.  i took the liberty of simplifying the code a bit although it still uses the
+#same functional breakdown.  i recently went through the exercise of converting
+#my ksh-based environment to bash (a very, very pleasant experience)
+#and this popped out.
+
+# the psuedo-ksh autoloader.
+
+# The first cut of this was by Bill Trost, trost@reed.bitnet.
+# The second cut came from Chet Ramey, chet@ins.CWRU.Edu
+# The third cut came from Mark Kennedy, mtk@ny.ubs.com.  1998/08/25
+
+unset _AUTOLOADS        ## Array of the code for functions to autoload.
+unset _AUTOLOADS_EXECD  ## Array of 0/1 tracking if the function at the
+                        ## corresponding index position in _AUTOLOADS has (1)
+                        ## or has not (0) yet been executed.
+
+_aload()
+{
+    local opt OPTIND
+    local doexport=0
+    while getopts xr opt
+    do
+        case $opt in
+            x) doexport=1;;
+            r) doreload=1;;
+            *) echo "_aload: usage: _aload [-xr] [function ...]" >&2; return;;
+        esac
+    done
+
+    shift $(($OPTIND-1))
+
+    local func
+    for func; do
+        if [ -n "$(declare -F $func)" ] && ((doreload==0))
+        then
+            ## bail if the function exists and we are not realoading
+            return
+        fi
+        local export
+        ((doexport)) && export="export -f $func;"
+        ## Saving environmenet space with the outdenting.
+        eval $func '()
+        {
+        local f=$(_autoload_resolve '$func')
+        if [[ $f ]]; then
+        . $f
+        '$export'
+        _autoload_set_exec '$func'
+        '$func' "$@"
+        return $?
+        else
+        return 1
+        fi
+        }'
+        _autoload_addlist $func
+        ((doexport)) && export -f $func
+    done
+}
+
+_autoload_addlist()
+{
+    local func
+
+    for func in ${_AUTOLOADS[@]}; do
+        [[ $func = "$1" ]] && return
+    done
+
+    _AUTOLOADS[${#_AUTOLOADS[@]}]=$1
+    _AUTOLOADS_EXECD[((${#_AUTOLOADS[@]}-1))]=0
+}
+
+_autoload_set_exec()
+{
+    ## The function is about the be executed. Mark it as being executed.
+    local i
+    local almaxi=${#_AUTOLOADS[@]};((almaxi-=1))
+    for i in $(seq 0 $almaxi); do
+        [[ "${_AUTOLOADS[$i]}" = "$1" ]] && _AUTOLOADS_EXECD[$i]=1 && return
+    done
+}
+
+_autoload_dump()
+{
+    local opt_p
+    local opt_s
+    while getopts ps opt
+    do
+        case $opt in
+            p) opt_p=1;;
+            s) opt_s=1;;
+        esac
+    done
+
+    shift $(($OPTIND-1))
+
+    local exported=''
+    local executed=''
+    local almaxi=${#_AUTOLOADS[@]};((almaxi-=1))
+    local i
+    for i in $(seq 0 $almaxi); do
+        local func=${_AUTOLOADS[$i]}
+        ((opt_p)) && echo -n "autoload "
+        if ((opt_s))
+        then
+            exported=$(declare -F | grep $func | sed 's/declare -f\(x\{0,1\}\).*/\1/' | wc -c)
+            ((exported==2)) && exported='exported' || exported=''
+            ((${_AUTOLOADS_EXECD[$i]}==1)) && executed='executed' || executed=''
+        fi
+        echo $func $exported $executed
+    done
+}
+
+_autoload_remove_one()
+{
+    local func
+    local unsetit
+    local -a NEW_AUTOLOADS
+    local -a NEW_AUTOLOADS_EXECD
+
+    [ "$1" = "-U" ] && unsetit=1 && shift
+
+    for func in ${_AUTOLOADS[@]}; do
+        [[ $func != "$1" ]] && NEW_AUTOLOADS[${#NEW_AUTOLOADS[@]}]=$func && NEW_AUTOLOADS_EXECD[${#NEW_AUTOLOADS_EXECD[@]}]=$func
+        ((unsetit)) && unset $func
+    done
+
+    _AUTOLOADS=( ${NEW_AUTOLOADS[@]} )
+    _AUTOLOADS_EXECD=( ${NEW_AUTOLOADS[@]} )
+}
+
+_autoload_remove()
+{
+    local victim func unsetit
+    [ "$1" = "-U" ] && unsetit='-U' && shift
+
+    for victim; do
+        for func in ${_AUTOLOADS[@]}; do
+            [[ $victim = "$func" ]] && unset -f $func && continue 2
+        done
+        echo "autoload: $func: not an autoloaded function" >&2
+    done
+
+    for func; do
+        _autoload_remove_one $unsetit $func
+    done
+}
+
+_autoload_resolve()
+{
+    if [[ ! "$FPATH" ]]; then
+        echo "autoload: FPATH not set or null" >&2
+        return
+    fi
+
+    local p
+
+    for p in $( (IFS=':'; set -- ${FPATH}; echo "$@") ); do
+        p=${p:-.}
+        if [ -f $p/$1 ]; then echo $p/$1; return; fi
+    done
+
+    echo "autoload: $1: function source file not found" >&2
+}
+
+autoload_help()
+{
+    cat <<EOH
+NAME
+        autoload
+
+SYNOPSIS
+        autoload [-ps]
+        autoload [-uUxr] [function ...]
+        autoload [-h]
+
+DESCRIPTION
+
+        An implementation of the 'autoload' functionality built into other
+        shells, of which 'ksh' is the most prominent.  It allows for a keeping
+        the process environment small by loading small 'shim' functions into
+        memory that will, on first call, load the full text of the given
+        function and run it. Subsequent calls to the function just run the
+        function.
+
+        Although the number of functions in the environment does not change by
+        using autoload, the amount of memory they take up can be greatly
+        reduced, depending on the size of your functions. If you have a lot of
+        small functions, then it is possible that the shim text will be larger
+        than your actual functions, rendering the memory savings moot.
+
+        'small' in this case is 182 charcters plus three times the length of
+        the function name. If your function is smaller than that, you use more
+        space with the shim than without it.
+
+USAGE
+
+        o Each function to be autoloaded should be defined in a single file,
+        named exactly the same as the function.
+
+        o These files should be placed in a directory that is in the FPATH
+        environment variable.
+
+        o The autoload script should be sourced into the current process as
+        early as possible in process start up.
+
+        o The calls to the autoload function must be made in the current
+        process. If your calls are in their own script, that script must be
+        sourced in. Command line invocation are also sufficient.
+
+        o The first time the function is called, the shim function that is
+        created by the autoload call is called. This function then goes and
+        finds the appropriate file in FPATH, sources it in and then calls the
+        function with any arguments you passed in to the function
+        call. Subsequent calls just run the function.
+
+OPTIONS
+
+        With no arguments:
+
+        -p        Print all the autoloaded functions.
+        -s        Print all the autoloaded functions, with status as to
+                  whether they were exported and they have been executed yet.
+
+        With function name arguments:
+
+        -x        Export the function name to environment for use in
+                  subshells.
+        -u        Remove from autoload list so it can be reloaded. Does
+                  not unset the function.
+        -U        Remove from autoload list so it can be reloaded, and
+                  unset the function.
+        -r        Reload the shim, even if the function has been executed.
+
+NOTES
+
+        Calling autoload() on a function already autoloaded silently refuses to
+        reload the shim unless it has been removed (u- or -U) or you force the
+        reload (-r).
+
+EOH
+}
+
+autoload()
+{
+    if (( $# == 0 )) ; then _autoload_dump; return; fi
+
+    local opt OPTIND
+    local passthru
+
+    while getopts psuUxrh opt
+    do
+        case $opt in
+            p|s) _autoload_dump -$opt; return;;
+            u) shift $((OPTIND-1)); _autoload_remove "$@"; return;;
+            U) shift $((OPTIND-1)); _autoload_remove -U "$@"; return;;
+            x|r) passthru="$passthru -$opt";;
+            h) autoload_help; return;;
+            *) echo "autoload: usage: autoload [-puUx] [function ...]" >&2; return;;
+        esac
+    done
+
+    shift $(($OPTIND-1))
+
+    _aload $passthru "$@"
+}

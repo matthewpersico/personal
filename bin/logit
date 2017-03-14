@@ -14,7 +14,7 @@ logit [ --tee ] \\
       [ --log log_basename ] \\
       [ --notimestamp ] \\
       [ --dir log_directory ] \\
-      [ [--edit ] || [ --edit-on-fail ]] \\
+      [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
       [ --purge | --purgeprior ] \\
       [ -- ] \\
       command [arg ..]
@@ -39,13 +39,19 @@ logit [ --help | -h ]
                  working directory, logs will be placed in './logit'.
 
       --edit   - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
-                 \$EDITOR ($EDITOR) and run the first one found on the
-                 log file when complete.
+                 \$EDITOR ($EDITOR). Run the first one found in order
+                 to edit log file when the command exits.
+
+      --edit-echo -
+                 Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
+                 \$EDITOR ($EDITOR). Echo the command that would have
+                 been generated for --edit. This allows you to decide
+                 whether or not to edit the log.
 
       --edit-on-fail -
                  Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
-                 \$EDITOR ($EDITOR) and run the first one found on the
-                 log file only if command fails.
+                 \$EDITOR ($EDITOR). Run the first one found in order
+                 to edit the log file if the command fails.
 
       --purge  - Remove all similarly named log files before
                  running the command.
@@ -74,13 +80,14 @@ logfile=''
 logdir=''
 teeit=0
 edit=''
+edit_echo=''
 edit_on_fail=''
 purge=''
 notimestamp=''
 original_argv="$0 $@"
 
 # Read the options and args from command line.
-OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,purge,purgeprior,notimestamp,help, -n 'logit' -- "$@")
+OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,help, -n 'logit' -- "$@")
 status=$?
 if ((status != 0))
 then
@@ -111,6 +118,11 @@ while true ; do
             teeit=1
             shift ;;
         --edit)
+            edit="$LOGIT_EDITOR"
+            [ -z "$edit" ] && edit="$EDITOR"
+            shift ;;
+        --edit-echo)
+            edit_echo=1
             edit="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit="$EDITOR"
             shift ;;
@@ -327,7 +339,12 @@ then
 fi
 if [ -n "$editcmd" ]
 then
-    $editcmd $logspec &
-    [ -n "$tailpid" ] && kill $tailpid
+    if [ -n "$edit_echo" ]
+    then
+        echo $editcmd $logspec &
+    else
+        $editcmd $logspec &
+        [ -n "$tailpid" ] && kill $tailpid
+    fi
 fi
 exit $status
