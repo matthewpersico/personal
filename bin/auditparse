@@ -1,0 +1,39 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Data::Dumper;
+$Data::Dumper::Sortkeys = 1;
+
+my %call_count;
+my %level_count;
+
+while(<>) {
+    chomp;
+    my @fields = split(/\s+/, $_);
+    ## 0  - time
+    ## 1  - level
+    ## 2  - commands
+    ## 3+ - args
+    my @level = split(//, $fields[1]);
+    if( not defined ($fields[2]) ) {
+        warn "Bad data:[$_]\n";
+    } else {
+        $call_count{$fields[2]}++;
+        $level_count{$fields[2]}->{scalar @level}++;
+    }
+}
+
+my %call_count_inv;
+for (keys %call_count) {
+    exists($call_count_inv{$call_count{$_}})
+      or $call_count_inv{$call_count{$_}} = [];
+    push @{$call_count_inv{$call_count{$_}}}, $_;
+}
+my @call_count_inv = sort { $b->[0] <=> $a->[0] }
+  map { [ $_,  $call_count_inv{$_} ] }
+  keys %call_count_inv;
+
+print Data::Dumper->Dump([\%call_count,\@call_count_inv,\%level_count],
+                         [qw (*call_count *call_count_inv *level_count)]);
