@@ -2556,19 +2556,19 @@ git-fetch-remote-branch ()
 safe_func_export git-fetch-remote-branch
 
 ## Useful in prompts (PS1).
-git-inside-work-tree ()
+git-inside-worktree ()
 {
-    ##@@ none||none||git-inside-work-tree||Return $TRUE or $FALSE, prints 'true' or 'false' if -p specified
+    ##@@ none||none||git-inside-worktree||Return $TRUE or $FALSE, prints 'true' or 'false' if -p specified
     gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
 
     local print=$1;shift
-    local v=$(git rev-parse --is-inside-work-tree 2>/dev/null)
+    local v=$(git rev-parse --is-inside-worktree 2>/dev/null)
     local r=$FALSE
     [ "$v" = "true" ] && r=$TRUE
     [ "$print" = '-p' ] && echo $v
     return $r
 }
-safe_func_export git-inside-work-tree
+safe_func_export git-inside-worktree
 
 git-get-stash-count ()
 {
@@ -2577,7 +2577,7 @@ git-get-stash-count ()
     local no0=0; [ "$1" = '-no0' ] && no0=1 && shift;
     local pre=$1;shift
     local post=$1;shift
-    git-inside-work-tree $na
+    git-inside-worktree $na
     if [ "$?" = $TRUE ]
     then
         local c=$(git stash list 2>/dev/null | wc -l)
@@ -2962,23 +2962,10 @@ git-worktree-root ()
     ##@@ none||none||git-worktree-root||print the master root where the wt dir is
     gitfuncs_audit "$@"
 
-    local in_a_wt=$(git-inside-a-worktree)
-    if (( in_a_wt == 1 ))
-    then
-        func-echo "Must be in a wt"
-        return $NOT_OK;
-    fi
-
-    local files=$(git ls-files)
-    if [ -z "$files" ]
-    then
-        func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
-        return $NOT_OK;
-    fi
-
-    local root=$(pwd);
-    root=${root%%/wt*}
-    echo $root
+    local wtr=$(git worktree list)
+    local status=$?; ((status)) && return $status
+    echo $wtr | sed 's/ .*//'
+    return $OK
 }
 safe_func_export git-worktree-root
 
@@ -2987,16 +2974,21 @@ git-run-precommit-hook ()
     ##@@ none||none||git-run-precommit-hook||
     gitfuncs_audit "$@"
 
-    local hookroot
-    local in_a_wt=$(git-inside-a-worktree)
-    if (( in_a_wt == 0 ))
+    local wtr=$(git-worktree-root)
+    status=$?; ((status)) && return $status
+    local hook="$wtr/.git/hooks/pre-commit"
+    if [ -x $hook ]
     then
-        hookroot=$(git-worktree-root)
+        $hook "$@"
+        return $?
+    elif [ -r $hook ]
+    then
+        echo "Cannot execute $hook"
+        return $NOT_OK
     else
-        hookroot=$(git-root)
+        echo "Cannot find $hook"
+        return $NOT_OK
     fi
-
-    ${hookroot}/.git/hooks/pre-commit $*
 }
 safe_func_export git-run-precommit-hook
 
@@ -3005,29 +2997,35 @@ git-worktree-diff-to-root ()
     ##@@ none||none||git-worktree-diff-to-root||diff worktree file against root file
     gitfuncs_audit "$@"
 
-    local in_a_wt=$(git-inside-a-worktree)
+    local in_a_wt=$(git-inside-worktree)
     if (( in_a_wt == 1 ))
     then
         func-echo "Must be in a wt"
         return $NOT_OK;
     fi
 
-    local files=$(git ls-files)
+    local files="$@"
     if [ -z "$files" ]
     then
-        func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
-        return $NOT_OK;
+        files=$(git ls-files)
+        if [ -z "$files" ]
+        then
+            func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
+            return $NOT_OK;
+        fi
     fi
 
     local root=$(pwd);
     root=${root%%/wt*}
+    local coloropt='always'
+    is-redirected $STDOUT && coloropt=never
     for i in $files
     do
         if [ "$1" = '--reverse' ]
         then
-            git --no-pager diff --no-index --color=always ${root}/$i $i 2>&1
+            git --no-pager diff --no-index --color=$coloropt ${root}/$i $i 2>&1
         else
-            git --no-pager diff --no-index --color=always $i ${root}/$i 2>&1
+            git --no-pager diff --no-index --color=$coloropt $i ${root}/$i 2>&1
         fi
     done | less -RE
 }
@@ -3098,7 +3096,7 @@ git-get-default-remote ()
 
     local pre=$1;shift
     local post=$1;shift
-    git-inside-work-tree $na
+    git-inside-worktree $na
     if [ "$?" = $TRUE ]
     then
         local push_def=$(git config --global push.default 2>/dev/null)
@@ -3347,6 +3345,7 @@ git-diff-to-checkpoint ()
     git diff $oldid $newid
 }
 safe_func_export git-diff-to-checkpoint
+
 
 git-to-stdout-usage ()
 {
@@ -3696,7 +3695,7 @@ git-merge-pull-request ()
             if [ -n "$current_branch_delete" ]
             then
                 _git_cd_to $current_branch_delete
-                git-inside-work-tree
+                git-inside-worktree
                 local status=$?
                 if [ "$status" = "$TRUE" ]
                 then
@@ -4214,7 +4213,7 @@ restart=\$(realpath \$0).restart
 for i in $(cat $patchlist | PATCHPATH=$patchpath perl -ne 'chomp;s|$ENV{PATCHPATH}|\$PATCHPATH|;print(qq(\\\n$_ ))')
 do
   ((patchnum+=1))
-  echo \"-- \$patchnum/$patchcount --\"
+  echo \"-- \$patchnum/\$patchcount --\"
   if [ \"\$i\" \\> \"\$last_applied\" ]
   then
     git am \$i
