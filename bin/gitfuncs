@@ -1985,6 +1985,14 @@ git-fork-and-clone ()
         fi
     fi
 
+    ## THIS IS BB SPECIFIC. THE GENERAL OPERATION IS DESCRIBED HERE:
+    ## https://gist.github.com/anjohnson/8994c95ab2a06f7d2339
+    ## Manual fork
+    ## Clone your fork
+    ## Add original as upstream
+    ## Set default push to be origin (your forked repo)
+    ## Set default pull to be upstream (the original repo)
+
     local cmd="glow clone-fork $protocol:$namespace/$repo"
     ## does the fork of namespace/repo to user/repo
     ## clones user/repo to repo
@@ -2004,18 +2012,18 @@ git-fork-and-clone ()
     if [ -n "$master_exists" ]
     then
         declare -A threeway_workflow
-        threeway_workflow[remote.upstream.url]="${protocol}:${namespace}/${repo}"
-        threeway_workflow[remote.upstream.fetch]='+refs/heads/*:refs/remotes/upstream/*'
-        threeway_workflow[remote.upstream.fetch]='+refs/notes/*:refs/notes/*'
-        threeway_workflow[remote.origin.url]="${protocol}:${USER}/${repo}"
         threeway_workflow[remote.origin.fetch]='+refs/heads/*:refs/remotes/origin/*'
+        threeway_workflow[remote.origin.url]="${protocol}:${USER}/${repo}"
+        threeway_workflow[remote.upstream.fetch]='+refs/notes/*:refs/notes/*'
+        threeway_workflow[remote.upstream.url]="${protocol}:${namespace}/${repo}"
+        local threeway_workflow_count=${#threeway_workflow[@]}
         local key
         local good=0
         for key in ${!threeway_workflow[@]}
         do
             [ $(git config --get $key) = "${threeway_workflow[$key]}" ] && ((good+=1))
         done
-        if ((good==5))
+        if ((good==$threeway_workflow_count))
         then
             func-echo "It appears that the repo has been created using"
             func-echo "threeway fork and clone workflow:"
@@ -2047,7 +2055,11 @@ git-fork-and-clone ()
             func-echo status=$?; [ "$status" != '0' ] && return $status
         else
             func-echo --head  "WARNING: Checked for threeway workflow"
-            func-echo "but found only $good out of 5 entries."
+            func-echo "but found only $good out of $threeway_workflow_count entries."
+            for key in ${!threeway_workflow[@]}
+            do
+                echo "[$key]=$(git config --get $key)"
+            done | sort
             func-echo "Check the remote origin and upstream config entries."
         fi
     fi
@@ -2089,6 +2101,7 @@ safe_func_export git-clone-usage
 
 git-clone ()
 {
+    ## NEEDS A --threeway option ???
     ##@@ none||none||git-clone||Provide protocol along with namespace and repo
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
