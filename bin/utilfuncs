@@ -700,59 +700,44 @@ safe_func_export comment-stream
 
 func-echo ()
 {
-    if [ -n "$FUNC_ECHO_DEBUG" ]
-    then
-        echo
-        echo "----- func-echo -----"
-        for i in $(seq 0 $(((${#FUNCNAME[@]}-1))) )
-        do
-            echo "FUNCNAME[$i]=[${FUNCNAME[$i]}]"
-        done
-        echo "----- func-echo -----"
-        echo
-    fi
-
     local reset_normal="${ANSI_reset}"
     local reset_title=''
-
-    if [ "$1" = '--head' ]
-    then
-        echo
-        shift
-    fi
-    if [ "$1" = '--title' ]
-    then
-        echo
-        reset_title="${reset_normal}"
-        reset_normal=''
-        shift
-    fi
+    local endofopts=0
     local nonl
-    if [ "$1" = '-n' ]
-    then
-        nonl='-n'
-        shift
-    fi
+    local cont=0
+    while [[ "$1" =~ ^- ]] && ((endofopts==0))
+    do
+        case "$1" in
+           --head) echo; shift;;
+           --title)
+               echo
+               reset_title="${reset_normal}"
+               reset_normal=''
+               shift ;;
+           --n) nonl='-n'; shift;;
+           --c) cont=1; shift;;
+           --)
+               endofopts=1;;   ## No shift. Leave this arg in place to be
+                               ## processed later on as arguments to tests.
+           -* )
+               echo "$1 is an invalid option."; exit 1;;
+        esac
+    done
+
     local idx=${#FUNCNAME[@]};((idx-=1))
     local funcname=${FUNCNAME[$idx]}
     [ "${FUNCNAME[$idx]}" = 'main' ] && funcname=$(basename $0)
-    echo $nonl -e "${ANSI_reverse}>>> ${funcname}${reset_normal}: $@${reset_title}"
+
+    local printit=${funcname}
+    if ((cont))
+    then
+        printit=$(echo $funcname | sed 's/./ /g')
+    fi
+    echo $nonl -e "${ANSI_reverse}>>> ${printit}${reset_normal}: $@${reset_title}"
 }
-safe_func_export func-echo
 
 func-pick ()
 {
-    if [ -n "$FUNC_PICK_DEBUG" ]
-    then
-        echo
-        echo "----- func-pick -----"
-        for i in $(seq 0 $(((${#FUNCNAME[@]}-1))) )
-        do
-            echo "FUNCNAME[$i]=[${FUNCNAME[$i]}]"
-        done
-        echo "----- func-pick -----"
-        echo
-    fi
     local prompt_text="$(func-echo -n '')$1"
     shift
     pick "$prompt_text" "$@"
@@ -761,18 +746,6 @@ safe_func_export func-pick
 
 func-yesno ()
 {
-    if [ -n "$FUNC_YESNO_DEBUG" ]
-    then
-        echo
-        echo "----- func-yesno -----"
-        for i in $(seq 0 $(((${#FUNCNAME[@]}-1))) )
-        do
-            echo "FUNCNAME[$i]=[${FUNCNAME[$i]}]"
-        done
-        env
-        echo "----- func-yesno -----"
-        echo
-    fi
     local prompt_text="$(func-echo -n '')$1"
     shift
     yesno "$prompt_text" "$@"
