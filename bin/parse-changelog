@@ -35,6 +35,7 @@ my %opt = (
     write => 0,
     withstatus => 0,
     missingok => 0,
+    skipmissing => 0,
 );
 my $exit = 0;
 
@@ -47,7 +48,9 @@ GetOptions(\%opt,
            'diff',
            'write',
            'withstatus',
-           'missingok' ) or die "Bad options";
+           'missingok',
+           'skipmissing',
+       ) or die "Bad options";
 
 die "-cl ChangeLog option required"
   if( !$opt{cl} );
@@ -369,6 +372,13 @@ sub push_to_output {
           '' ;
         return;
     }
+    ## We compose the marker this way so that the grep does nto
+    ## falsely find this code.
+    my $marker = join('', qw( < G C S > ));
+    my @gcs = `grep -i '$marker' $file`;
+    if (@gcs) {
+        push @output, map{"${format_over}$_"} ('GCS Entries:', map{chomp;$_} @gcs), '';
+    }
 
     my $space_files = 0;
     for $function (sort keys %{$filedata}) {
@@ -402,8 +412,13 @@ sub push_to_output {
                 $space_files = 1;
                 if ($output[-1] eq "${format_over}NE") {
                     pop @output;
-                    $output[-1] .= ': No Changelog entry found.';
-                    $space_files = 0;
+                    if(not @gcs) {
+                        $output[-1] .= ': No Changelog entry found.';
+                        $space_files = 0;
+                    } else {
+                        push @output, "${format_over}No Changelog entry found.";
+                    }
+                    @gcs=();
                 }
             } else {
                 my @wrapped = split(/\n/,wrap('','',@{$filedata->{$function}->{$order}}));
