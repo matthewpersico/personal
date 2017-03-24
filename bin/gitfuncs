@@ -806,8 +806,8 @@ git-go ()
                 then
                     echo $rr
                 else
-                    gse=$(cd ~/$r; git-meta local-status)
-                    sched=$(cd ~/$r; git-meta delete-worktree)
+                    gse=$(cd ~/$r; git-branch-info local-status)
+                    sched=$(cd ~/$r; git-branch-info delete-worktree)
                     [ -n "$sched" ] && sched=$(date --date @$sched)
                     if [ -n "$gse" ] || [ -n "$sched" ]
                     then
@@ -2571,7 +2571,7 @@ git-worktree-create ()
     then
         ((verbose)) && func-echo "git push --set-upstream $remote $wtbranch"
         git push --set-upstream $remote $wtbranch
-        git-meta branch-created "$(date)"
+        git-branch-info created "$(date +%Y%m%d.%H%M%S%z)"
     else
         ## Not convinced this is the optimal set of actions. Probably better to
         ## modify or replace the add command.
@@ -2680,7 +2680,7 @@ git-delete-worktree ()
 
     if ((opt_schedule))
     then
-        git-meta delete-worktree $opt_schedule
+        git-branch-info delete-worktree $opt_schedule
         func-echo "$worktree scheduled for removal on or after $( date --date=@$opt_schedule)"
         return 0
     fi
@@ -3695,9 +3695,9 @@ git-merge-find-branch ()
 }
 safe_func_export git-merge-find-branch
 
-git-meta ()
+git-branch-info ()
 {
-    ##@@ none||none||git-meta||Read, write or delete meta information for a branch
+    ##@@ none||none||git-branch-info||Read, write or delete meta information for a branch
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
     local branch=$(git rev-parse --abbrev-ref HEAD)
@@ -3752,7 +3752,7 @@ git-meta ()
         git config $full_key "${timestamp}$value"
     fi
 }
-safe_func_export git-meta
+safe_func_export git-branch-info
 
 git-st-ext ()
 {
@@ -3761,13 +3761,13 @@ git-st-ext ()
 
     if [ -n "$1" ]
     then
-        git-meta --timestamp local-status "$@"
+        git-branch-info --timestamp local-status "$@"
     else
-        git-meta local-status
-        local gmdw=$(git-meta delete-worktree)
+        git-branch-info local-status
+        local gmdw=$(git-branch-info delete-worktree)
         [ -n "$gmdw" ] && echo "Worktree scheduled for removal on or after $( date --date=@$gmdw)"
         git-merge-find
-        git-meta-pull-request
+        git-branch-info-pull-request
     fi
 }
 safe_func_export git-st-ext
@@ -4110,9 +4110,9 @@ git-in-a-repo ()
 }
 safe_func_export git-in-a-repo
 
-git-meta-pull-request ()
+git-branch-info-pull-request ()
 {
-    ##@@ none||none||git-meta||Read or write pull request information for a branch
+    ##@@ none||none||git-branch-info||Read or write pull request information for a branch
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
     local branch=$(git rev-parse --abbrev-ref HEAD)
@@ -4130,9 +4130,9 @@ git-meta-pull-request ()
         esac
     done
 
-    git-meta --branch $branch pull-request "$1"
+    git-branch-info --branch $branch pull-request "$1"
 }
-safe_func_export git-meta-pull-request
+safe_func_export git-branch-info-pull-request
 
 git-diff-two-repos-on-disk ()
 {
@@ -4415,6 +4415,12 @@ git-set-triangle-usage ()
 
     cat <<EOUSAGE
 Usage: $cmd $protocolarg upstream-namespace namespace repo
+       Changes and adds appropriate entries in local git config
+       such that the triangle workflow is set up between
+       and upstream repo, your fork of that repo and the
+       current local clone of the fork. We also add our
+       own entry that annotates the fact that we ran this
+       function to accomplish all this.
 EOUSAGE
 }
 
@@ -4436,6 +4442,7 @@ git-set-triangle ()
     triangle_workflow[branch.master.merge]="refs/heads/master"
     triangle_workflow[branch.master.mergeoptions]="--ff-only"
     triangle_workflow[branch.master.remote]="upstream"
+
     triangle_workflow[remote.origin.fetch]="+refs/heads/*:refs/remotes/origin/*"
     triangle_workflow[remote.origin.url]="${protocol}:${origin_namespace}/${repo}"
     triangle_workflow[remote.pushdefault]="origin"
@@ -4444,13 +4451,19 @@ git-set-triangle ()
     local key
     for key in ${!triangle_workflow[@]}
     do
-        git config --replace-all $key "${triangle_workflow[$key]}" | (set +x && return $?)
+        git config --replace-all $key "${triangle_workflow[$key]}" | return $?
     done
 
     ## These two are special because they repeat
     key='remote.upstream.fetch'
-    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" | (set +x && return $?)
-    git config --add         $key "+refs/notes/*:refs/notes/*" | (set +x && return $?)
+    ## Replace all blows away all $key entries before adding this one
+    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" | return $?
+    ## Now safe to add this one - it won't be duped.
+    git config --add         $key "+refs/notes/*:refs/notes/*" | return $?
+
+    ## We do this last as a marker.
+    git config --replace-all gitfuncs.git-set-triangle.created "$(date +%Y%m%d.%H%M%S%z)"
+
 }
 safe_func_export git-set-triangle
 
