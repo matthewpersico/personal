@@ -26,7 +26,6 @@ gitfuncs_githook_root=${HOME}/.git_template; export gitfuncs_githook_root
 gitfuncs_githook_dir=${HOME}/.git_template/hooks; export gitfuncs_githook_dir
 
 kvstoreinit --exists-ok gitfuncs_gitsvcs
-kvputinit gitfuncs_gitsvcs github 'https://github.com/'
 
 ## 'loc'ations's' outside of ~/gits to look for repos.
 kvstoreinit --exists-ok gitfuncs_gitlocs_extra
@@ -40,10 +39,12 @@ kvputinit gitfuncs_gitlocs_extra examples   ${HOME}/examples
 ## the home directory has never been used.
 [ ! -e $gitfuncs_gitroot ] &&  mkdir -vp $gitfuncs_gitroot
 
-[ ! -e $gitfuncs_gitroot/github ] && mkdir -vp $gitfuncs_gitroot/github
-[ ! -e $gitfuncs_gitroot/github/matthewpersico ] && mkdir -vp $gitfuncs_gitroot/github/matthewpersico
-
 [ ! -e ~/.gitconfig.merge_audit ] && touch ~/.gitconfig.merge_audit
+
+## NOTE: At this file's end, we dot in any server-specific items that can be
+## found in ./gitfuncs.I<server>. As of now, the list of supported servers is:
+
+## github (www.github.com)
 
 ##
 ## Random aliases
@@ -456,6 +457,9 @@ git-process-changelog ()
 
     if [ "$action" = 'commit' ]
     then
+        ##<TODO> In preparation of $pcl skipping files that do not have an entry, as
+        ##<TODO> opposed to aborting the run, we need to re-read the filelist from the -F
+        ##<TODO> file here.
         git commit -F $parsed_cl --edit $opt_v $filelist
         status=$?
         if((status!=0))
@@ -1906,173 +1910,6 @@ EOF
 }
 safe_func_export git-diff-faq
 
-git-fork-and-clone-usage ()
-{
-    local cmd=$1;shift
-    local protocol=$1
-    local protocolarg=$1
-    if [ -z "$protocol" ]
-    then
-        protocol='protocol'
-        protocolarg='protocol'
-    else
-        protocolarg=''
-    fi
-
-    cat <<EOUSAGE
-Usage: $cmd $protocolarg namespace repo
-       Forks $protocol:namespace/repo
-       to    $protocol:$USER/repo
-       then clones to a directory path $gitfuncs_gitroot/$protocol/$USER/repo.
-       Directory $gitfuncs_gitroot/$protocol must already exist.
-
-       If the fork already exists, and all you want
-       to do is make a new local clone, run this command
-       anyway. It will not re-fork.
-
-EOUSAGE
-    return $OK
-}
-safe_func_export git-fork-and-clone-usage
-
-git-fork-and-clone ()
-{
-    ##@@ none||none||git-fork-and-clone||Provide protocol along with namespace and repo
-    gitfuncs_audit "$@"
-    local usage_func="${FUNCNAME}-usage"
-
-    [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
-    local protocol=$1;shift
-    local namespace=$1;shift
-    local repo=$1;shift
-    if [ -z "$repo" ]
-    then
-        repo=$(basename $namespace)
-        local tmpnamespace=$(dirname $namespace)
-        if [ -z "$repo" ] || [ -z "$tmpnamespace" ]
-        then
-            func-echo "Can't get a namespace and repo from your arguments:"
-            func-echo "   namespace: '$tmpnamespace'"
-            func-echo "        repo: '$repo'"
-            func-echo "Please correct and retry."
-            return $NOT_OK
-        fi
-    fi
-    local cwpath=$(realpath $(pwd))
-    local local_namespace=$(basename $cwpath)
-    local local_protocol=$(basename $(dirname $cwpath))
-    if [ "$local_namespace" != "$USER" ] || \
-           [ "$local_protocol" != "$protocol" ]
-    then
-        func-echo "You must be in a local directory path ending in"
-        func-echo "   $protocol/$USER"
-        func-echo "You are in $cwpath"
-        local shouldbein="$gitfuncs_gitroot/$protocol/$USER"
-        if [ ! -d $shouldbein ]
-        then
-            func-echo "Cannot find '$shouldbein'."
-            func-echo "Correct and re-execute."
-            return $NOT_OK
-        else
-            local resp=$(func-yesno "cd to $shouldbein")
-            if [ "$resp" = 'n' ]
-            then
-                func-echo "Correct and re-execute."
-                return $NOT_OK
-            else
-                dirlist $shouldbein
-            fi
-        fi
-    fi
-
-    ## THIS IS BB SPECIFIC. THE GENERAL OPERATION IS DESCRIBED HERE:
-    ## https://gist.github.com/anjohnson/8994c95ab2a06f7d2339
-    ## Manual fork
-    ## Clone your fork
-    ## Add original as upstream
-    ## Set default push to be origin (your forked repo)
-    ## Set default pull to be upstream (the original repo)
-
-    local cmd="glow clone-fork $protocol:$namespace/$repo"
-    ## does the fork of namespace/repo to user/repo
-    ## clones user/repo to repo
-    ## does git remote add upstream $protocol:namespace/repo
-    func-echo $cmd ...
-    $cmd
-    status=$?; [ "$status" != '0' ] && return $status
-
-    ## dirlist, not builtin cd, to take advantage this cd enhancement
-    dirlist $repo
-    git remote -v
-
-    ## Check for master. Some repos arrange it so that the default for clones
-    ## is other than master.
-    master_exists=$(git branch | grep -E '^(\* master|master)$')
-
-    if [ -n "$master_exists" ]
-    then
-        declare -A threeway_workflow
-        threeway_workflow[remote.origin.fetch]='+refs/heads/*:refs/remotes/origin/*'
-        threeway_workflow[remote.origin.url]="${protocol}:${USER}/${repo}"
-        threeway_workflow[remote.upstream.fetch]='+refs/notes/*:refs/notes/*'
-        threeway_workflow[remote.upstream.url]="${protocol}:${namespace}/${repo}"
-        local threeway_workflow_count=${#threeway_workflow[@]}
-        local key
-        local good=0
-        for key in ${!threeway_workflow[@]}
-        do
-            [ $(git config --get $key) = "${threeway_workflow[$key]}" ] && ((good+=1))
-        done
-        if ((good==$threeway_workflow_count))
-        then
-            func-echo "It appears that the repo has been created using"
-            func-echo "threeway fork and clone workflow:"
-            for key in ${!threeway_workflow[@]}
-            do
-                echo "$key=${threeway_workflow[$key]}"
-            done
-        elif ((good==0))
-        then
-            func-echo --head  "WARNING: UNTESTED. NO COMMANDS ONLY ECHOS!!!"
-            func-echo 'Dumping the origin master in favor of the upstream master.'
-
-            func-echo git checkout -b temp
-            func-echo status=$?; [ "$status" != '0' ] && return $status
-
-            func-echo git branch -d master
-            func-echo status=$?; [ "$status" != '0' ] && return $status
-
-            func-echo git branch -r -d origin/master
-            func-echo status=$?; [ "$status" != '0' ] && return $status
-
-            func-echo git checkout --track upstream/master
-            func-echo status=$?; [ "$status" != '0' ] && return $status
-
-            func-echo git checkout master
-            func-echo status=$?; [ "$status" != '0' ] && return $status
-
-            func-echo git branch -d temp
-            func-echo status=$?; [ "$status" != '0' ] && return $status
-        else
-            func-echo --head  "WARNING: Checked for threeway workflow"
-            func-echo "but found only $good out of $threeway_workflow_count entries."
-            for key in ${!threeway_workflow[@]}
-            do
-                echo "[$key]=$(git config --get $key)"
-            done | sort
-            func-echo "Check the remote origin and upstream config entries."
-        fi
-    fi
-
-    echo "Setting up for worktrees..."
-    mkdir wt
-    ls -ld $(pwd)/wt
-
-    ## Add this repo to the list
-    git-go-set
-}
-safe_func_export git-fork-and-clone
-
 git-clone-usage ()
 {
     local cmd=$1;shift
@@ -2087,13 +1924,25 @@ git-clone-usage ()
     fi
 
     cat <<EOUSAGE
-Usage: $cmd $protocolarg [-y] [-t] namespace repo
-       $cmd $protocolarg [-y] [-t] namespace/repo
-       Clones $protocol:namespace/repo
-       to a directory path $gitfuncs_gitroot/$protocol/namespace/repo.
-       Directory $gitfuncs_gitroot/$protocol must already exist.
-       -y means answer yes to any questions
-       -t resets the timestamps on the files to their commit times
+Usage: $cmd $protocolarg [-y] [-t] [--triangle=upstream-namespace] namespace repo
+       $cmd $protocolarg [-y] [-t] [--triangle=upstream-namespace] namespace/repo
+
+       o Clones $protocol:namespace/repo to a directory path
+               $gitfuncs_gitroot/$protocol/namespace/repo.
+         Directory $gitfuncs_gitroot/$protocol must already exist.
+
+       o Sets up a wt subdir for worksapces.
+
+       -y
+          Answer yes to any prompts. Useful for automation.
+
+       -t
+          Resets the timestamps on the files to their commit times.
+
+       --triangle=upstream-namespace
+          Use this if your namespace/repo is a clone of a fork of
+          upstream-namespace/repo and you want to setup the triangle workflow
+          so that master pulls are from upstream-namespace/repo.
 EOUSAGE
     return $OK
 }
@@ -2101,14 +1950,14 @@ safe_func_export git-clone-usage
 
 git-clone ()
 {
-    ## NEEDS A --threeway option ???
-    ##@@ none||none||git-clone||Provide protocol along with namespace and repo
+    ##@@ none||none||git-clone||Clone a repo locally. Args: protocol namespace repo
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
 
     local opt_y=0
     local opt_t=0
-    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help -n $FUNCNAME -- "$@")
+    local opt_triangle_namespace=''
+    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help,triangle: -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func ${FUNCNAME} && return $status
 
@@ -2119,6 +1968,7 @@ git-clone ()
             -y|--yes) opt_y=1; shift ;;
             -t|--timestamp) opt_t=1; shift ;;
             -h|--help) $usage_func; return $OK ;;
+            --triangle) opt_triangle_namespace=$2;shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) func-echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
         esac
@@ -2201,33 +2051,24 @@ git-clone ()
         (builtin cd $namespace/$repo; git-retimestamp)
         func-echo 'Done'
     fi
+
     ## dirlist, not builtin cd, to take advantage this cd enhancement
     dirlist $namespace/$repo
+    if [ -n "$opt_triangle_namespace" ]
+    then
+        echo "Setting up triangle workflow with ${protocol_url}$opt_triangle_namespace/${repo}..."
+        git_set_triangle ${protocol_url} $opt_triangle_namespace $namespace $repo
+    fi
     git remote -v
+
+    echo "Setting up for worktrees..."
+    mkdir wt
+    ls -ld $(pwd)/wt
 
     ## Add this repo to the list
     git-go-set
 }
 safe_func_export git-clone
-
-github-clone ()
-{
-    ##@@ none||none||github-clone||
-    gitfuncs_audit "$@"
-
-    local usage_func="git-clone-usage"
-    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return $NOT_OK
-
-    git-clone github "$@"
-    return $?
-}
-safe_func_export github-clone
-
-git-clone-github ()
-{
-    github-clone "$@"
-}
-safe_func_export git-clone-github
 
 git-delete-repo-usage ()
 {
@@ -2326,25 +2167,6 @@ git-delete-repo ()
     return $status
 }
 safe_func_export git-delete-repo
-
-github-whack ()
-{
-    ##@@ none||none||github-whack||
-    gitfuncs_audit "$@"
-
-    local usage_func="git-delete-repo-usage"
-    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return $NOT_OK
-
-    git-delete-repo github "$@"
-    return $?
-}
-safe_func_export github-whack
-
-git-delete-repo-github ()
-{
-    github-whack "$@"
-}
-safe_func_export git-delete-repo-github
 
 git-what-is-staged ()
 {
@@ -3533,8 +3355,9 @@ git-merge-pull-request ()
         current_branch_delete=$(pwd)
     fi
 
-    ## github web interface shows merge source as 'user:branch'. We fix this up
-    ## as 'user/tgtrepo/branch' and all our parsing further along 'just works' (but see below).
+    ## Public and enterprise github web interfaces show merge source as
+    ## 'user:branch'. We fix this up as 'user/tgtrepo/branch' and all our
+    ## parsing further along 'just works' (but see below).
     srcarg="${srcarg/:/\/-\/}"
 
     ## if there are no slashes in the src, we assume it's just a branch. We fix
@@ -4576,3 +4399,64 @@ git-grep ()
     fi
 }
 safe_func_export git-grep
+
+git-set-triangle-usage ()
+{
+    local cmd=$1;shift
+    local protocol=$1
+    local protocolarg=$1
+    if [ -z "$protocol" ]
+    then
+        protocol='protocol'
+        protocolarg='protocol'
+    else
+        protocolarg=''
+    fi
+
+    cat <<EOUSAGE
+Usage: $cmd $protocolarg upstream-namespace namespace repo
+EOUSAGE
+}
+
+git-set-triangle ()
+{
+    ##@@ none||none||git-set-triangle||
+    gitfuncs_audit "$@"
+
+    local usage_func="${FUNCNAME}-usage"
+
+    [ -z "$4" ] && $usage_func ${FUNCNAME} && return 1
+
+    local protocol=$1
+    local upstream_namespace=$2
+    local origin_namespace=$3
+    local repo=$4
+
+    declare -A triangle_workflow
+    triangle_workflow[branch.master.merge]="refs/heads/master"
+    triangle_workflow[branch.master.mergeoptions]="--ff-only"
+    triangle_workflow[branch.master.remote]="upstream"
+    triangle_workflow[remote.origin.fetch]="+refs/heads/*:refs/remotes/origin/*"
+    triangle_workflow[remote.origin.url]="${protocol}:${origin_namespace}/${repo}"
+    triangle_workflow[remote.pushdefault]="origin"
+    triangle_workflow[remote.upstream.url]="${protocol}:${upstream_namespace}/${repo}"
+
+    local key
+    for key in ${!triangle_workflow[@]}
+    do
+        git config --replace-all $key "${triangle_workflow[$key]}" | (set +x && return $?)
+    done
+
+    ## These two are special because they repeat
+    key='remote.upstream.fetch'
+    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" | (set +x && return $?)
+    git config --add         $key "+refs/notes/*:refs/notes/*" | (set +x && return $?)
+}
+safe_func_export git-set-triangle
+
+## No functions below this line.
+
+for external in github
+do
+    . ${GITFUNCS_FILE}.$external
+done
