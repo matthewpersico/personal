@@ -3,16 +3,60 @@ use Cwd;
 use FindBin qw($Bin);
 use File::Spec::Functions;
 sub afterinit {
-    for my $cmdfile ( $ENV{PERLDB_MYCOMMANDFILE},
-                      catfile(getcwd(), '.perldbinit'),
-                      catfile($Bin, '.perldbinit')) {
+    for my $cmdfile (
+        $ENV{PERLDB_MYCOMMANDFILE},        ## First check for a global file
+        catfile(getcwd(), '.perldbinit'),  ## Second check for a project scoped file
+        catfile($Bin, '.perldbinit')       ## Third check for a script scoped file.
+    ) {
         if ( -e $cmdfile ) {
-            print STDERR "Running commands from $cmdfile...\n";
+            print STDERR "Running debugger commands in\n    $cmdfile\nfor\n    $0...\n";
             open my $cmdh, "<", $cmdfile or
-                die "Cannot open $cmdfile:$!";
-            push @DB::typeahead, <$cmdh>;
+              die "Cannot open $cmdfile:$!";
+            my @typeahead = (<$cmdh>, 'L');
             close $cmdh;
+            my @returnto0 = grep { /^f\s/ } @typeahead;
+            push @typeahead,
+              ( scalar(@returnto0) ? ("f $0", '.') : 'l' );
+            push @DB::typeahead, @typeahead;
             last;
         }
     }
 }
+
+=for documentation
+
+See http://blogs.perl.org/users/matthew_persico/2016/12/saving-breakpoints-in-the-perl-debugger.html
+
+The $cmdfile chosen should contain commands you'd type at the debugger command
+line. Some examples:
+
+f file
+
+     Change context to a file that has been already loaded into process
+     space. Modules that are 'require'd or scripts that are 'do'ed will not be
+     availble for breakpoint setting until their associated statements are
+     reached and executed.
+
+b # [condition]
+
+     Set a line number in current file with an optional condition.  The
+     condition is taken as literal Perl code. It will be enclosed in an if()
+     statement. If not specified, you'll see the condition in an L listing as
+
+     lineno: code
+       break if(1)
+
+     If you'd like to comment your break lines, just put the comment in a
+     string that does not eval to 0 (i.e.; not '0', but rather '0E0', if you
+     must). If you have a condition AND you want to comment, just && the
+     comment. Examples:
+
+     b 37
+     b 42 'this is a comment'
+     b 55 $foo eq 'eek'
+     b 77 $foo eq 'eek' && 'this is a comment'
+
+source file
+
+     Reads in 'file' as commands. Use to reload $cmdfile after maybe fixing up
+     the breakpoints.

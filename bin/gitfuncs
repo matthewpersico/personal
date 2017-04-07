@@ -29,10 +29,11 @@ kvstoreinit --exists-ok gitfuncs_gitsvcs
 
 ## 'loc'ations's' outside of ~/gits to look for repos.
 kvstoreinit --exists-ok gitfuncs_gitlocs_extra
-kvputinit gitfuncs_gitlocs_extra personal   ${HOME}/personal
-kvputinit gitfuncs_gitlocs_extra emacsd     ${HOME}/.emacs.d
-kvputinit gitfuncs_gitlocs_extra emacsdtaps ${HOME}/.emacs.d/taps/mpersico5
-kvputinit gitfuncs_gitlocs_extra examples   ${HOME}/examples
+kvputinit gitfuncs_gitlocs_extra personal   ${HOME}/personal:depth=3
+kvputinit gitfuncs_gitlocs_extra emacsd     ${HOME}/.emacs.d:depth=3
+kvputinit gitfuncs_gitlocs_extra emacsdtaps ${HOME}/.emacs.d/taps/mpersico5:depth=3
+kvputinit gitfuncs_gitlocs_extra examples   ${HOME}/examples:depth=3
+kvputinit gitfuncs_gitlocs_extra nfs        ${HOME}/nfs/gits:depth=4
 
 ## These will be checked on each login and any time gitfuncs-reload is
 ## run. However, they are only ever executed when logging into a system where
@@ -513,7 +514,7 @@ git-go-set ()
     gitfuncs_audit "$@"
 
     local set_x=0
-    if [ "$GIT-GO-SET_DEBUG" = '1' ]
+    if [ "$GIT_GO_SET_DEBUG" = '1' ]
     then
         set_x=1
         set -x ## set by envvar
@@ -545,16 +546,23 @@ git-go-set ()
         fi
     done
     local repo_tops=$(find $repo_find_roots -maxdepth 1 -mindepth 1 -type d -follow)
-    ## We can use -maxdepth 3 to speed things up drastically because of the
+    ## We can use -maxdepth to speed things up drastically because of the
     ## host/namespace/repo setup similarly for other git hosts.
-    local finds
+    declare -A finds
     for d in $(kvgetvalues gitfuncs_gitlocs_extra) \
                  $repo_tops
     do
-        [ -d $d ] && finds="$finds $d"
+        local dir=${d%%:*}
+        local depth=${d##*=}
+        [ "$depth" = "$dir" ] && depth=3
+        [ -d $dir ] && finds[$depth]="${finds[$depth]} $dir"
     done
-
-    local repos=$(find $finds -maxdepth 3 -name .git -type d | sed 's|/.git$||g' | sort -u)
+    local depth
+    local repos
+    for depth in ${!finds[@]}
+    do
+        repos="$repos $(find ${finds[$depth]} -maxdepth $depth -name .git -type d | sed 's|/.git$||g' | sort -u)"
+    done
 
     ## And then we do worktree (wt) search
     local repo
@@ -686,7 +694,7 @@ git-go-usage ()
 {
     gitfuncs_audit "$@"
 
-    echo "Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [--mod] [dirmatch]"
+    echo "Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [--mod] [--pick] [dirmatch]"
     echo "       git-go [-h|--help]"
     echo
     echo "       Presents a list of all git repos"
@@ -717,6 +725,10 @@ git-go-usage ()
     echo
     echo "       --mod will show status of repos that have mods outstanding"
     echo
+    echo "       --pick N will pick the Nth item in the list of repos that would"
+    echo "           be presented if you didn't specify --pick. Useful if you"
+    echo "           are cycling between a small number of repos."
+    echo
     echo "       'dirmatch' will filter the list using grep"
     echo
 }
@@ -738,7 +750,8 @@ git-go ()
     local opt_subwt_only=0
     local opt_gse=0
     local opt_mod=0
-    local OPTSARGS=$(getoptp -o slurmh --long mod,stat,list,update,roots,mbig,help,wt,nowt,subwt,wtonly,listfull -n $FUNCNAME -- "$@")
+    local opt_repo_no=0
+    local OPTSARGS=$(getoptp -o slurmhp: --long mod,stat,list,update,roots,mbig,help,wt,nowt,subwt,wtonly,listfull,pick: -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
     eval set -- "$OPTSARGS"
@@ -757,17 +770,19 @@ git-go ()
             --stat) opt_gse=1; opt_list=1; shift ;;
             --mod) opt_mod=1; shift;;
             -h|--help) $usage_func; return $OK ;;
+            --pick|-p) opt_repo_no=$2; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
-    local REPOS REPO tgt
+    local tgt
     tgt=$1
     if [[ "$tgt" =~ /$ ]]
     then
         tgt="$(dirname $tgt)/$(basename $tgt)"
     fi
+    local REPOS
     REPOS=$(_git-go-get $opt_update $opt_roots $opt_mbig $opt_wt $opt_subwt_only "$tgt")
     if [ -z "$REPOS" ]
     then
@@ -819,25 +834,41 @@ git-go ()
                 fi
             done
         else
-            REPOS=$(tail_number_add $REPOS)
-            COLUMNS=1 ## One character wide terminal, forces list to be one column.
-            select REPO in $REPOS
-            do
-                if (($opt_list))
-                then
-                    return
-                fi
-                if [ -n "$REPO" ]
-                then
-                    REPO=$(tail_number_strip "$REPO")
-                    break
-                elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
-                then
-                    return
-                else
-                    echo "'$REPLY' is an invalid choice"
-                fi
-            done
+            local REPO
+
+            if ((opt_repo_no))
+            then
+                local r
+                for r in $REPOS
+                do
+                    ((opt_repo_no-=1))
+                    if((opt_repo_no == 0))
+                    then
+                        REPO=$r
+                    fi
+                done
+            else
+                REPOS=$(tail_number_add $REPOS)
+                COLUMNS=1 ## One character wide terminal, forces list to be one column.
+
+                select REPO in $REPOS
+                do
+                    if (($opt_list))
+                    then
+                        return
+                    fi
+                    if [ -n "$REPO" ]
+                    then
+                        REPO=$(tail_number_strip "$REPO")
+                        break
+                    elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
+                    then
+                        return
+                    else
+                        echo "'$REPLY' is an invalid choice"
+                    fi
+                done
+            fi
         fi
     fi
     if [ -n "$REPO" ]
@@ -1914,20 +1945,22 @@ git-clone-usage ()
 {
     local cmd=$1;shift
     local protocol=$1
-    local protocolarg=$1
+    local protocolarg
+    local protocolurl
     if [ -z "$protocol" ]
     then
-        protocol='protocol'
-        protocolarg='protocol'
+        protocolarg='<PROTOCOLe>'
+        protocolurl='<PROTOCOL_URLe>'
     else
         protocolarg=''
+        protocolurl=$(kvget gitfuncs_gitsvcs $1)
     fi
 
     cat <<EOUSAGE
 Usage: $cmd $protocolarg [-y] [-t] [--triangle=upstream-namespace] namespace repo
        $cmd $protocolarg [-y] [-t] [--triangle=upstream-namespace] namespace/repo
 
-       o Clones $protocol:namespace/repo to a directory path
+       o Clones ${protocolurl}namespace/repo to a directory path
                $gitfuncs_gitroot/$protocol/namespace/repo.
          Directory $gitfuncs_gitroot/$protocol must already exist.
 
@@ -1952,6 +1985,7 @@ git-clone ()
 {
     ##@@ none||none||git-clone||Clone a repo locally. Args: protocol namespace repo
     gitfuncs_audit "$@"
+
     local usage_func="${FUNCNAME}-usage"
 
     local opt_y=0
@@ -2057,7 +2091,7 @@ git-clone ()
     if [ -n "$opt_triangle_namespace" ]
     then
         echo "Setting up triangle workflow with ${protocol_url}$opt_triangle_namespace/${repo}..."
-        git_set_triangle ${protocol_url} $opt_triangle_namespace $namespace $repo
+        git-set-triangle ${protocol} $opt_triangle_namespace $namespace $repo
     fi
     git remote -v
 
@@ -2579,6 +2613,12 @@ git-worktree-create ()
         git checkout $wtsubdir
      fi
 
+    ## Convert the worktree's .git file to use a relative path to the master
+    ## .git location. In that way, we can use the repo on machines where it may
+    ## be mounted in a different place, so that the absolute path is different
+    ## in those places.
+    sed -i 's|\(gitdir: \).*/\(.git/worktrees\)|\1../../\2|' .git
+
     git-post-new
 
     if [ -n "$opt_m" ]
@@ -2878,13 +2918,23 @@ safe_func_export git-worktree-diff-from-root
 
 git-add-remote-usage ()
 {
-    cat <<EOF
-usage: git-add-remote protocol namespace"
-       Adds protocol:namespace/current_repo"
-       as a remote named 'namespace'."
-       Use this to get at people's"
-       branches on a repo fork."
-EOF
+    local cmd=$1;shift
+    local protocol=$1
+    local protocolarg=$1
+    if [ -z "$protocol" ]
+    then
+        protocol='{protocolurl}'
+        protocolarg='protocol'
+    else
+        protocolarg=''
+    fi
+
+    cat <<EOUSAGE
+Usage: $cmd $protocolarg namespace
+       Adds ${protocol}:namespace/current_repo as a remote named 'namespace'
+       to the current repo. Use this to get at people's branches on
+       their repo fork.
+EOUSAGE
 }
 safe_func_export git-add-remote-usage
 
@@ -2897,7 +2947,7 @@ git-add-remote ()
 
     if [ "$#" != '2' ]
     then
-        $usage_func; return $NOT_OK
+        $usage_func ${FUNCNAME}; return $NOT_OK
     fi
     local protocol=$1; shift
     local remote=$1; shift
@@ -4034,6 +4084,12 @@ git-create-patches ()
     then
         echo "## -*- sh -*-
 PATCHPATH=\$(dirname \$(realpath \$0))
+GITREPOROOT=\$(dirname \$PATCHPATH)
+if [ ! -d \$GITREPOROOT/.git ]
+then
+    echo \"Not in a git repo. git init \$GITREPOROOT and re-run\"
+    exit 1
+fi
 last_applied=''
 current_branch=\$(git symbolic-ref HEAD | sed 's!refs\/heads\/!!')
 config_key_root=\"branch.\${current_branch}.lastpatched-\"
@@ -4045,7 +4101,7 @@ then
 fi
 patchcount=$(cat $patchlist | wc -l)
 patchnum=0
-restart=\$(realpath \$0).restart
+restart=\$(realpath \$0).\$(date +%Y%m%d%H%M%S).restart
 for i in $(cat $patchlist | PATCHPATH=$patchpath perl -ne 'chomp;s|$ENV{PATCHPATH}|\$PATCHPATH|;print(qq(\\\n$_ ))')
 do
   ((patchnum+=1))
@@ -4056,9 +4112,9 @@ do
     status=\$?
     if [ ! \$status = '0' ]
     then
-      echo \"git config \${config_key_root}patch \$i;\" \> \$restart
-      echo \"git config \${config_key_root}date  \\\"\\\$(date)\\\"\" \> \$restart
-      echo \"\$0\" \> \$restart
+      echo \"git config \${config_key_root}patch \$i;\" > \$restart
+      echo \"git config \${config_key_root}date  \\\"\\\$(date)\\\"\" >> \$restart
+      echo \"\$0\" >> \$restart
       chmod +x \$restart
       echo \"After you have fixed the issue with the appropriate\"
       echo \"git incantation, restart by executing\"
@@ -4075,7 +4131,7 @@ done
 " > $restorescript
         chmod a+rwx $restorescript
         local sharfile=$(git-root)/$(basename $(git-root)).shar
-        shar -o $(git-root)/$(basename $(git-root)).shar $patchdir
+        shar -o $sharfile $patchdir
         echo "1 - Copy ${sharfile}* to the git root of the target."
         echo "2 - $ unshar $(basename $sharfile)*"
         echo "3 - $ cd $patchdir"
@@ -4140,8 +4196,14 @@ git-diff-two-repos-on-disk ()
     gitfuncs_audit "$@"
 
     local -A repo
-    repo[this]=$(pwd)
-    repo[other]=$(realpath $1)
+    if [ -n "$2" ]
+    then
+        repo[this]=$(realpath $1)
+        repo[other]=$(realpath $2)
+    else
+        repo[this]=$(pwd)
+        repo[other]=$(realpath $1)
+    fi
 
     if [ ${repo[this]} = ${repo[other]} ]
     then
@@ -4404,23 +4466,20 @@ git-set-triangle-usage ()
 {
     local cmd=$1;shift
     local protocol=$1
-    local protocolarg=$1
     if [ -z "$protocol" ]
     then
-        protocol='protocol'
-        protocolarg='protocol'
+        protocolarg=$(kvget gitfuncs_gitsvcs $protocol)
     else
         protocolarg=''
     fi
 
     cat <<EOUSAGE
 Usage: $cmd $protocolarg upstream-namespace namespace repo
-       Changes and adds appropriate entries in local git config
-       such that the triangle workflow is set up between
-       and upstream repo, your fork of that repo and the
-       current local clone of the fork. We also add our
-       own entry that annotates the fact that we ran this
-       function to accomplish all this.
+       Changes and adds appropriate entries in local git config such that the
+       triangle workflow is set up between an upstream repo, your fork of that
+       repo, and the current local clone of the fork. We also add our own entry
+       that annotates the fact that we ran this function to accomplish all
+       this.
 EOUSAGE
 }
 
@@ -4433,7 +4492,18 @@ git-set-triangle ()
 
     [ -z "$4" ] && $usage_func ${FUNCNAME} && return 1
 
-    local protocol=$1
+    local protocolurl=$1
+    local protocolkeycheck=$(kvgetkeys  gitfuncs_gitsvcs | grep -E "^$protocolurl$")
+    if [ -n "$protocolkeycheck" ] ; then
+        echo "Supposed to provide a URL, not a service name. Converting..."
+        protocolurl=$(kvget gitfuncs_gitsvcs $protocolkeycheck)
+        if [ -z "$protocalurl" ]
+        then
+            echo "No url found for protocol '$1'";
+            return 1
+        fi
+    fi
+
     local upstream_namespace=$2
     local origin_namespace=$3
     local repo=$4
@@ -4444,9 +4514,9 @@ git-set-triangle ()
     triangle_workflow[branch.master.remote]="upstream"
 
     triangle_workflow[remote.origin.fetch]="+refs/heads/*:refs/remotes/origin/*"
-    triangle_workflow[remote.origin.url]="${protocol}:${origin_namespace}/${repo}"
+    triangle_workflow[remote.origin.url]="${protocol}${origin_namespace}/${repo}"
     triangle_workflow[remote.pushdefault]="origin"
-    triangle_workflow[remote.upstream.url]="${protocol}:${upstream_namespace}/${repo}"
+    triangle_workflow[remote.upstream.url]="${protocol}${upstream_namespace}/${repo}"
 
     local key
     for key in ${!triangle_workflow[@]}
@@ -4463,7 +4533,6 @@ git-set-triangle ()
 
     ## We do this last as a marker.
     git config --replace-all gitfuncs.git-set-triangle.created "$(date +%Y%m%d.%H%M%S%z)"
-
 }
 safe_func_export git-set-triangle
 
