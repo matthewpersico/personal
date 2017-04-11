@@ -1,0 +1,67 @@
+#! /usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Getopt::Long;
+use POSIX qw(strftime);
+
+my %opts;
+
+GetOptions(
+    \%opts, qw(i
+      include-dir
+      include-file
+      )
+);
+my $pattern = shift;
+$pattern = "(?i)$pattern" if $opts{i};
+$pattern = qr/$pattern/;
+my $time;
+my $dir;
+my @entries;
+my $entry;
+for my $file (@ARGV) {
+    my $ih = IO::File->new("< $file")
+      or die "Cannot open $file:$!";
+    while (<$ih>) {
+        if( $_ =~ m/^##/ ) {
+            $entry = {};
+            next;
+        }
+        chomp;
+        $_ =~ m/^#(\d+)/ && do {
+            $entry = {
+                time => $1
+            };
+            if (    $opts{'include-dir'}
+                and $_ =~ m/## pwd => (.*)/ )
+            {
+                $entry->{dir} = $1;
+            }
+            next;
+        };
+        if ( $_ =~ m/$pattern/ ) {
+            $entry->{cmd} = $_;
+            if (    $opts{'include-file'} ) {
+                $entry->{file} = $file;
+            }
+            push @entries, $entry;
+        }
+    }
+}
+
+@entries = sort { $a->{time}<=> $b->{time} } @entries;
+$ENV{HISTTIMEFORMAT} ||= '%m/%d - %H:%M:%S';
+my $datelen = 0;
+for (@entries) {
+    $datelen = length( strftime( $ENV{HISTTIMEFORMAT}, localtime(1) ) )
+      if not $datelen;
+    printf( "%s %s%s%s\n",
+            strftime( $ENV{HISTTIMEFORMAT}, localtime( $_->{time} ) ),
+            $_->{cmd},
+            ( $_->{dir} ? "\n" . ' ' x $datelen . "($_->{dir})" : '' ),
+            ( $_->{file} ? "\n" . ' ' x $datelen . "($_->{file})" : '' )
+
+        );
+}
