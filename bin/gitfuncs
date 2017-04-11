@@ -4077,9 +4077,10 @@ git-create-patches ()
     fi
     echo "Creating patches from repo inception"
     local patchlist=$(mktemp --suffix=.git-create-patches)
-    git format-patch -o $patchpath --full-index --root origin | tee $patchlist
+    git format-patch -o $patchpath --full-index --root | tee $patchlist
     local newsha=$(git-log-grab-sha -1)
     local restorescript=$patchpath/restore.${newsha}
+    \rm -f $patchpath/restore.*
     if [ -s $patchlist ]
     then
         echo "## -*- sh -*-
@@ -4102,28 +4103,87 @@ fi
 patchcount=$(cat $patchlist | wc -l)
 patchnum=0
 restart=\$(realpath \$0).\$(date +%Y%m%d%H%M%S).restart
+restartlink=\$(realpath \$0).restart
 for i in $(cat $patchlist | PATCHPATH=$patchpath perl -ne 'chomp;s|$ENV{PATCHPATH}|\$PATCHPATH|;print(qq(\\\n$_ ))')
 do
   ((patchnum+=1))
+  echo
   echo \"-- \$patchnum/\$patchcount --\"
   if [ \"\$i\" \\> \"\$last_applied\" ]
   then
-    git am \$i
-    status=\$?
+    log=\${i}.log
+    (git am \$i; s=\$?; echo \$s) 2>&1 | tee \$log
+    status=\$(tail -1 \$log)
     if [ ! \$status = '0' ]
     then
-      echo \"git config \${config_key_root}patch \$i;\" > \$restart
-      echo \"git config \${config_key_root}date  \\\"\\\$(date)\\\"\" >> \$restart
-      echo \"\$0\" >> \$restart
+      cat <<EORESTART > \$restart
+## \$((patchnum-1)) was the last successful patch
+
+## Errors for patch \$patchnum:
+\$(cat \$log | sed 's/^/## /')
+
+## These two mark the failed patch as succeeded:
+git config \${config_key_root}patch \$i;
+git config \${config_key_root}date  \"\\\$(date)\"
+
+## This restarts the process:
+\$0
+EORESTART
+
       chmod +x \$restart
-      echo \"After you have fixed the issue with the appropriate\"
-      echo \"git incantation, restart by executing\"
-      echo \"    \$restart\"
+      \\rm -f \$restartlink
+      ln -s \$restart  \$restartlink
+
+      cat <<EORESTART | tee -a \$restart
+
+## The error log has been retained in
+##    \$log
+## and
+##    \$restart
+## which can be accessed by
+##    \$restartlink
+
+## After you have fixed the issue with the appropriate
+## git incantations, restart the patching process by executing
+##    \$restartlink
+
+## The 'appropriate git incantations'1 can be one of two sets of actions:
+
+## THESE ACTIONS HAVE BEEN CONFIRMED TO WORK:
+
+## o Apply ALL the edits in the patch file by hand. It
+##   appears that patch application is an all or nothing
+##   proposition; if one or more fails, the good ones
+##   are not applied.
+## o git add all modified files
+## o git am --continue to commit the adds and make the
+##   commit entry.
+
+## THESE ACTIONS HAVE **NOT** BEEN CONFIRMED TO WORK:
+
+## o Rollback the patch with git am --abort
+## o Apply ONLY the FAILED edits in the failed patch by hand.
+## o Remove the failed patch and its index entry (at the top
+##   of the patch file) from the patch file.
+## o Reapply the patch file with git am.
+##
+## These actions should relieve you of having to execute
+## the good patches by hand.
+
+## Either way once you have either reapplied or skipped the
+## patch, execute
+##    \$restartlink
+## in order to continue with the next patch.
+##
+EORESTART
+
       exit \$status
+    else
+      \\rm -f \$log
     fi
     git config \${config_key_root}patch \$i
     git config \${config_key_root}date  \"\$(date)\"
-    read -p 'Return or CTRL-C'
+    read -p 'Return to continue, CTRL-C to exit'
   else
     echo \"\$i <= \$last_applied, skipping\"
   fi
