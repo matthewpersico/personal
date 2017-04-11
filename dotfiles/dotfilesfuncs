@@ -178,57 +178,6 @@ makepstree ()
     esac
 }
 
-makesshconfig ()
-{
-    local config=~/.ssh/config
-    local newconfig=${config}.new
-    local oldumask=$(umask)
-    umask 0077
-    if [ -e $config ]
-    then
-        local bkup=${config}.$(date +%Y%m%d%H%M%S)
-        echo "Backing up existing $config to $bkup"
-        cp $config $bkup
-        status=$?
-        if ((status!=0))
-        then
-            echo "Backup did not succeed: $status. Bailing..."
-            umask $oldumask
-            return 1
-        fi
-    fi
-    is_vm=$(hostname | grep bcpc | wc -l)
-    echo "# Generated from $DOTFILES_DIR on $(date)" > $newconfig
-    for i in $DOTFILES_DIR/ssh.*
-    do
-        local include=0
-        if [ -n "$(echo $i | grep '.all')" ] ||
-               ( [ -n "$(echo $i | grep '.vm')" ] && ((is_vm)) )
-        then
-            echo '' >> $newconfig
-            cat $i >> $newconfig
-            if [[ "$i" == "*.localhost.**" ]]
-            then
-                echo '' >> $newconfig
-                cat $i | sed "s/localhost/$(hostname)/g"  >> $newconfig
-            fi
-        fi
-    done
-    mv $newconfig $config
-    status=$?
-    if ((status!=0))
-    then
-        echo "mv $newconfig $config did not succeed: $status. Bailing..."
-        umask $oldumask
-        return 1
-    else
-        echo "$config created"
-    fi
-    umask $oldumask
-    return 0
-}
-#nxport -f makesshconfig
-
 showdotfiles ()
 {
     . $DOTFILES_MANIFEST
