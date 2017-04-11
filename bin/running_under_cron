@@ -5,11 +5,11 @@ pid=$$
 ## them have format commands to just pick out the column I need (Cygwin being
 ## the biggest offender). I use this code to parse the header once, determining
 ## which column has the parent PID. Then we use a trick pointed out to me on
-## perlmonks to access that value as a command line argument in spite of the
-## fact that this code is running under -n, which interprets all command line
-## arguments as files that to be read.
-pscmd='ps -l'
-[ $(uname) = 'Cygwin' ] && pscmd='ps -l -p'
+## perlmonks in order to feed that value to a perl interpreter as a command
+## line argument in spite of the fact that the interpreter is running -n, which
+## interprets all command line arguments as files that to be read.
+pscmd='ps l'
+[ $(uname -o) = 'Cygwin' ] && pscmd='ps -l -p'
 
 ppididx=$($pscmd $pid |
                  grep PPID |
@@ -19,12 +19,26 @@ print $i if $i < @F')
 
 while ((pid))
 do
+    ## Run the ps command on the given pid, filter out the header, see if this
+    ## is the cron daemon.
     command=$($pscmd $pid | grep -v PPID | grep '/crond')
+
+    ## If so, then we are running under cron
     if [ -n "$command" ]
     then
         exit $(true)
     fi
 
-    pid=$($pscmd $pid | grep -v PPID | perl -ane 'INIT{$i=shift} print $F[$i]' $ppididx )
+    ## If not, get the parent pid of this pid. The INIT statement runs before
+    ## args start being processed as files for input under -n.
+    parentpid=$($pscmd $pid | grep -v PPID | perl -ane 'INIT{$i=shift} print $F[$i]' $ppididx )
+    if [ "$parentpid" = "$pid" ]
+    then
+        pid=0 ## Because under solaris, probably with zones, walking a process
+              ## tree ends up with the topmost process being 'zsched' where
+              ## PPID == PID, not 0!!!!! Grrrrrrrr.......
+    else
+        pid=$parentpid
+    fi
 done
 exit $(false)

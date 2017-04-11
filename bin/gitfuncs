@@ -21,53 +21,56 @@ export GITFUNCS_CHANGELOG_NAME
 ##
 ## gitfuncs environment stuff
 ##
-gitfuncs_gitroot=${HOME}/gits
-gitfuncs_githook_root=${HOME}/.git_template
-gitfuncs_githook_dir=${HOME}/.git_template/hooks
+gitfuncs_gitroot=${HOME}/gits; export gitfuncs_gitroot
+gitfuncs_githook_root=${HOME}/.git_template; export gitfuncs_githook_root
+gitfuncs_githook_dir=${HOME}/.git_template/hooks; export gitfuncs_githook_dir
 
-declare -A gitfuncs_gitsvcs
-gitfuncs_gitsvcs[github]='https://github.com/'
+kvstoreinit --exists-ok gitfuncs_gitsvcs
 
-## 'loc'ations's' outside of ~/gits to look for repos. We make this a hash even
-## though it's more naturally used as an array so that we do not erase any
-## assignments made in subsequent *funcs files.
-declare -A gitfuncs_gitlocs_extra
-gitfuncs_gitlocs_extra[personal]=${HOME}/personal
-gitfuncs_gitlocs_extra[emacsd]=${HOME}/.emacs.d
-gitfuncs_gitlocs_extra[emacsdtaps]=${HOME}/.emacs.d/taps/mpersico5
-gitfuncs_gitlocs_extra[examples]=${HOME}/examples
+## 'loc'ations's' outside of ~/gits to look for repos.
+kvstoreinit --exists-ok gitfuncs_gitlocs_extra
+kvputinit gitfuncs_gitlocs_extra personal   ${HOME}/personal:depth=3
+kvputinit gitfuncs_gitlocs_extra emacsd     ${HOME}/.emacs.d:depth=3
+kvputinit gitfuncs_gitlocs_extra emacsdtaps ${HOME}/.emacs.d/taps/mpersico5:depth=3
+kvputinit gitfuncs_gitlocs_extra examples   ${HOME}/examples:depth=3
+kvputinit gitfuncs_gitlocs_extra nfs        ${HOME}/nfs/gits:depth=4
 
 ## These will be checked on each login and any time gitfuncs-reload is
 ## run. However, they are only ever executed when logging into a system where
 ## the home directory has never been used.
 [ ! -e $gitfuncs_gitroot ] &&  mkdir -vp $gitfuncs_gitroot
 
-[ ! -e $gitfuncs_gitroot/github ] && mkdir -vp $gitfuncs_gitroot/github
-[ ! -e $gitfuncs_gitroot/github/matthewpersico ] && mkdir -vp $gitfuncs_gitroot/github/matthewpersico
-
 [ ! -e ~/.gitconfig.merge_audit ] && touch ~/.gitconfig.merge_audit
+
+## NOTE: At this file's end, we dot in any server-specific items that can be
+## found in ./gitfuncs.I<server>. As of now, the list of supported servers is:
+
+## github (www.github.com)
 
 ##
 ## Random aliases
 ##
 alias gitpush='git push '
 ! $CRON && alias gitk="$(which gitk | tail -1 | sed 's/ +//') &"
-alias git-grep='git grep '
-alias gitgrep='git grep '
 alias gitnp='git --no-pager '
 alias git-clean='git clean -e wt/ '
 
 ##
 ## To capture the git-* implemented stuff
 ##
-GITFUNCSBIN=$PERSONALBIN/git
-export GITFUNCSBIN=$PERSONALBIN/git
-addpath -f -p PATH $GITFUNCSBIN
+## While we are working on it
+## GITFUNCSBIN=$PERSONALBIN/git
+## export GITFUNCSBIN=$PERSONALBIN/git
+## addpath -f -p PATH $GITFUNCSBIN
+
+#    [ "$GITFUNCS_SET_X" = ${FUNCNAME} ] && set -x
+#    [ "$GITFUNCS_SET_X" = ${FUNCNAME} ] && set +x
 
 ##
 ## Goodies
 ##
-git-st-por-usage () {
+git-st-por-usage ()
+{
     echo "Usage: git-st-por [--strip [--]| -s [--]]  [arg ...]"
     echo "       git-st-por [--help|-h]"
     echo
@@ -82,6 +85,7 @@ git-st-por-usage () {
     echo "       above) that you would normally"
     echo "       pass to 'git status'"
 }
+safe_func_export git-st-por-usage
 
 git-st-por ()
 {
@@ -114,6 +118,7 @@ git-st-por ()
     fi
     return $?
 }
+safe_func_export git-st-por
 
 git-find-usage () {
     echo 'Usage: git-find [[--all | -a] | [--untracked | -u]] fileExprssion'
@@ -123,6 +128,7 @@ git-find-usage () {
     echo '  --untracked - finds only files that are NOT in the repo.'
     echo '  --all       - finds repo and non repo files.'
 }
+safe_func_export git-find-usage
 
 git-find ()
 {
@@ -172,7 +178,13 @@ git-find ()
         git ls-files $ls_files_opts $(git rev-parse --show-toplevel) | grep -E "$f" | sort
     done
 }
-alias gitfind=git-find
+safe_func_export git-find
+
+gitfind ()
+{
+    git-find "$@"
+}
+safe_func_export gitfind
 
 git-find-conflicts ()
 {
@@ -186,6 +198,7 @@ git-find-conflicts ()
     fi
     git grep $opts -E '^<<<<<<<' | sort -u
 }
+safe_func_export git-find-conflicts
 
 git-status-with-changelog ()
 {
@@ -229,7 +242,7 @@ git-status-with-changelog ()
                 return $NOT_OK
             fi
         fi
-        _git_cd_go $gr  || return $?
+        _git_cd_to $gr  || return $?
     else
         gr=''
     fi
@@ -252,8 +265,19 @@ git-status-with-changelog ()
     [ -n "$gr" ] && _git_cd_return
     return $?
 }
-alias git-st-cl='git-status-with-changelog '
-alias git-st-ch='git-status-with-changelog '
+safe_func_export git-status-with-changelog
+
+git-st-cl ()
+{
+    git-status-with-changelog "$@"
+}
+safe_func_export git-st-cl
+
+git-st-ch ()
+{
+    git-status-with-changelog "$@"
+}
+safe_func_export git-st-ch
 
 git-commit-with-changelog ()
 {
@@ -274,7 +298,7 @@ git-commit-with-changelog ()
         then
             return $NOT_OK
         fi
-        _git_cd_go $gr || return $?
+        _git_cd_to $gr || return $?
     else
         gr=''
     fi
@@ -308,12 +332,14 @@ git-commit-with-changelog ()
     [ -n "$gr" ] && _git_cd_return
     return $status
 }
+safe_func_export git-commit-with-changelog
 
 git-process-changelog-usage ()
 {
     echo "git-process-changelog [-v] [ --write | [ --withstatus ] [ --diff ]"
     echo "    Only one $GITFUNCS_CHANGELOG_NAME in git root is supported."
 }
+safe_func_export git-process-changelog-usage
 
 git-process-changelog ()
 {
@@ -328,7 +354,7 @@ git-process-changelog ()
     local gr=$(git-root)
     if [ ! "$pwd" = "$gr" ]
     then
-        _git_cd_go $gr  || return $?
+        _git_cd_to $gr  || return $?
     else
         gr=''
     fi
@@ -432,6 +458,9 @@ git-process-changelog ()
 
     if [ "$action" = 'commit' ]
     then
+        ##<TODO> In preparation of $pcl skipping files that do not have an entry, as
+        ##<TODO> opposed to aborting the run, we need to re-read the filelist from the -F
+        ##<TODO> file here.
         git commit -F $parsed_cl --edit $opt_v $filelist
         status=$?
         if((status!=0))
@@ -447,6 +476,7 @@ git-process-changelog ()
     [ -n "$gr" ] && _git_cd_return
 
 }
+safe_func_export git-process-changelog
 
 git-cat-cl ()
 {
@@ -458,6 +488,7 @@ git-cat-cl ()
     echo "$cl not found."
     return $NOT_OK
 }
+safe_func_export git-cat-cl
 
 git-strip-repo ()
 {
@@ -466,6 +497,7 @@ git-strip-repo ()
 
     echo $1 | sed 's/(repo)//'
 }
+safe_func_export git-strip-repo
 
 git-add-repo-tag ()
 {
@@ -474,6 +506,7 @@ git-add-repo-tag ()
 
     echo "$1(repo)"
 }
+safe_func_export git-add-repo-tag
 
 git-go-set ()
 {
@@ -481,7 +514,7 @@ git-go-set ()
     gitfuncs_audit "$@"
 
     local set_x=0
-    if [ "$GIT-GO-SET_DEBUG" = '1' ]
+    if [ "$GIT_GO_SET_DEBUG" = '1' ]
     then
         set_x=1
         set -x ## set by envvar
@@ -513,16 +546,23 @@ git-go-set ()
         fi
     done
     local repo_tops=$(find $repo_find_roots -maxdepth 1 -mindepth 1 -type d -follow)
-    ## We can use -maxdepth 3 to speed things up drastically because of the
+    ## We can use -maxdepth to speed things up drastically because of the
     ## host/namespace/repo setup similarly for other git hosts.
-    local finds
-    for d in ${gitfuncs_gitlocs_extra[@]} \
+    declare -A finds
+    for d in $(kvgetvalues gitfuncs_gitlocs_extra) \
                  $repo_tops
     do
-        [ -d $d ] && finds="$finds $d"
+        local dir=${d%%:*}
+        local depth=${d##*=}
+        [ "$depth" = "$dir" ] && depth=3
+        [ -d $dir ] && finds[$depth]="${finds[$depth]} $dir"
     done
-
-    local repos=$(find $finds -maxdepth 3 -name .git -type d | sed 's|/.git$||g' | sort -u)
+    local depth
+    local repos
+    for depth in ${!finds[@]}
+    do
+        repos="$repos $(find ${finds[$depth]} -maxdepth $depth -name .git -type d | sed 's|/.git$||g' | sort -u)"
+    done
 
     ## And then we do worktree (wt) search
     local repo
@@ -564,9 +604,10 @@ git-go-set ()
     ls ${HOME}/gits/.git-go* | grep -v $gitfuncs_git_go_file | xargs \rm -f
     if [ "$set_x" = '1' ]
     then
-        set +x
+        set +x ## set by envvar
     fi
 }
+safe_func_export git-go-set
 
 git-go-set-filename ()
 {
@@ -575,6 +616,7 @@ git-go-set-filename ()
 
     gitfuncs_git_go_file=${HOME}/gits/.git-go.$(date +%Y%m%d)
 }
+safe_func_export git-go-set-filename
 
 git-go-get-filename ()
 {
@@ -583,6 +625,7 @@ git-go-get-filename ()
 
     ls -rt ${HOME}/gits/.git-go.* | head -1
 }
+safe_func_export git-go-get-filename
 
 _git-go-get ()
 {
@@ -638,19 +681,20 @@ _git-go-get ()
 
     if [ -n "$filter" ]
     then
-        cat $tmpfile | grep $filter > ${tmpfile}.001
+        cat $tmpfile | grep -i $filter > ${tmpfile}.001
         mv ${tmpfile}.001 ${tmpfile}
     fi
 
     cat $tmpfile
     \rm -f $tmpfile
 }
+safe_func_export _git-go-get
 
 git-go-usage ()
 {
     gitfuncs_audit "$@"
 
-    echo "Usage: git-go [--list[full]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [dirmatch]"
+    echo "Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [--mod] [--pick] [dirmatch]"
     echo "       git-go [-h|--help]"
     echo
     echo "       Presents a list of all git repos"
@@ -662,6 +706,9 @@ git-go-usage ()
     echo
     echo "       --listfull will skip the choosing part and just exit, printing"
     echo "           each repo dir with ~ expanded"
+    echo
+    echo "       --stat will invoke as if --list was specified but only for repos"
+    echo "           with extended status information"
     echo
     echo "       --update will rescan to pick up new and deleted"
     echo "           repos and worktrees"
@@ -676,9 +723,16 @@ git-go-usage ()
     echo "       --nowt will not add them."
     echo "       --wto[nly] will show only worktrees."
     echo
+    echo "       --mod will show status of repos that have mods outstanding"
+    echo
+    echo "       --pick N will pick the Nth item in the list of repos that would"
+    echo "           be presented if you didn't specify --pick. Useful if you"
+    echo "           are cycling between a small number of repos."
+    echo
     echo "       'dirmatch' will filter the list using grep"
     echo
 }
+safe_func_export git-go-usage
 
 git-go ()
 {
@@ -694,8 +748,10 @@ git-go ()
     local opt_mbig=0
     local opt_wt=1
     local opt_subwt_only=0
-    local opt_i
-    local OPTSARGS=$(getoptp -o ilurmh --long list,update,roots,mbig,wt,nowt,subwt,wtonly,help,listfull -n $FUNCNAME -- "$@")
+    local opt_gse=0
+    local opt_mod=0
+    local opt_repo_no=0
+    local OPTSARGS=$(getoptp -o slurmhp: --long mod,stat,list,update,roots,mbig,help,wt,nowt,subwt,wtonly,listfull,pick: -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
     eval set -- "$OPTSARGS"
@@ -711,39 +767,23 @@ git-go ()
             --nowt) opt_wt=0; shift ;;
             --subwt) opt_subwt_only=1; shift ;;
             --wtonly) opt_subwt_only=1; shift ;;
+            --stat) opt_gse=1; opt_list=1; shift ;;
+            --mod) opt_mod=1; shift;;
             -h|--help) $usage_func; return $OK ;;
+            --pick|-p) opt_repo_no=$2; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
-    local REPOS REPO tgt
+    local tgt
     tgt=$1
     if [[ "$tgt" =~ /$ ]]
     then
         tgt="$(dirname $tgt)/$(basename $tgt)"
     fi
+    local REPOS
     REPOS=$(_git-go-get $opt_update $opt_roots $opt_mbig $opt_wt $opt_subwt_only "$tgt")
-    #
-    # When we thought multiple wts under one master was a natural workflow. No need to
-    # limit to the PWD - check all, all the time. Remove if still here a
-    #    if ((opt_subwt_only))
-    #    then
-    #        git-inside-work-tree
-    #        if [ "$?" = '1' ]
-    #        then
-    #            echo "Not in a git repo. Showing all repos."
-    #        else
-    #            local current_repo_full=$(git rev-parse --show-toplevel | sed 's|/wt/.*||')
-    #            local current_repo=$(echo $current_repo_full | sed "s|${HOME}/||")
-    #            if [ ! -d $current_repo_full/wt ]
-    #            then
-    #                echo "No worktrees here ($. Showing all repos."
-    #           else
-    #                REPOS=$(echo $REPOS | tr ' ' '\n' | grep $current_repo/wt)
-    #            fi
-    #        fi
-    #    fi
     if [ -z "$REPOS" ]
     then
         echo $tgt does not match any repo
@@ -754,41 +794,84 @@ git-go ()
         echo "Matches only $REPOS. Going there."
         REPO=$REPOS
     else
-        if (($opt_list))
+        if (($opt_mod))
+        then
+            for r in $REPOS
+            do
+                (cd ~/$r
+                 if (( $(git st --porcelain | wc  -l) ))
+                 then
+                     echo
+                     func-echo $r
+                     git st
+                 fi)
+            done
+        elif (($opt_list))
         then
             local r
             local gse
+            local sched
+            local rr
+            local lastwasmarker=0
             for r in $REPOS
             do
-                (($opt_list==1)) && echo -n '~'/${r}
-                (($opt_list==2)) && echo -n ~/${r}
-                gse=$(cd ~/$r; git-st-ext)
-                [ -n "$gse" ] && echo ':' && echo "    $gse"
-                [ -z "$gse" ] && echo
+                (($opt_list==1)) && rr=$(echo '~'/${r})
+                (($opt_list==2)) && rr=$(echo $nonl ~/${r})
+                if ((!opt_gse))
+                then
+                    echo $rr
+                else
+                    gse=$(cd ~/$r; git-branch-info local-status)
+                    sched=$(cd ~/$r; git-branch-info delete-worktree)
+                    [ -n "$sched" ] && sched=$(date --date @$sched)
+                    if [ -n "$gse" ] || [ -n "$sched" ]
+                    then
+                        echo "$rr:"
+                        [ -n "$gse" ]   && echo "    $gse"
+                        [ -n "$sched" ] && echo "    Scheduled for removal on or after $sched"
+                        echo
+                    fi
+                fi
             done
         else
-            REPOS=$(tail_number_add $REPOS)
-            COLUMNS=1 ## One character wide terminal, forces list to be one column.
-            select REPO in $REPOS
-            do
-                if (($opt_list))
-                then
-                    return
-                fi
-                if [ -n "$REPO" ]
-                then
-                    REPO=$(tail_number_strip "$REPO")
-                    break
-                elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
-                then
-                    return
-                else
-                    echo "'$REPLY' is an invalid choice"
-                fi
-            done
+            local REPO
+
+            if ((opt_repo_no))
+            then
+                local r
+                for r in $REPOS
+                do
+                    ((opt_repo_no-=1))
+                    if((opt_repo_no == 0))
+                    then
+                        REPO=$r
+                    fi
+                done
+            else
+                REPOS=$(tail_number_add $REPOS)
+                COLUMNS=1 ## One character wide terminal, forces list to be one column.
+
+                select REPO in $REPOS
+                do
+                    if (($opt_list))
+                    then
+                        return
+                    fi
+                    if [ -n "$REPO" ]
+                    then
+                        REPO=$(tail_number_strip "$REPO")
+                        break
+                    elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
+                    then
+                        return
+                    else
+                        echo "'$REPLY' is an invalid choice"
+                    fi
+                done
+            fi
         fi
     fi
-    if((!opt_list))
+    if [ -n "$REPO" ]
     then
         ## dirlist, not builtin cd to take advantage this cd enhancement
         dirlist ${HOME}/$(git-strip-repo $REPO)
@@ -796,11 +879,31 @@ git-go ()
     fi
     return
 }
-alias gitgo='git-go '
-alias gitog='git-go '
-alias gitwt='git-go --subwt '
-alias git-list='git-go -l '
-alias gitlist='git-go -l '
+safe_func_export git-go
+
+gitgo ()
+{
+    git-go "$@"
+}
+safe_func_export gitgo
+
+gitog ()
+{
+    git-go "$@"
+}
+safe_func_export gitog
+
+git-list ()
+{
+    git-go -l "$@"
+}
+safe_func_export git-list
+
+gitlist ()
+{
+    git-go -l "$@"
+}
+safe_func_export gitlist
 
 git-get-current-branch ()
 {
@@ -812,11 +915,16 @@ git-get-current-branch ()
           ## dirlist, not builtin cd, to take advantage this cd enhancement
           dirlist $1
       fi
-      git rev-parse --abbrev-ref HEAD 2>/dev/null
+      git symbolic-ref HEAD | sed 's!refs\/heads\/!!'
     )
 }
-alias git-get-current-branch='git-get-current-branch '
-alias git-branch-get-current='git-get-current-branch '
+safe_func_export git-get-current-branch
+
+git-branch-get-current ()
+{
+    git-get-current-branch "$@"
+}
+safe_func_export git-branch-get-current
 
 git-help ()
 {
@@ -830,11 +938,13 @@ git-help ()
     sort -u ${tmpfile}.gh*
     \rm -f ${tmpfile}.gh*
 }
+safe_func_export git-help
 
 git-rename-branch-usage ()
 {
     echo "Usage: git-rename-branch old_branch new_branch"
 }
+safe_func_export git-rename-branch-usage
 
 git-rename-branch ()
 {
@@ -876,64 +986,13 @@ git-rename-branch ()
                                                               # remote.
     return $?
 }
-alias git-rename-branch='git-rename-branch '
-alias git-branch-rename='git-rename-branch '
+safe_func_export git-rename-branch
 
-## I prefer not to delete branches. I'd rather rename them
-git-close-branch ()
+git-branch-rename ()
 {
-    ##@@ none||none||git-close-branch||
-    gitfuncs_audit "$@"
-
-    local old_branch=$1
-    if [ -z "$old_branch" ]
-    then
-        local branchesa=($(git-branch-list --strip))
-        if [ ${#branchesa[@]} == '0' ]
-        then
-            echo "No branches found. Are you in a git repo?"
-            return
-        fi
-        local PS3="Choose by number, q to quit: "
-        local selected
-        COLUMNS=1 ## One character wide terminal, forces list to be one column.
-        select selected in ${branchesa[@]}
-        do
-            if [ -n "$selected" ]
-            then
-                old_branch=$selected
-                break
-            elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
-            then
-                return
-            else
-                echo "'$REPLY' is an invalid choice"
-            fi
-        done
-    fi
-
-    local new_branch=closed/$(date +%Y_%m_%d_%H_%M_%S)/$old_branch
-    git-rename-branch $old_branch $new_branch
-    status=$?
-    ((status != 0)) && return $status
-
-    ## Update with changed branches
-    git-go-set
-    return $?
+    git-rename-branch "$@"
 }
-alias git-close-branch='git-close-branch '
-alias git-branch-close='git-close-branch '
-
-git-close-current-branch ()
-{
-    ##@@ none||none||git-close-current-branch||
-    gitfuncs_audit "$@"
-
-    git-close-branch $(git-get-current-branch)
-    return $?
-}
-alias git-close-current-branch=git-close-current-branch
-alias git-branch-close-current='git-close-current-branch '
+safe_func_export git-branch-rename
 
 git-delete-branch ()
 {
@@ -941,11 +1000,23 @@ git-delete-branch ()
     gitfuncs_audit "$@"
 
     local no_remote=0
-    if [ "$1" = '--no-remote' ] || [ "$1" = '--local-only' ]
-    then
-        no_remote=1
-        shift;
-    fi
+    local opt_yes=0
+    OPTSARGS=$(getoptp -o y --long yes,no-remote,local-only -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -y|--yes) opt_yes=1; shift ;;
+            --no-remote|--local-only) no_remote=1; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
     local branch=$1;
     local current_branch=$(git-get-current-branch)
     if [ -z "$branch" ]
@@ -1001,7 +1072,13 @@ git-delete-branch ()
             local inremote=$(git-branch-list --strip -r | grep "$remote/$branch")
             if [ -n "$inremote" ]
             then
-                local resp=$(func-yesno "Try deleting in remote $remote" n)
+                local resp
+                if ((opt_yes))
+                then
+                    resp='y'
+                else
+                    resp=$(func-yesno "Try deleting in remote $remote" n)
+                fi
                 if [ "$resp" == 'y' ]
                 then
                     git push --delete $remote $branch ## This should not fail
@@ -1017,8 +1094,13 @@ git-delete-branch ()
     git-go-set
     return $?
 }
-alias git-delete-branch='git-delete-branch '
-alias git-branch-delete='git-delete-branch '
+safe_func_export git-delete-branch
+
+git-branch-delete ()
+{
+    git-delete-branch "$@"
+}
+safe_func_export git-branch-delete
 
 git-update-this-hook ()
 {
@@ -1052,6 +1134,7 @@ git-update-this-hook ()
         done
     done
 }
+safe_func_export git-update-this-hook
 
 git-push-hook ()
 {
@@ -1131,6 +1214,7 @@ git-push-hook ()
         done
     done
 }
+safe_func_export git-push-hook
 
 git-check-this-hook ()
 {
@@ -1161,12 +1245,14 @@ git-check-this-hook ()
     done
     return $OK
 }
+safe_func_export git-check-this-hook
 
 git-checkout-usage ()
 {
     echo "Usage: git-checkout ..."
     echo "       TBD"
 }
+safe_func_export git-checkout-usage
 
 git-checkout ()
 {
@@ -1272,10 +1358,25 @@ git-checkout ()
     fi
     return $OK
 }
-alias git-checkout='git-checkout '
-alias git-branches='git-checkout '
-alias git-br='git-checkout '
-alias gitbr='git-checkout '
+safe_func_export git-checkout
+
+git-branches ()
+{
+    git-checkout "$@"
+}
+safe_func_export git-branches
+
+git-br ()
+{
+    git-checkout "$@"
+}
+safe_func_export git-br
+
+gitbr ()
+{
+    git-checkout "$@"
+}
+safe_func_export gitbr
 
 declare -A gitfuncs_remotes
 
@@ -1292,12 +1393,13 @@ git-parse-remote-v ()
         gitfuncs_remotes[$key]=$value
     done
 }
-alias git-parse-remote-v='git-parse-remote-v '
+safe_func_export git-parse-remote-v
 
 git-check-with-remote-usage ()
 {
     echo "Usage: $1 --branch otherBranch [--remote remote] [gitRoot]"
 }
+safe_func_export git-check-with-remote-usage
 
 git-check-with-remote ()
 {
@@ -1443,6 +1545,7 @@ EOF
     rm -f $locallog $remotelog $difflog
     return $OK
 }
+safe_func_export git-check-with-remote
 
 git-check-with-master ()
 {
@@ -1461,13 +1564,14 @@ git-check-with-master ()
     fi
     return $?
 }
+safe_func_export git-check-with-master
 
 git-sync-with-remote-usage ()
 {
     echo "Usage: $1 --branch otherBranch [--remote remote] [--confirm]"
     echo "       remoteRepoTag defaults to 'origin'"
 }
-alias git-sync-with-remote-usage='git-sync-with-remote-usage '
+safe_func_export git-sync-with-remote-usage
 
 git-sync-with-remote ()
 {
@@ -1769,7 +1873,7 @@ EOF
     fi
 
 }
-alias git-sync-with-remote='git-sync-with-remote '
+safe_func_export git-sync-with-remote
 
 git-sync-with-master ()
 {
@@ -1793,8 +1897,19 @@ git-sync-with-master ()
 
     return $status
 }
-alias git-update='git-sync-with-master '
-alias git-rebase-on-master='git-sync-with-master '
+safe_func_export git-sync-with-master
+
+git-update ()
+{
+    git-sync-with-master "$@"
+}
+safe_func_export git-update
+
+git-rebase-on-master ()
+{
+    git-sync-with-master "$@"
+}
+safe_func_export git-rebase-on-master
 
 git-diff-faq ()
 {
@@ -1824,150 +1939,77 @@ diff specific files between two branches:
 
 EOF
 }
-
-git-fork-and-clone-usage ()
-{
-    local cmd=$1;shift
-    local protocol=$1
-    local protocolarg=$1
-    if [ -z "$protocol" ]
-    then
-        protocol='protocol'
-        protocolarg='protocol'
-    else
-        protocolarg=''
-    fi
-
-    cat <<EOUSAGE
-Usage: $cmd $protocolarg namespace repo
-       Forks $protocol:namespace/repo
-       to    $protocol:$USER/repo
-       then clones to a directory path $gitfuncs_gitroot/$protocol/$USER/repo.
-       Directory $gitfuncs_gitroot/$protocol must already exist.
-
-       If the fork already exists, and all you want
-       to do is make a new local clone, run this command
-       anyway. It will not re-fork.
-
-EOUSAGE
-    return $OK
-}
-
-git-fork-and-clone ()
-{
-    ##@@ none||none||git-fork-and-clone||Provide protocol along with namespace and repo
-    gitfuncs_audit "$@"
-    local usage_func="${FUNCNAME}-usage"
-
-    [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
-    local protocol=$1;shift
-    local namespace=$1;shift
-    local repo=$1;shift
-    local cwpath=$(realpath $(pwd))
-    local local_namespace=$(basename $cwpath)
-    local local_protocol=$(basename $(dirname $cwpath))
-    if [ "$local_namespace" != "$USER" ] || \
-           [ "$local_protocol" != "$protocol" ]
-    then
-        func-echo "You must be in a local directory path ending in"
-        func-echo "   $protocol/$USER"
-        func-echo "You are in $cwpath"
-        local shouldbein="$gitfuncs_gitroot/$protocol/$USER"
-        if [ ! -d $shouldbein ]
-        then
-            func-echo "Cannot find '$shouldbein'."
-            func-echo "Correct and re-execute."
-            return $NOT_OK
-        else
-            local resp=$(func-yesno "cd to $shouldbein")
-            if [ "$resp" = 'n' ]
-            then
-                func-echo "Correct and re-execute."
-                return $NOT_OK
-            else
-                dirlist $shouldbein
-            fi
-        fi
-    fi
-
-    local cmd="glow clone-fork $protocol:$namespace/$repo"
-    ## does the fork of namespace/repo to user/repo
-    ## clones user/repo to repo
-    ## does git remote add upstream $protocol:namespace/repo
-    func-echo $cmd ...
-    $cmd
-    status=$?; [ "$status" != '0' ] && return $status
-
-    ## dirlist, not builtin cd, to take advantage this cd enhancement
-    dirlist $repo
-    git remote -v
-
-    ## Check for master. Some repos arrange it so that the default for clones
-    ## is other than master.
-    master_exists=$(git branch | grep -E '^(\* master|master)$')
-
-    if [ -n "$master_exists" ]
-    then
-        func-echo --head  "WARNING: UNTESTED. NO COMMANDS ONLY ECHOS!!!"
-        func-echo 'Dumping the origin master in favor of the upstream master...'
-        func-echo git checkout -b temp
-        func-echo status=$?; [ "$status" != '0' ] && return $status
-
-        func-echo git branch -d master
-        func-echo status=$?; [ "$status" != '0' ] && return $status
-
-        func-echo git branch -r -d origin/master
-        func-echo status=$?; [ "$status" != '0' ] && return $status
-
-        func-echo git checkout --track upstream/master
-        func-echo status=$?; [ "$status" != '0' ] && return $status
-
-        func-echo git checkout master
-        func-echo status=$?; [ "$status" != '0' ] && return $status
-
-        func-echo git branch -d temp
-        func-echo status=$?; [ "$status" != '0' ] && return $status
-    fi
-
-    echo "Setting up for worktrees..."
-    mkdir wt
-    ls -ld $(pwd)/wt
-
-    ## Add this repo to the list
-    git-go-set
-}
+safe_func_export git-diff-faq
 
 git-clone-usage ()
 {
     local cmd=$1;shift
     local protocol=$1
-    local protocolarg=$1
+    local protocolarg
+    local protocolurl
     if [ -z "$protocol" ]
     then
-        protocol='protocol'
-        protocolarg='protocol'
+        protocolarg='<PROTOCOLe>'
+        protocolurl='<PROTOCOL_URLe>'
     else
         protocolarg=''
+        protocolurl=$(kvget gitfuncs_gitsvcs $1)
     fi
 
     cat <<EOUSAGE
-Usage: $cmd $protocolarg namespace repo
-       $cmd $protocolarg namespace/repo
-       Clones $protocol:namespace/repo
-       to a directory path $gitfuncs_gitroot/$protocol/namespace/repo.
-       Directory $gitfuncs_gitroot/$protocol must already exist.
+Usage: $cmd $protocolarg [-y] [-t] [--triangle=upstream-namespace] namespace repo
+       $cmd $protocolarg [-y] [-t] [--triangle=upstream-namespace] namespace/repo
 
+       o Clones ${protocolurl}namespace/repo to a directory path
+               $gitfuncs_gitroot/$protocol/namespace/repo.
+         Directory $gitfuncs_gitroot/$protocol must already exist.
+
+       o Sets up a wt subdir for worksapces.
+
+       -y
+          Answer yes to any prompts. Useful for automation.
+
+       -t
+          Resets the timestamps on the files to their commit times.
+
+       --triangle=upstream-namespace
+          Use this if your namespace/repo is a clone of a fork of
+          upstream-namespace/repo and you want to setup the triangle workflow
+          so that master pulls are from upstream-namespace/repo.
 EOUSAGE
     return $OK
 }
+safe_func_export git-clone-usage
 
 git-clone ()
 {
-    ##@@ none||none||git-clone||Provide protocol along with namespace and repo
+    ##@@ none||none||git-clone||Clone a repo locally. Args: protocol namespace repo
     gitfuncs_audit "$@"
+
     local usage_func="${FUNCNAME}-usage"
 
+    local opt_y=0
+    local opt_t=0
+    local opt_triangle_namespace=''
+    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help,triangle: -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func ${FUNCNAME} && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -y|--yes) opt_y=1; shift ;;
+            -t|--timestamp) opt_t=1; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --triangle) opt_triangle_namespace=$2;shift; shift;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) func-echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
+        esac
+    done
+
     [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
+
     local protocol=$1;shift
     local namespace=$1;shift
     local repo2
@@ -1984,66 +2026,83 @@ git-clone ()
     local local_protocol=$(basename $cwpath)
     if [ "$local_protocol" != "$protocol" ]
     then
-        echo "You must be in a local directory path ending in"
-        echo "   $protocol"
-        echo "You are in $cwpath"
+        func-echo "You must be in a local directory path ending in"
+        func-echo "   $protocol"
+        func-echo "You are in $cwpath"
         local shouldbein="$gitfuncs_gitroot/$protocol"
         if [ ! -d $shouldbein ]
         then
-            echo "Cannot find '$shouldbein'."
-            echo "Correct and re-execute."
+            func-echo "Cannot find '$shouldbein'."
+            func-echo "Correct and re-execute."
             return $NOT_OK
         else
-            local resp=$(func-yesno "cd to $shouldbein")
+            local resp
+            if ((opt_y))
+            then
+                func-echo "Going to $shouldbein"
+                resp='y'
+            else
+                resp=$(func-yesno "cd to $shouldbein")
+            fi
             if [ "$resp" = 'n' ]
             then
-                echo "Correct and re-execute."
+                func-echo "Correct and re-execute."
                 return $NOT_OK
             else
-                _git_cd_go $shouldbein
+                _git_cd_to $shouldbein
             fi
         fi
     fi
 
-    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
+    local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
+    if [ -z "$protocol_url" ]
     then
-        echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        func-echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
         return $NOT_OK
     fi
 
     local tgt="$namespace/$repo"
     if [ -e $tgt ]
     then
-        local resp=$(func-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
+        local resp
+        if ((opt_y))
+        then
+            resp='y'
+        else
+            resp=$(func-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
+        fi
         [ "$resp" = 'n' ] && return $NOT_OK
         rm -rf $tgt
     fi
 
-    local cmd="git clone ${gitfuncs_gitsvcs[$protocol]}$namespace/$repo $namespace/$repo"
-    echo $cmd ...
+    local cmd="git clone ${protocol_url}$namespace/$repo $namespace/$repo"
+    func-echo $cmd ...
     $cmd
     status=$?; [ "$status" != '0' ] && return $status
+    if ((opt_t))
+    then
+        func-echo 'Setting timestamps...'
+        (builtin cd $namespace/$repo; git-retimestamp)
+        func-echo 'Done'
+    fi
 
     ## dirlist, not builtin cd, to take advantage this cd enhancement
     dirlist $namespace/$repo
+    if [ -n "$opt_triangle_namespace" ]
+    then
+        echo "Setting up triangle workflow with ${protocol_url}$opt_triangle_namespace/${repo}..."
+        git-set-triangle ${protocol} $opt_triangle_namespace $namespace $repo
+    fi
     git remote -v
+
+    echo "Setting up for worktrees..."
+    mkdir wt
+    ls -ld $(pwd)/wt
 
     ## Add this repo to the list
     git-go-set
 }
-
-github-clone ()
-{
-    ##@@ none||none||github-clone||
-    gitfuncs_audit "$@"
-
-    local usage_func="git-clone-usage"
-    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return $NOT_OK
-
-    git-clone github "$@"
-    return $?
-}
-alias git-clone-github='github-clone '
+safe_func_export git-clone
 
 git-delete-repo-usage ()
 {
@@ -2065,6 +2124,7 @@ Usage: $cmd $protocolarg namespace repo
 EOUSAGE
     return $OK
 }
+safe_func_export git-delete-repo-usage
 
 git-delete-repo ()
 {
@@ -2078,9 +2138,10 @@ git-delete-repo ()
     local repo=$1;shift
     local returnpath=$(realpath $(pwd))
 
-    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
+    local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
+    if [ -z "$protocol_url" ]
     then
-        echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
         return $NOT_OK
     fi
 
@@ -2115,7 +2176,7 @@ git-delete-repo ()
         fi
 
         builtin cd ..
-        \rm -r -i $repo
+        \rm -rf $repo
         status=$?
         ((status != 0)) && return $NOT_OK; ## If the rm fails, we should see
                                            ## error messages, no need to add
@@ -2139,21 +2200,7 @@ git-delete-repo ()
 
     return $status
 }
-
-github-whack ()
-{
-    ##@@ none||none||github-whack||
-    gitfuncs_audit "$@"
-
-    local usage_func="git-delete-repo-usage"
-    [ -z "$1" ] && $usage_func ${FUNCNAME} github && return $NOT_OK
-
-    git-delete-repo github "$@"
-    return $?
-}
-alias github-whack='github-whack '
-alias git-delete-repo_github='github-whack '
-alias git-delete-repo-github='github-whack '
+safe_func_export git-delete-repo
 
 git-what-is-staged ()
 {
@@ -2167,9 +2214,25 @@ git-what-is-staged ()
         $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --staged
     fi
 }
-alias git-is-staged='git-what-is-staged '
-alias git-what-is-committable='git-what-is-staged '
-alias git-is-committable='git-what-is-staged '
+safe_func_export git-what-is-staged
+
+git-is-staged ()
+{
+    git-what-is-staged "$@"
+}
+safe_func_export git-is-staged
+
+git-what-is-committable ()
+{
+    git-what-is-staged "$@"
+}
+safe_func_export git-what-is-committable
+
+git-is-committable ()
+{
+    git-what-is-staged "$@"
+}
+safe_func_export git-is-committable
 
 git-what-is-unstaged ()
 {
@@ -2183,7 +2246,13 @@ git-what-is-unstaged ()
         $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --unstaged
     fi
 }
-alias git-is-unstaged='git-what-is-unstaged '
+safe_func_export git-what-is-unstaged
+
+git-is-unstaged ()
+{
+    git-what-is-unstaged "$@"
+}
+safe_func_export git-is-unstaged
 
 git-what-is-untracked ()
 {
@@ -2197,7 +2266,13 @@ git-what-is-untracked ()
         $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --untracked
     fi
 }
-alias git-is-untracked='git-what-is-untracked '
+safe_func_export git-what-is-untracked
+
+git-is-untracked ()
+{
+    git-what-is-untracked "$@"
+}
+safe_func_export git-is-untracked
 
 git-what-is-modified ()
 {
@@ -2206,13 +2281,24 @@ git-what-is-modified ()
 
     if [ -n "$1" ]
     then
-        echo 'Files altered, both staged and not staged for commit'
+        echo 'Files altered: staged and unstaged'
     else
         $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --staged --unstaged
     fi
 }
-alias git-is-modified='git-what-is-modified '
-alias git-is-mod='git-what-is-modified '
+safe_func_export git-what-is-modified
+
+git-is-modified ()
+{
+    git-what-is-modified "$@"
+}
+safe_func_export git-is-modified
+
+git-is-mod ()
+{
+    git-what-is-modified "$@"
+}
+safe_func_export git-is-mod
 
 git-what-is-modified-only ()
 {
@@ -2221,7 +2307,7 @@ git-what-is-modified-only ()
 
     if [ -n "$1" ]
     then
-        echo 'Files altered, both staged and not staged for commit, without deleted files'
+        echo 'Files altered: staged, unstaged, without deleted files'
     else
         local deleted=$(ajoin '|' $(git-what-is-deleted))
         local modified
@@ -2231,8 +2317,27 @@ git-what-is-modified-only ()
         done
     fi
 }
-alias git-is-modified='git-what-is-modified '
-alias git-is-mod='git-what-is-modified '
+safe_func_export git-what-is-modified-only
+
+git-what-is-edited ()
+{
+    ##@@ none||none||git-what-is-edited||
+    gitfuncs_audit "$@"
+
+    if [ -n "$1" ]
+    then
+        echo 'Files altered: staged, unstaged and untracked'
+    else
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --all-mod
+    fi
+}
+safe_func_export git-what-is-edited
+
+git-is-edited ()
+{
+    git-what-is-edited "$@"
+}
+safe_func_export git-is-edited
 
 git-what-is-unmodified ()
 {
@@ -2246,7 +2351,13 @@ git-what-is-unmodified ()
         $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --unmodified
     fi
 }
-alias git-is-unmodified='git-what-is-unmodified '
+safe_func_export git-what-is-unmodified
+
+git-is-unmodified ()
+{
+    git-what-is-unmodified "$@"
+}
+safe_func_export git-is-unmodified
 
 git-what-is-deleted ()
 {
@@ -2260,7 +2371,33 @@ git-what-is-deleted ()
         $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --deleted
     fi
 }
-alias git-is-deleted='git-what-is-deleted '
+safe_func_export git-what-is-deleted
+
+git-is-deleted ()
+{
+    git-what-is-deleted "$@"
+}
+safe_func_export git-is-deleted
+
+git-what-is-ignored ()
+{
+    ##@@ none||none||git-what-is-ignored||
+    gitfuncs_audit "$@"
+
+    if [ -n "$1" ]
+    then
+        echo 'Files ignored'
+    else
+        $DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --ignored
+    fi
+}
+safe_func_export git-what-is-ignored
+
+git-is-ignored ()
+{
+    git-what-is-ignored "$@"
+}
+safe_func_export git-is-ignored
 
 git-track-remote-branch ()
 {
@@ -2279,23 +2416,28 @@ git-track-remote-branch ()
     git checkout -b $branch --track $remote/$branch
     return $?
 }
-alias git-fetch-remote-branch='git-track-remote-branch '
+safe_func_export git-track-remote-branch
+
+git-fetch-remote-branch ()
+{
+    git-track-remote-branch "$@"
+}
+safe_func_export git-fetch-remote-branch
 
 ## Useful in prompts (PS1).
-git-inside-work-tree ()
+git-inside-worktree ()
 {
-    ##@@ none||none||git-inside-work-tree||
+    ##@@ none||none||git-inside-worktree||Return $TRUE or $FALSE, prints 'true' or 'false' if -p specified
     gitfuncs_audit "$@"; local na; [ "$1" = "-na" ] && na='-na' && shift
 
     local print=$1;shift
-    local v=$(git rev-parse --is-inside-work-tree 2>/dev/null)
+    local v=$(git rev-parse --is-inside-worktree 2>/dev/null)
     local r=$FALSE
-    [ "$v" != "true" ] && r=$TRUE
+    [ "$v" = "true" ] && r=$TRUE
     [ "$print" = '-p' ] && echo $v
     return $r
 }
-safe_func_export git-inside-work-tree
-alias git-inside-work-tree='git-inside-work-tree '
+safe_func_export git-inside-worktree
 
 git-get-stash-count ()
 {
@@ -2304,8 +2446,8 @@ git-get-stash-count ()
     local no0=0; [ "$1" = '-no0' ] && no0=1 && shift;
     local pre=$1;shift
     local post=$1;shift
-    git-inside-work-tree $na
-    if [ "$?" = '0' ]
+    git-inside-worktree $na
+    if [ "$?" = $TRUE ]
     then
         local c=$(git stash list 2>/dev/null | wc -l)
         ((c==0)) && ((no0)) && return
@@ -2313,15 +2455,24 @@ git-get-stash-count ()
     fi
 }
 safe_func_export git-get-stash-count
-alias git-stash-get-count='git-get-stash-count '
+
+git-stash-get-count ()
+{
+    git-get-stash-count "$@"
+}
+safe_func_export git-stash-get-count
 
 git-worktree-create-usage ()
 {
-    echo "Usage: git-worktree-create branch [remote]"
+    echo "Usage: git-worktree-create [-m 'message'] [-f] [-d] [--asmaster somebranch] branch [remote]"
     echo "       default remote is 'origin'"
+    echo "       -m|--message - Record a short description readable with git-st-ext."
+    echo "       -f|--fetch   - Do not create the branch, but fetch existing."
+    echo "       -d|--dated   - Append '_YYYY-MM-DD' to the branch name."
+    echo "       --asmaster   - use 'somebranch' as the worktree basis."
+    echo "                      The default is 'master'."
 }
-alias git-create-worktree-usage='git-create-worktree-usage '
-alias git-worktree-create-usage='git-create-worktree-usage '
+safe_func_export git-worktree-create-usage
 
 git-worktree-fetch ()
 {
@@ -2330,6 +2481,7 @@ git-worktree-fetch ()
     git-worktree-create --fetch "$@"
     return $?
 }
+safe_func_export git-worktree-fetch
 
 git-worktree-create ()
 {
@@ -2357,7 +2509,9 @@ git-worktree-create ()
     local status=0
     local opt_m=''
     local message=''
-    OPTSARGS=$(getoptp -o m:f --long message:,fetch -n $FUNCNAME -- "$@")
+    local dated=''
+    local asmaster='master'
+    OPTSARGS=$(getoptp -o m:fd --long message:,fetch,dated,asmaster: -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -2365,8 +2519,10 @@ git-worktree-create ()
     while true
     do
         case "$1" in
+            -d|--dated) dated="_$(date +%Y-%m-%d)"; shift;;
             -f|--fetch) fetch_existing=1; fetch_opt="-r"; shift ;;
             -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
+            --asmaster) asmaster=$2; shift ; shift ;;
             -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Error getting options!"; $usage_func; return $NOT_OK ;;
@@ -2379,18 +2535,18 @@ git-worktree-create ()
         $usage_func
         return $NOT_OK
     fi
-    local wt=$1
+    local wt="$1${dated}"
     shift
 
     local remote
-    if [ -n "$1" ] && [ "$1" != '-m' ]
+    if [ -n "$1" ]
     then
         [ -n "$remote" ] && shift
     fi
     [ -z "$remote" ] && remote=origin
     func-echo "Using '$remote' as remote."
 
-    ((verbose)) && func-echo 'Check for existing worktrees with same name'
+    ((verbose)) && func-echo 'Check for existing worktrees with same name.'
     wtdir="$(pwd)/$wt"
     if [ -e $wtdir ]
     then
@@ -2403,7 +2559,7 @@ git-worktree-create ()
 
     ## TODO: Allow for suffix to append to worktree name so you can dup them if
     ## you need to.
-    ((verbose)) && func-echo 'Check for existing branch'
+    ((verbose)) && func-echo 'Check for existing branch.'
     local create_branch="-b"
     local exists=$(git-branch-list --strip $fetch_opt | grep $wt)
     if [ -n "$exists" ]
@@ -2416,19 +2572,19 @@ git-worktree-create ()
         func-echo "Branch $wt does not exist to be fetched."
         return $NOT_OK
     else
-        ## Since this worktree is going to create a branch of the local master,
-        ## make sure the local master (where we should be right now) it is up
-        ## to date.
-        if [ "$(git-get-current-branch)" != 'master' ]
+        ## Since this worktree is going to create a branch of the local
+        ## $asmaster, make sure the local $asmaster (where we should be right
+        ## now) it is up to date.
+        if [ "$(git-get-current-branch)" != $asmaster ]
         then
-            func-echo "Will not create a branch and worktree from a non-master branch"
+            func-echo "Cannot create branch and worktree because the current branch '$(git-get-current-branch)' is not the master branch '$asmaster'."
             return $NOT_OK
         fi
-        func-echo "Checking local master, starting point for branch."
+        func-echo "Checking local '$asmaster', starting point for branch."
         git pull
         status=$?
-        ((status)) && return $NOT_OK ## assuming the error message will be printed to
-                               ## stderr...
+        ((status)) && return $NOT_OK ## assuming the error message will be
+                                     ## printed to stderr...
     fi
 
     ## Now create the work tree and create/fetch the branch.
@@ -2449,12 +2605,19 @@ git-worktree-create ()
     then
         ((verbose)) && func-echo "git push --set-upstream $remote $wtbranch"
         git push --set-upstream $remote $wtbranch
+        git-branch-info created "$(date +%Y%m%d.%H%M%S%z)"
     else
         ## Not convinced this is the optimal set of actions. Probably better to
         ## modify or replace the add command.
         git branch --track $wtsubdir $wtbranch
         git checkout $wtsubdir
      fi
+
+    ## Convert the worktree's .git file to use a relative path to the master
+    ## .git location. In that way, we can use the repo on machines where it may
+    ## be mounted in a different place, so that the absolute path is different
+    ## in those places.
+    sed -i 's|\(gitdir: \).*/\(.git/worktrees\)|\1../../\2|' .git
 
     git-post-new
 
@@ -2468,10 +2631,31 @@ git-worktree-create ()
 
     return $OK
 }
-alias git-create-worktree='git-worktree-create '
-alias git-worktree='git-worktree-create '
-alias git-wt='git-worktree-create '
-alias gitwt='git-worktree-create '
+safe_func_export git-worktree-create
+
+git-create-worktree ()
+{
+    git-worktree-create "$@"
+}
+safe_func_export git-create-worktree
+
+git-worktree ()
+{
+    git-worktree-create "$@"
+}
+safe_func_export git-worktree
+
+git-wt ()
+{
+    git-worktree-create "$@"
+}
+safe_func_export git-wt
+
+gitwt ()
+{
+    git-worktree-create "$@"
+}
+safe_func_export gitwt
 
 git-delete-current-worktree ()
 {
@@ -2481,11 +2665,13 @@ git-delete-current-worktree ()
     status=$?
     return $status
 }
+safe_func_export git-delete-current-worktree
 
 git-delete-worktree-usage ()
 {
-    echo "Usage: $1 [--force] worktree"
+    echo "Usage: $1 [--force] [--yes] [--schedule hours] worktree"
 }
+safe_func_export git-delete-worktree-usage
 
 git-delete-worktree ()
 {
@@ -2495,8 +2681,11 @@ git-delete-worktree ()
     local usage_func="${FUNCNAME}-usage"
     local iam=$(func-name-spoof)
 
+    local opt_yes=0
+    local opt_yes_string
     local opt_force=0
-    OPTSARGS=$(getoptp -o sh --long force,help -n $FUNCNAME -- "$@")
+    local opt_schedule=0
+    OPTSARGS=$(getoptp -o yfs:h --long yes,force,schedule:,help -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func $iam && return $status
 
@@ -2504,7 +2693,10 @@ git-delete-worktree ()
     while true
     do
         case "$1" in
-            -s|--force) opt_force=1; shift ;;
+            -y|--yes) opt_yes=1; opt_yes_string='--yes'; shift ;;
+            -f|--force) opt_force=1; shift ;;
+            -s|--schedule) ((opt_schedule = $(date +%s) + $2*60*60))
+                           shift; shift ;;
             -h|--help) $usage_func $iam; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func $iam; return $NOT_OK ;;
@@ -2524,6 +2716,13 @@ git-delete-worktree ()
     then
         func-echo "$worktree is not a proper worktree for deletion"
         return $NOT_OK
+    fi
+
+    if ((opt_schedule))
+    then
+        git-branch-info delete-worktree $opt_schedule
+        func-echo "$worktree scheduled for removal on or after $( date --date=@$opt_schedule)"
+        return 0
     fi
 
     ## Check for cleanliness.
@@ -2562,7 +2761,7 @@ git-delete-worktree ()
     ## Check for being merged
     local gmfout=$(git-merge-find)
     local status=$?
-    if ((status))
+    if ((status)) && ((!opt_force)) && ((!opt_yes))
     then
         echo $gmfout
         local resp=$(func-yesno 'Continue anyway')
@@ -2575,7 +2774,7 @@ git-delete-worktree ()
     ## Whack it. Start with the current dir.
     local delit=$(basename $(pwd))
     builtin cd ..
-    \rm -r $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
+    \rm -rf $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
 
     ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
     ## get to first, and stop deleting.
@@ -2586,7 +2785,7 @@ git-delete-worktree ()
             #it's empty
             delit=$(basename $(pwd))
             builtin cd ..
-            \rm -r $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
+            \rm -rf $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
         fi
     done
 
@@ -2596,10 +2795,15 @@ git-delete-worktree ()
     func-echo 'Local admin files updated.'
 
     ## Now the take care of the branch.
-    resp=$(func-pick "Keep, close or delete associated branch $current_branch" 'k/c/d' '' )
+    if ((opt_yes))
+    then
+        resp='d'
+    else
+        resp=$(func-pick "Keep, delete associated branch $current_branch" 'k/d' '' )
+    fi
     if [ "$resp" = 'k' ]
     then
-        func-echo "If you change your mind: git-[close|delete]-branch $current_branch"
+        func-echo "If you change your mind: git-delete-branch $current_branch"
     else
         ## Have to be in a git repo to do this.
         while [ "$(basename $(pwd))" != 'wt' ]
@@ -2609,9 +2813,7 @@ git-delete-worktree ()
         builtin cd ..
         if [ "$resp" = 'd' ]
         then
-            git-delete-branch $current_branch
-        else
-            git-close-branch $current_branch
+            git-delete-branch $opt_yes_string $current_branch
         fi
     fi
 
@@ -2622,90 +2824,87 @@ git-delete-worktree ()
 
     return $OK
 }
-alias git-delete-current-worktree='git-delete-current-worktree '
-alias git-worktree-delete-current='git-delete-current-worktree '
+safe_func_export git-delete-worktree
 
-git-in-a-worktree ()
+git-worktree-delete-current ()
 {
-    ##@@ none||none||git-in-a-worktree||
-    ## 0 is true!
-    gitfuncs_audit "$@"
-
-    [[  "$(pwd)" =~ /wt/ ]]; return $?
+    git-delete-current-worktree "$@"
 }
+safe_func_export git-worktree-delete-current
 
 git-worktree-root ()
 {
     ##@@ none||none||git-worktree-root||print the master root where the wt dir is
     gitfuncs_audit "$@"
 
-    local in_a_wt=$(git-in-a-worktree)
-    if (( in_a_wt == 1 ))
-    then
-        func-echo "Must be in a wt"
-        return $NOT_OK;
-    fi
-
-    local files=$(git ls-files)
-    if [ -z "$files" ]
-    then
-        func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
-        return $NOT_OK;
-    fi
-
-    local root=$(pwd);
-    root=${root%%/wt*}
-    echo $root
+    local wtr=$(git worktree list)
+    local status=$?; ((status)) && return $status
+    echo $wtr | sed 's/ .*//'
+    return $OK
 }
+safe_func_export git-worktree-root
 
 git-run-precommit-hook ()
 {
     ##@@ none||none||git-run-precommit-hook||
     gitfuncs_audit "$@"
 
-    local hookroot
-    local in_a_wt=$(git-in-a-worktree)
-    if (( in_a_wt == 0 ))
+    local wtr=$(git-worktree-root)
+    status=$?; ((status)) && return $status
+    local hook="$wtr/.git/hooks/pre-commit"
+    if [ -x $hook ]
     then
-        hookroot=$(git-worktree-root)
+        $hook "$@"
+        return $?
+    elif [ -r $hook ]
+    then
+        echo "Cannot execute $hook"
+        return $NOT_OK
     else
-        hookroot=$(git-root)
+        echo "Cannot find $hook"
+        return $NOT_OK
     fi
-
-    ${hookroot}/.git/hooks/pre-commit $*
 }
+safe_func_export git-run-precommit-hook
 
 git-worktree-diff-to-root ()
 {
     ##@@ none||none||git-worktree-diff-to-root||diff worktree file against root file
     gitfuncs_audit "$@"
 
-    local in_a_wt=$(git-in-a-worktree)
+    local in_a_wt=$(git-inside-worktree)
     if (( in_a_wt == 1 ))
     then
         func-echo "Must be in a wt"
         return $NOT_OK;
     fi
 
-    local files=$(git ls-files)
+    local files="$@"
     if [ -z "$files" ]
     then
-        func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
-        return $NOT_OK;
+        files=$(git ls-files)
+        if [ -z "$files" ]
+        then
+            func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
+            return $NOT_OK;
+        fi
     fi
 
     local root=$(pwd);
     root=${root%%/wt*}
+    local coloropt='always'
+    is-redirected $STDOUT && coloropt=never
     for i in $files
     do
         if [ "$1" = '--reverse' ]
         then
-            git --no-pager diff --no-index --color=always ${root}/$i $i 2>&1
+            git --no-pager diff --no-index --color=$coloropt ${root}/$i $i 2>&1
         else
-            git --no-pager diff --no-index --color=always $i ${root}/$i 2>&1
+            git --no-pager diff --no-index --color=$coloropt $i ${root}/$i 2>&1
         fi
     done | less -RE
 }
+safe_func_export git-worktree-diff-to-root
 
 git-worktree-diff-from-root ()
 {
@@ -2715,18 +2914,29 @@ git-worktree-diff-from-root ()
     git-worktree-diff-to-root --reverse "$@"
     return $?
 }
-
+safe_func_export git-worktree-diff-from-root
 
 git-add-remote-usage ()
 {
-    cat <<EOF
-usage: git-add-remote protocol namespace"
-       Adds protocol:namespace/current_repo"
-       as a remote named 'namespace'."
-       Use this to get at people's"
-       branches on a repo fork."
-EOF
+    local cmd=$1;shift
+    local protocol=$1
+    local protocolarg=$1
+    if [ -z "$protocol" ]
+    then
+        protocol='{protocolurl}'
+        protocolarg='protocol'
+    else
+        protocolarg=''
+    fi
+
+    cat <<EOUSAGE
+Usage: $cmd $protocolarg namespace
+       Adds ${protocol}:namespace/current_repo as a remote named 'namespace'
+       to the current repo. Use this to get at people's branches on
+       their repo fork.
+EOUSAGE
 }
+safe_func_export git-add-remote-usage
 
 git-add-remote ()
 {
@@ -2737,7 +2947,7 @@ git-add-remote ()
 
     if [ "$#" != '2' ]
     then
-        $usage_func; return $NOT_OK
+        $usage_func ${FUNCNAME}; return $NOT_OK
     fi
     local protocol=$1; shift
     local remote=$1; shift
@@ -2750,9 +2960,19 @@ git-add-remote ()
     fi
     return $status
 }
-alias git-remote-add='git_add_remote'
+safe_func_export git-add-remote
 
-alias git-remotes='git remote -v '
+git-remote-add ()
+{
+    git_add_remote "$@"
+}
+safe_func_export git-remote-add
+
+git-remotes ()
+{
+    git remote -v "$@"
+}
+safe_func_export git-remotes
 
 git-get-default-remote ()
 {
@@ -2761,8 +2981,8 @@ git-get-default-remote ()
 
     local pre=$1;shift
     local post=$1;shift
-    git-inside-work-tree $na
-    if [ "$?" = '0' ]
+    git-inside-worktree $na
+    if [ "$?" = $TRUE ]
     then
         local push_def=$(git config --global push.default 2>/dev/null)
         if [ "$push_def" = 'simple' ]
@@ -2772,6 +2992,7 @@ git-get-default-remote ()
         fi
     fi
 }
+safe_func_export git-get-default-remote
 
 git-status ()
 {
@@ -2791,7 +3012,13 @@ git-status ()
         git-st-cl --noless --cdok "$@" | grep -v "No files specified"
     ) | less -RE
 }
-alias git-st='git-status '
+safe_func_export git-status
+
+git-st ()
+{
+    git-status "$@"
+}
+safe_func_export git-st
 
 git-get-current-repo-name ()
 {
@@ -2800,6 +3027,7 @@ git-get-current-repo-name ()
 
     git remote -v | grep origin | sed 's|.*/||' | sed 's/ .*//' | sort -u
 }
+safe_func_export git-get-current-repo-name
 
 git-branch-list ()
 {
@@ -2836,6 +3064,7 @@ git-branch-list ()
     fi
 
 }
+safe_func_export git-branch-list
 
 git-logg ()
 {
@@ -2844,15 +3073,17 @@ git-logg ()
 
     git log --all --graph --pretty=format:'%Cred%h%Creset -%d %s (%cr) %C(bold blue)<%an>%Creset' --abbrev-commit --date=relative
 }
+safe_func_export git-logg
 
 git-log-grab-sha ()
 {
-    ##@@ none||none||git-log-grab-sha||Grab a commit from log output. Provide either a number or a sha or both.
+    ##@@ none||none||git-log-grab-sha||Grab a commit from log output. Takes either 1) a sha to start at or 2) a limiting number option that is optionally followed by the sha to start at.
     gitfuncs_audit "$@"
     local args="$@"
     [ -z "$args" ] && args='-1'
-    git log "$args" | grep '^commit' | tail -1 | perl -pe 's/commit\s+//'
+    git log $args | grep '^commit' | tail -1 | perl -pe 's/commit\s+//'
 }
+safe_func_export git-log-grab-sha
 
 git-log-shas-range ()
 {
@@ -2888,6 +3119,7 @@ git-log-shas-range ()
         git --no-pager log $opt_add_names -1 ${1}    ## Always prints the first one
     fi
 }
+safe_func_export git-log-shas-range
 
 git-restore ()
 {
@@ -2898,12 +3130,14 @@ git-restore ()
     echo "the prior version of the file you want to revert to."
     echo "Then execute 'git checkout sha the/file/to/revert'."
 }
+safe_func_export git-restore
 
 git-revert ()
 {
     ##@@ none||none||git-revert||revert to the latest unmodified version on the current branch, losing any modifications.
     git checkout -- "$@"
 }
+safe_func_export git-revert
 
 git-find-deleted ()
 {
@@ -2912,6 +3146,7 @@ git-find-deleted ()
 
     git rev-list -n 1 HEAD -- "$1"
 }
+safe_func_export git-find-deleted
 
 git-find-last-existed ()
 {
@@ -2920,16 +3155,18 @@ git-find-last-existed ()
 
     git rev-list -n 1 $(git-find-deleted "$1")^ -- "$1"
 }
+safe_func_export git-find-last-existed
 
-git-checkout-last-existed()
+git-checkout-last-existed ()
 {
     ##@@ none||none||git-checkout-last-existed||Find the revision in which the given file last existed and check it out
     gitfuncs_audit "$@"
 
     git checkout $(git-find-last-existed "$1") "$1"
 }
+safe_func_export git-checkout-last-existed
 
-git-to-stdout-last-existed()
+git-to-stdout-last-existed ()
 {
     ##@@ none||none||git-checkout-last-existed||Find the revision in which the given file last existed and print to stdout (or file.uuid if --file specified).
     gitfuncs_audit "$@"
@@ -2945,6 +3182,7 @@ git-to-stdout-last-existed()
         git-to-stdout $file $(git-find-last-existed "$f") "$f"
     done
 }
+safe_func_export git-to-stdout-last-existed
 
 git-root ()
 {
@@ -2955,6 +3193,7 @@ git-root ()
 
     return $?
 }
+safe_func_export git-root
 
 git-gui ()
 {
@@ -2963,8 +3202,13 @@ git-gui ()
 
     git gui "$@" &
 }
+safe_func_export git-gui
 
-alias gitgui='git-gui '
+gitgui ()
+{
+    git-gui "$@"
+}
+safe_func_export gitgui
 
 git-pull-with-checkpoint ()
 {
@@ -2974,6 +3218,7 @@ git-pull-with-checkpoint ()
     git log -1 > $(git-root).git-pull-checkpoint
     git pull "$@"
 }
+safe_func_export git-pull-with-checkpoint
 
 git-diff-to-checkpoint ()
 {
@@ -2984,6 +3229,8 @@ git-diff-to-checkpoint ()
     local newid=$(git log -1 | head -1 | sed 's/commit//')
     git diff $oldid $newid
 }
+safe_func_export git-diff-to-checkpoint
+
 
 git-to-stdout-usage ()
 {
@@ -2993,6 +3240,7 @@ git-to-stdout-usage ()
     echo '       from the repo root, not current directory. If --file'
     echo '       is specified, then write to file to objectname.uuid instead'
 }
+safe_func_export git-to-stdout-usage
 
 git-to-stdout ()
 {
@@ -3034,6 +3282,7 @@ git-to-stdout ()
         fi
     done
 }
+safe_func_export git-to-stdout
 
 git-merge-pull-request-usage ()
 {
@@ -3056,6 +3305,11 @@ Usage: $cmd $protocolarg tgtnamespace/tgtrepo/tgtbranch srcnamespace/srcrepo/src
        $cmd $protocolarg --upstream srcbranch
        $cmd $protocolarg --upstream
        $cmd $protocolarg
+
+       Other options:
+           --verbose - prints blow-by-blow action descriptions
+           --keep    - unconditionally keep (do not ask about)
+                       the target clone
 
        Merge the branch from the 'src' into the 'tgt'.
 
@@ -3094,6 +3348,7 @@ Usage: $cmd $protocolarg tgtnamespace/tgtrepo/tgtbranch srcnamespace/srcrepo/src
 EOUSAGE
 
 }
+safe_func_export git-merge-pull-request-usage
 
 git-merge-pull-request ()
 {
@@ -3104,9 +3359,10 @@ git-merge-pull-request ()
     local spoofing=$?
 
     local protocol=$1;shift
-    if [ -z "${gitfuncs_gitsvcs[$protocol]}" ]
+    local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
+    if [ -z "$protocol_url" ]
     then
-        func-echo "$protocol is unknown. Valid protocols are:${!gitfuncs_gitsvcs[@]}"
+        echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
         return $NOT_OK
     fi
 
@@ -3115,7 +3371,8 @@ git-merge-pull-request ()
 
     local opt_help=0
     local opt_verbose=0
-    OPTSARGS=$(getoptp -o vh --long verbose,help -n $FUNCNAME -- "$@")
+    local opt_keep=0
+    OPTSARGS=$(getoptp -o vhk --long verbose,help,keep -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && return $status
 
@@ -3124,6 +3381,7 @@ git-merge-pull-request ()
     do
         case "$1" in
             -h|--help) $usage_func $iam $usage_arg ; return $OK;;
+            -k|--keep) opt_keep=1; shift ;;
             -v|--verbose) opt_verbose=1; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
@@ -3132,7 +3390,6 @@ git-merge-pull-request ()
 
     local tgtarg=$1
     local srcarg=$2
-
     local inamespace=0
     local irepo=1
     local ibranch=2
@@ -3148,8 +3405,9 @@ git-merge-pull-request ()
         current_branch_delete=$(pwd)
     fi
 
-    ## github web interface shows merge source as 'user:branch'. We fix this up
-    ## as 'user/tgtrepo/branch' and all our parsing further along 'just works' (but see below).
+    ## Public and enterprise github web interfaces show merge source as
+    ## 'user:branch'. We fix this up as 'user/tgtrepo/branch' and all our
+    ## parsing further along 'just works' (but see below).
     srcarg="${srcarg/:/\/-\/}"
 
     ## if there are no slashes in the src, we assume it's just a branch. We fix
@@ -3198,7 +3456,6 @@ git-merge-pull-request ()
             return $NOT_OK
         fi
     fi
-
     ((opt_verbose)) && func-echo --head "Clone $protocol:${tgt[$inamespace]}/${tgt[$irepo]}..."
     ${protocol}-clone ${tgt[$inamespace]} ${tgt[$irepo]}
     local status=$?
@@ -3295,7 +3552,12 @@ git-merge-pull-request ()
             git-merge-find $sha
 
             ## Cleanup the tmp repo used for the merge.
-            resp=$(func-yesno "Remove local tgt repo ($tgt_repo_dir)")
+            if ((opt_keep))
+            then
+                resp=n
+            else
+                resp=$(func-yesno "Remove local tgt repo ($tgt_repo_dir)")
+            fi
             if [ "$resp" = 'y' ]
             then
                 git-delete-current-repo
@@ -3314,16 +3576,20 @@ git-merge-pull-request ()
                 ## probably need to do something in it, so we stay.
             fi
 
-            ## If wwe started out in a repo corresponding to the merged branch,
+            ## If we started out in a repo corresponding to the merged branch,
             ## go back and whack it.
             if [ -n "$current_branch_delete" ]
             then
-                _git_cd_go $current_branch_delete
-                git_inside_worktree
-                if [ $? = $TRUE ]
+                _git_cd_to $current_branch_delete
+                git-inside-worktree
+                local status=$?
+                if [ "$status" = "$TRUE" ]
                 then
-                    git-delete-current-worktree
+                    git-delete-current-worktree --schedule 24
                 else
+                echo "***************** current branch delete ***************"
+                echo " $(pwd) "
+                    pause Going to run git-delete-current-rep
                     git-delete-current-repo
                 fi
             fi
@@ -3340,13 +3606,26 @@ git-merge-pull-request ()
     fi
     _git_cd_unwind && return $retval
 }
+safe_func_export git-merge-pull-request
 
-alias git-merge-pr='git-merge-pull-request '
+git-merge-pr ()
+{
+    git-merge-pull-request "$@"
+}
+safe_func_export git-merge-pr
+
+git-merge-write-usage ()
+{
+    echo "Usage: git-merge-write sha protocol tgtorg tgtrepo tgtbranch srcorg srcrepo srcbranch [merged-by]"
+}
+safe_func_export git-merge-write-usage
 
 git-merge-write ()
 {
     ##@@ none||none||git-merge-write||
     gitfuncs_audit "$@"
+
+    [ -z "$1" ] && git-merge-write-usage && return 1
 
     local sha=$1;shift
     local protocol=$1;shift;
@@ -3364,12 +3643,14 @@ git-merge-write ()
     local merge_audit_key_by_src="merge-pr-by-src.${protocol}--${src[0]}--${src[1]}--${src[2]}.${protocol}--${tgt[0]}--${tgt[1]}--${tgt[2]}"
     git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_src" "$merge_audit_value"
 }
+safe_func_export git-merge-write
 
 git-merge-find-usage ()
 {
     echo "Usage: git-merge-find-usage ..."
     echo "       TBD"
 }
+safe_func_export git-merge-find-usage
 
 git-merge-find ()
 {
@@ -3441,7 +3722,7 @@ if ($tag eq q(merge-pr-by-tgt)) {
              qq(    to $tgtparts[0]:$tgtparts[1]/$tgtparts[2]:$tgtparts[3]),
              qq(    on $date));
     push @m, qq(    by $who) if ($who ne $me);
-    push @m, qq();
+    push @m, qq ();
 
     push @out, {
         d => $date,
@@ -3455,20 +3736,24 @@ END {
         return $OK
     fi
 }
+safe_func_export git-merge-find
 
 git-merge-find-branch ()
 {
 
     git config -f ~/.gitconfig.merge_audit --list | grep "$@"
 }
+safe_func_export git-merge-find-branch
 
-git-meta ()
+git-branch-info ()
 {
-    ##@@ none||none||git-meta||Read or write meta information for a branch
+    ##@@ none||none||git-branch-info||Read, write or delete meta information for a branch
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
     local branch=$(git rev-parse --abbrev-ref HEAD)
-    OPTSARGS=$(getoptp -o b: --long branch: -n $FUNCNAME -- "$@")
+    local timestamp=''
+    local delete=0
+    OPTSARGS=$(getoptp -o b:tdu --long branch:,timestamp,delete,unset -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -3477,29 +3762,47 @@ git-meta ()
     do
         case "$1" in
             --branch|-b) branch=$2; shift; shift;;
+            --timestamp|-t) timestamp="[$(date)]"; shift;;
+            --delete|-d|--unset|-u) delete=1; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
     done
 
+    local get_option='--get'
+    local full_key="branch.${branch}"
     local key=$1
-    if [ -z "$key" ]
+    if [ -n "$key" ]
     then
-        echo Need a key to save
-        return $NOT_OK
+        full_key="${full_key}.${key}"
+    elif ((delete))
+    then
+        echo "Cannot delete without an exact key to match on"
+        return 1
+    else
+        get_option='--get-regexp'
     fi
 
-    shift
-
+    shift ## $@ is now the value if writing. All spaces will be converted to
+          ## %20.
     if [ -z "$1" ]
     then
-        ## Read existing key
-        git config --get "branch.${branch}.${key}" | perl -pe 's/%20/ /g'
+        if((delete))
+        then
+            ## Remove existing key
+            git config --unset $full_key
+        else
+            ## Read existing key
+            git config $get_option $full_key | \
+                perl -pe 's/%20/ /g' | \
+                sort
+        fi
     else
         local value=$(echo $@ | perl -pe 's/\s/%20/g')
-        git config "branch.${branch}.${key}" "$value"
+        git config $full_key "${timestamp}$value"
     fi
 }
+safe_func_export git-branch-info
 
 git-st-ext ()
 {
@@ -3508,13 +3811,16 @@ git-st-ext ()
 
     if [ -n "$1" ]
     then
-        git-meta local-status "$(date):" "$@"
+        git-branch-info --timestamp local-status "$@"
     else
-        git-meta local-status
+        git-branch-info local-status
+        local gmdw=$(git-branch-info delete-worktree)
+        [ -n "$gmdw" ] && echo "Worktree scheduled for removal on or after $( date --date=@$gmdw)"
         git-merge-find
-        git-meta-pull-request
+        git-branch-info-pull-request
     fi
 }
+safe_func_export git-st-ext
 
 git-st-ext-all ()
 {
@@ -3529,16 +3835,18 @@ git-st-ext-all ()
         )
     done
 }
+safe_func_export git-st-ext-all
 
 git-delete-current-repo ()
 {
     ##@@ none||none||git-delete-current-repo||
     gitfuncs_audit "$@"
 
-    git-parse-remove-v
+    git-parse-remote-v
     git-delete-repo $(echo ${gitfuncs_remotes[origin]} | tr '[/:]' '[  ]')
     return $?
 }
+safe_func_export git-delete-current-repo
 
 git-rebase-log ()
 {
@@ -3580,13 +3888,18 @@ git-rebase-log ()
         fi
 
         ## Get the next log
-        rebase_sha=$(git-log-grab-sha $rebase_sha -2)
+        rebase_sha=$(git-log-grab-sha -2 $rebase_sha)
     done
-
 }
-alias git-log-rebase='git-rebase-log '
+safe_func_export git-rebase-log
 
-_git_cd_go ()
+git-log-rebase ()
+{
+    git-rebase-log "$@"
+}
+safe_func_export git-log-rebase
+
+_git_cd_to ()
 {
     local tgt=$(realpath $1)
     local src=$(pwd)
@@ -3595,6 +3908,7 @@ _git_cd_go ()
     return $?
 
 }
+safe_func_export _git_cd_to
 
 _git_cd_return ()
 {
@@ -3604,6 +3918,7 @@ _git_cd_return ()
     [ -n "$tgt" ] && builtin cd $tgt
     return $?
 }
+safe_func_export _git_cd_return
 
 ## Express to the top of the stack
 _git_cd_unwind ()
@@ -3617,6 +3932,7 @@ _git_cd_unwind ()
     fi
     return $?
 }
+safe_func_export _git_cd_unwind
 
 git-retimestamp ()
 {
@@ -3627,33 +3943,67 @@ git-retimestamp ()
     then
         verbose=1
     fi
+
+    ## Get the files
+    declare -A gitfiles
     for i in $(git ls-files)
     do
-        if [ -z "$(git-is-modified | grep -E "^${i}$")" ]
+        gitfiles[$i]=1
+    done
+
+    ## Remove any that are currently modified
+    local msgd=''
+    for i in $(git-is-mod)
+    do
+        if [ -z "$msgd" ]
         then
-            local gitdate=$(git log --date=iso --name-only -1 $i | grep Date | perl -pe 's/Date:\s+//')
-            local filedate=$(stat -c %y $i)
-            if [ ! "$filedate" = "$gitdate" ]
+            msgd=1
+            if ((verbose==0))
             then
-                if ((verbose))
+                echo Will not consider modified files
+            else
+                echo Will not consider the following modified files:
+            fi
+        fi
+        ((verbose)) && echo $i
+        unset gitfiles[$i]
+        [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
+    done
+
+    ## Parse the log
+    local gitdate
+    date > /tmp/get-retimestamp.log
+    git log  --date=iso --name-only | \
+        while read -r i;
+        do
+            if [ -z "$i" ]
+            then
+                noop=1
+            elif [[ $i =~ Date: ]]
+            then
+                gitdate=$(echo $i | sed -E 's/Date:\s+//')
+            elif [ -n "${gitfiles[$i]}" ]
+            then
+                echo "gitfiles[$i] => ${gitfiles[$i]}" >> /tmp/get-retimestamp.log
+                unset gitfiles[$i]
+                [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
+                local filedate=$(stat -c %y $i | sed 's/\.[0-9]+//')
+                if [ ! "$filedate" = "$gitdate" ]
                 then
-                    echo
-                    echo $i...
-                    ls -la $i
-                fi
-                touch -d "$gitdate" $i
-                if ((verbose))
-                then
-                    ls -la $i
+                    if ((verbose))
+                    then
+                        echo
+                        echo $i...
+                        ls -la $i
+                    fi
+                    touch -d "$gitdate" $i
+                    if ((verbose))
+                    then
+                        ls -la $i
+                    fi
                 fi
             fi
-        elif ((verbose))
-        then
-            echo
-            echo -n "Not touching $i: "
-            git st --short $i
-        fi
-    done
+        done
 }
 safe_func_export git-retimestamp
 
@@ -3705,8 +4055,7 @@ index and the working tree right after creating the orphan branch by running
 ready to prepare your new files, repopulating the working tree, by copying them
 from elsewhere, extracting a tarball, etc.
 }
-alias git-create-orphan-branch=''git_create_orphan_branch ''
-
+safe_func_export git_create_orphan_branch
 '
 
 git-create-patches ()
@@ -3721,85 +4070,145 @@ git-create-patches ()
     fi
     local patchdir=$1
     [ -z "$patchdir" ] && patchdir="./patches_dir"
-    patchdir=$(realpath $patchdir)
-    if [ ! -d $patchdir ]
+    patchpath=$(realpath $patchdir)
+    if [ ! -d $patchpath ]
     then
-        mkdir $patchdir || return $?
+        mkdir $patchpath || return $?
     fi
+    echo "Creating patches from repo inception"
     local patchlist=$(mktemp --suffix=.git-create-patches)
-    local lp=$(git-root)/last_patched
-    local lpsha
-    if [ -r $lp ]
-    then
-        lpsha=$(cat $lp)
-        echo Creating patches for commits after $lpsha:
-        git log ${lpsha}..HEAD
-        patcharg=$lpsha
-    else
-        echo Creating patches from repo inception
-        patcharg='--root origin'
-    fi
-    git format-patch -o $patchdir --full-index $patcharg | tee $patchlist
+    git format-patch -o $patchpath --full-index --root | tee $patchlist
     local newsha=$(git-log-grab-sha -1)
-    local restorescript=$patchdir/restore
+    local restorescript=$patchpath/restore.${newsha}
+    \rm -f $patchpath/restore.*
     if [ -s $patchlist ]
     then
-        echo "PATCHDIR=$patchdir ## change PATCHDIR at the target
-LAST_PATCHED=$lp
-for i in $(cat $patchlist | PATCHDIR=$patchdir perl -ne 'chomp;s|$ENV{PATCHDIR}|\$PATCHDIR|;print(qq(\\\n$_ ))')
+        echo "## -*- sh -*-
+PATCHPATH=\$(dirname \$(realpath \$0))
+GITREPOROOT=\$(dirname \$PATCHPATH)
+if [ ! -d \$GITREPOROOT/.git ]
+then
+    echo \"Not in a git repo. git init \$GITREPOROOT and re-run\"
+    exit 1
+fi
+last_applied=''
+current_branch=\$(git symbolic-ref HEAD | sed 's!refs\/heads\/!!')
+config_key_root=\"branch.\${current_branch}.lastpatched-\"
+last_applied=\$(git config --get \${config_key_root}patch )
+if [ -z \"\$last_applied\" ]
+then
+  git config --add \${config_key_root}patch 'none'
+  git config --add \${config_key_root}date  'none'
+fi
+patchcount=$(cat $patchlist | wc -l)
+patchnum=0
+restart=\$(realpath \$0).\$(date +%Y%m%d%H%M%S).restart
+restartlink=\$(realpath \$0).restart
+for i in $(cat $patchlist | PATCHPATH=$patchpath perl -ne 'chomp;s|$ENV{PATCHPATH}|\$PATCHPATH|;print(qq(\\\n$_ ))')
 do
-  git am \$i
-  status=\$?
-  [ ! \$status = '0' ] && exit \$status
+  ((patchnum+=1))
+  echo
+  echo \"-- \$patchnum/\$patchcount --\"
+  if [ \"\$i\" \\> \"\$last_applied\" ]
+  then
+    log=\${i}.log
+    (git am \$i; s=\$?; echo \$s) 2>&1 | tee \$log
+    status=\$(tail -1 \$log)
+    if [ ! \$status = '0' ]
+    then
+      cat <<EORESTART > \$restart
+## \$((patchnum-1)) was the last successful patch
+
+## Errors for patch \$patchnum:
+\$(cat \$log | sed 's/^/## /')
+
+## These two mark the failed patch as succeeded:
+git config \${config_key_root}patch \$i;
+git config \${config_key_root}date  \"\\\$(date)\"
+
+## This restarts the process:
+\$0
+EORESTART
+
+      chmod +x \$restart
+      \\rm -f \$restartlink
+      ln -s \$restart  \$restartlink
+
+      cat <<EORESTART | tee -a \$restart
+
+## The error log has been retained in
+##    \$log
+## and
+##    \$restart
+## which can be accessed by
+##    \$restartlink
+
+## After you have fixed the issue with the appropriate
+## git incantations, restart the patching process by executing
+##    \$restartlink
+
+## The 'appropriate git incantations'1 can be one of two sets of actions:
+
+## THESE ACTIONS HAVE BEEN CONFIRMED TO WORK:
+
+## o Apply ALL the edits in the patch file by hand. It
+##   appears that patch application is an all or nothing
+##   proposition; if one or more fails, the good ones
+##   are not applied.
+## o git add all modified files
+## o git am --continue to commit the adds and make the
+##   commit entry.
+
+## THESE ACTIONS HAVE **NOT** BEEN CONFIRMED TO WORK:
+
+## o Rollback the patch with git am --abort
+## o Apply ONLY the FAILED edits in the failed patch by hand.
+## o Remove the failed patch and its index entry (at the top
+##   of the patch file) from the patch file.
+## o Reapply the patch file with git am.
+##
+## These actions should relieve you of having to execute
+## the good patches by hand.
+
+## Either way once you have either reapplied or skipped the
+## patch, execute
+##    \$restartlink
+## in order to continue with the next patch.
+##
+EORESTART
+
+      exit \$status
+    else
+      \\rm -f \$log
+    fi
+    git config \${config_key_root}patch \$i
+    git config \${config_key_root}date  \"\$(date)\"
+    read -p 'Return to continue, CTRL-C to exit'
+  else
+    echo \"\$i <= \$last_applied, skipping\"
+  fi
 done
-    echo $newsha > \$LAST_PATCHED
 " > $restorescript
         chmod a+rwx $restorescript
-        echo "Use '$restorescript' to apply patches."
+        local sharfile=$(git-root)/$(basename $(git-root)).shar
+        shar -o $sharfile $patchdir
+        echo "1 - Copy ${sharfile}* to the git root of the target."
+        echo "2 - $ unshar $(basename $sharfile)*"
+        echo "3 - $ cd $patchdir"
+        echo "4 - $ ./$(basename $restorescript)"
     else
         \rm -f $restorescript
         echo "No patches to apply."
     fi
 }
-
-git-show-last-patched ()
-{
-    ##@@ none||none||git-show-last-patched||
-    gitfuncs_audit "$@"
-
-    if [ -r $(git-root)/last_patched ]
-    then
-        local back=$1
-        [ -z "$back" ] && back=-1
-        git log $back $(cat $(git-root)/last_patched)
-        return $OK
-    else
-        echo $(git-root)/last_patched not found
-        return $NOT_OK
-    fi
-}
-
-git-init-last-patched ()
-{
-    ##@@ none||none||git-init-last-patched||
-    gitfuncs_audit "$@"
-
-    local sha=$1
-    if [ -z "$sha" ]
-    then
-        sha=$(git-log-grab-sha -1)
-    fi
-    echo $sha > $(git-root)/last_patched
-    git-show-last-patched
-}
-alias git-set-last-patched='git-init-last-patched '
+safe_func_export git-create-patches
 
 git-post-new ()
 {
     ##@@ none||none||git-post-new||
     gitfuncs_audit "$@"
 
-    func-echo 'Making a changelog file'
+    func-echo "Making a $GITFUNCS_CHANGELOG_NAME file"
     touch $(git-root)/$GITFUNCS_CHANGELOG_NAME
 
     if [ "$1" = '-t' ]
@@ -3808,16 +4217,18 @@ git-post-new ()
         git-retimestamp
     fi
 }
+safe_func_export git-post-new
 
 git-in-a-repo ()
 {
     git-root 2>/dev/null 1>&2
     return $?
 }
+safe_func_export git-in-a-repo
 
-git-meta-pull-request ()
+git-branch-info-pull-request ()
 {
-    ##@@ none||none||git-meta||Read or write pull request information for a branch
+    ##@@ none||none||git-branch-info||Read or write pull request information for a branch
     gitfuncs_audit "$@"
     local usage_func="${FUNCNAME}-usage"
     local branch=$(git rev-parse --abbrev-ref HEAD)
@@ -3835,17 +4246,24 @@ git-meta-pull-request ()
         esac
     done
 
-    git-meta --branch $branch pull-request "$1"
+    git-branch-info --branch $branch pull-request "$1"
 }
+safe_func_export git-branch-info-pull-request
 
 git-diff-two-repos-on-disk ()
 {
-    ##@@ none||none||git-meta||
+    ##@@ none||none||git-diff-two-repos-on-disk||
     gitfuncs_audit "$@"
 
     local -A repo
-    repo[this]=$(pwd)
-    repo[other]=$(realpath $1)
+    if [ -n "$2" ]
+    then
+        repo[this]=$(realpath $1)
+        repo[other]=$(realpath $2)
+    else
+        repo[this]=$(pwd)
+        repo[other]=$(realpath $1)
+    fi
 
     if [ ${repo[this]} = ${repo[other]} ]
     then
@@ -3900,15 +4318,53 @@ git-diff-two-repos-on-disk ()
         ls -lart $edit
     fi
 }
+safe_func_export git-diff-two-repos-on-disk
+
+git-pull-usage ()
+{
+    cat <<EOUSAGE
+Usage: git-pull [-t]
+       git pull followed by a descriptinve git status.
+
+       -t resets the timestamps on the pulled files
+          to their original commit times
+EOUSAGE
+}
+safe_func_export git-pull-usage
 
 git-pull ()
 {
-    ##@@ none||none||git-pull||Show log state after pull
+    ##@@ none||none||git-pull||Show log state after pull. -t to invoke timestamp fixer.
     gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
+
+    local opt_t=0
+    OPTSARGS=$(getoptp -o th --long timestamp,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func ${FUNCNAME} && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -t|--timestamp) opt_t=1; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
+        esac
+    done
+
     local oldsha=$(git-log-grab-sha -1)
     git pull
+    if ((opt_t))
+    then
+        func-echo "Setting timestamps..."
+        git-retimestamp
+        func-echo Done
+    fi
     git-log-shas-range -f "pre-pull:" $oldsha $(git-log-grab-sha -1)
 }
+safe_func_export git-pull
 
 git-regressive-diffs ()
 {
@@ -3930,3 +4386,219 @@ done
 diff $older $newer
 EOF
 }
+safe_func_export git-regressive-diffs
+
+git-rename-worktree-usage ()
+{
+    echo "Usage: git-rename-worktree old_worktree new_worktree"
+    echo "       where new_worktree will live in the same"
+    echo "       directory as the old_worktree. Primarily"
+    echo "       used when renaming the branch that the worktree"
+    echo "       corresponds to."
+}
+safe_func_export git-rename-worktree-usage
+
+git-rename-worktree ()
+{
+    ##@@ none||none||git-rename-worktree||
+    gitfuncs_audit "$@"
+
+    local usage_func="${FUNCNAME}-usage"
+
+    if (($#!=2))
+    then
+        $usage_func
+        return $NOT_OK
+    fi
+
+    local status
+    local old_worktree_path=$(realpath $1)
+    local old_worktree=$(basename $1)
+    shift
+    local new_worktree=$1
+    shift
+    if [ ! $(basename $new_worktree) = $new_worktree ]
+    then
+        func-echo "Cannot move out of parent directory"
+        return $NOT_OK
+    fi
+
+    if (($#))
+    then
+        $usage_func
+        echo "       argument(s) '$*' are illegal"
+        return $NOT_OK
+    fi
+
+    local new_worktree_path=$(dirname $old_worktree_path)/$new_worktree
+    _git_cd_to $old_worktree_path
+    local cb=$(git-get-current-branch)
+    if [ "$cb" = "$old_worktree" ]
+    then
+        func-echo "Renaming branch first..."
+        git-rename-branch $old_worktree $new_worktree
+        status=$?
+        if ((status != $OK ))
+        then
+            _git_cd_unwind
+            return $NOT_OK
+        fi
+    fi
+
+    ## Get the metadata directory for this worktree
+    local metadatadir=$(cat .git | grep -E '^gitdir:' | sed 's/.* //')
+
+    ## Get the metadata files for this worktree
+    local heregit=$(pwd)/.git
+    local theregit=${metadatadir}/gitdir
+
+    ## Change the metadata files
+    perl -pi e "s/$old_worktree/$new_worktree/g" $heregit $theregit \
+        || return $NOT_OK
+
+    ## Move the metadata dir
+    local newmetadatadir=$(dirname $metadatadir)/$new_worktree
+    mv $metadatadir $newmetadatadir || return $NOT_OPK
+
+    ## Move us
+    _git_cd_to ..
+    mv $old_worktree_path $new_worktree_path || return $NOT_OPK
+
+    ## Clean up stuff
+    git-go-set
+
+    ## Go to new worktree
+    builtin \cd $new_worktree_path
+    return $?
+}
+safe_func_export git-rename-worktree
+
+git-worktree-rename ()
+{
+    git-rename-worktree "$@"
+}
+safe_func_export git-worktree-rename
+
+git-grep ()
+{
+    ##@@ none||none||git-grep||
+    gitfuncs_audit "$@"
+
+    local copt
+    local cnum
+    local edit=0
+    declare -a args
+    while (($#))
+    do
+        if [ "$1" = '-C' ]
+        then
+            ## Window around match
+            copt=$1;shift;
+            cnum=$1;shift
+        elif [ "$1" = '--edit' ]
+        then
+            edit=1;shift
+        else
+            apush args "$1"; shift;
+        fi
+    done
+
+    if [ -n "$copt" ]
+    then
+        git grep -l "${args[@]}" | xargs grep $copt $cnum "${args[@]}"
+    elif ((edit))
+    then
+        local found=$(git grep -l "${args[@]}")
+        if [ -n "$found" ]
+        then
+            $EDITOR $found & ## If editor is a screen app, it will start up
+                             ## 'stopped' in background.
+        else
+            echo 'No files to edit'
+        fi
+    else
+        git grep "${args[@]}"
+    fi
+}
+safe_func_export git-grep
+
+git-set-triangle-usage ()
+{
+    local cmd=$1;shift
+    local protocol=$1
+    if [ -z "$protocol" ]
+    then
+        protocolarg=$(kvget gitfuncs_gitsvcs $protocol)
+    else
+        protocolarg=''
+    fi
+
+    cat <<EOUSAGE
+Usage: $cmd $protocolarg upstream-namespace namespace repo
+       Changes and adds appropriate entries in local git config such that the
+       triangle workflow is set up between an upstream repo, your fork of that
+       repo, and the current local clone of the fork. We also add our own entry
+       that annotates the fact that we ran this function to accomplish all
+       this.
+EOUSAGE
+}
+
+git-set-triangle ()
+{
+    ##@@ none||none||git-set-triangle||
+    gitfuncs_audit "$@"
+
+    local usage_func="${FUNCNAME}-usage"
+
+    [ -z "$4" ] && $usage_func ${FUNCNAME} && return 1
+
+    local protocolurl=$1
+    local protocolkeycheck=$(kvgetkeys  gitfuncs_gitsvcs | grep -E "^$protocolurl$")
+    if [ -n "$protocolkeycheck" ] ; then
+        echo "Supposed to provide a URL, not a service name. Converting..."
+        protocolurl=$(kvget gitfuncs_gitsvcs $protocolkeycheck)
+        if [ -z "$protocalurl" ]
+        then
+            echo "No url found for protocol '$1'";
+            return 1
+        fi
+    fi
+
+    local upstream_namespace=$2
+    local origin_namespace=$3
+    local repo=$4
+
+    declare -A triangle_workflow
+    triangle_workflow[branch.master.merge]="refs/heads/master"
+    triangle_workflow[branch.master.mergeoptions]="--ff-only"
+    triangle_workflow[branch.master.remote]="upstream"
+
+    triangle_workflow[remote.origin.fetch]="+refs/heads/*:refs/remotes/origin/*"
+    triangle_workflow[remote.origin.url]="${protocol}${origin_namespace}/${repo}"
+    triangle_workflow[remote.pushdefault]="origin"
+    triangle_workflow[remote.upstream.url]="${protocol}${upstream_namespace}/${repo}"
+
+    local key
+    for key in ${!triangle_workflow[@]}
+    do
+        git config --replace-all $key "${triangle_workflow[$key]}" | return $?
+    done
+
+    ## These two are special because they repeat
+    key='remote.upstream.fetch'
+    ## Replace all blows away all $key entries before adding this one
+    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" | return $?
+    ## Now safe to add this one - it won't be duped.
+    git config --add         $key "+refs/notes/*:refs/notes/*" | return $?
+
+    ## We do this last as a marker.
+    git config --replace-all gitfuncs.git-set-triangle.created "$(date +%Y%m%d.%H%M%S%z)"
+}
+safe_func_export git-set-triangle
+
+## No functions below this line.
+
+for external in github
+do
+    . ${GITFUNCS_FILE}.$external
+done

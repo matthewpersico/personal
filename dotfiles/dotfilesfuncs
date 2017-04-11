@@ -50,6 +50,7 @@ _save_dotfile_entry ()
     local tmp=${DOTFILES_MANIFEST}.$$
 
     cp -f $DOTFILES_MANIFEST $tmp
+    link=$(echo $link | sed "s|${HOME}|\${HOME}|")
     echo "dotfiles[$key]=$link" >> $tmp
     mv $tmp $DOTFILES_MANIFEST
     . $DOTFILES_MANIFEST
@@ -102,8 +103,11 @@ adddotfile ()
         echo "Adding to local dotfiles repo. Don't forget to commit and push."
         git add ${fullsrc##$(pwd)/}
 
+        local linkloc=$(dirname $link)
+        local relsrc=${fullsrc#"${linkloc}/"}
         echo "Creating symlink '$link' to $srctype '$fullsrc'"
-        ln -s $fullsrc $link
+        (cd $linkloc
+         ln -s $relsrc $link)
         _save_dotfile_entry $(basename $fullsrc) $link
     fi
     builtin cd -
@@ -203,6 +207,11 @@ makesshconfig ()
         then
             echo '' >> $newconfig
             cat $i >> $newconfig
+            if [[ "$i" == "*.localhost.**" ]]
+            then
+                echo '' >> $newconfig
+                cat $i | sed "s/localhost/$(hostname)/g"  >> $newconfig
+            fi
         fi
     done
     mv $newconfig $config

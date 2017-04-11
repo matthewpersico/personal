@@ -12,8 +12,9 @@ usage ()
 [FOO=BAR [ FOO2=BAR2... ] ] \\
 logit [ --tee ] \\
       [ --log log_basename ] \\
+      [ --notimestamp ] \\
       [ --dir log_directory ] \\
-      [ [--edit ] || [ --edit-on-fail ]] \\
+      [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
       [ --purge | --purgeprior ] \\
       [ -- ] \\
       command [arg ..]
@@ -23,8 +24,14 @@ logit [ --help | -h ]
       --tee    - Spin up a terminal and show the log
                  output in it as it is generated.
 
-      --log    - Provide a name for the log if the command is
-                 generic.
+      --log    - Provide a root name for the log if
+                 the command is generic.
+
+      --notimestamp
+               - Do not add a timestamp to the log name.
+                 Use if the log name provided by --log is
+                 unique or you don't care about overwriting
+                 logs.
 
       --dir    - Put the logs in specifed directory, not
                  current working directory. If not specified
@@ -32,13 +39,19 @@ logit [ --help | -h ]
                  working directory, logs will be placed in './logit'.
 
       --edit   - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
-                 \$EDITOR ($EDITOR) and run the first one found on the
-                 log file when complete.
+                 \$EDITOR ($EDITOR). Run the first one found in order
+                 to edit log file when the command exits.
+
+      --edit-echo -
+                 Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
+                 \$EDITOR ($EDITOR). Echo the command that would have
+                 been generated for --edit. This allows you to decide
+                 whether or not to edit the log.
 
       --edit-on-fail -
                  Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
-                 \$EDITOR ($EDITOR) and run the first one found on the
-                 log file only if command fails.
+                 \$EDITOR ($EDITOR). Run the first one found in order
+                 to edit the log file if the command fails.
 
       --purge  - Remove all similarly named log files before
                  running the command.
@@ -67,12 +80,14 @@ logfile=''
 logdir=''
 teeit=0
 edit=''
+edit_echo=''
 edit_on_fail=''
 purge=''
+notimestamp=''
 original_argv="$0 $@"
 
 # Read the options and args from command line.
-OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,purge,purgeprior,help, -n 'logit' -- "$@")
+OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,help, -n 'logit' -- "$@")
 status=$?
 if ((status != 0))
 then
@@ -106,6 +121,11 @@ while true ; do
             edit="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit="$EDITOR"
             shift ;;
+        --edit-echo)
+            edit_echo=1
+            edit="$LOGIT_EDITOR"
+            [ -z "$edit" ] && edit="$EDITOR"
+            shift ;;
         --edit-on-fail)
             edit_on_fail="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit_on_fail="$EDITOR"
@@ -115,6 +135,9 @@ while true ; do
             shift ;;
         --purgeprior)
             purge=prior
+            shift ;;
+        --notimestamp)
+            notimestamp=1
             shift ;;
         --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
         *) echo "Internal error! You probably forgot to add a -- option between the logit options and the command to run." ; usage 1 ;;
@@ -169,7 +192,11 @@ fi
 [ -z "$logfile" ] && logfile=$(basename $command)
 logfileroot="${logfile}.logit"
 now=$(date +%Y_%m_%dT%H_%M_%S)
-logfile="${logfile}.logit.${now}"
+logfile="${logfile}.logit"
+if [ "$notimestamp" = '' ]
+then
+    logfile="${logfile}.${now}"
+fi
 today=${now%%T*}
 
 if [ -z "$logdir" ]
@@ -270,8 +297,9 @@ fi
     echo
 
     echo "********************"
-    echo "       output"
+    echo "     execution"
     echo "********************"
+    echo "start time: $(date)"
     eval $envs
     $command $cmdargs
     status=$?
@@ -311,7 +339,12 @@ then
 fi
 if [ -n "$editcmd" ]
 then
-    $editcmd $logspec &
-    [ -n "$tailpid" ] && kill $tailpid
+    if [ -n "$edit_echo" ]
+    then
+        echo $editcmd $logspec &
+    else
+        $editcmd $logspec &
+        [ -n "$tailpid" ] && kill $tailpid
+    fi
 fi
 exit $status

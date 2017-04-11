@@ -2,15 +2,23 @@
 # ~/.profile.${USER}
 # Isolates my stuff.
 
+MASTER_SHLBL=$SHLVL
+export MASTER_SHLBL
+
+CRON=$(~/personal/bin/running_under_cron && echo true || echo false)
+
 ##DEBUG:
-~/personal/bin/running_under_cron || echo "$(date): ~/.profile.${USER} is running..."
+$CRON || echo "$(date): ~/.profile.${USER} is running..."
 
 ## How to plug in (monkeypatch) set -x if needed
-[ -e /tmp/profile.mpersico5 ] && . /tmp/profile.mpersico5
+[ -e /tmp/profile.${USER} ] && . /tmp/profile.${USER}
+
+## NFS cross-mount check
 if [ ! "$(basename $SHELL)" = 'bash' ]
 then
     echo "Skipping profile.mpersico5 under '$SHELL'"
-    return 0 ## return ok not in a function because this script is dotted in.
+    return 0 ## return is ok even though this is not a function because this
+             ## script is dotted in.
 fi
 
 shopt -s expand_aliases
@@ -20,14 +28,12 @@ profile_edit ()
 {
     xo $PROFILE_FILE
 }
-#nxport -f profile_edit
 alias profile-edit=profile_edit
 
 profile_reload ()
 {
     . $PROFILE_FILE
 }
-#nxport -f profile_reload
 alias profile-reload=profile_reload
 
 ##
@@ -54,8 +60,6 @@ on_nfs ()
     return $?
 }
 
-CRON=$(~/personal/bin/running_under_cron && echo true || echo false)
-
 funcsinitlist='auditfuncs histfuncs utilfuncs cdfuncs gitfuncs dotfilesfuncs \
   Xfuncs xtermfuncs yumaptfuncs rsyncfuncs perlfuncs'
 
@@ -74,10 +78,18 @@ done
 
 ## Check the personal repo.
 ! $CRON && (cd $PERSONALROOT
-            echo "** Check $(pwd) against master ***"
-            git-check-with-master --bail_on_dirty
-            echo "** Check $(pwd) against itself ***"
-            git status)
+            if [ "$(cat .git-check-with-master.marker 2>/dev/null)" \
+                     \< $(date +%Y%m%d) ]
+            then
+                echo "** Check $(pwd) against master ***"
+                git-check-with-master --bail_on_dirty
+                echo "** Check $(pwd) against itself ***"
+                git status
+                date +Y+m+d > .git-check-with-master.marker
+            else
+                echo "** master/self check of $(pwd) already executed today **"
+            fi
+)
 
 # ALIASES
 
@@ -128,9 +140,9 @@ then
     ##     |        +--+ |          +------+
     ##     |        |    |                 |
     ##     v--------v    v-----------------v
-    PS1='\n[\$? = $?]\n\n\[\e]0;\u@\h:\w\a\]what    : \u@\h\nwhen    : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")$(git-get-default-remote -na "\nremote  : ")\npwd     : \w\n\n\$ '
+    PS1='\n[\$? = $?]\n\n\[\e]0;\u@\h:\w\a\]what    : \u@\h\nwhen    : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")$(git-get-default-remote -na "\nremote  : ")\npwd     : \w\n[$$] \$ '
 else
-    PS1='\n[\$? = $?]\n\nwhat    : \u@\h\nwhen    : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")$(git-get-default-remote -na "\nremote  : ")\npwd     : \w\n\n\$ '
+    PS1='\n[\$? = $?]\n\nwhat    : \u@\h\nwhen    : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")$(git-get-default-remote -na "\nremote  : ")\npwd     : \w\n[$$]\$ '
 fi
 export PS1
 
@@ -145,4 +157,4 @@ EDITOR='vi'
 export EDITOR
 
 ##DEBUG:
-~/personal/bin/running_under_cron || echo "$(date): ~/.profile.${USER} has run"
+$CRON || echo "$(date): ~/.profile.${USER} has run"

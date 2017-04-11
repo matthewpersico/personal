@@ -89,49 +89,27 @@ editor_opt () {
     return $shifts
 }
 
+## Load auditfuncs here so we can audit the utils. We assume that we are all in
+## the same dir.
+current_path=$(dirname ${BASH_SOURCE[0]})
+. $current_path/auditfuncs
+
+## FPATH in bash. Hooray!  Uncomnent after making sure it does not break cron
+## jobs:
+[ -e $current_path/autoloadfuncs ] && . $current_path/autoloadfuncs
+
 # End early defs
 ##################################################################################
 
 UTILFUNCS_FILE=${BASH_SOURCE[0]}
-
-## Load auditfuncs here so we can audit the utils
-
-. $(dirname $UTILFUNCS_FILE)/auditfuncs
-
-
 auditfuncs_init $UTILFUNCS_FILE
 safe_func_export utilfuncs_audit
-
-utilfuncs_edit ()
-{
-    utilfuncs_audit "$@"
-    local editor; editor=$(editor_opt xo "$@"); shift $?
-    $editor $UTILFUNCS_FILE
-}
-safe_func_export utilfuncs_edit
-alias utilfuncs-edit=utilfuncs_edit
-
-utilfuncs_reload ()
-{
-    utilfuncs_audit "$@"
-    . $UTILFUNCS_FILE
-}
-safe_func_export utilfuncs_reload
-alias utilfuncs-reload=utilfuncs_reload
-alias utilfuncs-load=utilfuncs_reload
+. $(dirname $UTILFUNCS_FILE)/controlfuncs_build $UTILFUNCS_FILE
 
 utilfuncs-help () {
     help_strings $UTILFUNCS_FILE "$@"
 }
-
-add_bb ()
-{
-    ##@@ none||none||add_bb||
-    utilfuncs_audit "$@"
-
-    addpath -x -f /bb/bin
-}
-safe_func_export add_bb
+safe_func_export utilfuncs-help
 
 ## 0-as-success is the correct way to return from commands and functions in
 ## UNIX so that the typical 0-success-from-UNIX-commands paradigm "just works"
@@ -181,10 +159,17 @@ OK=$TRUE
 export OK
 NOT_OK=$FALSE
 export NOT_OK
+NOOK=$FALSE
+export NOOK
+NOK=$FALSE
+export NOK
 
-is_int ()
+##############
+## Numerics ##
+##############
+is-int ()
 {
-    ##@@ none||none||is_int||Is an integer. Return 0 if true.
+    ##@@ none||none||is-int||Is an integer. Return 0 if true.
     utilfuncs_audit "$@"
 
     if [[ $1 =~ ^-?[0-9]+$ ]]
@@ -195,27 +180,52 @@ is_int ()
     fi
 
 }
-safe_func_export is_int
+safe_func_export is-int
 
-is_neg ()
+is-neg ()
 {
-    ##@@ none||none||is_neg||Is an integer and is < 0. Return 0 if true.
+    ##@@ none||none||is-neg||Is an integer and is < 0. Return 0 if true.
     utilfuncs_audit "$@"
 
-    is_int $1 && (( $1 < 0 )) && return $(true)
+    is-int $1 && (( $1 < 0 )) && return $(true)
     return $(false)
 }
-safe_func_export is_neg
+safe_func_export is-neg
 
-is_pos ()
+is-pos ()
 {
-    ##@@ none||none||is_pos||Is an integer and is >= 0. Return 0 if true.
+    ##@@ none||none||is-pos||Is an integer and is >= 0. Return 0 if true.
     utilfuncs_audit "$@"
 
-    is_neg $1 && return $(false)
+    is-neg $1 && return $(false)
     return $(true)
 }
-safe_func_export is_pos
+safe_func_export is-pos
+
+###################
+## Interactivity ##
+###################
+STDIN=0;export STDIN
+STDOUT=1;export STDOUT
+STDERR=2;export STDERR
+
+is-interactive ()
+{
+    tty > /dev/null
+    return $?
+}
+safe_func_export is-interactive
+
+is-redirected ()
+{
+    if [ -t $1 ]
+    then
+        return $NOK
+    else
+        return $OK
+    fi
+}
+safe_func_export is-redirected
 
 pause ()
 {
@@ -295,6 +305,666 @@ yesno ()
 }
 safe_func_export yesno
 
+##########################
+## Bash array functions ##
+##########################
+
+## References:
+## http://www.tech-recipes.com/rx/911/queue-and-stack-using-array/
+## http://stackoverflow.com/questions/12691121/bash-array-expansion-using-variable-indirection-expansion
+## http://stackoverflow.com/questions/23819839/assign-to-a-bash-array-variable-indirectly-by-dynamically-constructed-variable
+##     bash 4.3+: use declare -n to effectively create an alias ('nameref') of another variable
+
+bash_current_version_compare()
+{
+    ##@@ none||none||bash_current_version_compare||Compare current bash shell's version against the version in arg1. Return 255, 0, 1 accordingly (because -1 gets foobared in shell).
+    utilfuncs_audit "$@"
+
+    local other_bash_version
+    ## Can't use asplit here - catch 22
+    IFS='.' read -r -a array_alias <<< "$1"
+
+    local i
+    for i in 0 1 2 3
+    do
+        [ -z "${other_bash_version[$i]}" ] && other_bash_version[$i]=0
+        if (( ${BASH_VERSINFO[$i]} < ${other_bash_version[$i]} ))
+        then
+            return 255
+        fi
+        if (( ${BASH_VERSINFO[$i]} > ${other_bash_version[$i]} ))
+        then
+            return 1
+        fi
+    done
+    return 0
+}
+
+bash_current_version_compare 4.3
+comp=$?
+if ((comp==255))
+then
+    echo "Cannot define array and hash functions that use declare -n in bash $BASH_VERSION. Must be >= 4.3"
+else
+## Don't indent off of the else, or else imenu won't find the functions.
+ajoin()
+{
+    ##@@ none||none||ajoin||Print one string that joins arg2, arg3, etc, separated by arg1
+    utilfuncs_audit "$@"
+
+    local IFS="$1"; shift; echo "$*";return $?
+}
+safe_func_export ajoin
+
+asplit_to_stdout ()
+{
+    ##@@ none||none||asplit||Take the single string in arg2, split it by the string in arg1 and print the pieces to stdout. arg1 is NOT a regexp.
+    local tmp
+    ## 'local' not needed for IFS here since it's all one command.
+    IFS="$1" read -r -a tmp <<< "$2"
+    status=$?
+    echo ${tmp[@]}
+    return $status
+}
+safe_func_export asplit_to_stdout
+asplit-to-stdout ()
+{
+    asplit_to_stdout "$@"
+}
+safe_func_export asplit-to-stdout
+
+asplit_to_array ()
+{
+    ##@@ none||none||asplit||Take the single string in arg3, split it by the string in arg2 and stuff it into the array named by arg1. arg2 is NOT a regexp.
+    declare -n array_alias="$1"
+    ## 'local' not needed for IFS here since it's all one command.
+    IFS="$2" read -r -a array_alias <<< "$3"
+    status=$?
+    return $status
+}
+safe_func_export asplit_to_array
+asplit-to-array ()
+{
+    asplit_to_array "$@"
+}
+safe_func_export asplit-to-array
+
+asplit ()
+{
+    ##@@ none||none||asplit||Take the single string in arg3, split it by the string in arg2 and stuff it into the array named by arg1. arg2 is NOT a regexp. If arg1 is '-', then we just print the pieces to stdout.
+    utilfuncs_audit "$@"
+
+    local status
+    if [ "$1" = '-' ]
+    then
+        shift
+        asplit_to_stdout "$@"
+    else
+        asplit_to_array "$@"
+    fi
+    return $?
+}
+safe_func_export asplit
+
+aclear ()
+{
+    ##@@ none||none||asplit||Remove all the elements from the array named in arg1.
+    utilfuncs_audit "$@"
+
+    declare -n array_alias="$1";shift
+    array_alias=()
+    return $(true)
+}
+safe_func_export aclear
+
+aset ()
+{
+    ##@@ none||none||asplit||Set all the elements in the array named in arg1 to the values of arg2, args3, ...
+    utilfuncs_audit "$@"
+
+    declare -n array_alias="$1";shift;
+    array_alias=("$@")
+    return $(true)
+}
+safe_func_export aset
+
+acopy ()
+{
+    ##@@ none||none||asplit||Copy all the values from the array named in arg2 to the array named in arg1. arg1 is not cleared first. Sparse indicies are maintined.
+    utilfuncs_audit "$@"
+
+    declare -n array_alias_tgt="$1";shift;
+    declare -n array_alias_src="$1";shift;
+    for i in ${!array_alias_src[@]}
+    do
+        array_alias_tgt[$i] = "${array_alias_src[$i]}"
+    done
+    return $(true)
+}
+safe_func_export acopy
+
+aindicies ()
+{
+    ##@@ none||none||asplit||Print all the index values of the array named in arg1 to stdout, separated by a space. If the -list option is specified, then print each one on a separate line.
+    utilfuncs_audit "$@"
+
+    local list=0
+    if [ "$1" = '-list' ]
+    then
+        list=1
+        shift;
+    fi
+    declare -n array_alias="$1"
+    if ((list))
+    then
+        for i in ${!array_alias[@]}
+        do
+            echo $i
+        done
+    else
+        echo ${!array_alias[@]}
+    fi
+    return $(true)
+}
+safe_func_export aindicies
+
+avalues ()
+{
+    ##@@ none||none||avalues||Print all the values of the array named in arg1 to stdout, separated by a space. If the -list option is specified, then print each one on a separate line.
+    utilfuncs_audit "$@"
+    local list=0
+    if [ "$1" = '-list' ]
+    then
+        list=1
+        shift;
+    fi
+    declare -n array_alias="$1"
+    if ((list))
+    then
+        for v in ${array_alias[@]}
+        do
+            echo $v
+        done
+    else
+        echo ${array_alias[@]}
+    fi
+    return $(true)
+}
+safe_func_export avalues
+
+aeach ()
+{
+    ##@@ none||none||aeach||Print all the index values and values of the array named in arg1 to stdout. Each index and value is separated by a space. Each pair is printed on a separate line.
+    utilfuncs_audit "$@"
+
+    _listkv "$1"
+    return $?
+}
+safe_func_export aeach
+
+acount ()
+{
+    ##@@ none||none||asplit||Print the number of elements in the array named in arg1 to stdout. This is not necessarily the value of the last index, due to sparseness.
+    utilfuncs_audit "$@"
+
+    declare -n array_alias="$1"
+    echo ${#array_alias[@]}
+    return $(true)
+}
+safe_func_export acount
+
+_listkv ()
+{
+    utilfuncs_audit "$@"
+
+    declare -n array_alias="$1"
+    for i in "${!array_alias[@]}"
+    do
+        printf "%s %s\n" "$i" "${array_alias[$i]}"
+    done
+    return $(true)
+}
+safe_func_export _listkv
+
+asplice ()
+{
+    ##@@ none||none||asplice||arg1 is the name of the array to modify. arg2 is the starting index. arg3 is the number of elements to remove. Removed elements are printed so that they can be captured if --removed is the first argument. Remaining args are what to insert at the removal point.
+    utilfuncs_audit "$@"
+
+    local print_removed=0
+    [ "$1" = '--removed' ] && print_removed=1 && shift
+
+    declare -n array_alias="$1"; shift
+
+    local offset=0; [ -n "$1" ] && offset=$1 && shift
+    (( $offset < 0 )) && ((offset=${#array_alias[@]}+$offset))
+
+    local aal=${#array_alias[@]}
+    local length=$((aal-offset)); [ -n "$1" ] && length=$1 && shift
+
+    local removed=("${array_alias[@]:$offset:$length}")
+    ((print_removed)) && echo ${removed[@]}
+
+    array_alias=("${array_alias[@]:0:$(($offset))}" "$@" "${array_alias[@]:$(($length+$offset))}")
+
+    return $(true)
+}
+safe_func_export asplice
+
+apush ()
+{
+    ##@@ none||none||apush||Append arg2, arg3, etc.. to the end of the array named in arg1.
+    utilfuncs_audit "$@"
+
+    local array_name="$1";shift
+    asplice $array_name $(acount $array_name) 0 "$@"
+    return $?
+}
+safe_func_export apush
+
+apop ()
+{
+    ##@@ none||none||apop||Remove one value from the end of the array named in arg1 and print it.
+    utilfuncs_audit "$@"
+
+    local array_name="$1";shift
+    asplice --removed $array_name -1
+    return $?
+}
+safe_func_export apop
+
+ashift ()
+{
+    ##@@ none||none||ashift||Remove one value from the beginning of the array named in arg1 and print it.
+    utilfuncs_audit "$@"
+
+    local array_name="$1";shift
+    asplice --removed $array_name 0 1
+    return $?
+}
+safe_func_export ashift
+
+aunshift ()
+{
+    ##@@ none||none||apush||Prepend arg2, arg3, etc.. to the beginning of the array named in arg1.
+    utilfuncs_audit "$@"
+
+    local array_name="$1";shift
+    asplice $array_name 0 0 "$@"
+    return $?
+}
+safe_func_export aunshift
+
+########################################
+## Bash hash (assoc. array) functions ##
+########################################
+## References:
+hvalues ()
+{
+    ##@@ none||none||hvalues||Print all the values of the hash named in arg1 to stdout, separated by a space. If the -list option is specified, then print each one on a separate line.
+    utilfuncs_audit "$@"
+
+    local list=0
+    if [ "$1" = '-list' ]
+    then
+        list=1
+        shift;
+    fi
+    declare -n hash_alias="$1";shift
+    if ((list))
+    then
+        for v in ${hash_alias[@]}
+        do
+            echo $v
+        done
+    else
+        echo ${hash_alias[@]}
+    fi
+    return $?
+}
+safe_func_export hvalues
+
+hkeys ()
+{
+    ##@@ none||none||hvalues||Print all the keys of the hash named in arg1 to stdout, separated by a space. If the -list option is specified, then print each one on a separate line.
+    utilfuncs_audit "$@"
+
+    local list=0
+    if [ "$1" = '-list' ]
+    then
+        list=1
+        shift;
+    fi
+    declare -n hash_alias="$1";shift
+    if ((list))
+    then
+        for k in ${!hash_alias[@]}
+        do
+            echo $k
+        done
+    else
+        echo ${!hash_alias[@]}
+    fi
+    return $?
+}
+safe_func_export hkeys
+
+## The perl loop
+##    foreach (my ($k,$v) = each(%hash)) { ...
+## can be had in shell with
+##    heach hash | while read -r k v; do...
+heach ()
+{
+    ##@@ none||none||heach||Print all the keys and values of the array named in arg1 to stdout. Each key and value is separated by a space. Each pair is printed on a separate line.
+    _listkv $1
+    return $?
+}
+safe_func_export heach
+fi ##     echo "Cannot define array functions that use declare -n in bash $BASH_VERSION. Must be >= 4.3"
+
+########################
+## Function functions ##
+########################
+func-name-spoof ()
+{
+    utilfuncs_audit "$@"
+
+    local spoofing=$(false)
+    local iam=${FUNCNAME[1]}
+    if [ -n "${FUNCNAME[2]}" ] && \
+           [ ! "${FUNCNAME[2]}" = 'source' ] && \
+           [ ! "${FUNCNAME[2]}" = 'main' ]
+    then
+        iam="${FUNCNAME[2]}"
+        spoofing=$(true)
+    fi
+    echo $iam
+    return $spoofing
+}
+safe_func_export func-name-spoof
+
+comment-stream ()
+{
+    utilfuncs_audit "$@"
+
+    local comment="$1";shift
+    IFS="$(printf '\n')"
+
+    while read -r line
+    do
+        echo "${comment}$line"
+    done
+    return $(true)
+}
+safe_func_export comment-stream
+
+func-echo ()
+{
+    if [ -n "$FUNC_ECHO_DEBUG" ]
+    then
+        echo
+        echo "----- func-echo -----"
+        for i in $(seq 0 $(((${#FUNCNAME[@]}-1))) )
+        do
+            echo "FUNCNAME[$i]=[${FUNCNAME[$i]}]"
+        done
+        echo "----- func-echo -----"
+        echo
+    fi
+
+    local reset_normal="${ANSI_reset}"
+    local reset_title=''
+    local endofopts=0
+    local nonl
+    local cont=0
+    while [[ "$1" =~ ^- ]] && ((endofopts==0))
+    do
+        case "$1" in
+           --head) echo; shift;;
+           --title)
+               echo
+               reset_title="${reset_normal}"
+               reset_normal=''
+               shift ;;
+           -n | --n) nonl='-n'; shift;;
+           -c | --c) cont=1; shift;;
+           --)
+               endofopts=1;;   ## No shift. Leave this arg in place to be
+                               ## processed later on as arguments to tests.
+           -* )
+               echo "$1 is an invalid option."; exit 1;;
+        esac
+    done
+
+    local idx=${#FUNCNAME[@]};((idx-=1))
+    local funcname=${FUNCNAME[$idx]}
+    [ "${FUNCNAME[$idx]}" = 'main' ] && funcname=$(basename $0)
+
+    local printit=${funcname}
+    if ((cont))
+    then
+        printit=$(echo $funcname | sed 's/./ /g')
+    fi
+    echo $nonl -e "${ANSI_reverse}>>> ${printit}${reset_normal}: $@${reset_title}"
+}
+safe_func_export func-echo
+
+func-pick ()
+{
+    local prompt_text="$(func-echo -n '')$1"
+    shift
+    pick "$prompt_text" "$@"
+}
+safe_func_export func-pick
+
+func-yesno ()
+{
+    local prompt_text="$(func-echo -n '')$1"
+    shift
+    yesno "$prompt_text" "$@"
+}
+safe_func_export func-yesno
+
+#####################
+## Key value store ##
+#####################
+kvstoreinit ()
+{
+    local exists_ok=0
+    local unique=0
+    local reset=0
+    while [[ "$1" =~ ^- ]] && ((endofopts==0))
+    do
+        case "$1" in
+            --exists-ok ) exists_ok=1; shift ;;
+            --unique    ) unique=1; shift ;;
+            --reset     ) reset=1; shift ;;
+            --     ) endofopts=1; shift;;
+            -*     ) echo "$1 is an invalid option."; return 1;;
+        esac
+    done
+
+    if [ ! -d ~/.kvdbs ]
+    then
+        echo Initializing kv storage at ~/.kvdbs
+        mkdir ~/.kvdbs
+    fi
+
+    local db=$1;
+
+    if [ ! "$(basename $db)" = "$db" ]
+    then
+        echo "ERROR - kv store name cannot include directories"
+        return 1
+    fi
+
+    local dbfile=~/.kvdbs/$db
+
+    if [ -e $dbfile ]
+    then
+        if ((reset))
+        then
+            \rm $dbfile
+        elif ((exists_ok))
+        then
+            return 0
+        else
+            echo "ERROR - kv store name $db exists"
+            return 1
+        fi
+    fi
+
+    if ((unique))
+    then
+        ## 'unique' has the use case where multiple processes would need their
+        ## own copies of the database. Instead, we generate a UUID and give it
+        ## back to the caller to pass back into subsequent calls. This is not
+        ## yet implemented in subsequent calls.
+        local u=$(uuid)
+        echo $u
+        sqlite3 $dbfile "create table keyval (uuid text, key text, value text,
+                             primary key (uuid, key)"
+        local status=$?
+        return
+    else
+        sqlite3 $dbfile "create table keyval (key text primary key, value text)"
+        return $?
+    fi
+}
+safe_func_export kvstoreinit
+
+kvget ()
+{
+    _kvgetany "value" "$@"
+    return $?
+}
+safe_func_export kvget
+
+kvgetvalues ()
+{
+    _kvgetany "value" "$@"
+    return $?
+}
+safe_func_export kvgetvalues
+
+kvgetkeys ()
+{
+    _kvgetany "key" "$@"
+    return $?
+}
+safe_func_export kvgetkeys
+
+kvgetboth ()
+{
+    _kvgetany "key,value" "$@"
+    return $?
+}
+safe_func_export kvgetboth
+
+_kvgetany ()
+{
+    local columns=$1; shift
+
+    local endofopts=0
+    local sort=''
+    local where=''
+    local separator=''
+    while [[ "$1" =~ ^- ]] && ((endofopts==0))
+    do
+        case "$1" in
+            --sort ) sort='order by 1'; shift ;;
+            --rev* ) sort='order by 1 desc'; shift ;;
+            --sep* ) separator="--separator $2"; shift; shift ;;
+            --     ) endofopts=1; shift;;
+            -*     ) echo "$1 is an invalid option."; return 1;;
+        esac
+    done
+
+    local db=$1; shift
+
+    local dbfile=~/.kvdbs/$db
+
+    if [ ! -e $dbfile ]
+    then
+        echo "ERROR - kv store name $db does not exist"
+        return 1
+    fi
+
+    local key="$1"; shift
+    local where=''
+
+    [ -n "$key" ] && where="where key like '$key'" ## These databases should be
+                                                   ## small enough that using
+                                                   ## like in all cases will be
+                                                   ## fast enough. Maybe the
+                                                   ## SQL engine will convert a
+                                                   ## like with no wildcards to
+                                                   ## an equal anyway.
+
+    sqlite3 --noheader $separator $dbfile "select $columns from keyval $where $sort"
+
+    return $?
+}
+safe_func_export _kvgetany
+
+kvput ()
+{
+    ## Insert if DNE, update if it does.
+    local db=$1; shift
+    local dbfile=~/.kvdbs/$db
+
+    if [ ! -e $dbfile ]
+    then
+        echo "ERROR - kv store name $db does not exist"
+        return 1
+    fi
+
+    local key="$1"; shift
+
+    sqlite3 --noheader $dbfile \
+            "update keyval
+             set key = '$key', value = '$@'
+             where key = '$key';
+
+             insert into keyval (key, value)
+             select '$key', '$@'
+             where (Select Changes() = 0)"
+    return $?
+}
+safe_func_export kvput
+
+kvputinit ()
+{
+    ## Put if DNE, ok if exists and same, bark if exists and different.
+    local db=$1; shift
+    local dbfile=~/.kvdbs/$db
+
+    if [ ! -e $dbfile ]
+    then
+        echo "ERROR - kv store name $db does not exist"
+        return 1
+    fi
+
+    local key="$1"; shift
+
+    local value=$(sqlite3 --noheader $dbfile "select value from keyval where key = '$key'");
+    if [ "$value" = "$@" ]
+    then
+        return 0
+    elif [ -z "$value" ]
+    then
+        sqlite3 --noheader $dbfile "insert into keyval values ('$key', '$@')"
+        return $?
+    else
+        echo "ERROR - kvputinit. Key = '$key'. Init value '$@' does not match existing value '$value'"
+        return 1
+    fi
+}
+safe_func_export kvputinit
+
+###################
+## Miscellaneous ##
+###################
 dowhich ()
 {
     ##@@ none||none||dowhich||Find the executable and then run it with any args.
@@ -381,13 +1051,19 @@ tarcopy ()
     return $(true)
 }
 safe_func_export tarcopy
-alias tarcp='tarcopy '
+tarcp ()
+{
+    tarcopy
+}
+safe_func_export tarcp
 
 list ()
 {
     ##@@ none||none||list||Print each argument on its own line.
     utilfuncs_audit "$@"
 
+    ## Don't use echo "$@" | tr ' ' '\n'; it will not respect spaces inside of
+    ## an argument.
     for i in "$@"
     do
         echo $i
@@ -442,348 +1118,11 @@ tail_number_strip ()
 }
 safe_func_export tail_number_strip
 
-##
-## Bash array functions
-##
-
-## References:
-## http://www.tech-recipes.com/rx/911/queue-and-stack-using-array/
-## http://stackoverflow.com/questions/12691121/bash-array-expansion-using-variable-indirection-expansion
-## http://stackoverflow.com/questions/23819839/assign-to-a-bash-array-variable-indirectly-by-dynamically-constructed-variable
-##     bash 4.3+: use declare -n to effectively create an alias ('nameref') of another variable
-
-bash_current_version_compare()
-{
-    ##@@ none||none||bash_current_version_compare||Compare current bash shell's version against the version in arg1. Return 255, 0, 1 accordingly (because -1 gets foobared in shell).
-    utilfuncs_audit "$@"
-
-    local other_bash_version
-    ## Can't use asplit here - catch 22
-    IFS='.' read -r -a array_alias <<< "$1"
-
-    local i
-    for i in 0 1 2 3
-    do
-        [ -z "${other_bash_version[$i]}" ] && other_bash_version[$i]=0
-        if (( ${BASH_VERSINFO[$i]} < ${other_bash_version[$i]} ))
-        then
-            return 255
-        fi
-        if (( ${BASH_VERSINFO[$i]} > ${other_bash_version[$i]} ))
-        then
-            return 1
-        fi
-    done
-    return 0
-}
-
-bash_current_version_compare 4.3
-comp=$?
-if ((comp==255))
-then
-    echo "Cannot define array functions that use declare -n in bash $BASH_VERSION. Must be >= 4.3"
-else
-
-## Don't indent or else imenu won't find the functions.
-ajoin()
-{
-    ##@@ none||none||ajoin||Print one string of arg2, arg3, etc, separated by arg1
-    utilfuncs_audit "$@"
-
-    local IFS="$1"; shift; echo "$*";return $?
-}
-safe_func_export ajoin
-
-asplit_to_stdout ()
-{
-    local tmp
-    ## 'local' not needed for IFS here since it's all one command.
-    IFS="$2" read -r -a tmp <<< "$3"
-    status=$?
-    echo ${tmp[@]}
-    return $status
-}
-
-asplit_to_array ()
-{
-    declare -n array_alias="$1"
-    ## 'local' not needed for IFS here since it's all one command.
-    IFS="$2" read -r -a array_alias <<< "$3"
-    status=$?
-    return $status
-}
-
-asplit ()
-{
-    ##@@ none||none||asplit||Take the single string in arg3, split it by the string in arg2 and stuff it into the array named by arg1. arg2 is NOT a regexp. IF arg1 is '-', then we just print the pieces.
-    utilfuncs_audit "$@"
-
-    local status
-    if [ "$1" = '-' ]
-    then
-        asplit_to_stdout "$@"
-    else
-        asplit_to_array "$@"
-    fi
-    return $?
-}
-safe_func_export asplit
-
-aclear ()
-{
-    utilfuncs_audit "$@"
-
-    declare -n array_alias="$1";shift
-    array_alias=()
-    return $(true)
-}
-safe_func_export aclear
-
-aset ()
-{
-    utilfuncs_audit "$@"
-
-    declare -n array_alias="$1";shift;
-    array_alias=("$@")
-    return $(true)
-}
-safe_func_export aclear
-
-aindicies ()
-{
-    utilfuncs_audit "$@"
-
-    declare -n array_alias="$1"
-    seq 0 $((${#array_alias[@]}-1))
-    return $(true)
-}
-safe_func_export aindicies
-
-acount ()
-{
-    utilfuncs_audit "$@"
-
-    declare -n array_alias="$1"
-    echo ${#array_alias[@]}
-    return $(true)
-}
-safe_func_export acount
-
-alist ()
-{
-    utilfuncs_audit "$@"
-
-    local use_idx=0
-    if [ "$1" = '--idx' ]
-    then
-        use_idx=1
-        shift
-    fi
-
-    declare -n array_alias="$1"
-    if [ "$use_idx" = 1 ]
-    then
-        for i in "${!array_alias[@]}"
-        do
-            printf "%s\t%s\n" "$i" "${array_alias[$i]}"
-        done
-    else
-        for i in "${array_alias[@]}"
-        do
-            echo $i
-        done
-    fi
-    return $(true)
-}
-safe_func_export alist
-
-asplice ()
-{
-    utilfuncs_audit "$@"
-
-    declare -n array_alias="$1"; shift
-    local offset=0; [ -n "$1" ] && offset=$1 && shift
-    if (( $offset < 0 ))
-    then
-        ((offset=${#array_alias[@]}+$offset))
-    fi
-    local length=0; [ -n "$1" ] && length=$1 && shift
-    ((length+=1))
-
-    local removed=("${array_alias[@]:$offset:$length}")
-    alist removed
-    array_alias=("${array_alias[@]:0:$(($offset))}" "$@" "${array_alias[@]:$(($length+$offset))}")
-    return $(true)
-}
-safe_func_export asplice
-
-apush ()
-{
-    utilfuncs_audit "$@"
-
-    local array_name="$1";shift
-    asplice $array_name $(acount $array_name) 0 "$@"
-    return $?
-}
-safe_func_export apush
-
-apop ()
-{
-    utilfuncs_audit "$@"
-
-    local array_name="$1";shift
-    asplice $array_name -1
-    return $?
-}
-safe_func_export apop
-
-ashift ()
-{
-    utilfuncs_audit "$@"
-
-    local array_name="$1";shift
-    asplice $array_name 0 1
-    return $?
-}
-safe_func_export ashift
-
-aunshift ()
-{
-    utilfuncs_audit "$@"
-
-    local array_name="$1";shift
-    asplice $array_name 0 0 "$@"
-    return $?
-}
-safe_func_export aunshift
-fi
-
-func-name-spoof ()
-{
-    utilfuncs_audit "$@"
-
-    local spoofing=$(false)
-    local iam=${FUNCNAME[1]}
-    if [ -n "${FUNCNAME[2]}" ] && \
-           [ ! "${FUNCNAME[2]}" = 'source' ] && \
-           [ ! "${FUNCNAME[2]}" = 'main' ]
-    then
-        iam="${FUNCNAME[2]}"
-        spoofing=$(true)
-    fi
-    echo $iam
-    return $spoofing
-}
-safe_func_export func-name-spoof
-
-comment-stream ()
-{
-    utilfuncs_audit "$@"
-
-    local comment="$1";shift
-    IFS="$(printf '\n')"
-
-    while read -r line
-    do
-        echo "${comment}$line"
-    done
-    return $(true)
-}
-safe_func_export comment-stream
-
-func-echo ()
-{
-    if [ -n "$FUNC_ECHO_DEBUG" ]
-    then
-        echo
-        echo "----- func-echo -----"
-        for i in $(seq 0 $(((${#FUNCNAME[@]}-1))) )
-        do
-            echo "FUNCNAME[$i]=[${FUNCNAME[$i]}]"
-        done
-        echo "----- func-echo -----"
-        echo
-    fi
-
-    local reset_normal="${ANSI_reset}"
-    local reset_title=''
-
-    if [ "$1" = '--head' ]
-    then
-        echo
-        shift
-    fi
-    if [ "$1" = '--title' ]
-    then
-        echo
-        reset_title="${reset_normal}"
-        reset_normal=''
-        shift
-    fi
-    local nonl
-    if [ "$1" = '-n' ]
-    then
-        nonl='-n'
-        shift
-    fi
-    local idx=${#FUNCNAME[@]};((idx-=1))
-    local funcname=${FUNCNAME[$idx]}
-    [ "${FUNCNAME[$idx]}" = 'main' ] && funcname=$(basename $0)
-    echo $nonl -e "${ANSI_reverse}>>> ${funcname}${reset_normal}: $@${reset_title}"
-}
-safe_func_export func-echo
-
-func-pick ()
-{
-    if [ -n "$FUNC_PICK_DEBUG" ]
-    then
-        echo
-        echo "----- func-pick -----"
-        for i in $(seq 0 $(((${#FUNCNAME[@]}-1))) )
-        do
-            echo "FUNCNAME[$i]=[${FUNCNAME[$i]}]"
-        done
-        echo "----- func-pick -----"
-        echo
-    fi
-    local prompt_text="$(func-echo -n '')$1"
-    shift
-    pick "$prompt_text" "$@"
-}
-safe_func_export func-pick
-
-func-yesno ()
-{
-    if [ -n "$FUNC_YESNO_DEBUG" ]
-    then
-        echo
-        echo "----- func-yesno -----"
-        for i in $(seq 0 $(((${#FUNCNAME[@]}-1))) )
-        do
-            echo "FUNCNAME[$i]=[${FUNCNAME[$i]}]"
-        done
-        env
-        echo "----- func-yesno -----"
-        echo
-    fi
-    local prompt_text="$(func-echo -n '')$1"
-    shift
-    yesno "$prompt_text" "$@"
-}
-safe_func_export func-yesno
-
-is-interactive ()
-{
-    tty > /dev/null
-    return $?
-}
-safe_func_export is-interactive
-
 wcstrip ()
 {
     asplit list ' ' "$(wc $@ )"
     apop list > /dev/null
-    ajoin ' ' $(alist list)
+    ajoin ' ' $(avalues -list list)
 }
 safe_func_export wcstrip
 
@@ -801,3 +1140,60 @@ smartwc ()
         wc "$@"
     fi
 }
+safe_func_export smartwc
+
+simon-says ()
+{
+    sudo "$@"
+}
+safe_func_export simon-says
+
+grep-not-in ()
+{
+    grep -L "$@"
+}
+safe_func_export grep-not-in
+
+uuid ()
+{
+    perl -e 'open my $FH, "/dev/urandom"
+      or die "Cannot generate UUID\n";
+    sysread( $FH, my $r, 16 );
+    close $FH;
+
+    # treat $r as 8 16bit quantities using vec, format as a v4 uuid by
+    # grouping appropriately and setting the appropriate variant and version
+    # bits
+
+    printf "%04x%04x-%04x-%04x-%04x-%04x%04x%04x",
+      vec( $r, 0, 16 ), vec( $r, 1, 16 ),
+      vec( $r, 2, 16 ),
+      ( ( vec( $r, 3, 16 ) & 0x0FFF ) | 0x4000 ),
+      ( ( vec( $r, 4, 16 ) & 0x3FFF ) | 0x8000 ),
+      vec( $r, 5, 16 ), vec( $r, 6, 16 ), vec( $r, 7, 16 );'
+}
+safe_func_export uuid
+
+get-next-descriptor ()
+{
+    ##@@ none||none||get-next-descriptor||print the next free shell io descriptor number.
+    utilfuncs_audit "$@"
+    local found=none
+    local fd
+    local rco
+    local rci
+    for fd in {0..255}
+    do
+        rco="$(true 2>/dev/null >&${fd}; echo $?)";
+        rci="$(true 2>/dev/null <&${fd}; echo $?)";
+        [[ "${rco}${rci}" = "11" ]] && found=${fd} && break
+    done
+    if [ -z "$found" ]
+    then
+        return 1
+    else
+        echo $found
+        return 0
+    fi
+}
+safe_func_export get-next-descriptor

@@ -130,24 +130,32 @@ grep_history ()
     local days_ago=''
     local day=''
     local endofopts=''
-    local exclude_pwd=1
+    local marker;
+    local dodir=''
+    local dofile=''
     while [[ "$1" =~ ^- ]] && [ -z "$endofopts" ]
     do
         case "$1" in
             -h ) hostfilt=$2
                  shift;shift ;;
-            -l ) grepopt='-l'
-                 shift ;;
-            -n ) grepopt='-n'
-                 shift ;;
-            -[0-9] )
+            -[0-9]* )
                 days_ago=$(echo "$1" | sed 's/^-//')
+                day=$(date -d "today - $days_ago day" +'%Y-%m-%d')
+                marker=$(mktemp);
+                touch --date=$day $marker
+                day=''
                 shift ;;
             -d )
                 day=$(echo $2 | tr '-' '_')
                 shift; shift ;;
-            -pwd )
-                exclude_pwd=0
+            -i )
+                grepopts="$grepopts -i"
+                shift ;;
+            --dir )
+                dodir=--include-dir
+                shift ;;
+            --file )
+                dofile=--include-file
                 shift ;;
             -- )
                 endofopts=$1
@@ -158,28 +166,22 @@ grep_history ()
         esac
     done
 
-    if [ -n "$days_ago" ]
+    local histfs
+    if [ -n "$marker" ]
     then
-        ## Thank you gnu date
-        day=$(date -d "today - $days_ago day" +'%Y_%m_%d')
-    fi
-    if [ -n "$day" ]
+        histfs=$(find $(dirname $HISTFILE) -newer $marker -name $hostfilt\*)
+    elif [ -n "$day" ]
     then
-        hostfilt="$hostfilt.$day"
+        histfs=$(find $(dirname $HISTFILE) -name $hostfilt.$day\*)
+    else
+        histfs="$(dirname $HISTFILE)/*"
     fi
 
-    local histfilt="$(dirname $HISTFILE)/$hostfilt"
-    local histfs=$(ls -rt ${histfilt}* 2>/dev/null;return $?)
     if [ -z "$histfs" ]
     then
-        echo "No history files found matching ${histfilt}*"
-    elif (( exclude_pwd ))
-    then
-        grep $grepopt -- "$1" $histfs \
-            | grep -v '## pwd =' \
-            | grep $grepopt -- "$1"
+        echo "No history files found matching date params"
     else
-        grep $grepopt -- "$1" $histfs
+       perl -d:ptkdb $(dirname $HISTFUNCS_FILE)/parse_bash_hist $dodir $dofile $grepopts "$1" $histfs
     fi
 }
 #nxport -f grep_history
