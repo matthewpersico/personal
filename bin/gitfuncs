@@ -252,7 +252,7 @@ git-status-with-changelog ()
     then
         args=$($DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --all) ## matches default git status setting
     fi
-    local out=$(mktemp)
+    local out=$(mktemp --suffix=.git-status-with-changelog)
     git-process-changelog --withstatus $diff $noless $args 1>$out 2>&1
     if [ -n "$noless" ]
     then
@@ -364,7 +364,7 @@ git-process-changelog ()
     local diff=''
     local opt_v='' ## passed to commit
     local status=0
-    local parsed_cl=$(mktemp)
+    local parsed_cl=$(mktemp --suffix=.git-process-changelog)
     local pcl=$(which parse-changelog)
     local pcl_flags=''
     local noless=''
@@ -1202,7 +1202,7 @@ git-push-hook ()
                 chmod +x $hooktgtpath
             elif [ $h -ot $hooktgtpath ]
             then
-                local tmpout=$(mktemp)
+                local tmpout=$(mktempv --suffix=.git-push-hook)
                 diff  $h  $hooktgtpath 1>$tmpout 2>&1
                 if [ -s $tmpout ]
                 then
@@ -1476,7 +1476,7 @@ EOF
     fi
 
     ## Check the local branch against its origin
-    stcheck=$(mktemp --suffix=.git-check-with-remote)
+    stcheck=$(mktemp --suffix=.git-check-with-remote.1)
     git status 1>$stcheck 2>&1
     grep "Your branch is up-to-date with 'origin/$cb'." $stcheck 1>/dev/null
     status=$?
@@ -1504,7 +1504,7 @@ EOF
     ((opt_confirm)) && ok_to_pull=0
 
     ## Now grab the remote branch
-    local gflog=$(mktemp)
+    local gflog=$(mktemp --suffix=.git-check-with-remote.2)
     git fetch ${opt_remote} ${opt_branch} 2>$gflog
     local rc=$?
     if ((rc))
@@ -2092,6 +2092,7 @@ git-clone ()
     then
         echo "Setting up triangle workflow with ${protocol_url}$opt_triangle_namespace/${repo}..."
         git-set-triangle ${protocol} $opt_triangle_namespace $namespace $repo
+        git pull ## To refresh from the upstream
     fi
     git remote -v
 
@@ -3006,7 +3007,7 @@ git-status ()
         git log -1
         echo
         func-echo "=== Status:"
-        local tmpf=$(mktemp)
+        local tmpf=$(mktemp --suffix=.git-status)
 
         git-st-ext
         git-st-cl --noless --cdok "$@" | grep -v "No files specified"
@@ -4007,57 +4008,6 @@ git-retimestamp ()
 }
 safe_func_export git-retimestamp
 
-## Can't use local outside a function.
-typeset forlater='
-
-in order to keep my scripts separate from the main repo
-
-git_create_orphan_branch ()
-{
-ASUD RAHMAN
-14:48:14 git checkout --orphan <new branch>
-14:48:22 creates a new branch that is disconnected from the other branches
-14:48:40 then you can do git checkout -b <work branch> followed by git merge <new branch>
-14:49:00 <work branch> will now contain the stuff you normally have plus the stuff you put in <new branch>
-MATTHEW PERSICO
-14:52:54 I will try that.
-- git checkout --orphan myTools
-- *write theTools *
-- git commit the theTools
-Then do as above. If I need to update any of theTools, I think I would
-- finish the current branch work, and commit only those file, not theTools
-- git checkout myTools
-- git commit theTools
-
-I will try this out. Thanks.
-
---orphan <new_branch>
-
-Create a new orphan branch, named <new_branch>, started from <start_point> and
-switch to it. The first commit made on this new branch will have no parents and
-it will be the root of a new history totally disconnected from all the other
-branches and commits.
-
-The index and the working tree are adjusted as if you had previously run "git
-checkout <start_point>". This allows you to start a new history that records a
-set of paths similar to <start_point> by easily running "git commit -a" to make
-the root commit.
-
-This can be useful when you want to publish the tree from a commit without
-exposing its full history. You might want to do this to publish an open source
-branch of a project whose current tree is "clean", but whose full history
-contains proprietary or otherwise encumbered bits of code.
-
-If you want to start a disconnected history that records a set of paths that is
-totally different from the one of <start_point>, then you should clear the
-index and the working tree right after creating the orphan branch by running
-"git rm -rf ." from the top level of the working tree. Afterwards you will be
-ready to prepare your new files, repopulating the working tree, by copying them
-from elsewhere, extracting a tarball, etc.
-}
-safe_func_export git_create_orphan_branch
-'
-
 git-create-patches ()
 {
     ##@@ none||none||git-create-patches||
@@ -4068,18 +4018,28 @@ git-create-patches ()
         echo "You must be in root dir of repo or worktree ($(git-root)), not $(pwd)"
         return $NOT_OK
     fi
-    local patchdir=$1
-    [ -z "$patchdir" ] && patchdir="./patches_dir"
+
+    local patchdir
+    patchdir="./patches_dir.outbound"
+    local patchpath
     patchpath=$(realpath $patchdir)
     if [ ! -d $patchpath ]
     then
         mkdir $patchpath || return $?
     fi
+
+    local source_repo="$(echo $(hostname):$(git-root) | tr [/] [..])"
+    local patchindir
+    patchindir="./patches_dir.from.${source_repo}"
+    local patchinpath
+    patchinpath=$(realpath $patchindir)
+
     echo "Creating patches from repo inception"
     local patchlist=$(mktemp --suffix=.git-create-patches)
     git format-patch -o $patchpath --full-index --root | tee $patchlist
     local newsha=$(git-log-grab-sha -1)
     local restorescript=$patchpath/restore.${newsha}
+    local config_key_root=BOGUS
     \rm -f $patchpath/restore.*
     if [ -s $patchlist ]
     then
@@ -4093,7 +4053,7 @@ then
 fi
 last_applied=''
 current_branch=\$(git symbolic-ref HEAD | sed 's!refs\/heads\/!!')
-config_key_root=\"branch.\${current_branch}.lastpatched-\"
+config_key_root=\"branch.\${current_branch}.lastpatched-from.${source_repo}.\"
 last_applied=\$(git config --get \${config_key_root}patch )
 if [ -z \"\$last_applied\" ]
 then
@@ -4122,7 +4082,7 @@ do
 ## Errors for patch \$patchnum:
 \$(cat \$log | sed 's/^/## /')
 
-## These two mark the failed patch as succeeded:
+## These mark the failed patch as succeeded:
 git config \${config_key_root}patch \$i;
 git config \${config_key_root}date  \"\\\$(date)\"
 
@@ -4191,10 +4151,10 @@ done
 " > $restorescript
         chmod a+rwx $restorescript
         local sharfile=$(git-root)/$(basename $(git-root)).shar
-        shar -o $sharfile $patchdir
+        (cd $patchdir && shar -o $sharfile *.patch)
         echo "1 - Copy ${sharfile}* to the git root of the target."
-        echo "2 - $ unshar $(basename $sharfile)*"
-        echo "3 - $ cd $patchdir"
+        echo "2 - $ mkdir $patchindir && unshar -d $patchindir $(basename $sharfile)*"
+        echo "3 - $ cd $patchindir"
         echo "4 - $ ./$(basename $restorescript)"
     else
         \rm -f $restorescript
@@ -4272,14 +4232,14 @@ git-diff-two-repos-on-disk ()
     fi
 
     local -A list
-    list[this]=$(mktemp)
-    list[other]=$(mktemp)
+    list[this]=$(mktemp --suffix=.git-diff-two-repos-on-disk.this)
+    list[other]=$(mktemp  --suffix=.git-diff-two-repos-on-disk.other)
 
     local -A opposed
     opposed[this]=other
     opposed[other]=this
 
-    local edit=$(mktemp)
+    local edit=$(mktemp  --suffix=.git-diff-two-repos-on-disk.edit)
     local which
     for which in this other
     do
@@ -4557,7 +4517,7 @@ git-set-triangle ()
     if [ -n "$protocolkeycheck" ] ; then
         echo "Supposed to provide a URL, not a service name. Converting..."
         protocolurl=$(kvget gitfuncs_gitsvcs $protocolkeycheck)
-        if [ -z "$protocalurl" ]
+        if [ -z "$protocolurl" ]
         then
             echo "No url found for protocol '$1'";
             return 1
@@ -4574,9 +4534,9 @@ git-set-triangle ()
     triangle_workflow[branch.master.remote]="upstream"
 
     triangle_workflow[remote.origin.fetch]="+refs/heads/*:refs/remotes/origin/*"
-    triangle_workflow[remote.origin.url]="${protocol}${origin_namespace}/${repo}"
+    triangle_workflow[remote.origin.url]="${protocolurl}${origin_namespace}/${repo}"
     triangle_workflow[remote.pushdefault]="origin"
-    triangle_workflow[remote.upstream.url]="${protocol}${upstream_namespace}/${repo}"
+    triangle_workflow[remote.upstream.url]="${protocolurl}${upstream_namespace}/${repo}"
 
     local key
     for key in ${!triangle_workflow[@]}
