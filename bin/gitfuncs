@@ -1973,9 +1973,11 @@ Usage: $cmd $protocolarg [-y] [-t] [--triangle=upstream-namespace] namespace rep
           Resets the timestamps on the files to their commit times.
 
        --triangle=upstream-namespace
-          Use this if your namespace/repo is a clone of a fork of
-          upstream-namespace/repo and you want to setup the triangle workflow
-          so that master pulls are from upstream-namespace/repo.
+          Use this if namespace/repo fork of upstream-namespace/repo
+          and you want to setup the triangle workflow
+          so that master pulls on this clone are from upstream-namespace/repo.
+          *Note* - Only specify the upstream namespace. We require that
+                   the two repo names match. This keeps things organized.
 EOUSAGE
     return $OK
 }
@@ -2002,7 +2004,20 @@ git-clone ()
             -y|--yes) opt_y=1; shift ;;
             -t|--timestamp) opt_t=1; shift ;;
             -h|--help) $usage_func; return $OK ;;
-            --triangle) opt_triangle_namespace=$2;shift; shift;;
+            --triangle) local tmp_otn;
+                        tmp_otn=$2;
+                        shift; shift;
+                        opt_triangle_namespace=${tmp_otn%/*}
+                        if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
+                        then
+                            func-echo    "WARNING: --triangle takes an upstream namespace specification,"
+                            func-echo -c"         not a full upstream repo specification."
+                            func-echo -c "         We will use"
+                            func-echo -c "             $opt_triangle_namespace"
+                            func-echo -c "         not"
+                            func-echo -c "             $tmp_otn"
+                        fi
+                        ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) func-echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
         esac
@@ -2026,14 +2041,14 @@ git-clone ()
     local local_protocol=$(basename $cwpath)
     if [ "$local_protocol" != "$protocol" ]
     then
-        func-echo "You must be in a local directory path ending in"
-        func-echo "   $protocol"
-        func-echo "You are in $cwpath"
+        func-echo    "You must be in a local directory path ending in"
+        func-echo -c "   $protocol"
+        func-echo -c "You are in $cwpath"
         local shouldbein="$gitfuncs_gitroot/$protocol"
         if [ ! -d $shouldbein ]
         then
-            func-echo "Cannot find '$shouldbein'."
-            func-echo "Correct and re-execute."
+            func-echo    "Cannot find '$shouldbein'."
+            func-echo -c "Correct and re-execute."
             return $NOT_OK
         else
             local resp
@@ -2497,9 +2512,9 @@ git-worktree-create ()
         then
             builtin cd ./wt
         else
-            func-echo "Current directory is $(pwd)."
-            func-echo 'No wt subdir.'
-            func-echo 'Will not manipulate worktrees outside of wt dir. Aborting.'
+            func-echo    "Current directory is $(pwd)."
+            func-echo -c 'No wt subdir.'
+            func-echo -c 'Will not manipulate worktrees outside of wt dir. Aborting.'
             return $NOT_OK
         fi
     fi
@@ -2746,16 +2761,16 @@ git-delete-worktree ()
     local current_dir=$(basename $(pwd))
     if [ "$current_branch" != "$current_dir" ]
     then
-        func-echo "Branch name '$current_branch' does not match current subdir name '$current_dir'."
-        func-echo "I'm bailing; you fix this mess."
+        func-echo    "Branch name '$current_branch' does not match current subdir name '$current_dir'."
+        func-echo -c "I'm bailing; you fix this mess."
         return $NOT_OK
     fi
     git status
     local rc=$?
     if ((rc))
     then
-        func-echo "git status returned non-success value $rc."
-        func-echo "I'm bailing; you fix this mess."
+        func-echo    "git status returned non-success value $rc."
+        func-echo -c "I'm bailing; you fix this mess."
         return $NOT_OK
     fi
 
@@ -3480,19 +3495,19 @@ git-merge-pull-request ()
     if [ "$merge_src" = 'remote' ]
     then
         ((opt_verbose)) && func-echo --head "Add $srcurl... as a remote"
-        ((opt_verbose)) && func-echo "git remote add $remote_ref $srcurl"
+        ((opt_verbose)) && func-echo -c     "git remote add $remote_ref $srcurl"
         git remote add $remote_ref $srcurl
         status=$?
         ((status)) && _git_cd_unwind && return $status
 
         ((opt_verbose)) && func-echo --head "Fetch only the pull request branch (${src[$ibranch]}) from $srcurl (as remote ref $remote_ref)"
-        ((opt_verbose)) && func-echo "git fetch $remote_ref ${src[$ibranch]}"
+        ((opt_verbose)) && func-echo -c     "git fetch $remote_ref ${src[$ibranch]}"
         git fetch $remote_ref ${src[$ibranch]}
         status=$?
         ((status)) && _git_cd_unwind && return $status
 
         ((opt_verbose)) && func-echo --head "Do the merge"
-        ((opt_verbose)) && func-echo "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
+        ((opt_verbose)) && func-echo -c     "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
         git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}
         status=$?
         ((status)) && _git_cd_unwind && return $status
@@ -3505,10 +3520,10 @@ git-merge-pull-request ()
         ((status)) && _git_cd_unwind && return $status
         func-echo "****** **************************"
 
-        func-echo "Success is defined as"
-        func-echo "1) You are reading this message."
-        func-echo "2) The log entries from '$lasttwologmsg'"
-        func-echo "   are consistent with entry from '$currentlogmsg'."
+        func-echo -c "Success is defined as"
+        func-echo -c "1) You are reading this message."
+        func-echo -c "2) The log entries from '$lasttwologmsg'"
+        func-echo -c "   are consistent with entry from '$currentlogmsg'."
         echo
     else
         func-echo --head "Fetch only the pull request branch (${src[$irbranch]}) from $srcurl"
@@ -3597,8 +3612,8 @@ git-merge-pull-request ()
         fi
     else
         local fmpr=$(pwd)/FINISH-merge-pull-request
-        func-echo "Ok. Remember to '$pushback' soon before the master head advances."
-        func-echo "We will write the local file $fmpr with this command for your future convenience."
+        func-echo    "Ok. Remember to '$pushback' soon before the master head advances."
+        func-echo -c "We will write the local file $fmpr with this command for your future convenience."
         echo "$pushback" > $fmpr
         echo "git-delete-current-repo" >> $fmpr
         git-log-shas-range ${origcommitsha} ${newcommitsha} | comment-stream "## " >> $fmpr
@@ -4542,15 +4557,15 @@ git-set-triangle ()
     local key
     for key in ${!triangle_workflow[@]}
     do
-        git config --replace-all $key "${triangle_workflow[$key]}" | return $?
+        git config --replace-all $key "${triangle_workflow[$key]}" || return $?
     done
 
     ## These two are special because they repeat
     key='remote.upstream.fetch'
     ## Replace all blows away all $key entries before adding this one
-    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" | return $?
+    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" || return $?
     ## Now safe to add this one - it won't be duped.
-    git config --add         $key "+refs/notes/*:refs/notes/*" | return $?
+    git config --add         $key "+refs/notes/*:refs/notes/*" || return $?
 
     ## We do this last as a marker.
     git config --replace-all gitfuncs.git-set-triangle.created "$(date +%Y%m%d.%H%M%S%z)"
