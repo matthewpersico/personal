@@ -694,7 +694,7 @@ git-go-usage ()
 {
     gitfuncs_audit "$@"
 
-    echo "Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [--mod] [--pick] [dirmatch]"
+    echo "Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [--mod] [dirmatch] [item]"
     echo "       git-go [-h|--help]"
     echo
     echo "       Presents a list of all git repos"
@@ -725,12 +725,13 @@ git-go-usage ()
     echo
     echo "       --mod will show status of repos that have mods outstanding"
     echo
-    echo "       --pick N will pick the Nth item in the list of repos that would"
-    echo "           be presented if you didn't specify --pick. Useful if you"
-    echo "           are cycling between a small number of repos."
-    echo
     echo "       'dirmatch' will filter the list using grep"
     echo
+    echo "       'item' is an integer N which will pick the Nth item in the"
+    echo "           list of repos that would be presented if you didn't specify"
+    echo "           an 'item'. Useful if you are cycling between a small number of repos."
+    echo
+
 }
 safe_func_export git-go-usage
 
@@ -750,8 +751,7 @@ git-go ()
     local opt_subwt_only=0
     local opt_gse=0
     local opt_mod=0
-    local opt_repo_no=0
-    local OPTSARGS=$(getoptp -o slurmhp: --long mod,stat,list,update,roots,mbig,help,wt,nowt,subwt,wtonly,listfull,pick: -n $FUNCNAME -- "$@")
+    local OPTSARGS=$(getoptp -o slurmhp: --long mod,stat,list,update,roots,mbig,help,wt,nowt,subwt,wtonly,listfull -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
     eval set -- "$OPTSARGS"
@@ -770,7 +770,6 @@ git-go ()
             --stat) opt_gse=1; opt_list=1; shift ;;
             --mod) opt_mod=1; shift;;
             -h|--help) $usage_func; return $OK ;;
-            --pick|-p) opt_repo_no=$2; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
@@ -778,6 +777,15 @@ git-go ()
 
     local tgt
     tgt=$1
+    shift;
+
+    local opt_repo_no=0
+    if [ -n "$1" ]
+    then
+        opt_repo_no=$1;
+        shift
+    fi
+
     if [[ "$tgt" =~ /$ ]]
     then
         tgt="$(dirname $tgt)/$(basename $tgt)"
@@ -4226,10 +4234,37 @@ git-branch-info-pull-request ()
 }
 safe_func_export git-branch-info-pull-request
 
+git-diff-two-repos-on-disk-usage ()
+{
+    cat<<EOUSAGE
+Usage: git-diff-two-repos-on-disk [src] tgt
+       git-diff-two-repos-on-disk [-h|-help]
+
+       Compare two repos on disk. If only one repo is specified,
+       'src' is taken as the current directory, which should be
+       a repo root.
+EOUSAGE
+}
+
 git-diff-two-repos-on-disk ()
 {
     ##@@ none||none||git-diff-two-repos-on-disk||
     gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
+
+    OPTSARGS=$(getoptp -o h --long help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func ${FUNCNAME} && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
+        esac
+    done
 
     local -A repo
     if [ -n "$2" ]
@@ -4255,7 +4290,6 @@ git-diff-two-repos-on-disk ()
     opposed[this]=other
     opposed[other]=this
 
-    local edit=$(mktemp  --suffix=.git-diff-two-repos-on-disk.edit)
     local which
     for which in this other
     do
@@ -4280,19 +4314,13 @@ git-diff-two-repos-on-disk ()
                     cp -vf ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line
                 elif [ -n "$output" ]
                 then
-                    echo '*****' >> $edit
-                    echo diff "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line" >> $edit
-                    diff -y --suppress-common-lines "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line" >> $edit
+                    echo '*****'
+                    echo git diff "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
+                    git diff "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
                 fi
             fi
         done < ${list[$which]}
     done
-
-    if [ -s $edit ]
-    then
-        echo Diffs are in $edit
-        ls -lart $edit
-    fi
 }
 safe_func_export git-diff-two-repos-on-disk
 
