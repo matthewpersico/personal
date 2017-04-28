@@ -4044,6 +4044,7 @@ git-create-patches ()
 
     local patchdir
     patchdir="./patches_dir.outbound"
+
     local patchpath
     patchpath=$(realpath $patchdir)
     if [ ! -d $patchpath ]
@@ -4057,16 +4058,38 @@ git-create-patches ()
     local patchinpath
     patchinpath=$(realpath $patchindir)
 
-    echo "Creating patches from repo inception"
-    local patchlist=$(mktemp --suffix=.git-create-patches)
-    git format-patch -o $patchpath --full-index --root | tee $patchlist
+    echo "Creating patches"
+    local patchlist
+    patchlist=$(mktemp --suffix=.git-create-patches)
+    local workpatchpath
+    workpatchpath=$(mktemp -d)
+    git format-patch -o $workpatchpath --full-index --root > $patchlist
+
     local newsha=$(git-log-grab-sha -1)
     local restorescript=$patchpath/restore.${newsha}
     local config_key_root=BOGUS
     \rm -f $patchpath/restore.*
-    if [ -s $patchlist ]
+    if [ ! -s $patchlist ]
     then
-        echo "## -*- sh -*-
+        \rm -f $restorescript
+        echo "No patches to apply."
+        return
+    fi
+    local new_files
+    new_files=$(diff $patchpath $workpatchpath 2>&1 | grep "Only in $workpatchpath" | sed -e 's/Only in //' -e 's/: /\//' )
+    if [ -z "$new_files" ]
+    then
+        \rm -f $restorescript
+        echo "No new patches to apply."
+        return
+    fi
+
+    cp -pvf $new_files $patchpath
+
+    ##
+    ## This generates the restore script for use on the other end
+    ##
+    echo "## -*- sh -*-
 PATCHPATH=\$(dirname \$(realpath \$0))
 GITREPOROOT=\$(dirname \$PATCHPATH)
 if [ ! -d \$GITREPOROOT/.git ]
@@ -4130,9 +4153,13 @@ EORESTART
 ## git incantations, restart the patching process by executing
 ##    \$restartlink
 
-## The 'appropriate git incantations'1 can be one of two sets of actions:
+## The 'appropriate git incantations' can be one of two sets of actions:
 
 ## THESE ACTIONS HAVE BEEN CONFIRMED TO WORK:
+
+## o Skip that patch with git am --skip
+
+##   OR
 
 ## o Apply ALL the edits in the patch file by hand. It
 ##   appears that patch application is an all or nothing
@@ -4172,18 +4199,14 @@ EORESTART
   fi
 done
 " > $restorescript
-        chmod a+rwx $restorescript
-        local sharfile=$(git-root)/$(basename $(git-root)).shar
-        (cd $patchdir && shar -o $sharfile *.patch $(basename $restorescript))
-        echo "1 - $ cp ${sharfile}* {git root of the target}"
-        echo "2 - $ cd {git root of the target}"
-        echo "3 - $ mkdir $patchindir && unshar -d $patchindir $(basename $sharfile)*"
-        echo "4 - $ cd $patchindir"
-        echo "5 - $ ./$(basename $restorescript)"
-    else
-        \rm -f $restorescript
-        echo "No patches to apply."
-    fi
+    chmod a+rwx $restorescript
+    local sharfile=$(git-root)/$(basename $(git-root)).shar
+    (cd $patchdir && shar -o $sharfile *.patch $(basename $restorescript))
+    echo "1 - $ cp ${sharfile}* {git root of the target}"
+    echo "2 - $ cd {git root of the target}"
+    echo "3 - $ mkdir $patchindir && unshar -d $patchindir $(basename $sharfile)*"
+    echo "4 - $ cd $patchindir"
+    echo "5 - $ ./$(basename $restorescript)"
 }
 safe_func_export git-create-patches
 
