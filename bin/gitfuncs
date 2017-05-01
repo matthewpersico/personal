@@ -4031,6 +4031,8 @@ git-retimestamp ()
 }
 safe_func_export git-retimestamp
 
+## TODO: git-create-patches-usage
+
 git-create-patches ()
 {
     ##@@ none||none||git-create-patches||
@@ -4058,33 +4060,34 @@ git-create-patches ()
     local patchinpath
     patchinpath=$(realpath $patchindir)
 
-    echo "Creating patches"
+    echo "Creating patches..."
     local patchlist
     patchlist=$(mktemp --suffix=.git-create-patches)
     local workpatchpath
     workpatchpath=$(mktemp -d)
     git format-patch -o $workpatchpath --full-index --root > $patchlist
-
-    local newsha=$(git-log-grab-sha -1)
-    local restorescript=$patchpath/restore.${newsha}
-    local config_key_root=BOGUS
-    \rm -f $patchpath/restore.*
     if [ ! -s $patchlist ]
     then
-        \rm -f $restorescript
         echo "No patches to apply."
         return
     fi
+
+    local newsha
+    newsha=$(git-log-grab-sha -1)
+    local config_key_root
+    config_key_root=BOGUS
     local new_files
     new_files=$(diff $patchpath $workpatchpath 2>&1 | grep "Only in $workpatchpath" | sed -e 's/Only in //' -e 's/: /\//' )
     if [ -z "$new_files" ]
     then
-        \rm -f $restorescript
         echo "No new patches to apply."
         return
     fi
 
     cp -pvf $new_files $patchpath
+    \rm -f $patchpath/restore.*
+    local restorescript
+    restorescript=$patchpath/restore.${newsha}
 
     ##
     ## This generates the restore script for use on the other end
