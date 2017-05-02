@@ -13,15 +13,34 @@
 ## chimera.
 
 ## Cygwin use only
-startxserver() {
-    if [ -z "$(ps -a | grep XWin)" ]
+startxservercygwin() {
+    if [ -z "$(ps -a | grep XWin | grep -v grep)" ]
     then
         if [ "$1" = '--verbose' ]
         then
             echo "Starting Cygwin XServer..."
         fi
-        startxwin 2>/dev/null 2>/dev/null &
+        startxwin 1>/dev/null 2>/dev/null &
         XSERVER='XWin'
+    elif [ "$1" = '--verbose' ]
+    then
+        echo "Cygwin XServer already running."
+    fi
+}
+
+## WinBash use only
+startxserverwinbash() {
+    if [ -z "$(ps -a | grep Xming.exe | grep -v grep)" ]
+    then
+        if [ "$1" = '--verbose' ]
+        then
+            echo "Starting Xming XServer..."
+        fi
+        /mnt/c/PROGRA~1/Xming/Xming.exe -multiwindow &
+        XSERVER='Xming'
+    elif [ "$1" = '--verbose' ]
+    then
+        echo "Xming XServer already running."
     fi
 }
 set -x ## <GCS>
@@ -35,7 +54,7 @@ else
 fi
 
 XSERVER=''
-if [ "$(uname -o)" = 'Cygwin' ]
+if [ "$OS_ID" = 'Cygwin' ]
 then
     hasXming=$(ps -aW | grep Xming.exe)
     if [ -n "$hasXming" ]
@@ -43,8 +62,11 @@ then
         echo "Using Xming XServer"
         XSERVER='Xming'
     else
-        startxserver --verbose
+        startxservercygwin --verbose
     fi
+elif [ "$OS_ID" = 'Microsoft' ]
+then
+    startxserverwinbash --verbose
 elif [ "$hasx" = '0' ]
 then
     ## X server ping...
