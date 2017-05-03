@@ -10,9 +10,10 @@ my %opts;
 
 GetOptions(
     \%opts, qw(i
-      include-dir
-      include-file
-      )
+               l
+               include-dir
+               include-file
+          )
 );
 my $pattern = shift;
 $pattern = "(?i)$pattern" if $opts{i};
@@ -43,7 +44,8 @@ for my $file (@ARGV) {
         };
         if ( $_ =~ m/$pattern/ ) {
             $entry->{cmd} = $_;
-            if (    $opts{'include-file'} ) {
+            if (    $opts{'include-file'}
+                 or $opts{l}) {
                 $entry->{file} = $file;
             }
             push @entries, $entry;
@@ -54,14 +56,21 @@ for my $file (@ARGV) {
 @entries = sort { $a->{time}<=> $b->{time} } @entries;
 $ENV{HISTTIMEFORMAT} ||= '%m/%d - %H:%M:%S';
 my $datelen = 0;
+my @output;
+my %unique;
 for (@entries) {
-    $datelen = length( strftime( $ENV{HISTTIMEFORMAT}, localtime(1) ) )
-      if not $datelen;
-    printf( "%s %s%s%s\n",
-            strftime( $ENV{HISTTIMEFORMAT}, localtime( $_->{time} ) ),
-            $_->{cmd},
-            ( $_->{dir} ? "\n" . ' ' x $datelen . "($_->{dir})" : '' ),
-            ( $_->{file} ? "\n" . ' ' x $datelen . "($_->{file})" : '' )
-
-        );
+    if($opts{l}) {
+        $unique{$_->{file}}++
+    } else {
+        $datelen = length( strftime( $ENV{HISTTIMEFORMAT}, localtime(1) ) )
+          if not $datelen;
+        push @output, sprintf( "%s %s%s%s\n",
+                               strftime( $ENV{HISTTIMEFORMAT}, localtime( $_->{time} ) ),
+                               $_->{cmd},
+                               ( $_->{dir} ? "\n" . ' ' x $datelen . "($_->{dir})" : '' ),
+                               ( $_->{file} ? "\n" . ' ' x $datelen . "($_->{file})" : '' )
+                           );
+    }
 }
+@output = map { "$_\n" } sort keys %unique if $opts{l};
+print @output if(@output);
