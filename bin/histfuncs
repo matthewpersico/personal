@@ -14,7 +14,7 @@ histinit ()
         HISTSIZE=9000
         HISTFILESIZE=$HISTSIZE
         HISTTIMEFORMAT="%m/%d - %H:%M:%S "
-        HISTFILE=~/.bash_histories/$(hostname).$(date +%Y_%m_%d_%H_%M_%S).$$
+        HISTFILE=~/.bash_histories/hist.$(hostname).$(date +%Y_%m_%d_%H_%M_%S).$$
         if [ ! -d ~/.bash_histories ]
         then
             echo "Initializing bash command history setup..."
@@ -33,6 +33,48 @@ EOF
 #nxport -f histinit
 histinit
 
+_bash_history_index ()
+{
+    local files="$@"
+    [ -z "$files" ] && files=$HISTFILE
+    for i in $files
+    do
+        local index_file=$(dirname $HISTFILE)/.index
+        local start=$(head -1 $i)
+        local end=$(tail -2 $i | head -1)
+
+        local my_index_file=${index_file}.$(date +%s.%N).$$
+        touch $my_index_file
+        local min_proc_index_file
+        local locktries=20
+        while [ ! "$min_proc_index_file" = "$my_index_file" ] && ((locktries))
+        do
+            min_proc_index_file=$(ls -c1 ${index_file}.* | sort | head -1)
+            ((locktries-=1))
+        done
+        if((locktries))
+        then
+            perl -MData::Dumper -e 'do $ARGV[0] if (-r $ARGV[0]);
+($start=$ARGV[2])=~ s/#([0-9]+).*/$1/;
+($end=$ARGV[3])=~ s/#([0-9]+).*/$1/;
+$index{$ARGV[1]}={start=>$start,end=>$end};
+print Data::Dumper->Dump([\%index],[qw(*index)])' \
+                 $index_file $i "$start" "$end" > $my_index_file
+            \mv -f $my_index_file $index_file
+        else
+            echo "_bash_history_index: cannot lock - skipping"
+        fi
+        \rm -f $my_index_file
+    done
+}
+
+bash_history_reindex ()
+{
+    local index_file=$(dirname $HISTFILE)/.index
+    \rm -f $index_file;
+    _bash_history_index $(dirname $HISTFILE)/hist.*
+}
+
 _bash_history_sync ()
 {
   builtin history -a         #1
@@ -40,11 +82,14 @@ _bash_history_sync ()
   builtin history -c         #3
   builtin history -r         #4
 
+  ## This one adds the pwd to the hist file
   perl -e 'open(IH, "<$ARGV[0]");@lines=<IH>;close(IH);
 chomp $lines[-2];$lines[-2]=~s/ ## pwd =>.*//;$lines[-2].= " ## pwd => $ARGV[1]\n";
 open(OH, ">$ARGV[0]");print OH @lines;close(OH)' $HISTFILE "$(pwd)"
+
+  ## This one updates the hist files time index
+  _bash_history_index
 }
-#nxport -f _bash_history_sync
 
 PROMPT_COMMAND=_bash_history_sync
 
@@ -110,10 +155,8 @@ grep_history ()
     histfuncs_audit "$@"
     local hostfilt=''
     local grepopts=''
-    local days_ago=''
-    local day=''
+    local epoch_ago=''
     local endofopts=''
-    local marker;
     local dodir=''
     local dofile=''
     while [[ "$1" =~ ^- ]] && [ -z "$endofopts" ]
@@ -121,15 +164,14 @@ grep_history ()
         case "$1" in
             -h ) hostfilt=$2
                  shift;shift ;;
+            ## Both date options imply "from this date, forward"
             -[0-9]* )
-                days_ago=$(echo "$1" | sed 's/^-//')
-                day=$(date -d "today - $days_ago day" +'%Y-%m-%d')
-                marker=$(mktemp --suffix=.grep_history);
-                touch --date=$day $marker
-                day=''
+                local epoch_today=$(date --date=$(date +%Y%m%d) +%s) ## midnight today
+                local days_ago=$(echo "$1" | sed 's/^-//')
+                epoch_ago=$((epoch_today - (86400*days_ago)))
                 shift ;;
             -d )
-                day=$(echo $2 | tr '-' '_')
+                epoch_ago=$(date --date=$2 +%s)
                 shift; shift ;;
             -i | -l )
                 grepopts="$grepopts $1"
@@ -150,12 +192,14 @@ grep_history ()
     done
 
     local histfs
-    if [ -n "$marker" ]
+    if [ -n "$epoch_ago" ]
     then
-        histfs=$(find $(dirname $HISTFILE) -newer $marker -name $hostfilt\*)
-    elif [ -n "$day" ]
-    then
-        histfs=$(find $(dirname $HISTFILE) -name $hostfilt.$day\*)
+        local index_file=$(dirname $HISTFILE)/.index
+        histfs=$(perl -MData::Dumper -e '
+do $ARGV[0] if (-r $ARGV[0]);
+@files = grep{ $index{$_}->{start} >= $ARGV[1] }
+         keys %index;
+print "@files";'  $index_file $epoch_ago)
     else
         histfs="$(dirname $HISTFILE)/*"
     fi
@@ -164,7 +208,7 @@ grep_history ()
     then
         echo "No history files found matching date params"
     else
-        # DEBUG perl -d:ptkdb
+        # DEBUG perl -d:ptkdb \
         $(dirname $HISTFUNCS_FILE)/parse_bash_hist $dodir $dofile $grepopts "$1" $histfs
     fi
 }
