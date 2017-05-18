@@ -694,7 +694,7 @@ git-go-usage ()
 {
     gitfuncs_audit "$@"
 
-    echo "Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [--mod] [--pick] [dirmatch]"
+    echo "Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] [--wt|--nowt|--wto[nly] ] [--mod] [dirmatch] [item]"
     echo "       git-go [-h|--help]"
     echo
     echo "       Presents a list of all git repos"
@@ -725,12 +725,13 @@ git-go-usage ()
     echo
     echo "       --mod will show status of repos that have mods outstanding"
     echo
-    echo "       --pick N will pick the Nth item in the list of repos that would"
-    echo "           be presented if you didn't specify --pick. Useful if you"
-    echo "           are cycling between a small number of repos."
-    echo
     echo "       'dirmatch' will filter the list using grep"
     echo
+    echo "       'item' is an integer N which will pick the Nth item in the"
+    echo "           list of repos that would be presented if you didn't specify"
+    echo "           an 'item'. Useful if you are cycling between a small number of repos."
+    echo
+
 }
 safe_func_export git-go-usage
 
@@ -750,8 +751,7 @@ git-go ()
     local opt_subwt_only=0
     local opt_gse=0
     local opt_mod=0
-    local opt_repo_no=0
-    local OPTSARGS=$(getoptp -o slurmhp: --long mod,stat,list,update,roots,mbig,help,wt,nowt,subwt,wtonly,listfull,pick: -n $FUNCNAME -- "$@")
+    local OPTSARGS=$(getoptp -o slurmhp: --long mod,stat,list,update,roots,mbig,help,wt,nowt,subwt,wtonly,listfull -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
     eval set -- "$OPTSARGS"
@@ -770,7 +770,6 @@ git-go ()
             --stat) opt_gse=1; opt_list=1; shift ;;
             --mod) opt_mod=1; shift;;
             -h|--help) $usage_func; return $OK ;;
-            --pick|-p) opt_repo_no=$2; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
         esac
@@ -778,6 +777,15 @@ git-go ()
 
     local tgt
     tgt=$1
+    shift;
+
+    local opt_repo_no=0
+    if [ -n "$1" ]
+    then
+        opt_repo_no=$1;
+        shift
+    fi
+
     if [[ "$tgt" =~ /$ ]]
     then
         tgt="$(dirname $tgt)/$(basename $tgt)"
@@ -1973,9 +1981,11 @@ Usage: $cmd $protocolarg [-y] [-t] [--triangle=upstream-namespace] namespace rep
           Resets the timestamps on the files to their commit times.
 
        --triangle=upstream-namespace
-          Use this if your namespace/repo is a clone of a fork of
-          upstream-namespace/repo and you want to setup the triangle workflow
-          so that master pulls are from upstream-namespace/repo.
+          Use this if namespace/repo fork of upstream-namespace/repo
+          and you want to setup the triangle workflow
+          so that master pulls on this clone are from upstream-namespace/repo.
+          *Note* - Only specify the upstream namespace. We require that
+                   the two repo names match. This keeps things organized.
 EOUSAGE
     return $OK
 }
@@ -1991,7 +2001,8 @@ git-clone ()
     local opt_y=0
     local opt_t=0
     local opt_triangle_namespace=''
-    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help,triangle: -n $FUNCNAME -- "$@")
+    local opt_worktree=1
+    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help,triangle:,noworktree -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func ${FUNCNAME} && return $status
 
@@ -2002,7 +2013,21 @@ git-clone ()
             -y|--yes) opt_y=1; shift ;;
             -t|--timestamp) opt_t=1; shift ;;
             -h|--help) $usage_func; return $OK ;;
-            --triangle) opt_triangle_namespace=$2;shift; shift;;
+            --triangle) local tmp_otn;
+                        tmp_otn=$2;
+                        shift; shift;
+                        opt_triangle_namespace=${tmp_otn%/*}
+                        if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
+                        then
+                            func-echo    "WARNING: --triangle takes an upstream namespace specification,"
+                            func-echo -c "         not a full upstream repo specification."
+                            func-echo -c "         We will use"
+                            func-echo -c "             $opt_triangle_namespace"
+                            func-echo -c "         not"
+                            func-echo -c "             $tmp_otn"
+                        fi
+                        ;;
+            --noworktree ) opt_worktree=0; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) func-echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
         esac
@@ -2026,14 +2051,14 @@ git-clone ()
     local local_protocol=$(basename $cwpath)
     if [ "$local_protocol" != "$protocol" ]
     then
-        func-echo "You must be in a local directory path ending in"
-        func-echo "   $protocol"
-        func-echo "You are in $cwpath"
+        func-echo    "You must be in a local directory path ending in"
+        func-echo -c "   $protocol"
+        func-echo -c "You are in $cwpath"
         local shouldbein="$gitfuncs_gitroot/$protocol"
         if [ ! -d $shouldbein ]
         then
-            func-echo "Cannot find '$shouldbein'."
-            func-echo "Correct and re-execute."
+            func-echo    "Cannot find '$shouldbein'."
+            func-echo -c "Correct and re-execute."
             return $NOT_OK
         else
             local resp
@@ -2092,13 +2117,16 @@ git-clone ()
     then
         echo "Setting up triangle workflow with ${protocol_url}$opt_triangle_namespace/${repo}..."
         git-set-triangle ${protocol} $opt_triangle_namespace $namespace $repo
-        git pull# To refresh from the upstream
+        git pull # To refresh from the upstream
     fi
     git remote -v
 
-    echo "Setting up for worktrees..."
-    mkdir wt
-    ls -ld $(pwd)/wt
+    if ((opt_worktree))
+    then
+        echo "Setting up for worktrees..."
+        mkdir wt
+        ls -ld $(pwd)/wt
+    fi
 
     ## Add this repo to the list
     git-go-set
@@ -2497,9 +2525,9 @@ git-worktree-create ()
         then
             builtin cd ./wt
         else
-            func-echo "Current directory is $(pwd)."
-            func-echo 'No wt subdir.'
-            func-echo 'Will not manipulate worktrees outside of wt dir. Aborting.'
+            func-echo    "Current directory is $(pwd)."
+            func-echo -c 'No wt subdir.'
+            func-echo -c 'Will not manipulate worktrees outside of wt dir. Aborting.'
             return $NOT_OK
         fi
     fi
@@ -2746,16 +2774,16 @@ git-delete-worktree ()
     local current_dir=$(basename $(pwd))
     if [ "$current_branch" != "$current_dir" ]
     then
-        func-echo "Branch name '$current_branch' does not match current subdir name '$current_dir'."
-        func-echo "I'm bailing; you fix this mess."
+        func-echo    "Branch name '$current_branch' does not match current subdir name '$current_dir'."
+        func-echo -c "I'm bailing; you fix this mess."
         return $NOT_OK
     fi
     git status
     local rc=$?
     if ((rc))
     then
-        func-echo "git status returned non-success value $rc."
-        func-echo "I'm bailing; you fix this mess."
+        func-echo    "git status returned non-success value $rc."
+        func-echo -c "I'm bailing; you fix this mess."
         return $NOT_OK
     fi
 
@@ -3480,19 +3508,19 @@ git-merge-pull-request ()
     if [ "$merge_src" = 'remote' ]
     then
         ((opt_verbose)) && func-echo --head "Add $srcurl... as a remote"
-        ((opt_verbose)) && func-echo "git remote add $remote_ref $srcurl"
+        ((opt_verbose)) && func-echo -c     "git remote add $remote_ref $srcurl"
         git remote add $remote_ref $srcurl
         status=$?
         ((status)) && _git_cd_unwind && return $status
 
         ((opt_verbose)) && func-echo --head "Fetch only the pull request branch (${src[$ibranch]}) from $srcurl (as remote ref $remote_ref)"
-        ((opt_verbose)) && func-echo "git fetch $remote_ref ${src[$ibranch]}"
+        ((opt_verbose)) && func-echo -c     "git fetch $remote_ref ${src[$ibranch]}"
         git fetch $remote_ref ${src[$ibranch]}
         status=$?
         ((status)) && _git_cd_unwind && return $status
 
         ((opt_verbose)) && func-echo --head "Do the merge"
-        ((opt_verbose)) && func-echo "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
+        ((opt_verbose)) && func-echo -c     "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
         git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}
         status=$?
         ((status)) && _git_cd_unwind && return $status
@@ -3505,10 +3533,10 @@ git-merge-pull-request ()
         ((status)) && _git_cd_unwind && return $status
         func-echo "****** **************************"
 
-        func-echo "Success is defined as"
-        func-echo "1) You are reading this message."
-        func-echo "2) The log entries from '$lasttwologmsg'"
-        func-echo "   are consistent with entry from '$currentlogmsg'."
+        func-echo -c "Success is defined as"
+        func-echo -c "1) You are reading this message."
+        func-echo -c "2) The log entries from '$lasttwologmsg'"
+        func-echo -c "   are consistent with entry from '$currentlogmsg'."
         echo
     else
         func-echo --head "Fetch only the pull request branch (${src[$irbranch]}) from $srcurl"
@@ -3597,8 +3625,8 @@ git-merge-pull-request ()
         fi
     else
         local fmpr=$(pwd)/FINISH-merge-pull-request
-        func-echo "Ok. Remember to '$pushback' soon before the master head advances."
-        func-echo "We will write the local file $fmpr with this command for your future convenience."
+        func-echo    "Ok. Remember to '$pushback' soon before the master head advances."
+        func-echo -c "We will write the local file $fmpr with this command for your future convenience."
         echo "$pushback" > $fmpr
         echo "git-delete-current-repo" >> $fmpr
         git-log-shas-range ${origcommitsha} ${newcommitsha} | comment-stream "## " >> $fmpr
@@ -4008,6 +4036,8 @@ git-retimestamp ()
 }
 safe_func_export git-retimestamp
 
+## TODO: git-create-patches-usage
+
 git-create-patches ()
 {
     ##@@ none||none||git-create-patches||
@@ -4021,6 +4051,7 @@ git-create-patches ()
 
     local patchdir
     patchdir="./patches_dir.outbound"
+
     local patchpath
     patchpath=$(realpath $patchdir)
     if [ ! -d $patchpath ]
@@ -4034,16 +4065,39 @@ git-create-patches ()
     local patchinpath
     patchinpath=$(realpath $patchindir)
 
-    echo "Creating patches from repo inception"
-    local patchlist=$(mktemp --suffix=.git-create-patches)
-    git format-patch -o $patchpath --full-index --root | tee $patchlist
-    local newsha=$(git-log-grab-sha -1)
-    local restorescript=$patchpath/restore.${newsha}
-    local config_key_root=BOGUS
-    \rm -f $patchpath/restore.*
-    if [ -s $patchlist ]
+    echo "Creating patches..."
+    local patchlist
+    patchlist=$(mktemp --suffix=.git-create-patches)
+    local workpatchpath
+    workpatchpath=$(mktemp -d)
+    git format-patch -o $workpatchpath --full-index --root > $patchlist
+    if [ ! -s $patchlist ]
     then
-        echo "## -*- sh -*-
+        echo "No patches to apply."
+        return
+    fi
+
+    local newsha
+    newsha=$(git-log-grab-sha -1)
+    local config_key_root
+    config_key_root=BOGUS
+    local new_files
+    new_files=$(diff $patchpath $workpatchpath 2>&1 | grep "Only in $workpatchpath" | sed -e 's/Only in //' -e 's/: /\//' )
+    if [ -z "$new_files" ]
+    then
+        echo "No new patches to apply."
+        return
+    fi
+
+    cp -pvf $new_files $patchpath
+    \rm -f $patchpath/restore.*
+    local restorescript
+    restorescript=$patchpath/restore.${newsha}
+
+    ##
+    ## This generates the restore script for use on the other end
+    ##
+    echo "## -*- sh -*-
 PATCHPATH=\$(dirname \$(realpath \$0))
 GITREPOROOT=\$(dirname \$PATCHPATH)
 if [ ! -d \$GITREPOROOT/.git ]
@@ -4064,7 +4118,7 @@ patchcount=$(cat $patchlist | wc -l)
 patchnum=0
 restart=\$(realpath \$0).\$(date +%Y%m%d%H%M%S).restart
 restartlink=\$(realpath \$0).restart
-for i in $(cat $patchlist | PATCHPATH=$patchpath perl -ne 'chomp;s|$ENV{PATCHPATH}|\$PATCHPATH|;print(qq(\\\n$_ ))')
+for i in $(cat $patchlist | PATCHPATH=$workpatchpath perl -ne 'chomp;s|$ENV{PATCHPATH}|\$PATCHPATH|;print(qq(\\\n$_ ))')
 do
   ((patchnum+=1))
   echo
@@ -4107,9 +4161,13 @@ EORESTART
 ## git incantations, restart the patching process by executing
 ##    \$restartlink
 
-## The 'appropriate git incantations'1 can be one of two sets of actions:
+## The 'appropriate git incantations' can be one of two sets of actions:
 
 ## THESE ACTIONS HAVE BEEN CONFIRMED TO WORK:
+
+## o Skip that patch with git am --skip
+
+##   OR
 
 ## o Apply ALL the edits in the patch file by hand. It
 ##   appears that patch application is an all or nothing
@@ -4149,18 +4207,14 @@ EORESTART
   fi
 done
 " > $restorescript
-        chmod a+rwx $restorescript
-        local sharfile=$(git-root)/$(basename $(git-root)).shar
-        (cd $patchdir && shar -o $sharfile *.patch $(basename $restorescript))
-        echo "1 - $ cp ${sharfile}* {git root of the target}"
-        echo "2 - $ cd {git root of the target}"
-        echo "3 - $ mkdir $patchindir && unshar -d $patchindir $(basename $sharfile)*"
-        echo "4 - $ cd $patchindir"
-        echo "5 - $ ./$(basename $restorescript)"
-    else
-        \rm -f $restorescript
-        echo "No patches to apply."
-    fi
+    chmod a+rwx $restorescript
+    local sharfile=$(git-root)/$(basename $(git-root)).shar
+    (cd $patchdir && shar -q -o $sharfile *.patch $(basename $restorescript))
+    echo "1 - $ cp ${sharfile}* {git root of the target}"
+    echo "2 - $ cd {git root of the target}"
+    echo "3 - $ mkdir $patchindir && unshar -d $patchindir $(basename $sharfile)*"
+    echo "4 - $ cd $patchindir"
+    echo "5 - $ ./$(basename $restorescript)"
 }
 safe_func_export git-create-patches
 
@@ -4211,10 +4265,37 @@ git-branch-info-pull-request ()
 }
 safe_func_export git-branch-info-pull-request
 
+git-diff-two-repos-on-disk-usage ()
+{
+    cat<<EOUSAGE
+Usage: git-diff-two-repos-on-disk [src] tgt
+       git-diff-two-repos-on-disk [-h|-help]
+
+       Compare two repos on disk. If only one repo is specified,
+       'src' is taken as the current directory, which should be
+       a repo root.
+EOUSAGE
+}
+
 git-diff-two-repos-on-disk ()
 {
     ##@@ none||none||git-diff-two-repos-on-disk||
     gitfuncs_audit "$@"
+    local usage_func="${FUNCNAME}-usage"
+
+    OPTSARGS=$(getoptp -o h --long help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func ${FUNCNAME} && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
+        esac
+    done
 
     local -A repo
     if [ -n "$2" ]
@@ -4240,7 +4321,6 @@ git-diff-two-repos-on-disk ()
     opposed[this]=other
     opposed[other]=this
 
-    local edit=$(mktemp  --suffix=.git-diff-two-repos-on-disk.edit)
     local which
     for which in this other
     do
@@ -4265,19 +4345,15 @@ git-diff-two-repos-on-disk ()
                     cp -vf ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line
                 elif [ -n "$output" ]
                 then
-                    echo '*****' >> $edit
-                    echo diff "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line" >> $edit
-                    diff -y --suppress-common-lines "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line" >> $edit
+                    echo '*****'
+                    local diffcmd=$(which colordiff 2>/dev/null)
+                    [ -z "$diffcmd" ] && diffcmd=diff
+                    echo $diffcmd -u "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
+                    $diffcmd -u "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
                 fi
             fi
         done < ${list[$which]}
     done
-
-    if [ -s $edit ]
-    then
-        echo Diffs are in $edit
-        ls -lart $edit
-    fi
 }
 safe_func_export git-diff-two-repos-on-disk
 
@@ -4285,8 +4361,7 @@ git-pull-usage ()
 {
     cat <<EOUSAGE
 Usage: git-pull [-t]
-       git pull followed by a descriptinve git status.
-
+       Does a git pull, followed by a descriptive git status.
        -t resets the timestamps on the pulled files
           to their original commit times
 EOUSAGE
@@ -4542,15 +4617,15 @@ git-set-triangle ()
     local key
     for key in ${!triangle_workflow[@]}
     do
-        git config --replace-all $key "${triangle_workflow[$key]}" | return $?
+        git config --replace-all $key "${triangle_workflow[$key]}" || return $?
     done
 
     ## These two are special because they repeat
     key='remote.upstream.fetch'
     ## Replace all blows away all $key entries before adding this one
-    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" | return $?
+    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" || return $?
     ## Now safe to add this one - it won't be duped.
-    git config --add         $key "+refs/notes/*:refs/notes/*" | return $?
+    git config --add         $key "+refs/notes/*:refs/notes/*" || return $?
 
     ## We do this last as a marker.
     git config --replace-all gitfuncs.git-set-triangle.created "$(date +%Y%m%d.%H%M%S%z)"
