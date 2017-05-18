@@ -2001,7 +2001,8 @@ git-clone ()
     local opt_y=0
     local opt_t=0
     local opt_triangle_namespace=''
-    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help,triangle: -n $FUNCNAME -- "$@")
+    local opt_worktree=1
+    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help,triangle:,noworktree -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func ${FUNCNAME} && return $status
 
@@ -2019,13 +2020,14 @@ git-clone ()
                         if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
                         then
                             func-echo    "WARNING: --triangle takes an upstream namespace specification,"
-                            func-echo -c"         not a full upstream repo specification."
+                            func-echo -c "         not a full upstream repo specification."
                             func-echo -c "         We will use"
                             func-echo -c "             $opt_triangle_namespace"
                             func-echo -c "         not"
                             func-echo -c "             $tmp_otn"
                         fi
                         ;;
+            --noworktree ) opt_worktree=0; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) func-echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
         esac
@@ -2119,9 +2121,12 @@ git-clone ()
     fi
     git remote -v
 
-    echo "Setting up for worktrees..."
-    mkdir wt
-    ls -ld $(pwd)/wt
+    if ((opt_worktree))
+    then
+        echo "Setting up for worktrees..."
+        mkdir wt
+        ls -ld $(pwd)/wt
+    fi
 
     ## Add this repo to the list
     git-go-set
@@ -4341,8 +4346,10 @@ git-diff-two-repos-on-disk ()
                 elif [ -n "$output" ]
                 then
                     echo '*****'
-                    echo git diff "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
-                    git diff "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
+                    local diffcmd=$(which colordiff 2>/dev/null)
+                    [ -z "$diffcmd" ] && diffcmd=diff
+                    echo $diffcmd -u "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
+                    $diffcmd -u "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
                 fi
             fi
         done < ${list[$which]}
@@ -4354,8 +4361,7 @@ git-pull-usage ()
 {
     cat <<EOUSAGE
 Usage: git-pull [-t]
-       git pull followed by a descriptinve git status.
-
+       Does a git pull, followed by a descriptive git status.
        -t resets the timestamps on the pulled files
           to their original commit times
 EOUSAGE

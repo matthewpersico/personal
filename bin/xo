@@ -5,19 +5,71 @@
 ## Filters in where parent ppid is 1 (in case emacs is running a perl debugger
 ## or some other subprocess)
 
+xo-usage()
+{
+    cat <<EOF
+usage: xo [--debug] [--forceX] [--root] [--gim] [-- emacs_opts] [file [file...]]
+       xo --help
+
+       Start up emacs, using client mode where possible.
+
+       --debug
+           'xo' is a shell script. Run with 'set -x' to see what's borken.
+
+       --forceX
+           'xo' tries hard to find X. If it can't but you know it's available,
+           tell 'xo' to use it anyway.
+
+       --root
+           Root directory of the emacs install, if you are using multiple
+           version in places other than the default.
+
+       --gim
+           Stands for GIM or Git Is Modified. Find all the files that look
+           like they have been modified (not committed) in the current
+           directory (if it is a git repo) and edit those.
+
+       -- emacs_opts
+          The -- signals that there are no more options for 'xo'. All
+          subsequent - and -- flags are passed directly to emacs.
+EOF
+}
+
 debug=0
 forceX=0
-if [ "$1" = --debug ]
-then
-    set -x ## Set by option
-    debug=1
-    shift
-fi
-if [ "$1" = --forceX ]
-then
-    forceX=1
-    shift
-fi
+emacs_exe=$(which emacs)
+emacsclient_exe=$(which emacsclient)
+gim=''
+more_opts=1
+while ((more_opts)) && [[ "$1" =~ ^- ]]
+do
+    case "$1" in
+        --debug )
+            set -x ## Set by option
+            debug=1
+            shift
+            ;;
+        --forceX )
+            forceX=1
+            shift
+            ;;
+        --root )
+            emacs_exe="$2/emacs"
+            emacsclient_exe="$2/emacs"
+            shift;shift;
+            ;;
+        --gim )
+            gim=$(git-is-mod)
+            shift
+            ;;
+        --help )
+            xo-usage; exit 0;;
+        -- )
+            more_opts=0
+            shift
+            ;;
+    esac
+done
 
 ## Temp file for processing and diagnostic messages.
 procs=$(mktemp --suffix=.xo)
@@ -76,7 +128,7 @@ then
 fi
 
 ## Get potential emacs server processes
-$pscmd | grep $grepargs | grep -v grep | grep -vi 'emacs -Q' | grep -vi 'emacsclient -c' >$procs 2>&1
+$pscmd | grep $grepargs | grep -v grep | grep -vi "$emacs_exe -Q" | grep -vi "$emacsclient_exe -c" >$procs 2>&1
 if ((debug))
 then
     cat $procs
@@ -87,7 +139,7 @@ if((hasX))
 then
     serverup=$(cut -c $cutrange $procs | grep '    1' | wc -l)
 else
-    serverup=$(cat $procs | grep 'emacs -nw' | wc -l)
+    serverup=$(cat $procs | grep "$emacs_exe -nw" | wc -l)
 fi
 
 ## If we are being used as the git editor or EDITOR, we don't want to start up
@@ -110,9 +162,9 @@ then
     then
         if (( hasX ))
         then
-            emacs "$@" &
+            $emacs_exe "$@" &
         else
-            emacs -nw "$@" < /dev/tty
+            $emacs_exe -nw "$@" < /dev/tty
         fi
     else
         echo "No emacs server found. Start one and try again or use -m."
@@ -123,12 +175,12 @@ then
     then
         if ((new_frame))
         then
-            emacsclient -c "$@" | grep -v 'Waiting for Emacs' &
+            $emacsclient_exe -c "$@" | grep -v 'Waiting for Emacs' &
         elif ((as_visual==1))
         then
-            emacsclient -c "$@"
+            $emacsclient_exe -c "$@"
         else
-            emacsclient -n -a emacs "$@"
+            $emacsclient_exe -n -a $emacs_exe "$@"
         fi
     else
         echo "Server already up. Specify a file to edit."
