@@ -742,7 +742,7 @@ git-go ()
 
     local usage_func="${FUNCNAME}-usage"
 
-    local PS3="Choose by number, q to quit: "
+    local PS3="Choose by number, /string to rematch, q to quit: "
     local opt_list=0
     local opt_update=0
     local opt_roots=0
@@ -872,6 +872,10 @@ git-go ()
                     elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
                     then
                         return
+                    elif [[ "$(echo $REPLY)" =~ ^/ ]]
+                    then
+                        git-go ${REPLY#/}
+                        return $?
                     else
                         echo "'$REPLY' is an invalid choice"
                     fi
@@ -883,7 +887,7 @@ git-go ()
     then
         ## dirlist, not builtin cd to take advantage this cd enhancement
         dirlist ${HOME}/$(git-strip-repo $REPO)
-        git-check-this-hook
+        git-check-hook
     fi
     return
 }
@@ -1009,7 +1013,8 @@ git-delete-branch ()
 
     local no_remote=0
     local opt_yes=0
-    OPTSARGS=$(getoptp -o y --long yes,no-remote,local-only -n $FUNCNAME -- "$@")
+    local do_go_set=1
+    OPTSARGS=$(getoptp -o y --long yes,no-remote,local-only,no-go-set -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -1019,6 +1024,7 @@ git-delete-branch ()
         case "$1" in
             -y|--yes) opt_yes=1; shift ;;
             --no-remote|--local-only) no_remote=1; shift ;;
+            --no-go-set) do_go_set=0; shift ;;
             -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
@@ -1066,9 +1072,17 @@ git-delete-branch ()
             echo "Nope, you can't delete the current branch."
             return $NOT_OK
         fi
-        git branch -d $branch || return $?; ## This could fail. If so, go clean
-                                            ## manually. Sometimes you get
-                                            ## instructions on how to do that.
+
+        local brdelstat
+        git branch -d $branch
+        brdelstat=$?
+        if ((brdelstat))
+        then
+            func-echo "ERROR: git branch -d $branch failed. Returning $brdelstat."
+            return $brdelstat
+        fi
+        func-echo "Branch deleted locally."
+
         if [ "$no_remote" = '1' ]
         then
             return $OK
@@ -1093,13 +1107,20 @@ git-delete-branch ()
                                                       ## since we have checked
                                                       ## that the branch exists
                                                       ## in the remote.
+                    brdelstat=$?
+                    if ((brdelstat))
+                    then
+                        func-echo "ERROR: git push --delete $remote $branch failed. Returning $brdelstat."
+                        return $brdelstat
+                    fi
+                    func-echo "Branch deleted remotely."
                 fi
             fi
         done
     fi
 
     ## Update with changed branches
-    git-go-set
+    ((do_go_set)) && git-go-set
     return $?
 }
 safe_func_export git-delete-branch
@@ -1149,101 +1170,30 @@ git-push-hook ()
     ##@@ none||none||git-push-hook||
     gitfuncs_audit "$@"
 
-    local current_template=$(git config --get init.templatedir)
-    if [ "$current_template" != "${gitfuncs_githook_root}" ]
-    then
-        echo "Error: Config says init.templatedir = '$current_template'"
-        echo "       It should be '${gitfuncs_githook_root}'"
-        echo "       Please correct."
-        return $NOT_OK
-    fi
-
-    if [ ! -d "$current_template" ]
-    then
-        echo "Error: Can't find '$current_template'"
-        echo "       Please correct."
-        return $NOT_OK
-    fi
-
-    local hooks="$@"
-    if [ -z "$hooks" ]
-    then
-        hooks=$(ls ${gitfuncs_githook_dir}/*)
-    else
-        local h
-        local newh
-        for h in $hooks
-        do
-            newh="$newh ${gitfuncs_githook_dir}/$h"
-        done
-        hooks="$newh"
-    fi
-
-    local REPOS REPO
-    REPOS=$(_git-go-get 0 0 1 0 0 | grep -v ".git_template" )
-    for REPO in $REPOS
-    do
-
-        echo "== $REPO"
-        for h in $hooks
-        do
-            local hooktgtdir="${HOME}/$(git-strip-repo $REPO)/.git/hooks"
-            if [ -f $hooktgtdir ]
-            then
-                echo $hooktgtdir is a file. whoops....
-                ## Fix up accidental directory overwrite
-                \rm $hooktgtdir
-                mkdir $hooktgtdir
-            fi
-
-            local hooktgtpath="$hooktgtdir/$(basename $h)"
-            if [ ! -e $hooktgtpath ] || [ $h -nt $hooktgtpath ]
-            then
-                if [ ! -e $hooktgtpath ]
-                then
-                    echo "$hooktgtpath not found. Copying from $h..."
-                elif [ $h -nt $hooktgtpath ]
-                then
-                    echo "$hooktgtpath out of date. Updating from $h..."
-                fi
-                cp -pv $h $hooktgtpath
-                chmod +x $hooktgtpath
-            elif [ $h -ot $hooktgtpath ]
-            then
-                local tmpout=$(mktempv --suffix=.git-push-hook)
-                diff  $h  $hooktgtpath 1>$tmpout 2>&1
-                if [ -s $tmpout ]
-                then
-                    echo "$hooktgtpath newer than $h. Here's the diff, older to newer:"
-                    cat $tmpout
-                fi
-                rm -f $tmpout
-            fi
-        done
-    done
+    git-hook-pushpull-guts $(_git-go-get 0 0 1 0 0 | grep -v ".git_template" )
 }
 safe_func_export git-push-hook
 
-git-check-this-hook ()
+git-hook-push ()
+{
+    git-push-hook "$@"
+}
+safe_func_export git-hook-push
+
+git-check-hook ()
 {
     ##@@ none||none||git-check-hook||
     gitfuncs_audit "$@"
 
-    local gitloc="./.git"
-    if [ -f $gitloc ]
+    local hook_dir=$(git-hook-find-hook-dir)
+    if [ -z "$hook_dir" ] || [ ! -d "$hook_dir" ]
     then
-        ## We are probably in a worktree...
-        gitloc=$(cat .git | sed 's/.* //')
-        gitloc=${gitloc%%/worktrees*}
-    fi
-    if [ ! -d $gitloc ]
-    then
-        echo "Cannot run git-check-hook outside base repo dir - can't find .git"
+        echo "Cannot find hook directory"
         return $NOT_OK
     fi
-    ret=0
-    local hookloc="${gitloc}/hooks"
-    for i in $(ls ${hookloc}/* | grep -v '.sample' | grep -v $GITFUNCS_CHANGELOG_NAME)
+    local ret=0
+    local i
+    for i in $(ls ${hook_dir}/* | grep -v '.sample' | grep -v $GITFUNCS_CHANGELOG_NAME)
     do
         if [ ! -x $i ]
         then
@@ -1253,7 +1203,13 @@ git-check-this-hook ()
     done
     return $OK
 }
-safe_func_export git-check-this-hook
+safe_func_export git-check-hook
+
+git-hook-check ()
+{
+    git-check-hook "$@"
+}
+safe_func_export git-hook-check
 
 git-checkout-usage ()
 {
@@ -1577,7 +1533,8 @@ safe_func_export git-check-with-master
 git-sync-with-remote-usage ()
 {
     echo "Usage: $1 --branch otherBranch [--remote remote] [--confirm]"
-    echo "       remoteRepoTag defaults to 'origin'"
+    echo "       Rebase your branch from another remote branch."
+    echo "       'remote' defaults to 'origin'."
 }
 safe_func_export git-sync-with-remote-usage
 
@@ -2329,6 +2286,12 @@ git-is-mod ()
 }
 safe_func_export git-is-mod
 
+gitismod ()
+{
+    git-what-is-modified "$@"
+}
+safe_func_export gitismod
+
 git-what-is-modified-only ()
 {
     ##@@ none||none||git-what-is-modified-only||git-what-is-modified sans what is deleted
@@ -2826,11 +2789,11 @@ git-delete-worktree ()
     ## Now the take care of the branch.
     if ((opt_yes))
     then
-        resp='d'
+        resp='y'
     else
-        resp=$(func-pick "Keep, delete associated branch $current_branch" 'k/d' '' )
+        resp=$(func-yesno "Delete associated branch $current_branch" 'n')
     fi
-    if [ "$resp" = 'k' ]
+    if [ "$resp" = 'n' ]
     then
         func-echo "If you change your mind: git-delete-branch $current_branch"
     else
@@ -2840,17 +2803,19 @@ git-delete-worktree ()
             builtin cd ..
         done
         builtin cd ..
-        if [ "$resp" = 'd' ]
+        if [ "$resp" = 'y' ]
         then
-            git-delete-branch $opt_yes_string $current_branch
+            git-delete-branch --no-go-set $opt_yes_string $current_branch
         fi
     fi
 
     [ -d $opwd ] && builtin cd ## If $opwd was the worktree directory, it won't
                                ## be there anymore. Stay where we are.
 
+    func-echo "Resetting git list..."
     git-go-set
 
+    func-echo "Done."
     return $OK
 }
 safe_func_export git-delete-worktree
@@ -2866,35 +2831,27 @@ git-worktree-root ()
     ##@@ none||none||git-worktree-root||print the master root where the wt dir is
     gitfuncs_audit "$@"
 
-    local wtr=$(git worktree list)
-    local status=$?; ((status)) && return $status
-    echo $wtr | sed 's/ .*//'
-    return $OK
-}
-safe_func_export git-worktree-root
-
-git-run-precommit-hook ()
-{
-    ##@@ none||none||git-run-precommit-hook||
-    gitfuncs_audit "$@"
-
-    local wtr=$(git-worktree-root)
-    status=$?; ((status)) && return $status
-    local hook="$wtr/.git/hooks/pre-commit"
-    if [ -x $hook ]
+    local i
+    local status=0
+    local wtr=$(git worktree list | \
+                                  grep '\[master\]' | \
+                                  sed 's/....... \[master\]//' | \
+                                  sed 's/\s\{1,\}$//')
+    for i in ${PIPESTATUS[@]}
+    do
+        ((i>status)) && status=$i
+    done
+    ((status)) && return $status
+    if [ -n "$wtr" ]
     then
-        $hook "$@"
-        return $?
-    elif [ -r $hook ]
-    then
-        echo "Cannot execute $hook"
-        return $NOT_OK
+        echo $wtr
+        return $OK
     else
-        echo "Cannot find $hook"
+        echo
         return $NOT_OK
     fi
 }
-safe_func_export git-run-precommit-hook
+safe_func_export git-worktree-root
 
 git-worktree-diff-to-root ()
 {
@@ -4489,7 +4446,7 @@ git-rename-worktree ()
     local theregit=${metadatadir}/gitdir
 
     ## Change the metadata files
-    perl -pi e "s/$old_worktree/$new_worktree/g" $heregit $theregit \
+    perl -pi -e "s/$old_worktree/$new_worktree/g" $heregit $theregit \
         || return $NOT_OK
 
     ## Move the metadata dir
@@ -4632,6 +4589,159 @@ git-set-triangle ()
 }
 safe_func_export git-set-triangle
 
+git-pull-hook ()
+{
+    ##@@ none||none||git-push-hook||
+    gitfuncs_audit "$@"
+
+    git-hook-pushpull-guts $(git-worktree-root)
+
+}
+safe_func_export git-push-hook
+
+git-hook-pull ()
+{
+    git-pull-hook "$@"
+}
+safe_func_export git-hook-pull
+
+git-dry-run-hook ()
+{
+    local hook_name=$1; shift
+    local hook_dir=$(git-hook-find-hook-dir)
+    if [ -z "$hook_dir" ] || [ ! -d "$hook_dir" ]
+    then
+        echo "Cannot find hook directory"
+        return $NOT_OK
+    fi
+    local hook_path=$hook_dir/$hook_name
+    if [ -x $hook_path ]
+    then
+        $hook_path $@
+        return $?
+    else
+        echo Executable $hookpath not found.
+        return 1
+    fi
+}
+safe_func_export git-dry-run-hook
+
+git-hook-dry-run ()
+{
+    git-dry-run-hook "$@"
+}
+safe_func_export git-hook-dry-run
+
+git-hook-find-hook-dir ()
+{
+    local dotgit=$(git-find-git-dir)
+    if [ -n "$dotgit" ] && [ -d $dotgit/hooks ]
+    then
+        echo $dotgit/hooks
+        return $OK
+    else
+        echo
+        return $NOT_OK
+    fi
+}
+safe_func_export git-hook-find-hook-dir
+
+git-hook-pushpull-guts ()
+{
+    local REPOS="$@"
+
+    local current_template=$(git config --get init.templatedir)
+    if [ "$current_template" != "${gitfuncs_githook_root}" ]
+    then
+        echo "Error: Config says init.templatedir = '$current_template'"
+        echo "       It should be '${gitfuncs_githook_root}'"
+        echo "       Please correct."
+        return $NOT_OK
+    fi
+
+    if [ ! -d "$current_template" ]
+    then
+        echo "Error: Can't find '$current_template'"
+        echo "       Please correct."
+        return $NOT_OK
+    fi
+
+    local hooks="$@"
+    if [ -z "$hooks" ]
+    then
+        hooks=$(ls ${gitfuncs_githook_dir}/*)
+    else
+        local h
+        local newh
+        for h in $hooks
+        do
+            newh="$newh ${gitfuncs_githook_dir}/$h"
+        done
+        hooks="$newh"
+    fi
+
+    local REPO
+    for REPO in $REPOS
+    do
+        (($# > 1)) && echo "== $REPO"
+        for h in $hooks
+        do
+            local hooktgtdir="${HOME}/$(git-strip-repo $REPO)/.git/hooks"
+            if [ -f $hooktgtdir ]
+            then
+                echo $hooktgtdir is a file. whoops....
+                ## Fix up accidental directory overwrite
+                \rm $hooktgtdir
+                mkdir $hooktgtdir
+            fi
+
+            local hooktgtpath="$hooktgtdir/$(basename $h)"
+            if [ ! -e $hooktgtpath ] || [ $h -nt $hooktgtpath ]
+            then
+                if [ ! -e $hooktgtpath ]
+                then
+                    echo "$hooktgtpath not found. Copying from $h..."
+                elif [ $h -nt $hooktgtpath ]
+                then
+                    echo "$hooktgtpath out of date. Updating from $h..."
+                fi
+                cp -pv $h $hooktgtpath
+                chmod +x $hooktgtpath
+            elif [ $h -ot $hooktgtpath ]
+            then
+                local tmpout=$(mktempv --suffix=.git-push-hook)
+                diff  $h  $hooktgtpath 1>$tmpout 2>&1
+                if [ -s $tmpout ]
+                then
+                    echo "$hooktgtpath newer than $h. Here's the diff, older to newer:"
+                    cat $tmpout
+                fi
+                rm -f $tmpout
+            else
+                echo "$hooktgtpath up to date"
+            fi
+        done
+    done
+}
+safe_func_export git-hook-pushpull-guts
+
+git-find-git-dir ()
+{
+    local dotgit=$(git-root)/.git
+    if [ -f $dotgit ]
+    then
+        ## Must be a worktree. Go find the source.
+        dotgit=$(realpath $(cat $dotgit | sed 's/gitdir: //') | sed 's/.git\/.*/.git/')
+    fi
+    if [ -d $dotgit ]
+    then
+        echo $dotgit
+        return $OK
+    else
+        echo
+        return $NOT_OK
+    fi
+}
 ## No functions below this line.
 
 for external in github
