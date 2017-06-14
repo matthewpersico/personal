@@ -26,7 +26,12 @@ while (<IH>) {
     next if $_ !~ m/$patt/;
     chomp;
     $_ =~ s/$patt//;
-    @line{qw(class classord name text)} = split(/\|\|/,$_);
+    my @tmp = split(/\|\|/,$_);
+    if ($tmp[0] eq '0001') {
+        @line{qw(ord group name text)} = ($tmp[2], $tmp[1], $tmp[2], $tmp[3]);
+    } else {
+        @line{qw(ord group name text)} = ($tmp[2], 'group', $tmp[2], $tmp[3]);
+    }
     $line{text} ||= '';
     my $ok=($opt{re}
               ? ( $line{name} =~ m/$opt{re}/
@@ -34,12 +39,24 @@ while (<IH>) {
                   : 0 )
               : 1 );
     if($ok) {
-        $out{$line{name}} = $line{text};
+        $out{$line{name}} = { group => ($line{group} eq 'group' ? 'general' : $line{group}),
+                              name => $line{name},
+                              text => $line{text},
+                              ord => $line{ord} };
         $max = length($line{name}) > $max ? length($line{name}) : $max;
     }
 }
 
-my $fmt = "%${max}s - %s\n";
+## Aliases can point back to the original function for help text
+for (keys %out) {
+    if ($out{$_}{text} =~ m/(->)(.*)/) {
+        my $ref_func = $2;
+        $out{$_}{text} = "Alias for $_";
+        $out{$_}{ord} = "$out{$ref_func}{ord}-$out{$_}{ord}";
+    }
+}
+
+my $fmt = "%-${max}s - %s\n";
 if( @ARGV ) {
     my %orig = %out;
     %out = ();
@@ -51,6 +68,13 @@ if( @ARGV ) {
         }
     }
 }
-for (sort keys %out ) {
-    printf ($fmt, $_, $out{$_});
+my $group ='';
+for (sort {$a->{group} cmp $b->{group}
+             or
+             $a->{ord} cmp $b->{ord}} values %out ) {
+    if( $group ne $_->{group} ) {
+        $group = $_->{group};
+        print "\n$group:\n";
+    }
+    printf ($fmt, $_->{name}, $_->{text});
 }

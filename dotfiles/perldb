@@ -2,12 +2,13 @@
 use Cwd;
 use FindBin qw($Bin);
 use File::Spec::Functions;
+use File::Basename;
 sub afterinit {
-    for my $cmdfile (
-        $ENV{PERLDB_MYCOMMANDFILE},        ## First check for a global file
-        catfile(getcwd(), '.perldbinit'),  ## Second check for a project scoped file
-        catfile($Bin, '.perldbinit')       ## Third check for a script scoped file.
-    ) {
+    ## By setting up the command files in the given order, we can load global
+    ## values, overriding with more granular settings.
+    for my $cmdfile ( catfile(getcwd(), '.perldb'),           ## First check for a project scoped file
+                      catfile($Bin, basename($0) . '.perldb') ## Then check for a script scoped file.
+                  ) {
         if ( -e $cmdfile ) {
             print STDERR "Running debugger commands in\n    $cmdfile\nfor\n    $0...\n";
             open my $cmdh, "<", $cmdfile or
@@ -19,6 +20,8 @@ sub afterinit {
               ( scalar(@returnto0) ? ("f $0", '.') : 'l' );
             push @DB::typeahead, @typeahead;
             last;
+        } else {
+            print STDERR "Debugger command file $cmdfile not found\n";
         }
     }
 }
