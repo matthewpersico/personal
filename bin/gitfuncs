@@ -1962,7 +1962,8 @@ git-clone ()
     local opt_t=0
     local opt_triangle_namespace=''
     local opt_worktree=1
-    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help,triangle:,noworktree -n $FUNCNAME -- "$@")
+    local opt_local=0
+    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help,triangle:,noworktree,local -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func ${FUNCNAME} && return $status
 
@@ -1988,6 +1989,7 @@ git-clone ()
                         fi
                         ;;
             --noworktree ) opt_worktree=0; shift;;
+            --local ) opt_local=1; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) func-echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
         esac
@@ -2011,31 +2013,36 @@ git-clone ()
     local local_protocol=$(basename $cwpath)
     if [ "$local_protocol" != "$protocol" ]
     then
-        func-echo    "You must be in a local directory path ending in"
-        func-echo -c "   $protocol"
-        func-echo -c "You are in $cwpath"
-        local shouldbein="$gitfuncs_gitroot/$protocol"
-        if [ ! -d $shouldbein ]
+        if ((opt_local == 0))
         then
-            func-echo    "Cannot find '$shouldbein'."
-            func-echo -c "Correct and re-execute."
-            return $NOT_OK
-        else
-            local resp
-            if ((opt_y))
+            func-echo    "You must be in a local directory path ending in"
+            func-echo -c "   $protocol"
+            func-echo -c "You are in $cwpath"
+            local shouldbein="$gitfuncs_gitroot/$protocol"
+            if [ ! -d $shouldbein ]
             then
-                func-echo "Going to $shouldbein"
-                resp='y'
-            else
-                resp=$(func-yesno "cd to $shouldbein")
-            fi
-            if [ "$resp" = 'n' ]
-            then
-                func-echo "Correct and re-execute."
+                func-echo    "Cannot find '$shouldbein'."
+                func-echo -c "Correct and re-execute."
                 return $NOT_OK
             else
-                _git_cd_to $shouldbein
+                local resp
+                if ((opt_y))
+                then
+                    func-echo "Going to $shouldbein"
+                    resp='y'
+                else
+                    resp=$(func-yesno "cd to $shouldbein")
+                fi
+                if [ "$resp" = 'n' ]
+                then
+                    func-echo "Correct and re-execute."
+                    return $NOT_OK
+                else
+                    _git_cd_to $shouldbein
+                fi
             fi
+        else
+            func-echo -- "--local specifed. Cloning into $(pwd)/$repo"
         fi
     fi
 
