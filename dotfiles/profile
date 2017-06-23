@@ -7,11 +7,31 @@ export MASTER_SHLVL
 
 CRON=$(~/personal/bin/running_under_cron && echo true || echo false)
 
-##DEBUG:
-$CRON || echo "$(date): ~/.profile.${USER} is running..."
+## OS is the 'proclaimed' operating system name. Use this where a system
+## may be lying, but fakes it pretty well.
+OS=$(uname -o)
+export OS
+
+## OS_ID is the 'true' operating system name. use this primarily where
+## we need to know if this is Winbash or not.
+OS_ID=$OS
+if [ "$OS_ID" = 'Gnu/Linux' ]
+then
+    iswinbash=$(uname -r | sed 's/.*\(Microsoft\).*/\1/')
+    if [ "$iswinbash" = 'Microsoft' ]
+    then
+        OS_ID='Winbash'
+    fi
+fi
+export OS_ID
 
 ## How to plug in (monkeypatch) set -x if needed
 [ -e /tmp/profile.${USER} ] && . /tmp/profile.${USER}
+
+! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
+    ( [ -n "$ALLFUNCS_PROFILE_LEVELS" ] && \
+          printf '=%.0s' $(eval "echo {1.."$((${#BASH_SOURCE[@]}))"}") || true ) && \
+        echo "$(date): ~/.profile.${USER} is running..."
 
 ## NFS cross-mount check
 if [ ! "$(basename $SHELL)" = 'bash' ]
@@ -23,19 +43,6 @@ fi
 
 shopt -s expand_aliases
 
-PROFILE_FILE=${BASH_SOURCE[0]}
-profile_edit ()
-{
-    xo $PROFILE_FILE
-}
-alias profile-edit=profile_edit
-
-profile_reload ()
-{
-    . $PROFILE_FILE
-}
-alias profile-reload=profile_reload
-
 ##
 ## Start here
 ##
@@ -44,11 +51,10 @@ export PERSONALBIN=$PERSONALROOT/bin
 
 ## Utils load first
 . $PERSONALBIN/utilfuncs
-utilfuncs-load
 
 ## Path manips next. Now we have some minimal defs to use going forward.
 . $PERSONALBIN/pathfuncs
-pathfuncs-reload
+
 addpath -f PATH $PERSONALBIN
 
 ##
@@ -131,20 +137,27 @@ done
 LESS="-X"
 export LESS
 
+# Needs setting
+for pager in less more
+do
+    [ -z "$PAGER" ] && PAGER=$(which $pager)
+done
+[ -n "$PAGER" ] && export PAGER
+
 since=$(date +'%a %b %d %H:%M:%S')
+ps1_xterm_title_cmds=''
 if [ ! "$EMACS" = 't' ]
 then
-    ## Override prompt (assuming git stuff is loaded, either in chimera or locally)
-    ##     status of     these change
-    ##     prior command xterm title
-    ##     |           | |          |
-    ##     |        +--+ |          +------+
-    ##     |        |    |                 |
-    ##     v--------v    v-----------------v
-    PS1='\n[\$? = $?]\n\n\[\e]0;\u@\h:\w\a\]what    : \u@\h\nsince   : $since\nas-of   : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")$(git-get-default-remote -na "\nremote  : ")\npwd     : \w\n[$$] \$ '
-else
-    PS1='\n[\$? = $?]\n\nwhat    : \u@\h\nsince   : $since\nas-of   : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")$(git-get-default-remote -na "\nremote  : ")\npwd     : \w\n[$$] \$ '
+    ps1_xterm_title_cmds='\[\e]0;\u@\h:\w\a\]'
 fi
+## Override prompt (assuming git stuff is loaded, either in chimera or locally)
+##     status of
+##     prior command
+##     |           |
+##     |        +--+
+##     |        |
+##     v--------v
+PS1='\n[\$? = $?]\n\n'$ps1_xterm_title_cmds'what    : \u@\h\nsince   : $since\nas-of   : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")$(git-get-default-remote -na "\nremote  : ")\npwd     : \w\n[$$] \$ '
 export PS1
 
 # for silencing emacs 24.4 dbus warning message
@@ -157,5 +170,7 @@ EDITOR='vi'
 ! $CRON && [ $(which emacs 2>/dev/null) ] && EDITOR='emacsclient -c'
 export EDITOR
 
-##DEBUG:
-$CRON || echo "$(date): ~/.profile.${USER} has run"
+! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
+    ( [ -n "$ALLFUNCS_PROFILE_LEVELS" ] && \
+          printf '=%.0s' $(eval "echo {1.."$((${#BASH_SOURCE[@]}))"}") || true ) && \
+    echo "$(date): ~/.profile.${USER} has run"
