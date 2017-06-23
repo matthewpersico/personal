@@ -55,8 +55,12 @@ do
             ;;
         --root )
             emacs_exe="$2/emacs"
-            emacsclient_exe="$2/emacs"
+            emacsclient_exe="$2/emacsclient"
             shift;shift;
+            for i in $emacs_exe $emacsclient_exe
+            do
+                [ -x $i ] || (echo "Cannot find '$i'. --root cannot be used." && exit 1);
+            done
             ;;
         --gim )
             gim=$(git-is-mod)
@@ -88,7 +92,7 @@ finish ()
 ## Main
 ##
 
-## OS ok here - Winbash behaves as GNU/Limux
+OS=$(uname -o)
 case $OS in
     GNU/Linux )
         pscmd="ps lx -U ${USER}"
@@ -162,25 +166,25 @@ then
     then
         if (( hasX ))
         then
-            $emacs_exe "$@" &
+            $emacs_exe "$@" $gim &
         else
-            $emacs_exe -nw "$@" < /dev/tty
+            $emacs_exe -nw "$@" $gim < /dev/tty
         fi
     else
         echo "No emacs server found. Start one and try again or use -m."
     fi
 elif ((serverup==1))
 then
-    if [ ! "$#" = 0 ]
+    if [ ! "$#" = 0 ] || [ -n "$gim" ]
     then
         if ((new_frame))
         then
-            $emacsclient_exe -c "$@" | grep -v 'Waiting for Emacs' &
+            $emacsclient_exe -c "$@" $gim | grep -v 'Waiting for Emacs' &
         elif ((as_visual==1))
         then
-            $emacsclient_exe -c "$@"
+            $emacsclient_exe -c "$@" $gim
         else
-            $emacsclient_exe -n -a $emacs_exe "$@"
+            $emacsclient_exe -n -a $emacs_exe "$@" $gim
         fi
     else
         echo "Server already up. Specify a file to edit."
