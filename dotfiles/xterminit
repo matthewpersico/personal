@@ -8,42 +8,23 @@
 ## - No variables with - in them. Use _ instead.
 
 ## This script is run in the Bloomberg environment on dev machines under ksh
-+## before Chimera switches over to bash. Therefore we do not make any audit or
-+## controlfunc build calls. We call those in the caller of this in the *funcs
-+## tree again after chimera.
+## before Chimera switches over to bash. Therefore we do not make any audit or
+## controlfunc build calls. We call those in the caller of this in the *funcs
+## tree again after chimera.
 
 ## Cygwin use only
-startxservercygwin() {
-    if [ -z "$(ps -a | grep XWin | grep -v grep)" ]
+startxserver() {
+    if [ -z "$(ps -a | grep XWin)" ]
     then
         if [ "$1" = '--verbose' ]
         then
             echo "Starting Cygwin XServer..."
         fi
-        startxwin 1>/dev/null 2>/dev/null &
+        startxwin 2>/dev/null 2>/dev/null &
         XSERVER='XWin'
-    elif [ "$1" = '--verbose' ]
-    then
-        echo "Cygwin XServer already running."
     fi
 }
 
-## WinBash use only
-startxserverwinbash() {
-    if [ -z "$(ps -a | grep Xming.exe | grep -v grep)" ]
-    then
-        if [ "$1" = '--verbose' ]
-        then
-            echo "Starting Xming XServer..."
-        fi
-        /mnt/c/PROGRA~1/Xming/Xming.exe -multiwindow &
-        XSERVER='Xming'
-    elif [ "$1" = '--verbose' ]
-    then
-        echo "Xming XServer already running."
-    fi
-}
-set -x ## <GCS>
 ## init
 hasx=0
 if [ -z "$DISPLAY" ]
@@ -54,7 +35,7 @@ else
 fi
 
 XSERVER=''
-if [ "$OS_ID" = 'Cygwin' ]
+if [ "$(uname -o)" = 'Cygwin' ]
 then
     hasXming=$(ps -aW | grep Xming.exe)
     if [ -n "$hasXming" ]
@@ -62,11 +43,8 @@ then
         echo "Using Xming XServer"
         XSERVER='Xming'
     else
-        startxservercygwin --verbose
+        startxserver --verbose
     fi
-elif [ "$OS_ID" = 'Microsoft' ]
-then
-    startxserverwinbash --verbose
 elif [ "$hasx" = '0' ]
 then
     ## X server ping...
@@ -77,7 +55,7 @@ then
         return 0 ## return, not exit because this script is meant to be 'dotted in'
     fi
 fi
-set +x ## <GCS>
+
 if [ -z "$XTERM" ]
 then
     for i in /bin /usr/bin /usr/bin/X11
@@ -306,8 +284,9 @@ export ANSI_BG_cyan="\e[46m"
 export ANSI_BG_white="\e[47m"
 
 ##
-## Query the colors
+## Query the colors.
 ##
+
 ## Make sure that the value of each entry below matches a color in one of the
 ## 'forebackmap_' variables above. In order to figure out a bg color, first add
 ## the fg, bg combo to the forebackmap_ variables above. Then call

@@ -2,30 +2,14 @@
 
 # cdfuncs
 
-## I chose to use 'local' because it is more semantically correct for what we
-## are doing than 'declare' is, and 'typeset' is deprecated except for ksh
-## compatibility.
+auditfuncs-init
+. $(which controlfuncs_build)
 
-CDFUNCS_FILE=${BASH_SOURCE[0]}
 DIRLIST_FILE=~/.dirlist
 DIRLIST_LOCK=~/.dirlist.lck
 DIRLIST_CONTEXT=''
 DIRLIST_PWD_INDIC='==>'
 export DIRLIST_PWD_INDIC
-
-cdfuncs_edit ()
-{
-    xo $CDFUNCS_FILE
-}
-safe_func_export cdfuncs_edit
-alias cdfuncs-edit=cdfuncs_edit
-
-cdfuncs_reload ()
-{
-    . $CDFUNCS_FILE
-}
-safe_func_export cdfuncs_reload
-alias cdfuncs-reload=cdfuncs_reload
 
 ## Remove the current dir marker
 cleandirlist ()
@@ -257,15 +241,18 @@ dirlist ()
     local target
     local current
 
-    ## Have to pull off any negative numbers first so as not to confuse getoptp
+    ## Have to pull off any negative numbers or ^ args, both of which signify
+    ## 'up', first so as not to confuse getoptp
     local negs
     local args
+    local neg_carr #ot
     while [ -n "$1" ]
     do
-        is-neg $1
+        neg_carr=$(echo $1| sed 's/\^/-/')
+        is-neg $neg_carr
         if (( $? == 0 ))
         then
-            negs="$negs $1"
+            negs="$negs $neg_carr"
         else
             args="$args $1"
         fi
@@ -430,3 +417,5 @@ up ()
     fi
 }
 safe_func_export up
+
+auditfuncs-end
