@@ -4,17 +4,17 @@
 
 #######################################################################
 ## Because we want to use this inside of utilfuncs, we must not use any
-## functions in utilfuncs here.
+## functions here that are defined in utilfuncs, such as 'repl'.
 #######################################################################
 
-AUDITFUNCS_FILE=${BASH_SOURCE[0]}
-
-auditfuncs_init ()
+auditfuncs-init ()
 {
-    local bn=$(basename $1)
-    local dn=$(dirname $(realpath $1))
+    local funcfile=${BASH_SOURCE[1]}
+    [ -n "$1" ] && funcfile=$1 ## to accomodate nests
+    local bn=$(basename $funcfile)
+    local dn=$(dirname $(realpath $funcfile))
     local audit_system=$(echo $bn)
-    local audit_system_upper=$(echo $bn | tr '[a-z]' '[A-Z]')
+    local audit_system_upper=$(echo $bn | tr [:lower:] [:upper:] | tr [.] [_])
     local audit_system_file="${dn}/../data/${bn}.audit.$(hostname)"
 
     ## cygwin does not grok "source /dev/stdin <<EOF"
@@ -33,24 +33,31 @@ ${audit_system}_script_audit ()
 }
 "
     safe_func_export ${audit_system}_script_audit
-}
-auditfuncs_init $AUDITFUNCS_FILE
 
-auditfuncs_edit ()
+    local funcfilebase=$(basename $funcfile | tr [:lower:] [:upper:] | tr [.] [_])
+    eval ${funcfilebase}_FILE=${funcfile}
+
+    ! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
+        ( [ -n "$ALLFUNCS_PROFILE_LEVELS" ] && \
+              printf '=%.0s' $(eval "echo {1.."$((${#BASH_SOURCE[@]}))"}") || true ) && \
+        echo "$(date): $funcfile is running..."
+
+}
+auditfuncs-init
+. ${HOME}/personal/bin/controlfuncs_build ## This is called before PATH is
+                                          ## updated
+
+auditfuncs-end ()
 {
-    auditfuncs_audit
-    xo $AUDITFUNCS_FILE
+    local funcfile=${BASH_SOURCE[1]}
+    [ -n "$1" ] && funcfile=$1 ## to accomodate nests
+    local funcfilebase=$(basename $funcfile | tr [:lower:] [:upper:] | tr [.] [_])
+    eval ${funcfilebase}_FILE=${funcfile}
+    ! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
+        ( [ -n "$ALLFUNCS_PROFILE_LEVELS" ] && \
+              printf '=%.0s' $(eval "echo {1.."$((${#BASH_SOURCE[@]}))"}") || true ) && \
+        echo "$(date): $funcfile has run." && echo
+
 }
 
-## I used to define functions with '_' and aliases with '-' because the emacs
-## modes that parse for functions to generate jump lists didn't see functions
-## with '-' in their name. But since I've fixed that issue, I should go back
-## and rename all these.
-alias auditfuncs-edit=auditfuncs_edit
-
-auditfuncs_reload ()
-{
-    auditfuncs_audit
-    . $AUDITFUNCS_FILE
-}
-alias auditfuncs-reload=auditfuncs_reload
+auditfuncs-end
