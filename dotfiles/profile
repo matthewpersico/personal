@@ -7,6 +7,25 @@ export MASTER_SHLVL
 
 CRON=$(~/personal/bin/running_under_cron && echo true || echo false)
 
+## OS_O is the 'proclaimed' operating system name. Use this where a system may
+## be lying, but fakes it pretty well. Do **NOT** use OS for this variable;
+## that can be set by the operating system itself for its own purposes.
+OS_O=$(uname -o)
+export OS_O
+
+## OS_ID is the 'true' operating system name. use this primarily where
+## we need to know if this is Winbash or not.
+OS_ID=$OS_O
+if [ "$OS_ID" = 'Gnu/Linux' ]
+then
+    iswinbash=$(uname -r | sed 's/.*\(Microsoft\).*/\1/')
+    if [ "$iswinbash" = 'Microsoft' ]
+    then
+        OS_ID='Winbash'
+    fi
+fi
+export OS_ID
+
 ## How to plug in (monkeypatch) set -x if needed
 [ -e /tmp/profile.${USER} ] && . /tmp/profile.${USER}
 
@@ -55,12 +74,19 @@ for i in $funcsinitlist
 do
     if [ -f $PERSONALBIN/$i ]
     then
-        case $i in
-            histfuncs | xtermfuncs )
-                ! $CRON && . $PERSONALBIN/$i ;;
-            * )
-                . $PERSONALBIN/$i ;;
-        esac
+        ## We don't need to reload here if already loaded. Some were
+        ## bootstrapped above.
+        is_func_defined ${i}-reload
+        if (($?!=TRUE))
+        then
+            case $i in
+                histfuncs | xtermfuncs )
+                    ! $CRON && . $PERSONALBIN/$i
+                    ;;
+                * )
+                    . $PERSONALBIN/$i ;;
+            esac
+        fi
     fi
 done
 
