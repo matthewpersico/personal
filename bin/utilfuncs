@@ -27,8 +27,29 @@ if (($?==1))
 then
     safe_func_export ()
     {
-        ##@@ none||none||safe_func_export|||Examine the SHELL variable to see if export -f is supported. If so, do so on arg1.
-        [ -n "$SHELL" ] && [ $(basename $SHELL) = "bash" ] && export -f $1
+        ##@@ none||none||safe_func_export|||Examine the SHELL variable to see if export -f is supported. If so, do so.
+        [ -z "$1" ] && echo "usage: safe_func_export [funcname || --all]" && return 1;
+        if [ -n "$SHELL" ] && [ $(basename $SHELL) = "bash" ]
+        then
+            local funcnames
+            if [ "$1" = '--this' ]
+            then
+                funcnames=$(grep -E '^[a-zA-Z0-9_-]+\s*\(\)' ${BASH_SOURCE[1]} | sed 's/().*//')
+            elif [ "$1" = '--file' ]
+            then
+                funcnames=$(grep -E '^[a-zA-Z0-9_-]+\s*\(\)' $2 | sed 's/().*//')
+            elif [ "$1" = '--all' ]
+            then
+                funcnames=$( declare -F | grep -v -- '-fx' | sed 's/declare -f//' )
+            else
+                funcnames=$1
+            fi
+            local funcname
+            for funcname in $funcnames
+            do
+                export -f $funcname
+            done
+        fi
     }
     safe_func_export safe_func_export
 fi
@@ -173,7 +194,6 @@ is-int ()
     fi
 
 }
-safe_func_export is-int
 
 is-neg ()
 {
@@ -183,7 +203,6 @@ is-neg ()
     is-int $1 && (( $1 < 0 )) && return $(true)
     return $(false)
 }
-safe_func_export is-neg
 
 is-pos ()
 {
@@ -193,7 +212,6 @@ is-pos ()
     is-neg $1 && return $(false)
     return $(true)
 }
-safe_func_export is-pos
 
 ###################
 ## Interactivity ##
@@ -207,7 +225,6 @@ is-interactive ()
     tty > /dev/null
     return $?
 }
-safe_func_export is-interactive
 
 is-redirected ()
 {
@@ -218,7 +235,6 @@ is-redirected ()
         return $OK
     fi
 }
-safe_func_export is-redirected
 
 pause ()
 {
@@ -228,7 +244,6 @@ pause ()
     read -p "$*"
     return $?
 }
-safe_func_export pause
 
 pick ()
 {
@@ -265,7 +280,6 @@ pick ()
 	    fi
     done
 }
-safe_func_export pick
 
 yesno ()
 {
@@ -296,7 +310,6 @@ yesno ()
         fi
 	fi
 }
-safe_func_export yesno
 
 ##########################
 ## Bash array functions ##
@@ -347,7 +360,6 @@ ajoin()
 
     local IFS="$1"; shift; echo "$*";return $?
 }
-safe_func_export ajoin
 
 asplit_to_stdout ()
 {
@@ -359,12 +371,10 @@ asplit_to_stdout ()
     echo ${tmp[@]}
     return $status
 }
-safe_func_export asplit_to_stdout
 asplit-to-stdout ()
 {
     asplit_to_stdout "$@"
 }
-safe_func_export asplit-to-stdout
 
 asplit_to_array ()
 {
@@ -375,12 +385,10 @@ asplit_to_array ()
     status=$?
     return $status
 }
-safe_func_export asplit_to_array
 asplit-to-array ()
 {
     asplit_to_array "$@"
 }
-safe_func_export asplit-to-array
 
 asplit ()
 {
@@ -397,7 +405,6 @@ asplit ()
     fi
     return $?
 }
-safe_func_export asplit
 
 aclear ()
 {
@@ -408,7 +415,6 @@ aclear ()
     array_alias=()
     return $(true)
 }
-safe_func_export aclear
 
 aset ()
 {
@@ -419,7 +425,6 @@ aset ()
     array_alias=("$@")
     return $(true)
 }
-safe_func_export aset
 
 acopy ()
 {
@@ -434,7 +439,6 @@ acopy ()
     done
     return $(true)
 }
-safe_func_export acopy
 
 aindicies ()
 {
@@ -459,7 +463,6 @@ aindicies ()
     fi
     return $(true)
 }
-safe_func_export aindicies
 
 avalues ()
 {
@@ -483,7 +486,6 @@ avalues ()
     fi
     return $(true)
 }
-safe_func_export avalues
 
 aeach ()
 {
@@ -493,7 +495,6 @@ aeach ()
     _listkv "$1"
     return $?
 }
-safe_func_export aeach
 
 acount ()
 {
@@ -504,7 +505,6 @@ acount ()
     echo ${#array_alias[@]}
     return $(true)
 }
-safe_func_export acount
 
 _listkv ()
 {
@@ -517,7 +517,6 @@ _listkv ()
     done
     return $(true)
 }
-safe_func_export _listkv
 
 asplice ()
 {
@@ -542,7 +541,6 @@ asplice ()
 
     return $(true)
 }
-safe_func_export asplice
 
 apush ()
 {
@@ -553,7 +551,6 @@ apush ()
     asplice $array_name $(acount $array_name) 0 "$@"
     return $?
 }
-safe_func_export apush
 
 apop ()
 {
@@ -564,7 +561,6 @@ apop ()
     asplice --removed $array_name -1
     return $?
 }
-safe_func_export apop
 
 ashift ()
 {
@@ -575,7 +571,6 @@ ashift ()
     asplice --removed $array_name 0 1
     return $?
 }
-safe_func_export ashift
 
 aunshift ()
 {
@@ -586,7 +581,6 @@ aunshift ()
     asplice $array_name 0 0 "$@"
     return $?
 }
-safe_func_export aunshift
 
 ########################################
 ## Bash hash (assoc. array) functions ##
@@ -615,7 +609,6 @@ hvalues ()
     fi
     return $?
 }
-safe_func_export hvalues
 
 hkeys ()
 {
@@ -640,7 +633,6 @@ hkeys ()
     fi
     return $?
 }
-safe_func_export hkeys
 
 ## The perl loop
 ##    foreach (my ($k,$v) = each(%hash)) { ...
@@ -652,7 +644,6 @@ heach ()
     _listkv $1
     return $?
 }
-safe_func_export heach
 fi ##     echo "Cannot define array functions that use declare -n in bash $BASH_VERSION. Must be >= 4.3"
 
 ########################
@@ -674,7 +665,6 @@ func-name-spoof ()
     echo $iam
     return $spoofing
 }
-safe_func_export func-name-spoof
 
 comment-stream ()
 {
@@ -689,7 +679,6 @@ comment-stream ()
     done
     return $(true)
 }
-safe_func_export comment-stream
 
 func-echo ()
 {
@@ -740,7 +729,6 @@ func-echo ()
     fi
     echo $nonl -e "${ANSI_reverse}>>> ${printit}${reset_normal}: $@${reset_title}"
 }
-safe_func_export func-echo
 
 func-pick ()
 {
@@ -748,7 +736,6 @@ func-pick ()
     shift
     pick "$prompt_text" "$@"
 }
-safe_func_export func-pick
 
 func-yesno ()
 {
@@ -756,7 +743,6 @@ func-yesno ()
     shift
     yesno "$prompt_text" "$@"
 }
-safe_func_export func-yesno
 
 #####################
 ## Key value store ##
@@ -825,35 +811,30 @@ kvstoreinit ()
         return $?
     fi
 }
-safe_func_export kvstoreinit
 
 kvget ()
 {
     _kvgetany "value" "$@"
     return $?
 }
-safe_func_export kvget
 
 kvgetvalues ()
 {
     _kvgetany "value" "$@"
     return $?
 }
-safe_func_export kvgetvalues
 
 kvgetkeys ()
 {
     _kvgetany "key" "$@"
     return $?
 }
-safe_func_export kvgetkeys
 
 kvgetboth ()
 {
     _kvgetany "key,value" "$@"
     return $?
 }
-safe_func_export kvgetboth
 
 _kvgetany ()
 {
@@ -899,7 +880,6 @@ _kvgetany ()
 
     return $?
 }
-safe_func_export _kvgetany
 
 kvput ()
 {
@@ -925,7 +905,6 @@ kvput ()
              where (Select Changes() = 0)"
     return $?
 }
-safe_func_export kvput
 
 kvputinit ()
 {
@@ -954,7 +933,6 @@ kvputinit ()
         return 1
     fi
 }
-safe_func_export kvputinit
 
 ###################
 ## Miscellaneous ##
@@ -978,7 +956,6 @@ dowhich ()
         return $?
     fi
 }
-safe_func_export dowhich
 
 tarcopy ()
 {
@@ -1044,13 +1021,11 @@ tarcopy ()
     fi
     return $(true)
 }
-safe_func_export tarcopy
 
 tarcp ()
 {
     tarcopy "$@"
 }
-safe_func_export tarcp
 
 list ()
 {
@@ -1065,7 +1040,6 @@ list ()
     done
     return $(true)
 }
-safe_func_export list
 
 cattail ()
 {
@@ -1075,7 +1049,6 @@ cattail ()
     tail -n +1 -f "$@"
     return $?
 }
-safe_func_export cattail
 
 tail_number_add ()
 {
@@ -1095,7 +1068,6 @@ tail_number_add ()
     echo "$out"
     return $?
 }
-safe_func_export tail_number_add
 
 tail_number_strip ()
 {
@@ -1111,7 +1083,6 @@ tail_number_strip ()
     echo "$out"
     return $?
 }
-safe_func_export tail_number_strip
 
 wcstrip ()
 {
@@ -1119,7 +1090,6 @@ wcstrip ()
     apop list > /dev/null
     ajoin ' ' $(avalues -list list)
 }
-safe_func_export wcstrip
 
 smartwc ()
 {
@@ -1135,19 +1105,16 @@ smartwc ()
         wc "$@"
     fi
 }
-safe_func_export smartwc
 
 simon-says ()
 {
     sudo "$@"
 }
-safe_func_export simon-says
 
 grep-not-in ()
 {
     grep -L "$@"
 }
-safe_func_export grep-not-in
 
 uuid ()
 {
@@ -1167,7 +1134,6 @@ uuid ()
       ( ( vec( $r, 4, 16 ) & 0x3FFF ) | 0x8000 ),
       vec( $r, 5, 16 ), vec( $r, 6, 16 ), vec( $r, 7, 16 );'
 }
-safe_func_export uuid
 
 get-next-descriptor ()
 {
@@ -1191,6 +1157,7 @@ get-next-descriptor ()
         return 0
     fi
 }
-safe_func_export get-next-descriptor
+
+safe_func_export --this
 
 auditfuncs-end
