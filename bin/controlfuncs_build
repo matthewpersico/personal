@@ -1,11 +1,20 @@
 # -*- sh -*-
 
 # controlfuncs_build
-
+echo "controlfuncs_build: BASH_SOURCE:" ${BASH_SOURCE[@]}
 # Build control functions for *funcs files
 spec=${BASH_SOURCE[1]}
 file=$(basename ${BASH_SOURCE[1]})
-[ -n "$1" ] && spec=$1 && file=$(basename $1)
+[ -n "$1" ] && spec=$1 && file=$(basename $1) && shift
+alias=${spec}.alias
+if (($#))
+then
+    extra_edit="$@"
+    extra_load="local f; for f in $@; do . $f; done"
+else
+    extra_edit=''
+    extra_load=''
+fi
 tmp=$(mktemp --suffix=.controlfuncs_build)
 
 cat <<EOF >$tmp
@@ -13,7 +22,8 @@ ${file}-edit ()
 {
     ${file}_audit "\$@"
     local editor; editor=\$(editor_opt xo "\$@"); shift \$?
-    \$editor $spec
+    [ ! -f $alias ] && alias=''
+    \$editor $spec $alias $extra_edit
 }
 safe_func_export ${file}-edit
 EOF
@@ -24,13 +34,22 @@ ${file}-reload ()
 {
     ${file}_audit "\$@"
     . $spec
+    [ -f $alias ] && . $alias
+    $extra_load
 }
 safe_func_export ${file}-reload
 EOF
 . $tmp
 
-a="${file}-load"
-alias $a="${file}-reload "
+cat <<EOF >$tmp
+${file}-load ()
+{
+    ${file}-audit "\$@"
+    ${file}-reload "\$@"
+}
+safe_func_export ${file}-load
+EOF
+. $tmp
 
 cat <<EOF > $tmp
 ${file}-help () {
