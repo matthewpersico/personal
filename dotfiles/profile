@@ -29,8 +29,14 @@ export OS_ID
 ## How to plug in (monkeypatch) set -x if needed
 [ -e /tmp/profile.${USER} ] && . /tmp/profile.${USER}
 
-! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
-    echo "$(date): ~/.profile.${USER} is running..."
+$CRON
+if (($? != TRUE))
+then
+    if [ -n "$ALLFUNCS_PROFILE" ]
+    then
+        echo "$(date): ~/.profile.${USER} is running..."
+    fi
+fi
 
 ## NFS cross-mount check
 if [ ! "$(basename $SHELL)" = 'bash' ]
@@ -64,22 +70,15 @@ do
         if [ -f $PERSONALBIN/${_profile_func} ]
         then
             case ${_profile_func} in
-                histfuncs )
-                    ! $CRON && . $PERSONALBIN/${_profile_func} && histinit
-                    ;;
-                xtermfuncs )
+                histfuncs | xtermfuncs )
                     ! $CRON && . $PERSONALBIN/${_profile_func}
+                    ;;
+                pathfuncs )
+                    . $PERSONALBIN/${_profile_func}
+                    addpath -f PATH $PERSONALBIN
                     ;;
                 * )
                     . $PERSONALBIN/${_profile_func}
-                    if [ "${_profile_func}" = 'pathfuncs' ]
-                    then
-                        ## This function is now defined and we can use
-                        ## it. Because we are modifying PATH and PATH is
-                        ## exported, we only need to run this when we load
-                        ## pathfuncs; otherwise, this has already been done
-                        addpath -f PATH $PERSONALBIN
-                    fi
                     ;;
             esac
         fi
@@ -172,9 +171,16 @@ alias grepnc='grep --color=never'
 alias vf='echo cd, you moron; cd '
 alias fit='echo dir, you moron; dir '
 
-# History - set up a new history file per shell session. By the time we get
-# here, the function is defined in this session or an ancestor session.
-histinit
+$CRON
+if (($? != TRUE))
+then
+    # History - set up a new history file per shell session. By the time we get
+    # here, the function is defined in this session or an ancestor session, unless
+    # we skipped it because we are running under cron.
+    histinit
 
-! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
-    echo "$(date): ~/.profile.${USER} has run"
+    if [ -n "$ALLFUNCS_PROFILE" ]
+    then
+        echo "$(date): ~/.profile.${USER} has run"
+    fi
+fi
