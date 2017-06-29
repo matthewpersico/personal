@@ -4778,6 +4778,23 @@ git-hold-remove ()
     return $retstat
 }
 
+git-daily-repo-check () {
+    local repo=$1; shift;
+    ( ## to isolate 'cd' effects
+        cd $repo
+        local repo_key="$(echo $(date +%Y%m%d;echo :;git st | sha1sum) |  sed 's/ //g')"
+        local repo_key_cache='.git-daily-repo-check.marker'
+        if [ ! "$(cat $repo_key_cache 2>/dev/null)" = "$repo_key" ]
+        then
+            echo "** Check $(pwd) against master ***"
+            git-check-with-master --bail_on_dirty
+            echo "** Check $(pwd) against itself ***"
+            git status
+            echo $repo_key > $repo_key_cache
+        fi
+    )
+}
+
 safe_func_export --file $GITFUNCS_FILE
 
 ## No functions below this line.

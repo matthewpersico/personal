@@ -63,12 +63,12 @@ _profile_funcsinitlist='utilfuncs pathfuncs auditfuncs histfuncs cdfuncs gitfunc
 for _profile_func in ${_profile_funcsinitlist}
 do
     _profile_path=$PERSONALBIN/${_profile_func}
-    ## We don't need to reload here if already loaded, which could happen
-    ## in a subshell with our function exports.
-    _profile_is_func_defined=$(declare -F | grep ${_profile_func}-reload )
-    if [ -z "$_profile_is_func_defined" ]
+    if [ -f ${_profile_path} ]
     then
-        if [ -f ${_profile_path} ]
+        ## We don't need to reload here if already loaded, which could happen
+        ## in a subshell with our function exports.
+        _profile_is_func_defined=$(declare -F | grep ${_profile_func}-reload )
+        if [ -z "$_profile_is_func_defined" ]
         then
             case ${_profile_func} in
                 histfuncs | xtermfuncs )
@@ -83,32 +83,26 @@ do
                     ;;
             esac
         fi
-    else
-        if [ ${_profile_func} = 'pathfuncs' ]
-        then
-            ## Some environments reset PATH when starting a subshell, so we
-            ## have to make sure we always add it.
-            addpath -fx PATH $PERSONALBIN
-        fi
     fi
+
     _profile_alias=${_profile_path}.alias
-    [ -f ${_profile_alias} ] && echo Running . ${_profile_alias} && . ${_profile_alias} ## Aliases always have to be reloaded
+    if [ -f ${_profile_alias} ]
+    then
+        ## No reload check for aliases - they must be run in subshells
+        ## explicitly.
+        case ${_profile_func} in
+            histfuncs | xtermfuncs )
+                ! $CRON && . ${_profile_alias}
+                ;;
+            * )
+                . ${_profile_alias}
+                ;;
+        esac
+    fi
 done
 
 ## Check the personal repo.
-! $CRON && (cd $PERSONALROOT
-            if [ "$(cat .git-check-with-master.marker 2>/dev/null)" \
-                     \< $(date +%Y%m%d) ]
-            then
-                echo "** Check $(pwd) against master ***"
-                git-check-with-master --bail_on_dirty
-                echo "** Check $(pwd) against itself ***"
-                git status
-                date +%Y%m%d > .git-check-with-master.marker
-#            else
-#                echo "** master/self check of $(pwd) already executed today **"
-            fi
-)
+! $CRON && git-daily-repo-check $PERSONALROOT
 
 ## GIT - Probably should put the .git-prompt.sh code, and the exports below,
 ## into gitfuncs as a function and just call that function here.
