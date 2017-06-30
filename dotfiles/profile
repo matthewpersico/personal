@@ -18,8 +18,8 @@ export OS_O
 OS_ID=$OS_O
 if [ "$OS_ID" = 'Gnu/Linux' ]
 then
-    iswinbash=$(uname -r | sed 's/.*\(Microsoft\).*/\1/')
-    if [ "$iswinbash" = 'Microsoft' ]
+    _profile_iswinbash=$(uname -r | sed 's/.*\(Microsoft\).*/\1/')
+    if [ "$_profile_iswinbash" = 'Microsoft' ]
     then
         OS_ID='Winbash'
     fi
@@ -29,10 +29,14 @@ export OS_ID
 ## How to plug in (monkeypatch) set -x if needed
 [ -e /tmp/profile.${USER} ] && . /tmp/profile.${USER}
 
-! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
-    ( [ -n "$ALLFUNCS_PROFILE_LEVELS" ] && \
-          printf '=%.0s' $(eval "echo {1.."$((${#BASH_SOURCE[@]}))"}") || true ) && \
+$CRON
+if (($? != TRUE))
+then
+    if [ -n "$ALLFUNCS_PROFILE" ]
+    then
         echo "$(date): ~/.profile.${USER} is running..."
+    fi
+fi
 
 ## NFS cross-mount check
 if [ ! "$(basename $SHELL)" = 'bash' ]
@@ -50,63 +54,108 @@ shopt -s expand_aliases
 export PERSONALROOT=~/personal
 export PERSONALBIN=$PERSONALROOT/bin
 
-## Utils load first
-. $PERSONALBIN/utilfuncs
+## utilfuncs, pathfuncs, auditfuncs and histfuncs should be called in that
+## order. Then the rest of the scripts have some minimal defs to use going
+## forward.
 
-## Path manips next. Now we have some minimal defs to use going forward.
-. $PERSONALBIN/pathfuncs
+_profile_funcsinitlist='utilfuncs pathfuncs auditfuncs histfuncs cdfuncs gitfuncs dotfilesfuncs Xfuncs xtermfuncs yumaptfuncs perlfuncs'
 
-addpath -f PATH $PERSONALBIN
-
-##
-## Major initializations
-##
-on_nfs ()
-{
-    df -k $HOME | grep nfs > /dev/null
-    return $?
-}
-
-funcsinitlist='auditfuncs histfuncs utilfuncs cdfuncs gitfuncs dotfilesfuncs \
-  Xfuncs xtermfuncs yumaptfuncs rsyncfuncs perlfuncs'
-
-for i in $funcsinitlist
+for _profile_func in ${_profile_funcsinitlist}
 do
-    if [ -f $PERSONALBIN/$i ]
+    _profile_path=$PERSONALBIN/${_profile_func}
+    if [ -f ${_profile_path} ]
     then
-        ## We don't need to reload here if already loaded. Some were
-        ## bootstrapped above.
-        is_func_defined ${i}-reload
-        if (($?!=TRUE))
+        ## We don't need to reload here if already loaded, which could happen
+        ## in a subshell with our function exports.
+        _profile_is_func_defined=$(declare -F | grep ${_profile_func}-reload )
+        if [ -z "$_profile_is_func_defined" ]
         then
-            case $i in
+            case ${_profile_func} in
                 histfuncs | xtermfuncs )
-                    ! $CRON && . $PERSONALBIN/$i
+                    ! $CRON && . ${_profile_path}
+                    ;;
+                pathfuncs )
+                    . ${_profile_path}
+                    addpath -fx PATH $PERSONALBIN
                     ;;
                 * )
-                    . $PERSONALBIN/$i ;;
+                    . ${_profile_path}
+                    ;;
             esac
         fi
+    fi
+
+    _profile_alias=${_profile_path}.alias
+    if [ -f ${_profile_alias} ]
+    then
+        ## No reload check for aliases - they must be run in subshells
+        ## explicitly.
+        case ${_profile_func} in
+            histfuncs | xtermfuncs )
+                ! $CRON && . ${_profile_alias}
+                ;;
+            * )
+                . ${_profile_alias}
+                ;;
+        esac
     fi
 done
 
 ## Check the personal repo.
-! $CRON && (cd $PERSONALROOT
-            if [ "$(cat .git-check-with-master.marker 2>/dev/null)" \
-                     \< $(date +%Y%m%d) ]
-            then
-                echo "** Check $(pwd) against master ***"
-                git-check-with-master --bail_on_dirty
-                echo "** Check $(pwd) against itself ***"
-                git status
-                date +%Y%m%d > .git-check-with-master.marker
-            else
-                echo "** master/self check of $(pwd) already executed today **"
-            fi
-)
+! $CRON && git-daily-repo-check $PERSONALROOT
 
-# ALIASES
+## GIT - Probably should put the .git-prompt.sh code, and the exports below,
+## into gitfuncs as a function and just call that function here.
+_profile_git_contrib_loaded=$(declare -F | grep __git_ps1)
+if [ -z "$_profile_git_contrib_loaded" ]
+then
+    if [ -e ~/.git-prompt.sh ]
+    then
+        . ~/.git-prompt.sh
+        safe_func_export --file ~/.git-prompt.sh
+    fi
+fi
 
+# MISC
+
+# STOP clearing the screen!!!
+LESS="-X"
+export LESS
+
+# Needs setting
+for _profile_pager in less more
+do
+    [ -z "$PAGER" ] && PAGER=$(which $_profile_pager)
+done
+[ -n "$PAGER" ] && export PAGER
+
+_profile_since=$(date +'%a %b %d %H:%M:%S')
+_profile_ps1_xterm_title_cmds=''
+if [ ! "$EMACS" = 't' ]
+then
+    _profile_ps1_xterm_title_cmds='\[\e]0;\u@\h:\w\a\]'
+fi
+## Override prompt (assuming git stuff is loaded, either in chimera or locally)
+##     status of
+##     prior command
+##     |           |
+##     |        +--+
+##     |        |
+##     v--------v
+PS1='\n[\$? = $?]\n\n'${_profile_ps1_xterm_title_cmds}'what    : \u@\h\nsince   : $_profile_since\nas-of   : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")$(git-get-default-remote -na "\nremote  : ")\npwd     : \w\n[$$] \$ '
+export PS1
+
+# for silencing emacs 24.4 dbus warning message
+export NO_AT_BRIDGE=1
+
+# Editing
+## Do NOT use an emacs command that hooks into the gnuserver or you'll have to
+## exit the whole session to register completion with the user of EDITOR
+EDITOR='vi'
+! $CRON && [ $(which emacs 2>/dev/null) ] && EDITOR='emacsclient -c'
+export EDITOR
+
+# Aliases - no need for a separate alias file for profile. This will always get run
 # Conveniences
 alias cvs='echo cvs? Are you nuts? - Try again!'
 alias dir='ls -la '
@@ -124,61 +173,16 @@ alias grepnc='grep --color=never'
 alias vf='echo cd, you moron; cd '
 alias fit='echo dir, you moron; dir '
 
-## GIT - Probably should put the .git-prompt.sh code, and the exports below,
-## into gitfuncs as a function and just call the function here.
-git_contrib_loaded=$(declare -F | grep __git_ps1)
-if [ -z "$git_contrib_loaded" ]
+$CRON
+if (($? != TRUE))
 then
-    if [ -e ~/.git-prompt.sh ]
+    # History - set up a new history file per shell session. By the time we get
+    # here, the function is defined in this session or an ancestor session, unless
+    # we skipped it because we are running under cron.
+    histinit
+
+    if [ -n "$ALLFUNCS_PROFILE" ]
     then
-        . ~/.git-prompt.sh
+        echo "$(date): ~/.profile.${USER} has run"
     fi
 fi
-for i in $(declare -F | grep __git | grep -v -- --fx | sed 's/.* //')
-do
-    safe_func_export $i
-done
-
-# MISC
-
-# STOP clearing the screen!!!
-LESS="-X"
-export LESS
-
-# Needs setting
-for pager in less more
-do
-    [ -z "$PAGER" ] && PAGER=$(which $pager)
-done
-[ -n "$PAGER" ] && export PAGER
-
-since=$(date +'%a %b %d %H:%M:%S')
-ps1_xterm_title_cmds=''
-if [ ! "$EMACS" = 't' ]
-then
-    ps1_xterm_title_cmds='\[\e]0;\u@\h:\w\a\]'
-fi
-## Override prompt (assuming git stuff is loaded, either in chimera or locally)
-##     status of
-##     prior command
-##     |           |
-##     |        +--+
-##     |        |
-##     v--------v
-PS1='\n[\$? = $?]\n\n'$ps1_xterm_title_cmds'what    : \u@\h\nsince   : $since\nas-of   : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")$(git-get-default-remote -na "\nremote  : ")\npwd     : \w\n[$$] \$ '
-export PS1
-
-# for silencing emacs 24.4 dbus warning message
-export NO_AT_BRIDGE=1
-
-# Editing
-## Do NOT use an emacs command that hooks into the gnuserver or you'll have to
-## exit the whole session to register completion with the user of EDITOR
-EDITOR='vi'
-! $CRON && [ $(which emacs 2>/dev/null) ] && EDITOR='emacsclient -c'
-export EDITOR
-
-! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
-    ( [ -n "$ALLFUNCS_PROFILE_LEVELS" ] && \
-          printf '=%.0s' $(eval "echo {1.."$((${#BASH_SOURCE[@]}))"}") || true ) && \
-    echo "$(date): ~/.profile.${USER} has run"

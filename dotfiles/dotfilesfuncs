@@ -3,11 +3,11 @@
 # dotfilesfuncs
 
 auditfuncs-init
-. $(which controlfuncs_build)
+. $(which controlfuncs_build) $DOTFILESFUNCS_FILE
 
-DOTFILES_DIR=~/personal/dotfiles         # dotfiles directory
-DOTFILES_OLDDIR=~/personal/dotfiles_old  # old dotfiles backup directory
-DOTFILES_MANIFEST=$DOTFILES_DIR/dotfiles.manifest
+export DOTFILES_DIR=~/personal/dotfiles         # dotfiles directory
+export DOTFILES_OLDDIR=~/personal/dotfiles_old  # old dotfiles backup directory
+export DOTFILES_MANIFEST=$DOTFILES_DIR/dotfiles.manifest
                                          # declares dotfiles as an assoc array
                                          # and fills is with names and
                                          # locations of files/folders to
@@ -17,7 +17,7 @@ then
     echo "We are using associative arrays. I can't tell if this is bash so caveat programmer."
 fi
 
-dotfilesfuncs_help ()
+dotfilesfuncs-help ()
 {
     local tmpfile=$(mktemp --suffix=.dotfilesfuncs_help)
     declare -F | grep dot | sed 's|.* ||' > ${tmpfile}.df1
@@ -26,10 +26,8 @@ dotfilesfuncs_help ()
     cat ${tmpfile}.df1 | sort -u | grep -v '^_'
     \rm -f ${tmpfile}.df1
 }
-#nxport -f dotfilesfuncs_help
-alias dotfilesfuncs-help='dotfilesfuncs_help '
 
-_save_dotfile_entry ()
+_save-dotfile-entry ()
 {
     local key=$1
     local link=$2
@@ -41,7 +39,6 @@ _save_dotfile_entry ()
     mv $tmp $DOTFILES_MANIFEST
     . $DOTFILES_MANIFEST
 }
-#nxport -f _save_dotfile_entry
 
 # Converts real files into dotfiles-based symlinks. Use this to add new files
 # to be controlled.
@@ -98,8 +95,11 @@ adddotfile ()
     fi
     builtin cd -
 }
-#nxport -f adddotfile
-alias dotfileadd='adddotfile '
+
+dotfileadd ()
+{
+    adddotfile "$@"
+}
 
 # creates symlinks from any target file to the git-controlled source in
 # ~/personal/dotfiles. Use this when initing a new vm.
@@ -143,9 +143,15 @@ makesymlinks ()
         fi
     done
 }
-#nxport -f makesymlinks
-alias dotfilessync='makesymlinks '
-alias syncdotfiles='makesymlinks '
+dotfilessync ()
+{
+    makesymlinks "$@"
+}
+
+syncdotfiles ()
+{
+    makesymlinks "$@"
+}
 
 makepstree ()
 {
@@ -181,13 +187,13 @@ showdotfiles ()
         ls -la $link $fullsrc
     done
 }
-#nxport -f showdotfiles
 
 gitcheck_dotfiles ()
 {
     builtin cd $DOTFILES_DIR
     git status
 }
-#nxport -f gitcheck_dotfiles
+
+safe_func_export --file $DOTFILESFUNCS_FILE
 
 auditfuncs-end
