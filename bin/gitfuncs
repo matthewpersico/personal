@@ -3916,20 +3916,25 @@ git-create-patches ()
     echo "## -*- sh -*-
 PATCHPATH=\$(dirname \$(realpath \$0))
 GITREPOROOT=\$(dirname \$PATCHPATH)
-if [ ! -d \$GITREPOROOT/.git ]
+if [ ! -e \$GITREPOROOT/.git ]
 then
     echo \"Not in a git repo. git init \$GITREPOROOT and re-run\"
     exit 1
 fi
-last_applied=''
+
 current_branch=\$(git symbolic-ref HEAD | sed 's!refs\/heads\/!!')
 config_key_root=\"branch.\${current_branch}.lastpatched-from.${source_repo}.\"
-last_applied=\$(git config --get \${config_key_root}patch )
-if [ -z \"\$last_applied\" ]
+
+if [ -n \"\$1\" ]
 then
-  git config --add \${config_key_root}patch 0
-  git config --add \${config_key_root}date  'none'
+    start_here=\$1
+    if [[ \$start_here =~ ^0 ]]; then printf %o \$start_here; else printf %d \$start_here; fi
+    ((start_here-=1))
+    last_applied=\$(ls \$PATCHPATH/\$(printf %04d \$start_here)-*.patch)
+else
+    last_applied=\$(git config --get \${config_key_root}patch )
 fi
+
 patchcount=$(cat $patchlist | wc -l)
 patchnum=0
 restart=\$(realpath \$0).\$(date +%Y%m%d%H%M%S).restart
@@ -4804,4 +4809,4 @@ do
     . ${GITFUNCS_FILE}.$external
 done
 
-auditfuncs-end
+auditfuncs-end $GITFUNCS_FILE
