@@ -1,0 +1,153 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-worktree-create ()
+{
+    ##@@ 0001||group||git-worktree-create||
+    local usage_func="${FUNCNAME}-usage"
+
+    ## Make sure pwd ends in wt
+    if [[ ! "$(pwd)" =~ /wt$ ]]
+    then
+        if [ -d ./wt ]
+        then
+            builtin cd ./wt
+        else
+            func-echo    "Current directory is $(pwd)."
+            func-echo -c 'No wt subdir.'
+            func-echo -c 'Will not manipulate worktrees outside of wt dir. Aborting.'
+            return $NOT_OK
+        fi
+    fi
+
+    local verbose=1
+    local fetch_existing=0
+    local fetch_opt=''
+    local status=0
+    local opt_m=''
+    local message=''
+    local dated=''
+    local asmaster='master'
+    OPTSARGS=$(getoptp -o m:fd --long message:,fetch,dated,asmaster: -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -d|--dated) dated="_$(date +%Y-%m-%d)"; shift;;
+            -f|--fetch) fetch_existing=1; fetch_opt="-r"; shift ;;
+            -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
+            --asmaster) asmaster=$2; shift ; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Error getting options!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
+    if [ -z "$1" ]
+    then
+        func-echo 'Need a branch name to use for the worktree spec.'
+        $usage_func
+        return $NOT_OK
+    fi
+    local wt="$1${dated}"
+    shift
+
+    local remote
+    if [ -n "$1" ]
+    then
+        [ -n "$remote" ] && shift
+    fi
+    [ -z "$remote" ] && remote=origin
+    func-echo "Using '$remote' as remote."
+
+    ((verbose)) && func-echo 'Check for existing worktrees with same name.'
+    wtdir="$(pwd)/$wt"
+    if [ -e $wtdir ]
+    then
+        func-echo "$wtdir already exists. Aborting."
+        return $NOT_OK
+    fi
+
+    local wtsubdir=$wt
+    local wtbranch=$wt
+
+    ## TODO: Allow for suffix to append to worktree name so you can dup them if
+    ## you need to.
+    ((verbose)) && func-echo 'Check for existing branch.'
+    local create_branch="-b"
+    local exists=$(git-branch-list --strip $fetch_opt | grep $wt)
+    if [ -n "$exists" ]
+    then
+        func-echo "Branch $wt already exists. Using it."
+        create_branch=''
+        wtbranch="$exists"
+    elif [ "$fetch_existing" = '1' ]
+    then
+        func-echo "Branch $wt does not exist to be fetched."
+        return $NOT_OK
+    else
+        ## Since this worktree is going to create a branch of the local
+        ## $asmaster, make sure the local $asmaster (where we should be right
+        ## now) it is up to date.
+        if [ "$(git-get-current-branch)" != $asmaster ]
+        then
+            func-echo "Cannot create branch and worktree because the current branch '$(git-get-current-branch)' is not the master branch '$asmaster'."
+            return $NOT_OK
+        fi
+        func-echo "Checking local '$asmaster', starting point for branch."
+        git pull
+        status=$?
+        ((status)) && return $NOT_OK ## assuming the error message will be
+                                     ## printed to stderr...
+    fi
+
+    ## Now create the work tree and create/fetch the branch.
+    ((verbose)) && func-echo "git worktree add $create_branch $wtsubdir $wtbranch"
+    git worktree add $create_branch "$wtsubdir" "$wtbranch"
+    status=$?
+    if ((status))
+    then
+        func-echo "Aborting."
+        return $NOT_OK
+    fi
+
+    ((verbose)) && func-echo "cd $wtsubdir"
+    ## dirlist, not builtin cd, to take advantage this cd enhancement
+    dirlist $wtsubdir
+
+    if [ -n "$create_branch" ]
+    then
+        ((verbose)) && func-echo "git push --set-upstream $remote $wtbranch"
+        git push --set-upstream $remote $wtbranch
+        git-branch-info created "$(date +%Y%m%d.%H%M%S%z)"
+    else
+        ## Not convinced this is the optimal set of actions. Probably better to
+        ## modify or replace the add command.
+        git branch --track $wtsubdir $wtbranch
+        git checkout $wtsubdir
+     fi
+
+    ## Convert the worktree's .git file to use a relative path to the master
+    ## .git location. In that way, we can use the repo on machines where it may
+    ## be mounted in a different place, so that the absolute path is different
+    ## in those places.
+    sed -i 's|\(gitdir: \).*/\(.git/worktrees\)|\1../../\2|' .git
+
+    git-post-new
+
+    if [ -n "$opt_m" ]
+    then
+        git-st-ext "$message"
+    fi
+
+    ## Add this repo to the list
+    git-go-set
+
+    return $OK
+}
+
+

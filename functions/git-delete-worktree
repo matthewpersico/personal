@@ -1,0 +1,158 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-delete-worktree ()
+{
+    ##@@ 0001||group||git-delete-worktree||
+
+    local usage_func="${FUNCNAME}-usage"
+    local iam=$(func-name-spoof)
+
+    local opt_yes=0
+    local opt_yes_string
+    local opt_force=0
+    local opt_schedule=0
+    OPTSARGS=$(getoptp -o yfs:h --long yes,force,schedule:,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func $iam && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -y|--yes) opt_yes=1; opt_yes_string='--yes'; shift ;;
+            -f|--force) opt_force=1; shift ;;
+            -s|--schedule) ((opt_schedule = $(date +%s) + $2*60*60))
+                           shift; shift ;;
+            -h|--help) $usage_func $iam; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func $iam; return $NOT_OK ;;
+        esac
+    done
+
+    func-echo --head 'Working...'
+    local opwd=$(pwd)
+    local worktree=$1;
+    local worktreefull=$(realpath $1);
+
+    builtin cd $worktreefull
+
+    ##@@ 0001||group||git-delete-current-worktree||
+    ## Make sure we are in a proper worktree.
+    if [ ! -f .git ] || [[ ! "$(pwd)" =~ /wt/ ]]
+    then
+        func-echo "$worktree is not a proper worktree for deletion"
+        return $NOT_OK
+    fi
+
+    if ((opt_schedule))
+    then
+        git-branch-info delete-worktree $opt_schedule
+        func-echo "$worktree scheduled for removal on or after $( date --date=@$opt_schedule)"
+        return 0
+    fi
+
+    ## Check for cleanliness.
+    if [ "$(git status --porcelain | wc -l)" != '0' ] || \
+           [ "$(git status | grep 'Your branch is' | grep -v 'up-to-date' | wc -l)" != '0' ]
+    then
+        if((!opt_force))
+        then
+            git status
+            echo
+            func-echo "Will not delete current worktree. Clean worktree or re-run command with --force."
+            return $NOT_OK
+        fi
+    fi
+
+    ## Current branch
+    local current_branch=$(git-get-current-branch)
+
+    ## Checking cleanliness and consistency
+    local current_dir=$(basename $(pwd))
+    if [ "$current_branch" != "$current_dir" ]
+    then
+        func-echo    "Branch name '$current_branch' does not match current subdir name '$current_dir'."
+        func-echo -c "I'm bailing; you fix this mess."
+        return $NOT_OK
+    fi
+    git status
+    local rc=$?
+    if ((rc))
+    then
+        func-echo    "git status returned non-success value $rc."
+        func-echo -c "I'm bailing; you fix this mess."
+        return $NOT_OK
+    fi
+
+    ## Check for being merged
+    local gmfout=$(git-merge-find)
+    local status=$?
+    if ((status)) && ((!opt_force)) && ((!opt_yes))
+    then
+        echo $gmfout
+        local resp=$(func-yesno 'Continue anyway')
+        if [ "$resp" = 'n' ]
+        then
+            return $NOT_OK
+        fi
+    fi
+
+    ## Whack it. Start with the current dir.
+    local delit=$(basename $(pwd))
+    builtin cd ..
+    \rm -rf $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
+
+    ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
+    ## get to first, and stop deleting.
+    while [ "$(basename $(pwd))" != 'wt' ]
+    do
+        if [ -z "$(ls -A $(pwd))" ]
+        then
+            #it's empty
+            delit=$(basename $(pwd))
+            builtin cd ..
+            \rm -rf $delit; (( $? != 0 )) && func-echo "Bad rm of ./$delit (from $(pwd)). Aborting." && return $NOT_OK;
+        fi
+    done
+
+    func-echo 'Local repo deleted.'
+    ## Now fix the administrative files.
+    git worktree prune
+    func-echo 'Local admin files updated.'
+
+    ## Now the take care of the branch.
+    if ((opt_yes))
+    then
+        resp='y'
+    else
+        resp=$(func-yesno "Delete associated branch $current_branch" 'n')
+    fi
+    if [ "$resp" = 'n' ]
+    then
+        func-echo "If you change your mind: git-delete-branch $current_branch"
+    else
+        ## Have to be in a git repo to do this.
+        while [ "$(basename $(pwd))" != 'wt' ]
+        do
+            builtin cd ..
+        done
+        builtin cd ..
+        if [ "$resp" = 'y' ]
+        then
+            git-delete-branch --no-go-set $opt_yes_string $current_branch
+        fi
+    fi
+
+    [ -d $opwd ] && builtin cd ## If $opwd was the worktree directory, it won't
+                               ## be there anymore. Stay where we are.
+
+    func-echo "Resetting git list..."
+    git-go-set
+
+    func-echo "Done."
+    return $OK
+}
+
+

@@ -1,0 +1,55 @@
+# -*- sh -*-
+
+# <Function Class: util>
+
+func-echo ()
+{
+    if [ -n "$FUNC_ECHO_DEBUG" ]
+    then
+        echo
+        echo "----- func-echo -----"
+        for i in $(seq 0 $(((${#FUNCNAME[@]}-1))) )
+        do
+            echo "FUNCNAME[$i]=[${FUNCNAME[$i]}]"
+        done
+        echo "----- func-echo -----"
+        echo
+    fi
+
+    local reset_normal="${ANSI_reset}"
+    local reset_title=''
+    local endofopts=0
+    local nonl
+    local cont=0
+    while [[ "$1" =~ ^- ]] && ((endofopts==0))
+    do
+        case "$1" in
+           --head) echo; shift;;
+           --title)
+               echo
+               reset_title="${reset_normal}"
+               reset_normal=''
+               shift ;;
+           -n | --n) nonl='-n'; shift;;
+           -c | --c) cont=1; shift;;
+           --)
+               endofopts=1;;   ## No shift. Leave this arg in place to be
+                               ## processed later on as arguments to tests.
+           -* )
+               echo "func-echo: $1 is an invalid option."; return 1;;
+        esac
+    done
+
+    local idx=${#FUNCNAME[@]};((idx-=1))
+    local funcname=${FUNCNAME[$idx]}
+    [ "${FUNCNAME[$idx]}" = 'main' ] && funcname=$(basename $0)
+
+    local printit=${funcname}
+    if ((cont))
+    then
+        printit=$(echo $funcname | sed 's/./ /g')
+    fi
+    echo $nonl -e "${ANSI_reverse}>>> ${printit}${reset_normal}: $@${reset_title}"
+}
+
+

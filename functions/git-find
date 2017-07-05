@@ -1,0 +1,53 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-find ()
+{
+    ##@@ 0001||group||git-find||A convenience function around: git ls-files $(git rev-parse --show-toplevel) | grep -E fileExpression'
+
+    local usage_func="${FUNCNAME}-usage"
+
+    local opt_untracked_only=0
+    local opt_all=0
+    OPTSARGS=$(getoptp -o auh --long all,untracked-only,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            --untracked_only|-u) opt_untracked_only=1; shift ;;
+            --all|-a) opt_all=1; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
+    if [ "$opt_untracked_only" = 1 ] && [ "$opt_all" = 1 ]
+    then
+        echo "--untracked_only and --all are mutually exclusive"
+        $usage_func
+        exit 1
+    fi
+
+    local ls_files_opts="-c"
+    if [ "$opt_untracked_only" = 1 ]
+    then
+        ls_files_opts="-o"
+    elif [ "$opt_all" = 1 ]
+    then
+        ls_files_opts="-c -o"
+    fi
+
+    local to_find='*'
+    [ -n "$@" ] && to_find="$@"
+    for f in "$@"
+    do
+        git ls-files $ls_files_opts $(git rev-parse --show-toplevel) | grep -E "$f" | sort
+    done
+}
+
+

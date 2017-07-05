@@ -1,0 +1,42 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-hold ()
+{
+    ##@@ 0001||group||git-hold||git stash, but to a local dir outside the git framework
+    local holdroot=$(git-root)/.githold
+    mkdir -p $holdroot
+    local holdthese="$@"
+    if [ -z "$holdthese" ]
+    then
+        holdthese=$(git-is-mod)
+    fi
+
+    local retstat=0
+    for orig in $holdthese
+    do
+        local hold=$holdroot/$orig;
+
+        if [ -e $hold ]
+        then
+            ((retstat+=1))
+            func-echo "Cannot hold $orig - hold version already exists:"
+            ls -la $hold
+        else
+            mkdir -p $(dirname $hold)
+            cp -v $orig $hold;
+            if (($? == 0))
+            then
+                git checkout $orig
+            else
+                ((retstat+=1))
+                func-echo "Cannot hold $orig - copy failed"
+            fi
+        fi
+        echo
+    done
+    return $retstat
+}
+
+

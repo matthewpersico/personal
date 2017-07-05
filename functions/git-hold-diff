@@ -1,0 +1,40 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-hold-diff ()
+{
+    ##@@ 0001||group||git-hold-diff||show difference between entries in the git hold stash and the repo
+    local pager='less -RE'
+    ## TODO - Plug in getoptp, on nopager set pager='cat'
+    local holdroot=$(git-root)/.githold
+    local diffthese="$@"
+    if [ -z "$diffthese" ]
+    then
+        diffthese=$(git-hold-find)
+    else
+        local i
+        for i in "$@"
+        do
+            local j=$(git-hold-find | grep $i)
+            if [ -z "$j" ]
+            then
+                func-echo "Cannot find $i to diff"
+            else
+                diffthese="$diffthese $j"
+            fi
+        done
+    fi
+
+    local retstat=0
+    for hold in $diffthese
+    do
+        local orig=$(echo $hold | sed "s|.githold/||")
+        colordiff -u $orig $hold
+        echo
+    done  | $pager
+
+    return 0
+}
+
+

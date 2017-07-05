@@ -1,0 +1,33 @@
+# -*- sh -*-
+
+# <Function Class: util>
+
+kvputinit ()
+{
+    ## Put if DNE, ok if exists and same, bark if exists and different.
+    local db=$1; shift
+    local dbfile=~/.kvdbs/$db
+
+    if [ ! -e $dbfile ]
+    then
+        echo "ERROR - kv store name $db does not exist"
+        return 1
+    fi
+
+    local key="$1"; shift
+
+    local value=$(sqlite3 --noheader $dbfile "select value from keyval where key = '$key'");
+    if [ "$value" = "$@" ]
+    then
+        return 0
+    elif [ -z "$value" ]
+    then
+        sqlite3 --noheader $dbfile "insert into keyval values ('$key', '$@')"
+        return $?
+    else
+        echo "ERROR - kvputinit. Key = '$key'. Init value '$@' does not match existing value '$value' in kv store '$db'"
+        return 1
+    fi
+}
+
+

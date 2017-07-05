@@ -1,0 +1,76 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-retimestamp ()
+{
+    ##@@ 0001||group||git-retimestsamp||Adjust all non-modified, tracked files to have the date of their last commit, not the pull date.
+    local verbose=0
+    if [[ "$1" =~ -v ]]
+    then
+        verbose=1
+    fi
+
+    ## Get the files
+    declare -A gitfiles
+    for i in $(git ls-files)
+    do
+        gitfiles[$i]=1
+    done
+
+    ## Remove any that are currently modified
+    local msgd=''
+    for i in $(git-is-mod)
+    do
+        if [ -z "$msgd" ]
+        then
+            msgd=1
+            if ((verbose==0))
+            then
+                echo Will not consider modified files
+            else
+                echo Will not consider the following modified files:
+            fi
+        fi
+        ((verbose)) && echo $i
+        unset gitfiles[$i]
+        [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
+    done
+
+    ## Parse the log
+    local gitdate
+    date > /tmp/get-retimestamp.log
+    git log  --date=iso --name-only | \
+        while read -r i;
+        do
+            if [ -z "$i" ]
+            then
+                noop=1
+            elif [[ $i =~ Date: ]]
+            then
+                gitdate=$(echo $i | sed -E 's/Date:\s+//')
+            elif [ -n "${gitfiles[$i]}" ]
+            then
+                echo "gitfiles[$i] => ${gitfiles[$i]}" >> /tmp/get-retimestamp.log
+                unset gitfiles[$i]
+                [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
+                local filedate=$(stat -c %y $i | sed 's/\.[0-9]+//')
+                if [ ! "$filedate" = "$gitdate" ]
+                then
+                    if ((verbose))
+                    then
+                        echo
+                        echo $i...
+                        ls -la $i
+                    fi
+                    touch -d "$gitdate" $i
+                    if ((verbose))
+                    then
+                        ls -la $i
+                    fi
+                fi
+            fi
+        done
+}
+
+

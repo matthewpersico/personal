@@ -1,19 +1,13 @@
 ## -*- sh -*-
 
 # .bash_profile
-
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 bash_profile_echo=0
 ~/personal/bin/running_under_cron
-if (($? != OK )) && [ -n "$ALLFUNCS_PROFILE" ]
+if (($? != 0)) && [ -n "$ALLFUNCS_PROFILE" ]
 then
     echo "$(date): ~/.bash_profile is running..."
     bash_profile_echo=1
-fi
-
-# Get the aliases and functions
-if [ -f ~/.bashrc ]; then
-    . ~/.bashrc
 fi
 
 # User specific environment and startup programs. The main one is the personal
@@ -22,17 +16,19 @@ fi
 # them to.
 for p in ~/.profile.${USER}*
 do
-    ## Skipping the alias files
-    if [ -e $p ] && [ -z $(echo $p | grep -E '\.alias$') ]
+    if [ -e ${p}.skip ]
     then
-        if [ -e ${p}.skip ]
-        then
-            echo "Skipping $p because ${p}.skip found" >&2
-        else
-            .  $p
-        fi
+        echo "Skipping $p because ${p}.skip found" >&2
+    else
+        . $p
     fi
 done
+
+# Get the aliases and functions. We don't run other bashrcs here; we do that in
+# .bashrc so that under a subshell they all get read.
+if ! $CRON && [ -f ~/.bashrc ]; then
+    . ~/.bashrc
+fi
 
 if ((bash_profile_echo == 1))
 then
