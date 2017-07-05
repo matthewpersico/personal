@@ -1,0 +1,65 @@
+# -*- sh -*-
+
+# <Function Class: hist>
+
+grep_history ()
+{
+    local hostfilt=''
+    local grepopts=''
+    local epoch_ago=''
+    local endofopts=''
+    local dodir=''
+    local dofile=''
+    while [[ "$1" =~ ^- ]] && [ -z "$endofopts" ]
+    do
+        case "$1" in
+            -h ) hostfilt=$2
+                 shift;shift ;;
+            ## Both date options imply "from this date, forward"
+            -[0-9]* )
+                local epoch_today=$(date --date=$(date +%Y%m%d) +%s) ## midnight today
+                local days_ago=$(echo "$1" | sed 's/^-//')
+                epoch_ago=$((epoch_today - (86400*days_ago)))
+                shift ;;
+            -d )
+                epoch_ago=$(date --date=$2 +%s)
+                shift; shift ;;
+            -i | -l )
+                grepopts="$grepopts $1"
+                shift ;;
+            --dir )
+                dodir=--include-dir
+                shift ;;
+            --file )
+                dofile=--include-file
+                shift ;;
+            -- )
+                endofopts=$1
+                shift ;;
+            * )
+                echo invalid option "$1"
+                return 1
+        esac
+    done
+
+    local histfs
+    if [ -n "$epoch_ago" ]
+    then
+        local index_file=$(dirname $HISTFILE)/.index
+        histfs=$(perl -MData::Dumper -e '
+ do $ARGV[0] if (-r $ARGV[0]);
+ @files = grep{ $index{$_}->{start} >= $ARGV[1] }
+          keys %index;
+ print "@files";'  $index_file $epoch_ago)
+    else
+        histfs="$(dirname $HISTFILE)/*"
+    fi
+
+    if [ -z "$histfs" ]
+    then
+        echo "No history files found matching date params"
+    else
+        # DEBUG perl -d:ptkdb $(which parse_bash_hist)\
+        parse_bash_hist $dodir $dofile $grepopts "$1" $histfs
+    fi
+}

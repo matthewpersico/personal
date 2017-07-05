@@ -1,0 +1,48 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-hold-remove ()
+{
+    ##@@ 0001||group||git-hold-remove||delete entries from the git hold stash
+    local holdroot=$(git-root)/.githold
+    local unholdthese="$@"
+    if [ -z "$unholdthese" ]
+    then
+        unholdthese=$(git-hold-find)
+    else
+        unholdthese=''
+        local i
+        for i in "$@"
+        do
+            local j=$(git-hold-find | grep $i)
+            if [ -z "$j" ]
+            then
+                func-echo "Cannot find $i to unhold"
+            else
+                unholdthese="$unholdthese $j"
+            fi
+        done
+    fi
+
+    local retstat=0
+    for hold in $unholdthese
+    do
+        rm -v $hold
+    done
+
+    ## Clean up
+    local d f;
+    for d in $(find $holdroot -type d | sort -r)
+    do
+        f=$(find $d -type f)
+        if [ -z "$f" ]
+        then
+            rmdir $d
+        fi
+    done
+
+    return $retstat
+}
+
+

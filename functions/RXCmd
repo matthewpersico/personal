@@ -1,0 +1,34 @@
+# -*- sh -*-
+
+# <Function Class: xterm>
+
+RXCmd ()
+{
+    local host="${1}"
+	if [ -z ${host} ]
+	then
+		echo "Error: hostname not specified."
+	else
+		shift 1
+		local XARGS="${*}"
+		if [ -z "${XARGS}" ]
+		then
+			XARGS="$XTERMGEO"
+		fi
+		if [ "${host}" = "${HOSTNAME}" ]
+		then
+            ${XTERM} -display ${DISPLAY} -title ${host} ${XARGS} &
+		else
+			local XCOOKIE=`/usr/bin/X11/xauth list ${DISPLAY}`
+            #					${XARGS} >/dev/null 2>&1 &
+            ssh ${host} "(
+                                  PATH=$PATH:/usr/bin/X11
+                                  DISPLAY=$DISPLAY
+                                  export PATH DISPLAY
+                                  xauth add ${XCOOKIE} >> ~/inlog 2>&1
+                                  /usr/bin/nohup ${XTERM} -title ${host} \
+                                                 ${XARGS} >> ~/inlog 2>&1 &
+                                 )" &
+		fi
+	fi
+}

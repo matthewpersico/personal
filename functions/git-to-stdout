@@ -1,0 +1,45 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-to-stdout ()
+{
+    ##@@ 0001||group||git-to-stdout||Equivalent of cvs -p. Provide a uuid and one or more path/to/file arguments.
+
+    local usage_func="${FUNCNAME}-usage"
+    OPTSARGS=$(getoptp -o hf --long help,file -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    local file=0
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) $usage_func; return $OK ;;
+            -f|--file) file=1; shift ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
+    if (($# < 2 ))
+    then
+        $usage_func
+        return $NOT_OK
+    fi
+
+    local uuid=$1;shift
+    for i in $@
+    do
+        if ((file))
+        then
+            echo ${i}.${uuid}
+            git show ${uuid}:${i} > $(git-root)/${i}.${uuid}
+        else
+            git show ${uuid}:${i};
+        fi
+    done
+}
+
+

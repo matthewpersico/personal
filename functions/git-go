@@ -1,0 +1,159 @@
+# -*- sh -*-
+
+# <Function Class: git>
+
+git-go ()
+{
+    ##@@ 0001||group||git-go||
+
+    local usage_func="${FUNCNAME}-usage"
+
+    local PS3="Choose by number, /string to rematch, q to quit: "
+    local opt_list=0
+    local opt_update=0
+    local opt_roots=0
+    local opt_mbig=0
+    local opt_wt=1
+    local opt_subwt_only=0
+    local opt_gse=0
+    local opt_mod=0
+    local OPTSARGS=$(getoptp -o slurmhp: --long mod,stat,list,update,roots,mbig,help,wt,nowt,subwt,wtonly,listfull -n $FUNCNAME -- "$@")
+    status=$?
+    ((status != 0)) && $usage_func && return $status
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -l|--list) opt_list=1; shift ;;
+            --listfull) opt_list=2; shift ;;
+            -m|--mbig) opt_mbig=1; shift ;;
+            -r|--roots) opt_roots=1; shift ;;
+            -u|--update) opt_update=1; shift ;;
+            --wt) opt_wt=1; shift ;;
+            --nowt) opt_wt=0; shift ;;
+            --subwt) opt_subwt_only=1; shift ;;
+            --wtonly) opt_subwt_only=1; shift ;;
+            --stat) opt_gse=1; opt_list=1; shift ;;
+            --mod) opt_mod=1; shift;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
+    local tgt
+    tgt=$1
+    shift;
+
+    local opt_repo_no=0
+    if [ -n "$1" ]
+    then
+        opt_repo_no=$1;
+        shift
+    fi
+
+    if [[ "$tgt" =~ /$ ]]
+    then
+        tgt="$(dirname $tgt)/$(basename $tgt)"
+    fi
+    local REPOS
+    REPOS=$(_git-go-get $opt_update $opt_roots $opt_mbig $opt_wt $opt_subwt_only "$tgt")
+    if [ -z "$REPOS" ]
+    then
+        echo $tgt does not match any repo
+        return $NOT_OK
+    fi
+    if [ "$(echo $REPOS | wc -w)" = '1' ]
+    then
+        echo "Matches only $REPOS. Going there."
+        REPO=$REPOS
+    else
+        if (($opt_mod))
+        then
+            for r in $REPOS
+            do
+                (cd ~/$r
+                 if (( $(git st --porcelain | wc  -l) ))
+                 then
+                     echo
+                     func-echo $r
+                     git st
+                 fi)
+            done
+        elif (($opt_list))
+        then
+            local r
+            local gse
+            local sched
+            local rr
+            local lastwasmarker=0
+            for r in $REPOS
+            do
+                (($opt_list==1)) && rr=$(echo '~'/${r})
+                (($opt_list==2)) && rr=$(echo $nonl ~/${r})
+                if ((!opt_gse))
+                then
+                    echo $rr
+                else
+                    gse=$(cd ~/$r; git-branch-info local-status)
+                    sched=$(cd ~/$r; git-branch-info delete-worktree)
+                    [ -n "$sched" ] && sched=$(date --date @$sched)
+                    if [ -n "$gse" ] || [ -n "$sched" ]
+                    then
+                        echo "$rr:"
+                        [ -n "$gse" ]   && echo "    $gse"
+                        [ -n "$sched" ] && echo "    Scheduled for removal on or after $sched"
+                        echo
+                    fi
+                fi
+            done
+        else
+            local REPO
+
+            if ((opt_repo_no))
+            then
+                local r
+                for r in $REPOS
+                do
+                    ((opt_repo_no-=1))
+                    if((opt_repo_no == 0))
+                    then
+                        REPO=$r
+                    fi
+                done
+            else
+                REPOS=$(tail_number_add $REPOS)
+                COLUMNS=1 ## One character wide terminal, forces list to be one column.
+
+                select REPO in $REPOS
+                do
+                    if (($opt_list))
+                    then
+                        return
+                    fi
+                    if [ -n "$REPO" ]
+                    then
+                        REPO=$(tail_number_strip "$REPO")
+                        break
+                    elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
+                    then
+                        return
+                    elif [[ "$(echo $REPLY)" =~ ^/ ]]
+                    then
+                        git-go ${REPLY#/}
+                        return $?
+                    else
+                        echo "'$REPLY' is an invalid choice"
+                    fi
+                done
+            fi
+        fi
+    fi
+    if [ -n "$REPO" ]
+    then
+        ## dirlist, not builtin cd to take advantage this cd enhancement
+        dirlist ${HOME}/$(git-strip-repo $REPO)
+        git-check-hook
+    fi
+    return
+}

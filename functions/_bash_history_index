@@ -1,0 +1,40 @@
+# -*- sh -*-
+
+# <Function Class: hist>
+
+_bash_history_index ()
+{
+    local files="$@"
+    [ -z "$files" ] && files=$HISTFILE
+    for i in $files
+    do
+        local index_file=$(dirname $HISTFILE)/.index
+        local start=$(head -1 $i)
+        local end=$(tail -2 $i | head -1)
+
+        local my_index_file=${index_file}.$(date +%s.%N).$$.lock
+        touch $my_index_file
+        local min_proc_index_file
+        local locktries=20
+        while [ ! "$min_proc_index_file" = "$my_index_file" ] && ((locktries))
+        do
+            min_proc_index_file=$(ls -c1 ${index_file}.* | sort | head -1)
+            ((locktries-=1))
+        done
+        if((locktries))
+        then
+            perl -MData::Dumper -e 'do $ARGV[0] if (-r $ARGV[0]);
+ ($start=$ARGV[2])=~ s/#([0-9]+).*/$1/;
+ ($end=$ARGV[3])=~ s/#([0-9]+).*/$1/;
+ $index{$ARGV[1]}={start=>$start,end=>$end};
+ print Data::Dumper->Dump([\%index],[qw(*index)])' \
+                 $index_file $i "$start" "$end" > $my_index_file
+            \mv -f $my_index_file $index_file
+        else
+            echo "_bash_history_index: cannot lock - skipping"
+        fi
+        \rm -f $my_index_file
+    done
+}
+
+

@@ -1,0 +1,69 @@
+# -*- sh -*-
+
+# <Function Class: util>
+
+kvstoreinit ()
+{
+    local exists_ok=0
+    local unique=0
+    local reset=0
+    while [[ "$1" =~ ^- ]] && ((endofopts==0))
+    do
+        case "$1" in
+            --exists-ok ) exists_ok=1; shift ;;
+            --unique    ) unique=1; shift ;;
+            --reset     ) reset=1; shift ;;
+            --     ) endofopts=1; shift;;
+            -*     ) echo "$1 is an invalid option."; return 1;;
+        esac
+    done
+
+    if [ ! -d ~/.kvdbs ]
+    then
+        echo Initializing kv storage at ~/.kvdbs
+        mkdir ~/.kvdbs
+    fi
+
+    local db=$1;
+
+    if [ ! "$(basename $db)" = "$db" ]
+    then
+        echo "ERROR - kv store name '$db' cannot include directories; all are stored at '~/.kvdbs'"
+        return 1
+    fi
+
+    local dbfile=~/.kvdbs/$db
+
+    if [ -e $dbfile ]
+    then
+        if ((reset))
+        then
+            \rm $dbfile
+        elif ((exists_ok))
+        then
+            return 0
+        else
+            echo "ERROR - kv store name $db exists"
+            return 1
+        fi
+    fi
+
+    if ((unique))
+    then
+        ## 'unique' has the use case where multiple processes would need their
+        ## own copies of the database. Instead, we generate a UUID and give it
+        ## back to the caller to pass back into subsequent calls. This is not
+        ## yet implemented in subsequent calls.
+        local u=$(uuid)
+        echo $u
+        sqlite3 $dbfile "create table keyval (uuid text, key text, value text,
+                             primary key (uuid, key)"
+        local status=$?
+        return
+    else
+        sqlite3 $dbfile "create table keyval (key text primary key, value text)"
+        return $?
+    fi
+}
+
+

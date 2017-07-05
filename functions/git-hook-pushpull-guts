@@ -1,0 +1,83 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-hook-pushpull-guts ()
+{
+    local REPOS="$@"
+
+    local current_template=$(git config --get init.templatedir)
+    if [ "$current_template" != "${gitfuncs_githook_root}" ]
+    then
+        echo "Error: Config says init.templatedir = '$current_template'"
+        echo "       It should be '${gitfuncs_githook_root}'"
+        echo "       Please correct."
+        return $NOT_OK
+    fi
+
+    if [ ! -d "$current_template" ]
+    then
+        echo "Error: Can't find '$current_template'"
+        echo "       Please correct."
+        return $NOT_OK
+    fi
+
+    local hooks="$@"
+    if [ -z "$hooks" ]
+    then
+        hooks=$(ls ${gitfuncs_githook_dir}/*)
+    else
+        local h
+        local newh
+        for h in $hooks
+        do
+            newh="$newh ${gitfuncs_githook_dir}/$h"
+        done
+        hooks="$newh"
+    fi
+
+    local REPO
+    for REPO in $REPOS
+    do
+        (($# > 1)) && echo "== $REPO"
+        for h in $hooks
+        do
+            local hooktgtdir="${HOME}/$(git-strip-repo $REPO)/.git/hooks"
+            if [ -f $hooktgtdir ]
+            then
+                echo $hooktgtdir is a file. whoops....
+                ## Fix up accidental directory overwrite
+                \rm $hooktgtdir
+                mkdir $hooktgtdir
+            fi
+
+            local hooktgtpath="$hooktgtdir/$(basename $h)"
+            if [ ! -e $hooktgtpath ] || [ $h -nt $hooktgtpath ]
+            then
+                if [ ! -e $hooktgtpath ]
+                then
+                    echo "$hooktgtpath not found. Copying from $h..."
+                elif [ $h -nt $hooktgtpath ]
+                then
+                    echo "$hooktgtpath out of date. Updating from $h..."
+                fi
+                cp -pv $h $hooktgtpath
+                chmod +x $hooktgtpath
+            elif [ $h -ot $hooktgtpath ]
+            then
+                local tmpout=$(mktempv --suffix=.git-push-hook)
+                diff  $h  $hooktgtpath 1>$tmpout 2>&1
+                if [ -s $tmpout ]
+                then
+                    echo "$hooktgtpath newer than $h. Here's the diff, older to newer:"
+                    cat $tmpout
+                fi
+                rm -f $tmpout
+            else
+                echo "$hooktgtpath up to date"
+            fi
+        done
+    done
+}
+
+
