@@ -6,6 +6,7 @@ my @oldlines = ();
 my $in_func = 0;
 my $current_func = '';
 my @funclines = ();
+my %seen;
 
 while (<>) {
 
@@ -38,12 +39,51 @@ while (<>) {
             die "$current_func needs a _ to - swap.\n";
         } elsif ($current_func =~ m/^git[a-z]/) {
             print "$current_func does not have a '-', must be an alias, skipping.\n";
+        } elsif (defined $seen{$func} ) {
+            die "Trying to split '$func' out of '$current_file', but we've already split '$func' out of '$seen{$func}->{source}'";
         } else {
+            $seen{$func} = {source => $current_file};
             $in_func = 1;
             @funclines = ($_);
         }
         next;
     };
+
+    ##
+    ## Look for the opening {
+    ##
+    if ($in_func) {
+        next
+          if $_ =~ m/^\s*${current_file}_audit(?:\s+"\$\@\"|\w*)/;
+
+        m/^{\s*$/ && do {
+            $check_next_is_audit=1;
+            push @funclines, $_;
+            next;
+        };
+
+        ##
+        ## If we have already audited, just passthough
+        ##
+        m/## This is audit/ && do {
+            $check_next_is_audit=0;
+            push @funclines, $_;
+            next;
+        };
+
+        $check_next_is_audit == 0 && do {
+            push @funclines, $_;
+            next;
+        };
+
+        $check_next_is_audit == 1 && !m/## This is audit/ && do {
+            push @funclines,
+              qq(    echo "\${FUNCNAME[0]} \\"\$@\\" ## \$(date +%Y%m%d%H%M%S)" >> \${HOME}/bloomberg/data/funcsaudit ## This is audit\n),
+              $_;
+            $check_next_is_audit=0;
+            next;
+        };
+    }
 
     ##
     ## Match function last line
@@ -69,9 +109,6 @@ EOH
     };
 
     $in_func && do {
-        push @funclines, $_
-          if $_ !~ m/^\s*${current_file}_audit(?:\s+"\$\@\"|\w*)/;
-        next;
     };
 
     push @oldlines, $_
