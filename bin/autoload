@@ -54,13 +54,20 @@ _aload()
     local doevalshim=0
     local loadthese
     local Z
-    while getopts xrvla:Z opt; do
+    local optimize=0
+    local loaded=0
+    local exported=0
+    local optimized=0
+    local summary=0
+    while getopts xrvla:o:yZ opt; do
         case $opt in
             x) doexport=1;;
             r) doreload=1;;
             v) doverbose=1;;
             l) doevalshim=1;;
             a) loadthese=$(find $OPTARG -type f -printf '%f ');;
+            o) optimize=$(($OPTARG * 152 /100));;
+            y) summary=1;;
             Z) Z=1; set -xv;;
             *) echo "_aload: usage: _aload [-xrv] [function ...]" >&2; return;;
         esac
@@ -93,36 +100,51 @@ _aload()
             local andevaled=''
             local andexported=''
             local evalstat=0
-            if ((doevalshim))
-            then
-                local f=$(_autoload_resolve $func)
-                if [[ $f ]]; then
-                    . $f
-                    evalstat=$?
+            local doshim=1
+            local funcfile
+            if ((optimize)) || ((doevalshim)); then
+                funcfile=$(_autoload_resolve $func)
+                if [[ $funcfile ]]; then
+                    if ((optimize)); then
+                        local size=$(wc -c $funcfile| sed 's/ .*//')
+                        if (( size <= optimize)); then
+                            doshim=0
+                            andevaled=', optimized'
+                            ((optimized+=1))
+                        fi
+                    elif ((doevalshim)); then
+                        doshim=0
+                        andevaled=', evaled'
+                    fi
                 fi
-                andevaled=', evaled'
-            else
+            fi
+            if ((doshim)); then
                 ## Don't bother trying to save space by shoving all the eval
-                ## text onto one unreadable line. When you type the function,
-                ## it will appear "pretty-fied" anyway.
+                ## text below onto one unreadable line; new lines will be added
+                ## at your semicolons and any indentation below seems to be
+                ## ignored anyway if you export the function; look at its
+                ## BASH_FUNCTION representation.
                 eval $func '()
-            {
-            local f=$(_autoload_resolve '$func')
-            if [[ $f ]]
-            then
-                . $f
-                '$func' "$@"
-                return $?
+                    {
+                    local f=$(_autoload_resolve '$func')
+                    if [[ $f ]]
+                    then
+                        . $f
+                        '$func' "$@"
+                        return $?
+                    else
+                        return 1;
+                    fi
+                    }'
             else
-                return 1;
+                . $funcfile
             fi
-            }'
-                evalstat=$?
-            fi
+            evalstat=$?
             if((evalstat==0))
             then
+                ((loaded+=1))
                 _autoload_addlist $func $doexport
-                ((doexport)) && export -f $func && andexported=', exported'
+                ((doexport)) && export -f $func && andexported=', exported' && ((exported+=1))
                 ((doverbose)) && echo "$func autoloaded${andexported}${andevaled}"
             else
                 echo "$func failed to load" >&2
@@ -130,6 +152,7 @@ _aload()
         fi
     done
     if ((Z==1)); then set +xv; fi
+    ((summary)) && echo "autoload: loaded:$loaded exported:$exported optimized:$optimized"
 }
 
 _autoload_addlist()
@@ -273,8 +296,8 @@ NAME
 
 SYNOPSIS
         autoload [-ps]
-        autoload [-xuUreml] [function ...]
-        autoload -a directory
+        autoload [-xuUremloyv] [function ...]
+        autoload -a directory [-oyv]
         autoload [-h]
 
         autoreload [function ...]
@@ -317,15 +340,11 @@ USAGE
 
 OPTIONS
 
-        With no arguments:
-
         -a Autoload (a)ll the functions found in and under the given directory
 
         -p Print all the autoloaded functions.
 
         -s Print all the autoloaded functions and add their export status.
-
-        With function name arguments:
 
         -x Export the specified functions to the environment for use in
            subshells.
@@ -370,6 +389,15 @@ OPTIONS
            yet called it in your current process. This will prevent the
            subshells from having to eval it themselves, which could be
            expensive if there are many subshells generated.
+
+        -o pct
+           Optimize. When autloading, take the time to do
+           'theCharCount=$(wc -c theFuncFile)' and if theCharCount < 'pct/100 *
+           autoload_overhead', don't shim it, just eval directly.
+
+        -y
+           Summar(y). Print the number of loaded, exported and optimized
+           functions.
 
         -v Turns up the chattiness.
 
@@ -480,7 +508,7 @@ autoload()
     local passthru
     local loadall
     local dumpopt
-    while getopts psuUema:xrvlhZ opt
+    while getopts psuUema:yxrvlo:hZ opt
     do
         case $opt in
             p|s) dumpopt="$dumpopt -${opt}";;
@@ -488,8 +516,8 @@ autoload()
             U) shift $((OPTIND-1)); _autoload_remove -U "$@"; return;;
             e) shift $((OPTIND-1)); _autoload_edit "$@"; return;;
             m) shift $((OPTIND-1)); _autoload_page "$@"; return;;
-            x|r|v|l|Z) passthru="$passthru -$opt";;
-            a) passthru="$passthru -$opt $OPTARG";;
+            x|r|v|l|Z|y) passthru="$passthru -$opt";;
+            a|o) passthru="$passthru -$opt $OPTARG";;
             h) _autoload_help; return;;
             *) echo "autoload: usage: autoload [-puUx] [function ...]" >&2; return;;
         esac
