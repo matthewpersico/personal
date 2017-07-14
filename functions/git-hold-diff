@@ -5,9 +5,24 @@
 git-hold-diff ()
 {
     echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+
     ##@@ 0001||group||git-hold-diff||show difference between entries in the git hold stash and the repo
     local pager='less -RE'
-    ## TODO - Plug in getoptp, on nopager set pager='cat'
+    local diffargs
+    local OPTSARGS=$(getoptp -o w --long nopager -n $FUNCNAME -- "$@")
+    status=$?
+    ((status != 0)) && $usage_func && return $status
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -w) diffargs="$diffargs -w"; shift;;
+            --nopager) pager=cat; shift;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
     local holdroot=$(git-root)/.githold
     local diffthese="$@"
     if [ -z "$diffthese" ]
@@ -31,11 +46,9 @@ git-hold-diff ()
     for hold in $diffthese
     do
         local orig=$(echo $hold | sed "s|.githold/||")
-        colordiff -u $orig $hold
+        colordiff -u $diffargs $orig $hold
         echo
     done  | $pager
 
     return 0
 }
-
-
