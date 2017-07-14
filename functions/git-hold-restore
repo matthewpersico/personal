@@ -1,0 +1,62 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-hold-restore ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-hold-restore||take entries back from the git hold stash
+    local holdroot=$(git-root)/.githold
+    local unholdthese="$@"
+    if [ -z "$unholdthese" ]
+    then
+        unholdthese=$(git-hold-find)
+    else
+        unholdthese=''
+        local i
+        for i in "$@"
+        do
+            local j=$(git-hold-find | grep $i)
+            if [ -z "$j" ]
+            then
+                func-echo "Cannot find $i to unhold"
+            else
+                unholdthese="$unholdthese $j"
+            fi
+        done
+    fi
+
+    local retstat=0
+    for hold in $unholdthese
+    do
+        local orig=$(echo $hold | sed "s|.githold/||")
+        local is_mod=$(git status --porcelain $orig)
+        if [ -n "$is_mod" ]
+        then
+            ((retstat+=1))
+            func-echo "Cannot unhold $hold - current version is not clean: $is_mod"
+        else
+            mv -v $hold $orig
+            if (($? != 0))
+            then
+                ((retstat+=1))
+                func-echo "Cannot unhold $hold - move failed"
+            fi
+        fi
+    done
+
+    ## Clean up
+    local d f;
+    for d in $(find $holdroot -type d | sort -r)
+    do
+        f=$(find $d -type f)
+        if [ -z "$f" ]
+        then
+            rmdir $d
+        fi
+    done
+
+    return $retstat
+}
+
+

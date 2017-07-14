@@ -1,0 +1,90 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-merge-find ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-merge-find||Is there a merge record in ~/.gitconfig.merge_audit for given or current branch.
+
+    local opt_silent=0
+    local opt_all=0
+    OPTSARGS=$(getoptp -o sha --long silent,help,all -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -s|--silent) opt_silent=1; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            -a|--all) opt_all=1; shift ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
+    local r
+    local b
+    local search
+    local searchid
+    if [ -n "$1" ]
+    then
+        search="${1}"
+        searchid="${1}"
+    else
+        if ((opt_all==0))
+        then
+            git-in-a-repo
+            if (( $? == 0 ))
+            then
+                r=$(git remote -v | grep origin | grep '(fetch)' | perl -an -e '$F[1] =~ s/[\/:]/--/g; print $F[1]')
+                b=$(git-get-current-branch)
+            else
+                echo "Not in a repo"
+                return $NOT_OK
+            fi
+        fi
+        search="${r}--${b}"
+        rid=$(git remote -v | grep origin | grep '(fetch)' | perl -an -e 'print $F[1]')
+        searchid="${rid}:${b}"
+    fi
+    merged=$(git config -f ~/.gitconfig.merge_audit --list | grep -E -- "${search}" 2>/dev/null)
+    if [ -z "$merged" ]
+    then
+        ((opt_silent)) || echo "No record of merging $searchid to anywhere."
+        return $NOT_OK
+    else
+        echo "$merged" | perl -n -e '
+ BEGIN { $me = getlogin };
+ chomp;
+ my ($k, $v) = split(/=/);
+ my ($sha,$date,$who) = split(/@/,$v);
+ my ($tag,$tgt,$src) = split(/\./, $k);
+ if ($tag eq q(merge-pr-by-tgt)) {
+    $src =~ s/---/\//g;
+    $tgt =~ s/---/\//g;
+    my @srcparts = split(/--/, $src);
+    my @tgtparts = split(/--/, $tgt);
+    my @m = (qq(Merged $sha),
+             qq(  from $srcparts[0]:$srcparts[1]/$srcparts[2]:$srcparts[3]),
+             qq(    to $tgtparts[0]:$tgtparts[1]/$tgtparts[2]:$tgtparts[3]),
+             qq(    on $date));
+    push @m, qq(    by $who) if ($who ne $me);
+    push @m, qq ();
+
+    push @out, {
+        d => $date,
+        m => join(qq(\n),@m)
+   };
+ }
+ END {
+     print(map {$_->{m}} sort {$a->{d} cmp $b->{d}} @out)
+ };
+'
+        return $OK
+    fi
+}
+
+

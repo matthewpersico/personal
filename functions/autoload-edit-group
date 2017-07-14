@@ -1,0 +1,38 @@
+# -*- sh -*-
+
+# <Function Class: autoload>
+
+autoload-edit-group ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    [ -z "$EDITOR" ] && echo "Error: no EDITOR defined" && return 1
+    local toedit
+    local func
+    toedit=$(find $(IFS=':'; set -- ${FPATH}; echo "$@") -type f -printf '%f ' | xargs grep -l "\<Function Class: $1x\>")
+    do
+        local file=$(_autoload_resolve $func)
+        if [[ $file ]]
+        then
+            toedit="$toedit $file"
+        else
+            echo "$funcname not found in FPATH funcfile. Skipping."
+        fi
+    done
+
+    [ -z "$toedit" ] && return 1
+
+    local timemarker=$(mktemp)
+
+    $EDITOR $toedit
+
+    local i
+    for i in $toedit
+    do
+        if [ $i -nt $timemarker ]
+        then
+            local f=$(basename $i)
+            echo Reloading $f
+            autoload -r $f
+        fi
+    done
+}

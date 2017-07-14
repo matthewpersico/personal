@@ -1,0 +1,40 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-log-shas-range ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-log-shas||Given two shas (older newer), call git log on the range, inclusively
+
+    local opt_hf=''
+    local opt_inclusive=1
+    local opt_add_names=''
+    OPTSARGS=$(getoptp -o f:ienh --long highlightfirst:,inclusive,exclusive,name-only,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -f|--higlightfirst)  opt_inclusive=1; opt_hf="$2"; shift; shift ;;
+            -i|--inclusive) opt_inclusive=1; shift ;;
+            -e|--exclusive) opt_inclusive=0; shift ;;
+            -n|--name-only) opt_add_names='--name-only'; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
+    [ -z "$2" ] && echo "Usage: git-log-sha-range oldersha newersha" && return $NOT_OK;
+    git --no-pager log $opt_add_names ${1}..${2} ## Does not print the first one
+    if((opt_inclusive))
+    then
+        [ ! "$1" = "$2" ] && echo "$hf_based"
+        git --no-pager log $opt_add_names -1 ${1}    ## Always prints the first one
+    fi
+}
+
+

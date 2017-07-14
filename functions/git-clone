@@ -1,0 +1,153 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-clone ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-clone||Clone a repo locally. Args: protocol namespace repo
+
+    local usage_func="${FUNCNAME}-usage"
+
+    local opt_y=0
+    local opt_t=0
+    local opt_triangle_namespace=''
+    local opt_worktree=1
+    local opt_local=0
+    OPTSARGS=$(getoptp -o tyh --long timestamp,yes,help,triangle:,noworktree,local -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func ${FUNCNAME} && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -y|--yes) opt_y=1; shift ;;
+            -t|--timestamp) opt_t=1; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --triangle) local tmp_otn;
+                        tmp_otn=$2;
+                        shift; shift;
+                        opt_triangle_namespace=${tmp_otn%/*}
+                        if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
+                        then
+                            func-echo    "WARNING: --triangle takes an upstream namespace specification,"
+                            func-echo -c "         not a full upstream repo specification."
+                            func-echo -c "         We will use"
+                            func-echo -c "             $opt_triangle_namespace"
+                            func-echo -c "         not"
+                            func-echo -c "             $tmp_otn"
+                        fi
+                        ;;
+            --noworktree ) opt_worktree=0; shift;;
+            --local ) opt_local=1; shift;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) func-echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
+        esac
+    done
+
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
+
+    local protocol=$1;shift
+    local namespace=$1;shift
+    local repo2
+    if [[ "$namespace" == */* ]]
+    then
+        asplit tmpa / $namespace
+        namespace=${tmpa[0]}
+        repo=${tmpa[1]}
+    else
+        repo=$1;shift
+    fi
+
+    local cwpath=$(realpath $(pwd))
+    local local_protocol=$(basename $cwpath)
+    if [ "$local_protocol" != "$protocol" ]
+    then
+        if ((opt_local == 0))
+        then
+            func-echo    "You must be in a local directory path ending in"
+            func-echo -c "   $protocol"
+            func-echo -c "You are in $cwpath"
+            local shouldbein="$gitfuncs_gitroot/$protocol"
+            if [ ! -d $shouldbein ]
+            then
+                func-echo    "Cannot find '$shouldbein'."
+                func-echo -c "Correct and re-execute."
+                return $NOT_OK
+            else
+                local resp
+                if ((opt_y))
+                then
+                    func-echo "Going to $shouldbein"
+                    resp='y'
+                else
+                    resp=$(func-yesno "cd to $shouldbein")
+                fi
+                if [ "$resp" = 'n' ]
+                then
+                    func-echo "Correct and re-execute."
+                    return $NOT_OK
+                else
+                    _git-cd-to $shouldbein
+                fi
+            fi
+        else
+            func-echo -- "--local specifed. Cloning into $(pwd)/$repo"
+        fi
+    fi
+
+    local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
+    if [ -z "$protocol_url" ]
+    then
+        func-echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
+        return $NOT_OK
+    fi
+
+    local tgt="$namespace/$repo"
+    if [ -e $tgt ]
+    then
+        local resp
+        if ((opt_y))
+        then
+            resp='y'
+        else
+            resp=$(func-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
+        fi
+        [ "$resp" = 'n' ] && return $NOT_OK
+        rm -rf $tgt
+    fi
+
+    local cmd="git clone ${protocol_url}$namespace/$repo $namespace/$repo"
+    func-echo $cmd ...
+    $cmd
+    status=$?; [ "$status" != '0' ] && return $status
+    if ((opt_t))
+    then
+        func-echo 'Setting timestamps...'
+        (builtin cd $namespace/$repo; git-retimestamp)
+        func-echo 'Done'
+    fi
+
+    ## dirlist, not builtin cd, to take advantage this cd enhancement
+    dirlist $namespace/$repo
+    if [ -n "$opt_triangle_namespace" ]
+    then
+        echo "Setting up triangle workflow with ${protocol_url}$opt_triangle_namespace/${repo}..."
+        git-set-triangle ${protocol} $opt_triangle_namespace $namespace $repo
+        git pull # To refresh from the upstream
+    fi
+    git remote -v
+
+    if ((opt_worktree))
+    then
+        echo "Setting up for worktrees..."
+        mkdir wt
+        ls -ld $(pwd)/wt
+    fi
+
+    ## Add this repo to the list
+    git-go-set
+}
+
+

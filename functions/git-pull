@@ -1,0 +1,38 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-pull ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-pull||Show log state after pull. -t to invoke timestamp fixer.
+    local usage_func="${FUNCNAME}-usage"
+
+    local opt_t=0
+    OPTSARGS=$(getoptp -o th --long timestamp,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func ${FUNCNAME} && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -t|--timestamp) opt_t=1; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
+        esac
+    done
+
+    local oldsha=$(git-log-grab-sha -1)
+    git pull
+    if ((opt_t))
+    then
+        func-echo "Setting timestamps..."
+        git-retimestamp
+        func-echo Done
+    fi
+    git-log-shas-range -f "pre-pull:" $oldsha $(git-log-grab-sha -1)
+}
+
+

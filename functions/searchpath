@@ -1,0 +1,103 @@
+###############################################################################
+#
+# Name:        searchpath
+#
+# Author:      Matthew Persico (matthew.persico@gmail.com)
+#
+# Copyright:   Matthew Persico (matthew.persico@gmail.com)
+#
+# Derived from work by Stephen Collyer (scollyer@netspinner.co.uk),
+#                      Copyright: Netspinner Ltd 2000-2003
+#
+###############################################################################
+
+searchpath ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ###########################################################################
+    # local variables
+    ###########################################################################
+
+    typeset options_shift_val options_missing_arg options_unknown_opt
+    typeset options_num_args_left
+    typeset opt_h opt_p opt_s
+    typeset opt_e opt_n
+    typeset sep=:
+
+    typeset pathvar
+
+    pathfunc_usage_init
+    typeset -a USAGE
+    i=0; USAGE[i]="searchpath [-h] [-s separator] [-e] [-n] [[-p] pathvar] pathspec"
+    ((i+=1)); USAGE[i]="Prints path elements matching 'pathspec'."
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P1"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P2"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P3"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P4F"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P5"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_S"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_E"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_N"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_H"
+
+    ###########################################################################
+    # handle options
+    ###########################################################################
+
+    options "hp:s:en" "$@"
+    shift $options_shift_val
+
+    if [ -n "$opt_h" ]
+    then
+        Usage "${USAGE[@]}"
+        return
+    fi
+    if [ -n "$options_missing_arg" ]
+    then
+        Usage "$USAGE" "Missing argument for -$options_missing_arg"
+        return
+    fi
+    if [ -n "$options_unknown_option" ]
+    then
+        Usage "$USAGE" "Unknown option -$options_unknown_option"
+        return
+    fi
+    if [ $options_num_args_left -eq 0 ]
+    then
+        Usage "$USAGE" "Missing search string"
+        return
+    elif [ $options_num_args_left -eq 1 ]
+    then
+        pathspec="$1"
+    elif [ $options_num_args_left -eq 2 ]
+    then
+        pathvar=$1
+        pathspec="$2"
+    elif [ $options_num_args_left -ge 3 ]
+    then
+        Usage "${USAGE[@]}" "Too many arguments"
+    fi
+
+    [ -n "$opt_p" ] && pathvar=$opt_p # use specified pathvar
+    [ -z "$pathvar" ] && pathvar=PATH # default
+
+    [ -n "$opt_s" ] && sep=$opt_s;
+
+    MATCH="-E"
+    [ -n "$opt_e" ] && MATCH=         # make grep use regexps
+
+    if [ -n "$opt_n" ]
+    then
+        opt_n='-n'
+    fi
+    ###########################################################################
+    # main
+    ###########################################################################
+
+    eval echo \$$pathvar | sep2line "${sep}" | grep $MATCH $opt_n $pathspec
+}
+
+# emacs
+# Local Variables:
+# mode: sh
+# End:

@@ -1,0 +1,50 @@
+# -*- sh -*-
+
+# <Function Class: dotfiles>
+
+makesymlinks ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    # creates symlinks from any target file to the git-controlled source in
+    # ~/personal/dotfiles. Use this when initing a new vm.
+
+    # create DOTFILES_OLDDIR
+    if [ ! -d $DOTFILES_OLDDIR ]
+    then
+        echo -n "Creating $DOTFILES_OLDDIR for backup of any existing dotfiles in ~..."
+        mkdir -p $DOTFILES_OLDDIR
+        echo "done"
+    fi
+
+    . $DOTFILES_MANIFEST
+
+    # change to the dotfiles directory
+    echo -n "Changing to the $DOTFILES_DIR directory ..."
+    builtin cd $DOTFILES_DIR
+    echo "done"
+
+    # Move any existing dotfiles in to dotfiles_old directory, then create
+    # symlinks from the original location to the corresponding files in the
+    # ~/dotfiles directory.
+    for src in ${!dotfiles[@]}; do
+        local fullsrc=$DOTFILES_DIR/$src
+        local link=${dotfiles[$src]}
+        if [ ! -e $fullsrc ]
+        then
+            echo "'$fullsrc' not found. Skipping processing of '$link'."
+        elif [ -h $link ]
+        then
+            echo "'$link' is already a link. Skipping processing of '$link'."
+        elif [ -f $link ] || [ -d $link ]
+        then
+            srctype='directory'; if [ -f $link ]; then srctype='file'; fi
+            echo "Moving existing $srctype '$link' to $DOTFILES_OLDDIR so we can link it to '$fullsrc'."
+            mv $link $DOTFILES_OLDDIR/$(basename $link).$(date '+%Y%m%d%H%M%S')
+        else
+            echo "Creating symlink '$link' to '$fullsrc'."
+            ln -s $fullsrc $link
+        fi
+    done
+}
+
+

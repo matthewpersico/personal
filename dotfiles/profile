@@ -2,10 +2,16 @@
 # ~/.profile.${USER}
 # Isolates my stuff.
 
+## This will be used by .bashrc to decide what to run and what to skip.
+RUNNING_PROFILE=1
+export RUNNING_PROFILE
+
 MASTER_SHLVL=$SHLVL
 export MASTER_SHLVL
 
-CRON=$(~/personal/bin/running_under_cron && echo true || echo false)
+[ -z "$CRON" ] && \
+    CRON=$(~/personal/bin/running_under_cron && echo true || echo false) && \
+    export CRON
 
 ## OS_O is the 'proclaimed' operating system name. Use this where a system may
 ## be lying, but fakes it pretty well. Do **NOT** use OS for this variable;
@@ -14,8 +20,7 @@ OS_O=$(uname -o)
 export OS_O
 
 ## OS_ID is the 'true' operating system name. use this primarily where
-## we need to know if this is Winbash or not.
-OS_ID=$OS_O
+## we need to know if this is Winbash or not.xb
 if [ "$OS_ID" = 'Gnu/Linux' ]
 then
     _profile_iswinbash=$(uname -r | sed 's/.*\(Microsoft\).*/\1/')
@@ -29,17 +34,11 @@ export OS_ID
 ## How to plug in (monkeypatch) set -x if needed
 [ -e /tmp/profile.${USER} ] && . /tmp/profile.${USER}
 
-$CRON
-if (($? != TRUE))
-then
-    if [ -n "$ALLFUNCS_PROFILE" ]
-    then
-        echo "$(date): ~/.profile.${USER} is running..."
-    fi
-fi
+! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
+    echo "$(date): ~/.profile.${USER} is running..."
 
 ## NFS cross-mount check
-if [ ! "$(basename $SHELL)" = 'bash' ]
+if [ ! "$(basename $(realpath $SHELL))" = 'bash' ]
 then
     echo "Skipping profile.mpersico5 under '$SHELL'"
     return 0 ## return is ok even though this is not a function because this
@@ -54,135 +53,97 @@ shopt -s expand_aliases
 export PERSONALROOT=~/personal
 export PERSONALBIN=$PERSONALROOT/bin
 
-## utilfuncs, pathfuncs, auditfuncs and histfuncs should be called in that
-## order. Then the rest of the scripts have some minimal defs to use going
-## forward.
+##
+## autoload setup
+##
+export FPATH=$PERSONALROOT/functions ## First profile called so init is
+                                     ## safe. Besides, we will not have
+                                     ## 'addpath' until the autoload is done.
+if [ -z "$(declare -F autoload )" ]
+then
+    ## Load autoloading. All of these functions get exported.
+    . $PERSONALBIN/autoload
+fi
 
-_profile_funcsinitlist='utilfuncs pathfuncs auditfuncs histfuncs cdfuncs gitfuncs dotfilesfuncs Xfuncs xtermfuncs yumaptfuncs perlfuncs'
+if [ -z "$(declare -F autoloaded-personal)" ]
+then
+    ## autoload everything. Order does not matter here since it's all shims so
+    ## nothing needs to know about anything else until it's actually called, in
+    ## which case its shim will be ready.
+    autoload -x -a $PERSONALROOT/functions -o 125 -y
 
-for _profile_func in ${_profile_funcsinitlist}
+    ## Over time you discover that many of your functions are only used in the
+    ## context of backticks and other scripts that are executed but never
+    ## sourced into your current process directly. That means that all of these
+    ## subshells are going to re-evalute the shim over and over, even if you
+    ## have exported the functions. This script will run 'autoload -l' on
+    ## specified functions to do just that - unshim the most widely used
+    ## functions.
+    [ -f $PERSONALBIN/autoload-unshim ] && . $PERSONALBIN/autoload-unshim
+fi
+
+## Now that functions are loaded, we can use them, starting with addpath.
+addpath -fx PATH $PERSONALBIN
+
+##
+## env setup
+##
+
+## Variables that can be exported to subshells are loaded here. We also load
+## the xterminit file here (via xtermfuncs) as it contains functions that we
+## cannot break out into their own files for autoload since xterminit is run
+## under ksh before bash is invoked on chimera machines at Bloomberg.
+_profile_env_init_list='util.env cd.env perl.env git.env dotfiles.env xtermfuncs'
+for _profile_env in ${_profile_env_init_list}
 do
-    _profile_path=$PERSONALBIN/${_profile_func}
-    if [ -f ${_profile_path} ]
+    _profile_envvar="$(echo $_profile_env | tr [:lower:] [:upper:] | tr -d [.] )_LOADED"
+    _profile_envvar_val="$(eval echo \$$_profile_envvar)"
+    if [ -z "$_profile_envvar_val" ]
     then
-        ## We don't need to reload here if already loaded, which could happen
-        ## in a subshell with our function exports.
-        _profile_is_func_defined=$(declare -F | grep ${_profile_func}-reload )
-        if [ -z "$_profile_is_func_defined" ]
-        then
-            case ${_profile_func} in
-                histfuncs | xtermfuncs )
-                    ! $CRON && . ${_profile_path}
-                    ;;
-                pathfuncs )
-                    . ${_profile_path}
-                    addpath -fx PATH $PERSONALBIN
-                    ;;
-                * )
-                    . ${_profile_path}
-                    ;;
-            esac
-        fi
-    fi
-
-    _profile_alias=${_profile_path}.alias
-    if [ -f ${_profile_alias} ]
-    then
-        ## No reload check for aliases - they must be run in subshells
-        ## explicitly.
-        case ${_profile_func} in
-            histfuncs | xtermfuncs )
-                ! $CRON && . ${_profile_alias}
-                ;;
-            * )
-                . ${_profile_alias}
-                ;;
-        esac
+        ! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && echo "$(date): Loading $_profile_env"
+        . $PERSONALBIN/$_profile_env
+    else
+        ! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && echo "$(date): Skipped loading $_profile_env, $_profile_envvar=$_profile_envvar_val"
     fi
 done
 
-## Check the personal repo.
-! $CRON && git-daily-repo-check $PERSONALROOT
-
-## GIT - Probably should put the .git-prompt.sh code, and the exports below,
-## into gitfuncs as a function and just call that function here.
-_profile_git_contrib_loaded=$(declare -F | grep __git_ps1)
-if [ -z "$_profile_git_contrib_loaded" ]
+if [ $CRON = 'false' ]
 then
-    if [ -e ~/.git-prompt.sh ]
-    then
-        . ~/.git-prompt.sh
-        safe_func_export --file ~/.git-prompt.sh
-    fi
-fi
+    ## Items we don't need in a cron job, some potentially fatal in that
+    ## environment
 
-# MISC
+    ## Check the personal repo.
+    git-daily-repo-check $PERSONALROOT
 
-# STOP clearing the screen!!!
-LESS="-X"
-export LESS
+    # MISC
 
-# Needs setting
-for _profile_pager in less more
-do
-    [ -z "$PAGER" ] && PAGER=$(which $_profile_pager)
-done
-[ -n "$PAGER" ] && export PAGER
+    # STOP clearing the screen!!!
+    LESS="-X"
+    export LESS
 
-_profile_since=$(date +'%a %b %d %H:%M:%S')
-_profile_ps1_xterm_title_cmds=''
-if [ ! "$EMACS" = 't' ]
-then
-    _profile_ps1_xterm_title_cmds='\[\e]0;\u@\h:\w\a\]'
-fi
-## Override prompt (assuming git stuff is loaded, either in chimera or locally)
-##     status of
-##     prior command
-##     |           |
-##     |        +--+
-##     |        |
-##     v--------v
-PS1='\n[\$? = $?]\n\n'${_profile_ps1_xterm_title_cmds}'what    : \u@\h\nsince   : $_profile_since\nas-of   : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -na -no0 "\nstashes : ")$(git-get-default-remote -na "\nremote  : ")\npwd     : \w\n[$$] \$ '
-export PS1
+    # Needs setting
+    for _profile_pager in less more
+    do
+        [ -z "$PAGER" ] && PAGER=$(which $_profile_pager)
+    done
+    [ -n "$PAGER" ] && export PAGER
 
-# for silencing emacs 24.4 dbus warning message
-export NO_AT_BRIDGE=1
+    # Editing
+    EDITOR='vi'
+    [ $(which emacs 2>/dev/null) ] && EDITOR='emacsclient -c'
+    export EDITOR
 
-# Editing
-## Do NOT use an emacs command that hooks into the gnuserver or you'll have to
-## exit the whole session to register completion with the user of EDITOR
-EDITOR='vi'
-! $CRON && [ $(which emacs 2>/dev/null) ] && EDITOR='emacsclient -c'
-export EDITOR
+    # for silencing emacs dbus warning message
+    export NO_AT_BRIDGE=1
 
-# Aliases - no need for a separate alias file for profile. This will always get run
-# Conveniences
-alias cvs='echo cvs? Are you nuts? - Try again!'
-alias dir='ls -la '
-alias envg='env | grep '
-alias setg='set | grep '
-alias allg='(env && set) | grep '
-alias rm='rm -i '
-alias mydiff='diff -U3 '
-alias sidediff='diff -w --side-by-side --suppress-common-lines '
-alias mopquota='df -h '
-alias showfunc='type '
-alias grepnc='grep --color=never'
-
-# Fat finger protection
-alias vf='echo cd, you moron; cd '
-alias fit='echo dir, you moron; dir '
-
-$CRON
-if (($? != TRUE))
-then
     # History - set up a new history file per shell session. By the time we get
     # here, the function is defined in this session or an ancestor session, unless
     # we skipped it because we are running under cron.
     histinit
 
-    if [ -n "$ALLFUNCS_PROFILE" ]
-    then
-        echo "$(date): ~/.profile.${USER} has run"
-    fi
 fi
+
+! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
+    echo "$(date): ~/.profile.${USER} has run"
+
+unset RUNNING_PROFILE

@@ -1,0 +1,105 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-go-set ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-go-set||
+
+    local set_x=0
+    if [ "$GIT_GO_SET_DEBUG" = '1' ]
+    then
+        set_x=1
+        set -x ## set by envvar
+    fi
+    git-go-set-filename
+
+    local current_git_go_file=$(git-go-get-filename)
+    local repo_find_roots
+    local search_roots="$gitfuncs_gitroot"
+    local addmbig="$1"
+    if [ "$addmbig" = '' ]
+    then
+        grep MBIG $current_git_go_file
+        status=$?
+        if ((status==0))
+        then
+            addmbig=1
+        fi
+    fi
+    if [ "$addmbig" = '1' ]
+    then
+        search_roots="$search_roots $gitfuncs_gitroot_MBIG"
+    fi
+    for i in $search_roots
+    do
+        if [ -e $i ]
+        then
+            repo_find_roots="$repo_find_roots $i"
+        fi
+    done
+    local repo_tops=$(find $repo_find_roots -maxdepth 1 -mindepth 1 -type d -follow)
+    ## We can use -maxdepth to speed things up drastically because of the
+    ## host/namespace/repo setup similarly for other git hosts.
+    declare -A finds
+    for d in $(kvgetvalues gitfuncs_gitlocs_extra) \
+                 $repo_tops
+    do
+        local dir=${d%%:*}
+        local depth=${d##*=}
+        [ "$depth" = "$dir" ] && depth=3
+        [ -d $dir ] && finds[$depth]="${finds[$depth]} $dir"
+    done
+    local depth
+    local repos
+    for depth in ${!finds[@]}
+    do
+        repos="$repos $(find ${finds[$depth]} -maxdepth $depth -name .git -type d | sed 's|/.git$||g' | sort -u)"
+    done
+
+    ## And then we do worktree (wt) search
+    local repo
+    local wts
+    for repo in $repos
+    do
+        wts="$wts $(find $repo/wt -name .git -type f 2>/dev/null | sed 's|/.git$||g')"
+    done
+
+    ## We add $HOME here and set repo_tops_re after we find the repos so that
+    ## the two repos in the home dir don't mess everything up.
+    local repo_tops_re=":$(echo $repo_tops ${HOME}| sed 's/ /:/g'):"
+
+    local repo_roots=$(local i j
+                         for i in $repos $wts
+                         do
+                             git-add-repo-tag $i
+                             j=$i
+                             while [ -n "$j" ] && [ "$j" != 'done' ]
+                             do
+                                 if [ "$j" != "$i" ]
+                                 then
+                                     echo $j
+                                 fi
+                                 if [[ $repo_tops_re =~ ":$j:" ]]
+                                 then
+                                     j='done'
+                                 else
+                                     j=$(dirname $j)
+                                 fi
+                                 #for debugging:
+                                 if [ $set_x = '1' ]
+                                 then
+                                     pause 'DEBUG MODE: Hit return to continue: '
+                                 fi
+                             done
+                         done)
+    echo $repo_roots $repo_tops | tr ' ' '\n' | sort -u | sed "s|${HOME}/||" > $gitfuncs_git_go_file
+    ls ${HOME}/gits/.git-go* | grep -v $gitfuncs_git_go_file | xargs \rm -f
+    if [ "$set_x" = '1' ]
+    then
+        set +x ## set by envvar
+    fi
+}
+
+

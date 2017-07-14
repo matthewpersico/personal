@@ -1,0 +1,53 @@
+# -*- sh -*-
+
+# <Function Class: cd>
+
+setdirlist ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    # Maintain the list of visited directories
+    cleandirlist
+    local p=$(pwd)
+    if [ "$1" = '--nopwd' ]
+    then
+        p=''
+    fi
+
+    ## Pull out $HOME so we can always make it #1
+	DIRLISTTMP=$(echo $p ${DIRLIST} | sed "s|\~|$HOME|g" | tr ' ' '\n' | sort -u | grep -v "^${HOME}$")
+
+    DIRLIST=''
+    local c ## cwd
+    local d
+
+    for d in $DIRLISTTMP
+    do
+        if [ -d $d ]
+        then
+            if [ $d == "$p" ]
+            then
+                ## Hold cwd in c so we can place it second in the list
+                c="${DIRLIST_PWD_INDIC}$d"
+            else
+                DIRLIST="$DIRLIST $d"
+            fi
+        fi
+    done
+
+    ## Translate HOME to ~ for brevity and sort order (~ will be first)
+	DIRLIST=$(echo ${DIRLIST} | sed "s|$HOME|\~|g" | sort)
+
+    local first_two
+    if [ ${HOME} == "$p" ]
+    then
+        ## Hold cwd in c so we can place it second in the list
+        first_two="${DIRLIST_PWD_INDIC}${HOME}"
+    else
+        first_two="${HOME} $c"
+    fi
+
+    ## Now add in HOME and c after the sort so that they are first and second
+    DIRLIST=$(echo $first_two ${DIRLIST} | sed "s|$HOME|\~|g" )
+}
+
+

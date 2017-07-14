@@ -1,0 +1,78 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-delete-repo ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-delete-repo||protocol namespace repo
+    local usage_func="${FUNCNAME}-usage"
+
+    [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
+    local protocol=$1;shift
+    local namespace=$1;shift
+    local repo=$1;shift
+    local returnpath=$(realpath $(pwd))
+
+    local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
+    if [ -z "$protocol_url" ]
+    then
+        echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
+        return $NOT_OK
+    fi
+
+    ## Go to what we want to whack, to make sure it's there.
+    git-go $protocol/$namespace/$repo
+    status=$?
+    ((status != 0)) && return $NOT_OK; ## If the git-go fails, we should see
+                                       ## error messages, no need to add more.
+
+    local repopath=$(realpath $(pwd))
+
+    (
+        ## Subshell to allow cding around to be handled gracefully at the end
+
+        ## Make sure it's clean
+        if [ -d wt ] && [ "$(ls wt | wc -l)" != '0' ]
+        then
+            echo "worktrees found:"
+            ls -la wt
+            echo
+            echo "Will not delete repo"
+            return $NOT_OK
+        fi
+
+        dirty=$(git status --porcelain)
+        if [ -n "$dirty" ]
+        then
+            git status
+            echo
+            echo "Will not delete current repo"
+            return $NOT_OK
+        fi
+
+        builtin cd ..
+        \rm -rf $repo
+        status=$?
+        ((status != 0)) && return $NOT_OK; ## If the rm fails, we should see
+                                           ## error messages, no need to add
+                                           ## more.
+
+        echo "Done. Not touching remote repo."
+
+        ## Remove the just-deleted repo from the list of local git repos.
+        git-go-set
+
+        return $OK
+    )
+
+    status=$?
+    if [ -d $returnpath ]
+    then
+        builtin cd $returnpath
+    else
+        builtin cd
+    fi
+
+    return $status
+}

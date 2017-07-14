@@ -1,0 +1,57 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-set-triangle ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-set-triangle||
+
+    local usage_func="${FUNCNAME}-usage"
+
+    [ -z "$4" ] && $usage_func ${FUNCNAME} && return 1
+
+    local protocolurl=$1
+    local protocolkeycheck=$(kvgetkeys  gitfuncs_gitsvcs | grep -E "^$protocolurl$")
+    if [ -n "$protocolkeycheck" ] ; then
+        echo "Supposed to provide a URL, not a service name. Converting..."
+        protocolurl=$(kvget gitfuncs_gitsvcs $protocolkeycheck)
+        if [ -z "$protocolurl" ]
+        then
+            echo "No url found for protocol '$1'";
+            return 1
+        fi
+    fi
+
+    local upstream_namespace=$2
+    local origin_namespace=$3
+    local repo=$4
+
+    declare -A triangle_workflow
+    triangle_workflow[branch.master.merge]="refs/heads/master"
+    triangle_workflow[branch.master.mergeoptions]="--ff-only"
+    triangle_workflow[branch.master.remote]="upstream"
+
+    triangle_workflow[remote.origin.fetch]="+refs/heads/*:refs/remotes/origin/*"
+    triangle_workflow[remote.origin.url]="${protocolurl}${origin_namespace}/${repo}"
+    triangle_workflow[remote.pushdefault]="origin"
+    triangle_workflow[remote.upstream.url]="${protocolurl}${upstream_namespace}/${repo}"
+
+    local key
+    for key in ${!triangle_workflow[@]}
+    do
+        git config --replace-all $key "${triangle_workflow[$key]}" || return $?
+    done
+
+    ## These two are special because they repeat
+    key='remote.upstream.fetch'
+    ## Replace all blows away all $key entries before adding this one
+    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" || return $?
+    ## Now safe to add this one - it won't be duped.
+    git config --add         $key "+refs/notes/*:refs/notes/*" || return $?
+
+    ## We do this last as a marker.
+    git config --replace-all gitfuncs.git-set-triangle.created "$(date +%Y%m%d.%H%M%S%z)"
+}
+
+

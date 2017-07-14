@@ -1,0 +1,44 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-worktree-diff-to-root ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-worktree-diff-to-root||diff worktree file against root file
+
+    local in_a_wt
+    git-in-a-worktree
+    if [ ! "$?" = $TRUE ]
+    then
+        func-echo "Must be in a wt"
+        return $NOT_OK;
+    fi
+
+    local files="$@"
+    if [ -z "$files" ]
+    then
+        files=$(git ls-files)
+        if [ -z "$files" ]
+        then
+            func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
+            return $NOT_OK;
+        fi
+    fi
+
+    local root=$(pwd);
+    root=${root%%/wt*}
+    local coloropt='always'
+    is-redirected $STDOUT && coloropt=never
+    for i in $files
+    do
+        if [ "$1" = '--reverse' ]
+        then
+            git --no-pager diff --no-index --color=$coloropt ${root}/$i $i 2>&1
+        else
+            git --no-pager diff --no-index --color=$coloropt $i ${root}/$i 2>&1
+        fi
+    done | less -RE
+}
+
+

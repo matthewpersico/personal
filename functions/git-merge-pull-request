@@ -1,0 +1,261 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-merge-pull-request ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-merge-pull-request||Merge a remote pull request from command line.
+    local usage_func=git-merge-pull-request-usage
+    local iam=$(func-name-spoof)
+    local spoofing=$?
+
+    local protocol=$1;shift
+    local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
+    if [ -z "$protocol_url" ]
+    then
+        echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
+        return $NOT_OK
+    fi
+
+    local usage_arg
+    [ "$spoofing" = "$(true)" ] && usage_arg=$protocol
+
+    local opt_help=0
+    local opt_verbose=0
+    local opt_keep=0
+    OPTSARGS=$(getoptp -o vhk --long verbose,help,keep -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) $usage_func $iam $usage_arg ; return $OK;;
+            -k|--keep) opt_keep=1; shift ;;
+            -v|--verbose) opt_verbose=1; shift ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
+    local tgtarg=$1
+    local srcarg=$2
+    local inamespace=0
+    local irepo=1
+    local ibranch=2
+
+    local confirm_args=0
+    local current_branch_delete=''
+
+    ## If there is no srcarg, take the current branch
+    if [ -z "$srcarg" ]
+    then
+        srcarg=$(git-get-current-branch)
+        confirm_args=1
+        current_branch_delete=$(pwd)
+    fi
+
+    ## Public and enterprise github web interfaces show merge source as
+    ## 'user:branch'. We fix this up as 'user/tgtrepo/branch' and all our
+    ## parsing further along 'just works' (but see below).
+    srcarg="${srcarg/:/\/-\/}"
+
+    ## if there are no slashes in the src, we assume it's just a branch. We fix
+    ## this up as '//branch' and all our parsing further along 'just works'.
+    [[ $srcarg =~ / ]] || srcarg="-/-/$srcarg"
+
+    ## Using the triangle workflow shortcut:
+    if [ "$tgtarg" = '--upstream' ] || [ -z "$tgtarg" ]
+    then
+        tgtarg=$(git config --get remote.upstream.url | sed 's/.*://')
+        confirm_args=1
+    fi
+
+    asplit tgt / $tgtarg
+    asplit src / $srcarg
+
+    ## Ok, we just split on '/' assuming some form of namespace/repo/branch, but
+    ## branch could itself have slashed in it. Sooooo, we fix that up here:
+    local tmpend=${#src[@]}
+    local tmpcount=$((tmpend - ibranch))
+    tmp=(${src[$inamespace]} ${src[$irepo]} $(ajoin / ${src[@]:$ibranch:$tmpcount}))
+    src=("${tmp[@]}")
+    tmpend=${#tgt[@]}
+    tmp=(${tgt[$inamespace]} ${tgt[$irepo]} $(ajoin / ${tgt[@]:$ibranch:((tmpend-2))}))
+    tgt=("${tmp[@]}")
+
+    ## Here, we set defaults for missing data...
+    ([ "${src[$inamespace]}" = '-' ] || [ -z "${src[$inamespace]}" ] ) && src[$inamespace]=${USER}
+    ([ "${src[$irepo]}"      = '-' ] || [ -z "${src[$irepo]}"      ] ) && src[$irepo]=${tgt[$irepo]}
+    ([ "${src[$ibranch]}"    = '-' ] || [ -z "${src[$ibranch]}"    ] ) && src[$ibranch]=master
+    ([ "${tgt[$ibranch]}"    = '-' ] || [ -z "${tgt[$ibranch]}"    ] ) && tgt[$ibranch]=master
+
+    local srcurl="$protocol:${src[$inamespace]}/${src[$irepo]}"
+    local remote_ref=$(ajoin _ $(asplit - / $(ajoin '_' ${src[@]})))
+
+    local merge_src='remote'
+    [ "${src[$inamespace]}" = "${tgt[$inamespace]}" ] && \
+        [ "${src[$irepo]}" = "${tgt[$irepo]}" ] && \
+        merge_src='origin'
+
+    if ((confirm_args))
+    then
+        local resp=$(func-yesno "Merging to $protocol:${tgt[$inamespace]}/${tgt[$irepo]}/${tgt[$ibranch]} from $protocol:${src[$inamespace]}/${src[$irepo]}/${src[$ibranch]}")
+        if [ "$resp" = 'n' ]
+        then
+            return $NOT_OK
+        fi
+    fi
+    ((opt_verbose)) && func-echo --head "Clone $protocol:${tgt[$inamespace]}/${tgt[$irepo]}..."
+    ${protocol}-clone ${tgt[$inamespace]} ${tgt[$irepo]}
+    local status=$?
+    ((status)) && _git-cd-unwind && return $status
+    local tgt_repo_dir=$(pwd)
+
+    ((opt_verbose)) && func-echo --head "Switch to branch ${tgt[$ibranch]}..."
+    git checkout ${tgt[$ibranch]}
+    local status=$?
+    ((status)) && _git-cd-unwind && return $status
+
+    local origcommitsha=$(git rev-parse HEAD)
+    local newcommitsha=$(git rev-parse HEAD)
+    local currentlogmsg="Current last commit on target branch ${tgt[$ibranch]}"
+    func-echo --head "****** $currentlogmsg"
+    git-log-shas-range ${origcommitsha} ${newcommitsha}
+    status=$?
+    ((status)) && _git-cd-unwind && return $status
+    func-echo "******"
+
+    if [ "$merge_src" = 'remote' ]
+    then
+        ((opt_verbose)) && func-echo --head "Add $srcurl... as a remote"
+        ((opt_verbose)) && func-echo -c     "git remote add $remote_ref $srcurl"
+        git remote add $remote_ref $srcurl
+        status=$?
+        ((status)) && _git-cd-unwind && return $status
+
+        ((opt_verbose)) && func-echo --head "Fetch only the pull request branch (${src[$ibranch]}) from $srcurl (as remote ref $remote_ref)"
+        ((opt_verbose)) && func-echo -c     "git fetch $remote_ref ${src[$ibranch]}"
+        git fetch $remote_ref ${src[$ibranch]}
+        status=$?
+        ((status)) && _git-cd-unwind && return $status
+
+        ((opt_verbose)) && func-echo --head "Do the merge"
+        ((opt_verbose)) && func-echo -c     "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
+        git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}
+        status=$?
+        ((status)) && _git-cd-unwind && return $status
+
+        newcommitsha=$(git rev-parse HEAD)
+        local lasttwologmsg="Last commits on target branch ${tgt[$ibranch]}"
+        func-echo --head "****** $lasttwologmsg"
+        git-log-shas-range ${origcommitsha} ${newcommitsha}
+        status=$?
+        ((status)) && _git-cd-unwind && return $status
+        func-echo "****** **************************"
+
+        func-echo -c "Success is defined as"
+        func-echo -c "1) You are reading this message."
+        func-echo -c "2) The log entries from '$lasttwologmsg'"
+        func-echo -c "   are consistent with entry from '$currentlogmsg'."
+        echo
+    else
+        func-echo --head "Fetch only the pull request branch (${src[$irbranch]}) from $srcurl"
+        git fetch $srcurl ${src[$ibranch]}
+        status=$?
+        ((status)) && _git-cd-unwind && return $status
+        [ "$(func-yesno cont)" = 'n' ] && echo return
+
+        func-echo --head "Do the merge"
+        git rebase $tgt{$ibranch} origin/${src[$ibranch]}
+        status=$?
+        ((status)) && _git-cd-unwind && return $status
+        [ "$(func-yesno cont)" = 'n' ] && echo return
+        git checkout $tgt{$ibranch}
+
+        newcommitsha=$(git rev-parse HEAD)
+
+        pause 'Go to another terminal, do a git log and see what you got. Then quit this, come back and fix the code accordingly.'
+        ## INSERT SOME git log comparison instructions here!!!!!!
+        _git-cd-unwind && return $NOT_OK
+    fi
+
+    local pushback="git push origin HEAD:${tgt[$ibranch]}"
+    local resp=$(func-yesno "Push back to ${protocol} via '$pushback'")
+    local retval
+    if [ "$resp" = 'y' ]
+    then
+        pwd
+        ((opt_verbose)) && func-echo --head "Push back"
+        $pushback
+        retval=$?
+        if [ "$retval" = '0' ]
+        then
+            ## These two lines record the sha of what we committed so that
+            ## later we can find all the repos/worktrees we committed from that
+            ## have not been cleaned up so we can clean them up. We store the
+            ## source with sha as key and the target with the time of merge as
+            ## the value.
+            local sha=$(git-log-grab-sha -1)
+            git-merge-write $sha $protocol ${tgt[@]} ${src[@]}
+            ## Read what we just wrote
+            git-merge-find $sha
+
+            ## Cleanup the tmp repo used for the merge.
+            if ((opt_keep))
+            then
+                resp=n
+            else
+                resp=$(func-yesno "Remove local tgt repo ($tgt_repo_dir)")
+            fi
+            if [ "$resp" = 'y' ]
+            then
+                git-delete-current-repo
+                retval=$?
+                if [ "$retval" != '0' ]
+                then
+                    return $retval
+                    ## No cd unwind here. If something went wrong, stay here
+                    ## and clean it up.
+                fi
+            else
+                ## Play it purrty for 'lanta...
+                git checkout ${tgt[$ibranch]}
+                git pull
+                ## No cd unwind here. If we are keeping the local master, we
+                ## probably need to do something in it, so we stay.
+            fi
+
+            ## If we started out in a repo corresponding to the merged branch,
+            ## go back and whack it.
+            if [ -n "$current_branch_delete" ]
+            then
+                _git-cd-to $current_branch_delete
+                git-in-a-worktree
+                if [ "$?" = "$TRUE" ]
+                then
+                    git-delete-current-worktree --schedule 24
+                else
+                echo "***************** current branch delete ***************"
+                echo " $(pwd) "
+                    pause Going to run git-delete-current-rep
+                    git-delete-current-repo
+                fi
+            fi
+        fi
+    else
+        local fmpr=$(pwd)/FINISH-merge-pull-request
+        func-echo    "Ok. Remember to '$pushback' soon before the master head advances."
+        func-echo -c "We will write the local file $fmpr with this command for your future convenience."
+        echo "$pushback" > $fmpr
+        echo "git-delete-current-repo" >> $fmpr
+        git-log-shas-range ${origcommitsha} ${newcommitsha} | comment-stream "## " >> $fmpr
+        chmod +x $fmpr
+        retval=0
+    fi
+    _git-cd-unwind && return $retval
+}
+
+

@@ -1,0 +1,41 @@
+# -*- sh -*-
+
+# <Function Class: cd>
+
+readdirlist ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    # Read list of dirs off the disk. You can have different lists if you use
+    # the context arg.
+    local context=$1
+    local dirlistfile=$DIRLIST_FILE
+    local lockfile=$DIRLIST_LOCK
+    local tmpfile=/tmp/cdfuncs.$$
+    if [ -z "$context" ]
+    then
+        context=$DIRLIST_CONTEXT
+    else
+        DIRLIST_CONTEXT=$context
+    fi
+    if [ -n "$context" ]
+    then
+        dirlistfile="${dirlistfile}.${context}"
+        lockfile="${lockfile}.${context}"
+    fi
+    (
+        ## lock, exclusive, 60 second timeout, file descriptor 200 (0 is stdin,
+        ## 1 is stout, 2 is stderr)
+        flock -e -w 60 200
+        if [ -e $dirlistfile ]
+        then
+            cat $dirlistfile
+        else
+            stderrcho "[readdirlist] WARNING: $dirlistfile not found."
+        fi
+    ) 200>$DIRLIST_LOCK 1>$tmpfile
+    DIRLIST=$(cat $tmpfile)
+    \rm $tmpfile
+    setdirlist
+}
+
+

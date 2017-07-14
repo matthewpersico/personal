@@ -1,0 +1,29 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-merge-write ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-merge-write||
+
+    [ -z "$1" ] && git-merge-write-usage && return 1
+
+    local sha=$1;shift
+    local protocol=$1;shift;
+    local tgt=($1 $2 $3);shift;shift;shift
+    local src=($1 $2 $3);shift;shift;shift
+    local merged_by=$(id -n -u)
+    [ -n "$1" ] && merged_by=$1 && shift;
+    local resp
+    local merge_audit_value="${sha}@$(date +%Y_%m_%d-%H_%M_%S)@$merged_by"
+    src[2]=$(echo "${src[2]}" | sed 's/\//---/g')
+    tgt[2]=$(echo "${tgt[2]}" | sed 's/\//---/g')
+    local merge_audit_key_by_tgt="merge-pr-by-tgt.${protocol}--${tgt[0]}--${tgt[1]}--${tgt[2]}.${protocol}--${src[0]}--${src[1]}--${src[2]}"
+    git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_tgt" "$merge_audit_value"
+
+    local merge_audit_key_by_src="merge-pr-by-src.${protocol}--${src[0]}--${src[1]}--${src[2]}.${protocol}--${tgt[0]}--${tgt[1]}--${tgt[2]}"
+    git config -f ~/.gitconfig.merge_audit "$merge_audit_key_by_src" "$merge_audit_value"
+}
+
+

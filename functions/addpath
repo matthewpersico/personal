@@ -1,0 +1,157 @@
+###############################################################################
+#
+# Name:        addpath
+#
+# Author:      Matthew Persico (matthew.persico@gmail.com)
+#
+# Copyright:   Matthew Persico (matthew.persico@gmail.com)
+#
+# Derived from work by Stephen Collyer (scollyer@netspinner.co.uk),
+#                      Copyright: Netspinner Ltd 2000-2003
+#
+###############################################################################
+
+addpath ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ###########################################################################
+    # local variables
+    ###########################################################################
+
+    typeset options_shift_val options_missing_arg options_unknown_opt
+    typeset options_num_args_left
+    typeset opt_h opt_p opt_s
+    typeset opt_x opt_v
+    typeset opt_f opt_b opt_i
+    typeset sep=:
+
+    typeset pathvar COMMAND dirname tmp element
+
+    pathfunc_usage_init
+    typeset -a USAGE
+    i=0; USAGE[i]="addpath [-h] [-s separator] [-f|-b|-i n] [-x] [-v] [[-p] pathvar] dirname"
+    ((i+=1)); USAGE[i]="Idempotently adds 'dirname' to 'pathvar'."
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P1"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P2"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P3"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P4"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P5"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_S"
+    ((i+=1)); USAGE[i]="-f - Add to front of 'pathvar'."
+    ((i+=1)); USAGE[i]="-b - Add to back of 'pathvar' (default behavior)."
+    ((i+=1)); USAGE[i]="-i n - Add to 'pathvar' in position 'n'. Indexing starts"
+    ((i+=1)); USAGE[i]="   at 1. Elements are moved down to make room for the"
+    ((i+=1)); USAGE[i]="   added 'dirname'."
+    ((i+=1)); USAGE[i]="$USAGE_OPT_X"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_V"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_H"
+
+    ###########################################################################
+    # handle options
+    ###########################################################################
+
+    options "hp:s:xvfbi:" "$@"
+    shift $options_shift_val
+    if [ -n "$opt_h" ]
+    then
+        Usage "${USAGE[@]}"
+        return
+    fi
+    if [ -n "$options_missing_arg" ]
+    then
+        Usage "$USAGE" "Missing argument for -$options_missing_arg"
+        return
+    fi
+    if [ -n "$options_unknown_option" ]
+    then
+        Usage "$USAGE" "Unknown option -$options_unknown_option"
+        return
+    fi
+    if [ $options_num_args_left -eq 0 ]
+    then
+        Usage "$USAGE" "No directory specified"
+        return
+    elif [ $options_num_args_left -eq 1 ]
+    then
+        dirname=$1
+    elif [ $options_num_args_left -eq 2 ]
+    then
+        pathvar=$1
+        dirname=$2
+    else
+        Usage "$USAGE" "Too many arguments"
+        return
+    fi
+
+    # NB the painful default COMMAND variable is required in the case that the
+    # pathvar is initially empty. If it is, then $sep is set to null rather
+    # than : (or whatever was requested with -s) so as to avoid putting a
+    # trailing colon on the path - however, this means that "addpath -p NEWPATH
+    # abc" ends up with a COMMAND like "COMMAND=$NEWPATHabc" which looks like
+    # an undefined variable - so we add braces to make it look like
+    # "COMMAND=${NEWPATH}abc. Phew.
+    COMMAND='\$\{${pathvar}\}${sep}${dirname}'  # default
+
+    [ -n "$opt_f" ] && COMMAND='${dirname}${sep}\$${pathvar}'
+
+    [ -n "$opt_p" ] && pathvar=$opt_p
+    [ -z "$pathvar" ] && pathvar=PATH           # default
+
+    [ -n "$opt_s" ] && sep=$opt_s;
+
+    if [ -n "$opt_i" ]
+    then
+        idx=0
+        ((opt_i-=1))
+        eval tmp=\$$pathvar
+        local tmpa=($(echo $tmp | sed "s|${sep}| |g"))
+        local newa=()
+        while ((idx<opt_i))
+        do
+            newa[idx]=${tmpa[idx]}
+            ((idx+=1))
+        done
+        newa[idx]=${dirname}
+        while ((idx < ${#tmpa[@]}))
+        do
+            newa[idx+1]=${tmpa[idx]}
+            ((idx+=1))
+        done
+        COMMAND=$(echo ${newa[@]} | sed "s| |${sep}|g")
+    fi
+
+    # check to see if we're defining a new pathvar. If so we clear
+    # the separator so as to avoid leading or trailing :'s
+    eval tmp=\$$pathvar
+    [ "$tmp" = "" ] && sep=
+
+    ###########################################################################
+    # main
+    ###########################################################################
+
+    # see if $1 is present in the path. Note use of -x with
+    # grep. This forces a match of the entire line. Without this
+    #     $ addpath /abc
+    #     $ addpath /ab
+    # would only add /abc
+    #
+    # NB we need the eval inside the $() to expand the $pathvar
+    # - it seems to have no effect inside $() when put at the
+    # start of line
+
+    element=$(eval echo \$$pathvar | sep2line "${sep}" | grep -x "$dirname")
+    if [ "$element" = "" ]
+    then
+         #
+         # $dirname is not currently in pathvar so add it
+         #
+         eval eval $pathvar=$COMMAND
+    fi
+    [ -n "$opt_v" ] && listpath -s "${sep}" -p $pathvar
+    [ -n "$opt_x" ] && export $pathvar
+}
+
+# emacs
+# Local Variables:
+# mode: sh
+# End:

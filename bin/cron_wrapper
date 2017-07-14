@@ -13,6 +13,7 @@ mailto=$MAILTO
 mailsubject=''
 checkkinit=0
 setx=0
+setv=0
 keeplog=0
 
 while true
@@ -22,6 +23,9 @@ do
     case "$1" in
         --x)
             setx=1;
+            shift;;
+        --x)
+            setv=1;
             shift;;
         --mailtype)
             mailtype=$(echo "$2" | tr '[A-Z]' '[a-z]')
@@ -81,8 +85,9 @@ do
     esac
 done
 
-alllog=$(mktemp --suffix=.cron_wrapper.alllog)
-profilelog=$(mktemp --suffix=.cron_wrapper.profilelog)
+temproot=$(mktemp)
+alllog=${temproot}.cron_wrapper.alllog
+profilelog=${temproot}.cron_wrapper.profilelog
 did_profile=0
 
 for p in ${HOME}/.bash_profile ${HOME}/.profile
@@ -134,7 +139,6 @@ then
     fi
 fi
 
-## We use 6 and 7 because 3 & 4 are usually used
 holdstdout=$(get-next-descriptor)
 eval "exec $holdstdout>&1"  # Link file descriptor with stdout, which saves stdout.
 exec 1>> $alllog  # Re-point stdout to the log.
@@ -155,15 +159,20 @@ trap "eval ""exec 1>&$holdstdout $holdstdout>&-""      # Restore stdout and clos
       [ -f $profilelog ] && cat $profilelog
       [ -f $alllog ]     && cat $alllog
      " SIGTERM SIGINT SIGFPE SIGBUS
-"$@"
+
+((setx)) && set -x
+((setv)) && set -v
+"$@" ## This is where we execute the command with arguments. Everything else
+     ## above and below is boilerplate. Sheeesh.
 status=$?
+((setv)) && set +v
+((setx)) && set +x
 
 # The restorations will cause any mail errors to be sent to you via the regular
 # cron error channels.
 eval "exec 1>&$holdstdout $holdstdout>&-"      # Restore stdout and close file descriptor.
 eval "exec 2>&$holdstderr $holdstderr>&-"      # Restore stderr and close file descriptor.
 
-((setx)) && set -x
 subsubject=''
 mailthelog=0
 if ((status))
@@ -240,7 +249,7 @@ then
     echo "alllog - $alllog"
     echo "profilelog - $profilelog"
 else
-    \rm -f $alllog $profilelog
+    \rm -f $temproot $alllog $profilelog
 fi
 
 exit $exitstatus

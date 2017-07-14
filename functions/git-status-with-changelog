@@ -1,0 +1,71 @@
+# -*- sh -*-
+
+# <Function Class: git
+
+git-status-with-changelog ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ 0001||group||git-status-with-changelog||Mix in $GITFUNCS_CHANGELOG_NAME text with corresponding file entries in git status.
+
+    local usage_func="${FUNCNAME}-usage"
+
+    local diff
+    local noless
+    local cdok=0
+    OPTSARGS=$(getoptp -o sh --long diff,noless,cdok,help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            --cdok) cdok=1; shift ;;
+            --diff) diff='--diff'; shift ;;
+            --noless) noless='--noless'; shift ;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
+    ## All of the *-changelog functions work best in the git-root, which is
+    ## where the $GITFUNCS_CHANGELOG_NAME is anyway
+    local pwd=$(pwd)
+    local gr=$(git-root)
+    if [ ! "$pwd" = "$gr" ]
+    then
+        if ((!cdok))
+        then
+            echo "Current directory ($pwd) is not the git root ($gr)"
+            local resp=$(func-yesno "Go there")
+            if [ "$resp" = 'n' ]
+            then
+                return $NOT_OK
+            fi
+        fi
+        _git-cd-to $gr  || return $?
+    else
+        gr=''
+    fi
+
+    local args="$@"
+    if [ -z "$args" ]
+    then
+        args=$($DEBUG_GIT_STATUS_PARSE $(which git-status-parse) --all) ## matches default git status setting
+    fi
+    local out=$(mktemp --suffix=.git-status-with-changelog)
+    git-process-changelog --withstatus $diff $noless $args 1>$out 2>&1
+    if [ -n "$noless" ]
+    then
+        cat $out
+    else
+        less -RE $out
+    fi
+    \rm -f $out
+    status=$?
+    [ -n "$gr" ] && _git-cd-return
+    return $?
+}
+
+

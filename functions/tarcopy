@@ -1,0 +1,70 @@
+# -*- sh -*-
+
+# <Function Class: util>
+
+tarcopy ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ##@@ none||none||tarcopy||Use the tar trick to copy  arg1/* to arg2/* or arg2/arg1/*, with some intelligence.
+
+    local srcdir=$1
+    local tgtdir=$2
+    if [ ! -e $srcdir ]
+    then
+        echo "$srcdir not found"
+        return $(false)
+    fi
+    if [ ! -d $srcdir ]
+    then
+        echo "Source '$srcdir' must be a directory"
+        return $(false)
+    fi
+    if [ $(basename $srcdir) = $(basename $tgtdir) ]
+    then
+        echo "You're trying to copy $srcdir to $tgtdir."
+        echo "You probably want to use $(dirname $tgtdir)"
+        echo "as the target instead."
+        return $(false)
+    fi
+    if [ ! -e $tgtdir ]
+    then
+        echo "$tgtdir not found. Creating..."
+        mkdir $tgtdir || return $(false)
+    fi
+    if [ ! -d $tgtdir ]
+    then
+        echo "Target '$tgtdir' must be a directory"
+        return $(false)
+    fi
+    tgtdir=$(realpath $tgtdir)
+    startdir=$(pwd)
+    if [ "$srcdir" != '.' ]
+    then
+        echo "WARNING: You are about to copy $srcdir into $tgtdir"
+        echo "instead of copying the CONTENTS of $srcdir into $tgtdir"
+        read -p "Do you want to copy the (d)irectory or its (c)ontents? " resp
+        if [ "$resp" = 'd' ]
+        then
+            echo 'Ok...'
+        elif [ "$resp" = 'c' ]
+        then
+            echo "Yeah, that's what I figured"
+            echo "*** builtin cd $srcdir"
+            builtin cd $srcdir
+            srcdir='.'
+        else
+            echo "d or c, how hard could that have been???"
+            return $(false)
+        fi
+    fi
+    echo "*** tar cf - $srcdir | ( builtin cd $tgtdir; tar xvfp -)"
+    tar cf - $srcdir | ( builtin cd $tgtdir; tar xvfp -)
+    if [ $(pwd) != "$startdir" ]
+    then
+        echo "*** builtin cd $startdir"
+        builtin cd $startdir
+    fi
+    return $(true)
+}
+
+

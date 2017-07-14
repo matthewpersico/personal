@@ -1,10 +1,17 @@
-# .bashrc
+
+## -*- sh -*-
+
+## .bashrc
 # ~/.bashrc runs ONLY on non-login subshells! (different from ksh)
 # add lines here very carefully as this may execute when you don't i
 # expect them to
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-! ~/personal/bin/running_under_cron && [ -n "$ALLFUNCS_PROFILE" ] && \
-        echo "$(date): ~/.bashrc is running..."
+[ -z "$CRON" ] && \
+    CRON=$(~/personal/bin/running_under_cron && echo true || echo false) && \
+    export CRON
+
+[ $CRON = 'false' ] && [ -n "$ALLFUNCS_PROFILE" ] && \
+    echo "$(date): ~/.bashrc is running..."
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # if chimera generated aliases exist, pull them into the current ENV
@@ -24,5 +31,72 @@ else
     # User specific aliases and functions
 fi
 
-! ~/personal/bin/running_under_cron && [ -n "$ALLFUNCS_PROFILE" ] && \
+## .bashrc is either called in a profile or a subshell of a process that
+## already called a profile. Don't bother calling autoload if the profile just
+## did. But do call it if we are a subshell (not in a profile).
+[ -z "RUNNING_PROFILE" ] && autoload -a  $PERSONALROOT/functions -x
+
+_bashrc_env_init_list='hist.alias perl.alias'
+for _bashrc_env in ${_bashrc_env_init_list}
+do
+    ! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
+        echo "$(date): Loading $_bashrc_env"
+    . $PERSONALBIN/$_bashrc_env
+done
+
+##
+## Prompt
+##
+
+PROMPT_COMMAND=$(declare -F | grep _bash_history_sync| sed 's/.* //' )
+_bashrc_since=$(date +'%a %b %d %H:%M:%S')
+_bashrc_ps1_xterm_title_cmds=''
+if [ ! "$EMACS" = 't' ]
+then
+    _bashrc_ps1_xterm_title_cmds='\[\e]0;\u@\h:\w\a\]'
+fi
+#safe_func_export --file $PERSONALROOT/dotfiles/git-prompt
+
+## Override prompt (assuming git stuff is loaded, either in chimera or locally)
+##     status of
+##     prior command
+##     |           |
+##     |        +--+
+##     |        |
+##     v--------v
+PS1='\n[\$? = $?]\n\n'${_bashrc_ps1_xterm_title_cmds}'what    : \u@\h\nsince   : $_bashrc_since\nas-of   : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -no0 "\nstashes : ")$(git-get-default-remote "\nremote  : ")\npwd     : \w\n[$$] \$ '
+export PS1
+
+for b in ~/.bashrc.${USER}*
+do
+    if [ -e ${b} ]
+    then
+        if [ -e ${b}.skip ]
+        then
+            echo "Skipping $b because ${b}.skip found" >&2
+        else
+            . $b
+        fi
+    fi
+done
+
+# Conveniences
+alias cvs='echo cvs? Are you nuts? - Try again!'
+alias dir='ls -la '
+alias envg='env | grep '
+alias setg='set | grep '
+alias allg='(env && set) | grep '
+alias rm='rm -i '
+alias mydiff='diff -U3 '
+alias sidediff='diff -w --side-by-side --suppress-common-lines '
+alias mopquota='df -h '
+alias showfunc='type '
+alias grepnc='grep --color=never'
+alias gitgo='git-go '
+
+# Fat finger protection
+alias vf='echo cd, you moron; cd '
+alias fit='echo dir, you moron; dir '
+
+[ $CRON = 'false' ] && [ -n "$ALLFUNCS_PROFILE" ] && \
         echo "$(date): ~/.bashrc has run"

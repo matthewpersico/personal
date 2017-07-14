@@ -12,19 +12,6 @@
 ## controlfunc build calls. We call those in the caller of this in the *funcs
 ## tree again after chimera.
 
-## Cygwin use only
-startxserver() {
-    if [ -z "$(ps -a | grep XWin)" ]
-    then
-        if [ "$1" = '--verbose' ]
-        then
-            echo "Starting Cygwin XServer..."
-        fi
-        startxwin 2>/dev/null 2>/dev/null &
-        XSERVER='XWin'
-    fi
-}
-
 ## init
 hasx=0
 if [ -z "$DISPLAY" ]
@@ -42,8 +29,19 @@ then
     then
         echo "Using Xming XServer"
         XSERVER='Xming'
+        export XSERVER
     else
-        startxserver --verbose
+        ## Cygwin use only
+        if [ -z "$(ps -a | grep XWin)" ]
+        then
+            if [ "$1" = '--verbose' ]
+            then
+                echo "Starting Cygwin XServer..."
+            fi
+            startxwin 2>/dev/null 2>/dev/null &
+            XSERVER='XWin'
+            export XSERVER
+        fi
     fi
 elif [ "$hasx" = '0' ]
 then
@@ -58,11 +56,11 @@ fi
 
 if [ -z "$XTERM" ]
 then
-    for i in /bin /usr/bin /usr/bin/X11
+    for i in /usr/bin/X11 /usr/bin /bin
     do
         if [ -z "$XTERM" ] && [ -e "$i/xterm" ]
         then
-            XTERM="$i/xterm -ls -sb -sl 40000"
+            XTERM="$i/xterm -sb -sl 40000"
         fi
     done
 fi
@@ -125,73 +123,9 @@ export NEWXCOLOR
 export XTERMFONTS
 
 ## Set these up here because they use values set above
-RXCmd ()
-{
-    local HOST="${1}"
-	if [ -z ${HOST} ]
-	then
-		echo "Error: hostname not specified."
-	else
-		shift 1
-		local XARGS="${*}"
-		if [ -z "${XARGS}" ]
-		then
-			XARGS="$XTERMGEO"
-		fi
-		if [ "${HOST}" = "${HOSTNAME}" ]
-		then
-			${XTERM} -display ${DISPLAY} -name ${HOST} ${XARGS} &
-		else
-			local XCOOKIE=`/usr/bin/X11/xauth list ${DISPLAY}`
-            #					${XARGS} >/dev/null 2>&1 &
-            ssh ${HOST} "(
-                                  PATH=$PATH:/usr/bin/X11
-                                  DISPLAY=$DISPLAY
-                                  export PATH DISPLAY
-                                  xauth add ${XCOOKIE} >> ~/inlog 2>&1
-                                  /usr/bin/nohup ${XTERM} -name ${HOST} \
-                                                 ${XARGS} >> ~/inlog 2>&1 &
-                                 )" &
-		fi
-	fi
-}
-
-newxguts ()
-{
-    local count=1
-    local xtermgeow=$XTERMGEOW
-    local checkargs=1
-    while ((checkargs))
-    do
-        case $1 in
-            -w )
-                ## wide
-                ((xtermgeow*=2)) ; shift ;;
-            -n )
-                ## narrow
-                ((xtermgeow/=2)) ; shift ;;
-            -s )
-                ## std
-                ((xtermgeow+-0)) ; shift ;;
-            -[0-9]* )
-                ## number of xterms to spawn
-                ((count=$1*-1)) ; shift ;;
-            * )
-                ## We're done
-                checkargs=0 ;;
-        esac
-    done
-    local i=0
-    while ((i<count))
-    do
-        local xtermgeo="-geometry ${xtermgeow}x${XTERMGEOH}+$((XTERMGEOX+(i*72)))+$((XTERMGEOY+(i*72)))"
-        RXCmd ${HOSTNAME} $XTERMGEO $XTERMFONTS $@ $xtermgeo
-        ((i+=1))
-        sleep .05 ## Just enough to space out the &-ed invocations so that they
-                  ## do not randomly appear, but rather appear in a nice
-                  ## cascade.
-    done
-}
+. ~/personal/functions/RXCmd
+. ~/personal/functions/newxguts
+. ~/personal/functions/newx
 
 ## If we want to change git colors, then define the color assignments
 ## with a series of -c name=value assignments in an ennvar GIT_COLORS
@@ -229,35 +163,11 @@ do
     {
         newxguts ${1:--1} ${2:--s} -fg '$fg' -bg '$bg'
     }'
+    if [ -n "$SHELL" ] && [ $(basename $SHELL) = "bash" ]
+    then
+        export -f newx${key}
+    fi
 done
-
-newx ()
-{
-    local bg=$(xterm_background)
-    newx${bg} $@
-}
-
-perlx ()
-{
-    ## For starting up windows for forked Perl programs in debugger to
-    ## attach to.
-    local countem=$1; ## Specify as -x, like an option or x, like an arg
-    ((countem)) || countem=1
-    ((countem<0)) && ((countem=countem*-1)) ## if -x, make it positive
-    while ((countem>0))
-    do
-        xterm -e sh -c 'echo This terminal was started to receive a forked perl debugger process.;
-echo Set;
-echo \$DB::fork_TTY=q\($(tty)\);
-echo in the debugger before you reach the fork.;
-echo Consider examining the value of the TERM variable;
-echo to make sure it is something that perl5db.pl;
-echo understands.;
-echo Sleeping 99999999 starting at $(date);echo -e "\e]0;$(tty)\a
-     ";sleep 99999999' &
-        ((countem-=1))
-    done
-}
 
 ##
 ## Colors!
@@ -314,95 +224,13 @@ export xterm_Xground_map_rgbffffc0c0cbcb='pink'
 export xterm_Xground_map_rgba5a52a2a2a2a='brown'
 export xterm_Xground_map_rgbd2d269691e1e='choc'
 
-xterm_background ()
-{
-    xterm_Xground 11
-}
+. ~/personal/functions/xterm_background
+. ~/personal/functions/xterm_foreground
+. ~/personal/functions/xterm_Xground
+. ~/personal/functions/settitle
+. ~/personal/functions/tickercfg
+. ~/personal/functions/ticker
+. ~/personal/functions/tickerkill
 
-xterm_foreground ()
-{
-    xterm_Xground 10
-}
-
-xterm_Xground ()
-{
-    [ -z "$1" ] && echo "Missing arg: 11 for foreground, 10 for background" && return 1
-    local col=$1
-    local iam=$(func-name-spoof)
-    if [ -n "$XTERM_SHELL" ]
-    then
-        ## from http://superuser.com/questions/157563/programmatic-access-to-current-xterm-background-color
-        exec < /dev/tty
-        oldstty=$(stty -g)
-        stty raw -echo min 0
-        #          OSC   Ps  ;Pt ST
-        echo -en "\033]${col};?\033\\" >/dev/tty  # echo opts differ w/ OSes
-        result=
-        if IFS=';' read -r -d '\' color ; then
-            result=$(echo $color | sed 's/^.*\;//;s/[^rgb:0-9a-f/]//g')
-            idxresult=$(echo $result | sed 's/[:/]//g')
-        fi
-        stty $oldstty
-        local var=xterm_Xground_map_${idxresult}
-        local color=$(eval echo "\$$var")
-        if [ -n "${color}" ]
-        then
-            echo ${color}
-            return
-        else
-            echo "## WARNING:$iam - no mapped color found for $result" >&2
-        fi
-    else
-        echo "## WARNING:$iam - XTERM_SHELL not defined, probably not an xterm" >&2
-    fi
-
-    if [ -n "$NEWXCOLOR" ]
-    then
-        echo $NEWXCOLOR
-        return
-    else
-        echo "## WARNING:$iam - NEWXCOLOR not defined" >&2
-    fi
-
-    echo "## WARNING:$iam - default color is grey" >&2
-    echo grey
-}
-
-settitle ()
-{
-    echo -e "\033]0;$@\007\c"
-}
-
-tickerfg ()
-{
-    local i=0;
-    local M="::: $@ :::"
-    local T="$M$M$M$M"
-    local S ## First time around clears the prompt
-    echo "$M" > /tmp/ticker.$(hostname).$$
-    while sleep .2s && [ -r /tmp/ticker.$(hostname).$$ ]
-    do
-        settitle "$S"
-        (( ++i>${#M} )) && i=1
-        S=${T:i:40}
-    done
-}
-
-ticker ()
-{
-    if [ -r /tmp/ticker.$(hostname).$$ ]
-    then
-        echo Found /tmp/ticker.$(hostname).$$
-        echo Looks like there is already a ticker running
-        echo with the banner:
-        echo
-        cat /tmp/ticker.$(hostname).$$
-    else
-        tickerfg "$@" &
-    fi
-}
-
-tickerkill ()
-{
-    rm -f /tmp/ticker.$(hostname).$$
-}
+XTERMINIT_LOADED=1
+export XTERMINIT_LOADED

@@ -1,0 +1,31 @@
+# -*- sh -*-
+
+# <Function Class: util>
+
+kvput ()
+{
+    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
+    ## Insert if DNE, update if it does.
+    local db=$1; shift
+    local dbfile=~/.kvdbs/$db
+
+    if [ ! -e $dbfile ]
+    then
+        echo "ERROR - kv store name $db does not exist"
+        return 1
+    fi
+
+    local key="$1"; shift
+
+    sqlite3 --noheader $dbfile \
+            "update keyval
+             set key = '$key', value = '$@'
+             where key = '$key';
+
+             insert into keyval (key, value)
+             select '$key', '$@'
+             where (Select Changes() = 0)"
+    return $?
+}
+
+
