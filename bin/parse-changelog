@@ -38,6 +38,7 @@ my %opt = (
     skipmissing => 0,
 );
 my $exit = 0;
+my %deleted;
 
 select((select(STDOUT), $| = 1)[0]);
 select((select(STDERR), $| = 1)[0]);
@@ -84,6 +85,8 @@ for (@ARGV) {
         if(scalar(@ok) != 1 ) {
             warn "parse-changelog: $_ not found." . ($opt{write} ? ' Fatal.' : '') . "\n";
             $exit++ if $opt{write};
+        } else {
+            $deleted{$_}=1;
         }
     } elsif ( -d $_ ) {
         if ( $opt{write} ) {
@@ -380,7 +383,9 @@ sub push_to_output {
     ## We compose the marker this way so that the grep does nto
     ## falsely find this code.
     my $marker = join('', qw( < G C S > ));
-    my @gcs = `grep -i '$marker' $file`;
+    my @gcs;
+    @gcs = `grep -i '$marker' $file`
+      if not exists $deleted{$file};
     if (@gcs) {
         push @output, map{"${format_over}$_"} ('GCS Entries:', map{chomp;$_} @gcs), '';
     }
