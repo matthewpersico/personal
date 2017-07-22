@@ -8,7 +8,9 @@
 xo-usage()
 {
     cat <<EOF
-usage: xo [--debug] [--forceX] [--root] [--gim] [-- emacs_opts] [file [file...]]
+usage: xo [--debug] [--forceX] [--root] \\
+          [--gim] [--which file[,file...]] \\
+          [-- any-emacs-opts] [file [file...]]
        xo --help
 
        Start up emacs, using client mode where possible.
@@ -29,9 +31,15 @@ usage: xo [--debug] [--forceX] [--root] [--gim] [-- emacs_opts] [file [file...]]
            like they have been modified (not committed) in the current
            directory (if it is a git repo) and edit those.
 
-       -- emacs_opts
-          The -- signals that there are no more options for 'xo'. All
-          subsequent - and -- flags are passed directly to emacs.
+       --which
+           Look up the files specified on PATH.
+
+       -- any-emacs-opts
+           Notice this is '-- any-emacs-opts' and not '--any-emacs-opts'.  The
+           '--' signals that there are no more options for 'xo'. All subsequent
+           '-' and '--' flags, if any, (represented by -any-emacs-opts') are
+           passed directly to emacs.
+
 EOF
 }
 
@@ -40,6 +48,7 @@ forceX=0
 emacs_exe=$(which emacs)
 emacsclient_exe=$(which emacsclient)
 gim=''
+which=''
 more_opts=1
 while ((more_opts)) && [[ "$1" =~ ^- ]]
 do
@@ -52,6 +61,12 @@ do
         --forceX )
             forceX=1
             shift
+            ;;
+        --which )
+            shift
+            theNext=$(which $1)
+            shift
+            [ -n "$theNext" ] && which="$which $theNext"
             ;;
         --root )
             emacs_exe="$2/emacs"
@@ -166,25 +181,25 @@ then
     then
         if (( hasX ))
         then
-            $emacs_exe "$@" $gim &
+            $emacs_exe "$@" $gim $which &
         else
-            $emacs_exe -nw "$@" $gim < /dev/tty
+            $emacs_exe -nw "$@" $gim $which  < /dev/tty
         fi
     else
         echo "No emacs server found. Start one and try again or use -m."
     fi
 elif ((serverup==1))
 then
-    if [ ! "$#" = 0 ] || [ -n "$gim" ]
+    if [ ! "$#" = 0 ] || [ -n "$gim" ] || [ -n "$which" ]
     then
         if ((new_frame))
         then
-            $emacsclient_exe -c "$@" $gim | grep -v 'Waiting for Emacs' &
+            $emacsclient_exe -c "$@" $gim $which | grep -v 'Waiting for Emacs' &
         elif ((as_visual==1))
         then
-            $emacsclient_exe -c "$@" $gim
+            $emacsclient_exe -c "$@" $gim $which
         else
-            $emacsclient_exe -n -a $emacs_exe "$@" $gim
+            $emacsclient_exe -n -a $emacs_exe "$@" $gim $which
         fi
     else
         echo "Server already up. Specify a file to edit."
