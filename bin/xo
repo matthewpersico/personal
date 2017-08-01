@@ -52,23 +52,31 @@ which=''
 more_opts=1
 while ((more_opts)) && [[ "$1" =~ ^- ]]
 do
-    case "$1" in
-        --debug | -x )
+    ## Strip all leading dashes here so that -foo and --foo can both
+    ## be processed as 'foo'.
+    option="$1"
+    while [ ! "$old" = "$option" ]  && [ ! "$option" = '--' ]
+    do
+        old=$option;
+        option=${option##-};
+    done;
+    case $option in
+        debug | x )
             set -x ## Set by option
             debug=1
             shift
             ;;
-        --forceX )
+        forceX )
             forceX=1
             shift
             ;;
-        --which )
+        which )
             shift
             theNext=$(which $1)
             shift
             [ -n "$theNext" ] && which="$which $theNext"
             ;;
-        --root )
+        root )
             emacs_exe="$2/emacs"
             emacsclient_exe="$2/emacsclient"
             shift;shift;
@@ -77,11 +85,11 @@ do
                 [ -x $i ] || (echo "Cannot find '$i'. --root cannot be used." && exit 1);
             done
             ;;
-        --gim )
+        gim )
             gim=$(git-is-mod)
             shift
             ;;
-        --help )
+        help )
             xo-usage; exit 0;;
         -- )
             more_opts=0
@@ -146,8 +154,13 @@ then
     fi
 fi
 
-## Get potential emacs server processes
-$pscmd | grep $grepargs | grep -v grep | grep -vi "$emacs_exe -Q" | grep -vi "$emacsclient_exe -c" >$procs 2>&1
+## Get potential emacs server processes. The last grep is because emacsclient
+## is called usually directly (no path, no processing by this script) when the
+## $EDITOR command is used.
+$pscmd | grep $grepargs | grep -v grep | \
+    grep -vi "$emacs_exe -Q" | \
+    grep -vi "$emacsclient_exe -c" | \
+    grep -vi " emacsclient -c " >$procs 2>&1
 if ((debug))
 then
     cat $procs
