@@ -2,7 +2,7 @@
 
 # <Function Class: hist>
 
-_bash_history_index ()
+bash_history_index ()
 {
     echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${HOME}/personal/data/funcsaudit ## This is audit
     local files="$@"
@@ -13,29 +13,18 @@ _bash_history_index ()
         local start=$(head -1 $i)
         local end=$(tail -2 $i | head -1)
 
-        local my_index_file=${index_file}.$(date +%s.%N).$$.lock
-        touch $my_index_file
-        local min_proc_index_file
-        local locktries=20
-        while [ ! "$min_proc_index_file" = "$my_index_file" ] && ((locktries))
-        do
-            min_proc_index_file=$(ls -c1 ${index_file}.* | sort | head -1)
-            ((locktries-=1))
-        done
-        if((locktries))
-        then
-            perl -MData::Dumper -e 'do $ARGV[0] if (-r $ARGV[0]);
+        local index_lock=${index_file}.lock
+        exec 201>$index_lock
+        flock -x -w5 201 || (echo "Cannot lock $index_lock. Aborting" && return 1)
+
+        local my_index_file=${index_file}.$(date +%s.%N).$$
+        perl -MData::Dumper -e 'do $ARGV[0] if (-r $ARGV[0]);
  ($start=$ARGV[2])=~ s/#([0-9]+).*/$1/;
  ($end=$ARGV[3])=~ s/#([0-9]+).*/$1/;
  $index{$ARGV[1]}={start=>$start,end=>$end};
  print Data::Dumper->Dump([\%index],[qw(*index)])' \
-                 $index_file $i "$start" "$end" > $my_index_file
-            \mv -f $my_index_file $index_file
-        else
-            echo "_bash_history_index: cannot lock - skipping"
-        fi
-        \rm -f $my_index_file
+             $index_file $i "$start" "$end" > $my_index_file
+        \mv -f $my_index_file $index_file
+        flock -u 201
     done
 }
-
-
