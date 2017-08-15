@@ -54,12 +54,16 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]
 do
     ## Strip all leading dashes here so that -foo and --foo can both
     ## be processed as 'foo'.
+    original="$1"
     option="$1"
-    while [ ! "$old" = "$option" ]  && [ ! "$option" = '--' ]
+    new=''
+    while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
     do
-        old=$option;
-        option=${option##-};
-    done;
+        new=$option
+        option=${option##-}
+    done
+    shift ## That way you avoid endless loops on invalid options
+
     case $option in
         debug | x )
             set -x ## Set by option
@@ -95,6 +99,8 @@ do
             more_opts=0
             shift
             ;;
+        * )
+            echo "$original is an invalid option. See $0 --help"; exit 1;;
     esac
 done
 
@@ -216,6 +222,8 @@ then
         fi
     else
         echo "Server already up. Specify a file to edit."
+        $pscmd | head -1
+        cat $procs
     fi
 else
     echo "More than one potential emacs server process found:"
