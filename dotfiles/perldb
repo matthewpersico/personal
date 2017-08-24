@@ -1,36 +1,65 @@
-## -*- cperl -*-
-use Cwd;
-use FindBin qw($Bin);
-use File::Spec::Functions;
-use File::Basename;
-sub afterinit {
-    ## By setting up the command files in the given order, we can load global
-    ## values, overriding with more granular settings.
-    for my $cmdfile ( catfile(getcwd(), '.perldb'),           ## First check for a project scoped file
-                      catfile($Bin, basename($0) . '.perldb') ## Then check for a script scoped file.
-                  ) {
-        if ( -e $cmdfile ) {
-            print STDERR "Running debugger commands in\n    $cmdfile\nfor\n    $0...\n";
-            open my $cmdh, "<", $cmdfile or
-              die "Cannot open $cmdfile:$!";
-            my @typeahead = (<$cmdh>, 'L');
-            close $cmdh;
-            my @returnto0 = grep { /^f\s/ } @typeahead;
-            push @typeahead,
-              ( scalar(@returnto0) ? ("f $0", '.') : 'l' );
-            push @DB::typeahead, @typeahead;
-            last;
-        } else {
-            print STDERR "Debugger command file $cmdfile not found\n";
-        }
-    }
-}
+=head1 NAME
 
-=for documentation
+.perldb - Customize your Perl debugger
 
-See http://blogs.perl.org/users/matthew_persico/2016/12/saving-breakpoints-in-the-perl-debugger.html
+=head1 USAGE
 
-The $cmdfile chosen should contain commands you'd type at the debugger command
+Save this file in your home directory as C<.perldb>. When you run the Perl
+debugger on some code (C<< perl -d some_code.pl >>), it will read this file
+and use it to customize your debugger experience.
+
+=head1 FEATURES
+
+=head2 $DB::deep
+
+This number tells the Perl debugger to automatically break at a certain
+recursion depth. By default this is 100. Code using heavy recursion often goes
+much higher. We set this to 5,000 to avoid having the debugger constantly
+halting in recursive functions.
+
+=head2 DB::Skip
+
+We use this module to have the debugger automatically skip over the internals
+of many modules we don't actually want to debug (such as getting lost in the
+guts of Moose).
+
+=head2 {{v
+
+The C<{{> command tells the debugger to run the command that follows before
+every prompt. In this case, we use the "v"erbose command. With this, instead
+of seeing a single line of code at a time, we get a verbose window of several
+lines of code, making it much easier to see our context:
+
+    28          );
+    29:         $DB::single = 1;
+    30
+    31==>       $winston->update( { wallet => 10 } );
+    32:         $winston->bank_account->update(
+    33              {   credits => 100,
+    34                  debits  => 0,
+    35              }
+    36          );
+    37:         $winston->clear_messages;
+
+The C<< ==> >> points to the line of code we're about to run.
+
+=head2 p
+
+We've highjacked this command to give a "flatter" version of dumping. For
+example, if you run C<< x $object >> on a C<DBIx::Class> object, you'll get
+hundreds of lines of unreadable output. We actually provide a much flatter
+output making it easier to read and see the data you need. If your computer
+supports C<Term::ANSIColor>, we colorize certain bits, too.
+
+=head2 Saving and restoring breakpoints
+
+You can now save breakpoints and other initializing commands on a per project
+or per script level in one of the following places:
+
+${PWD}/.perldbcmds  ## First check for a project scoped file
+${0}.perldbcmds     ## Then check for a script scoped file.
+
+The file should contain commands you'd type at the debugger command
 line. Some examples:
 
 f file
@@ -63,3 +92,234 @@ source file
 
      Reads in 'file' as commands. Use to reload $cmdfile after maybe fixing up
      the breakpoints.
+
+See the following for more information:
+
+L<https://gist.github.com/Ovid - search for .perldb>
+L<http://blogs.perl.org/users/ovid/2017/03/using-the-perl-debugger-with-dbixclass.html>
+L<http://blogs.perl.org/users/matthew_persico/2016/12/saving-breakpoints-in-the-perl-debugger.html>
+for more information.
+
+=cut
+
+package My::Debugger::Helper {
+    use Data::Dumper ();
+    use Scalar::Util qw(looks_like_number blessed reftype);
+    my $rc = eval { require Term::ANSIColor; 1; };
+    my $HAVE_TERM_ANSI_COLOR = $rc;
+    $rc = eval { require Perl::Tidy; 1; };
+    my $HAVE_PERL_TIDY = $rc;
+
+    sub colored {
+        my ( $color, $message ) = @_;
+        if ($HAVE_TERM_ANSI_COLOR) {
+            return Term::ANSIColor::colored(@_);
+        }
+        return $message;
+    }
+
+    sub Dumper {
+        local $Data::Dumper::Indent   = 1;
+        local $Data::Dumper::Sortkeys = 1;
+        local $Data::Dumper::Terse    = 1;
+        my $thing  = shift;
+        my $output = Data::Dumper::Dumper($thing);
+        return $output unless $HAVE_PERL_TIDY;
+
+        my ( $tidied, $stderr );
+
+        # Prevents the error: You may not specify any filenames when a source array is given
+        # That's because even when we use this interface directly, Perl::Tidy
+        # checks to see if @ARGV has any filenames.
+        local @ARGV;
+        my $error = Perl::Tidy::perltidy(
+            source      => \$output,
+            destination => \$tidied,
+            stderr      => \$stderr,
+        );
+        if ($error) {
+            die "Perl::Tidy ERROR: $stderr";
+        }
+        return $tidied;
+    }
+
+    sub show {
+        my $thing = shift;
+        my $ref = ref $thing or return $thing;
+        my $result;
+        if ( blessed $thing ) {
+            if ( 'HASH' eq reftype $thing ) {
+                my $message = "Class: $ref";
+                $result = join "\n" => colored(
+                    ['bright_red on_black'],
+                    $message
+                  ),
+                  Dumper( _dflat_hash($thing) );
+            }
+            else {
+                $result = _stringify($thing);
+            }
+        }
+        if ( 'HASH' eq $ref ) {
+            $result = Dumper( _dflat_hash($thing) );
+        }
+        elsif ( 'ARRAY' eq $ref ) {
+            $result = Dumper( _dflat_array($thing) );
+        }
+        return $result;
+    }
+
+    sub _dflat_hash {
+        my $hashref = shift;
+        my %hash;
+        while ( my ( $k, $v ) = each %$hashref ) {
+            my $ref = ref $v;
+            if ( 'HASH' eq $ref ) {
+                $v = _dflat_hash($v);
+            }
+            elsif ( 'ARRAY' eq $ref ) {
+                $v = _dflat_array($v);
+            }
+            else {
+                $v = _stringify($v);
+            }
+            $hash{$k} = $v;
+        }
+        return \%hash;
+    }
+
+    sub _dflat_array {
+        my $arrayref = shift;
+        my @array;
+        foreach my $element (@$arrayref) {
+            my $ref = ref $element;
+            if ( 'HASH' eq $ref ) {
+                $element = _dflat_hash($element);
+            }
+            elsif ( 'ARRAY' eq $ref ) {
+                $element = _dflat_array($element);
+            }
+            else {
+                $element = _stringify($element);
+            }
+            push @array => $element;
+        }
+        return \@array;
+    }
+
+    sub _stringify {
+        my $thing = shift;
+        return
+            blessed $thing ? colored( ['bold blue'], "$thing" )
+          : looks_like_number($thing) ? $thing
+          :                             "$thing";
+    }
+}
+
+$DB::deep = 5000;
+my $skip;
+my @classes;
+
+BEGIN {
+    @classes = sort ( 'Catalyst',
+        'Moose',
+        'DateTime::Format',
+        'DBIx::Class',
+        'Eval::Closure',
+        'Class::MOP',
+        'Attribute::Handlers',
+        'SQL::Abstract',
+        'Test::',
+        'Try::Tiny',
+        'mro',
+        'Class::Accessor',
+    );
+    if ( $ENV{DB_ALLOW} ) {
+        if ( ':all' eq $ENV{DB_ALLOW} ) {
+            @classes = ();
+        }
+        else {
+            @classes = grep { !/$ENV{DB_ALLOW}/ } @classes;
+        }
+    }
+    my $classes = join "\n    " => @classes;
+    my $re      = join '|'      => @classes;
+    $skip = "^(?:$re)";
+    print STDERR <<"END";
+
+Debugger skipping:
+
+    $classes
+
+See ~/.perldb if you don't like this behavior, or set NO_DB_SKIP=1.
+
+END
+}
+
+unless ( $ENV{NO_DB_SKIP} ) {
+    eval "use DB::Skip pkgs => [qr/$skip/]" if @classes;
+}
+
+## These are core modules.
+use Cwd;
+use FindBin qw($Bin);
+use File::Spec::Functions;
+use File::Basename;
+
+sub DB::afterinit {
+    no warnings 'once';
+
+    # give me a window of lines instead of a single line
+    push @DB::typeahead => "{{v"
+      unless $DB::already_curly_curly_v++;
+
+    # quick 'n dirty dumped data structure # stringifies anything which is not
+    # a hash or array reference so you can see the structure of your data
+    $DB::alias{p}
+      = 's/^\s*p/My::Debugger::Helper::show/; eval "print {\$DB::OUT} $cmd"';
+
+    ## Some of these may be core. Core modules can replace the eval with a use
+    ## and remove the module spec from the function calls below.  And no, you
+    ## can't loop this; the module name of a require cannot be a variable.
+    my @badmods;
+    eval { require Cwd; 1; } or push @badmods, 'Cwd';
+    eval { require FindBin; 1; } or push @badmods, 'FindBin';
+    eval { require File::Spec::Functions; 1; } or push @badmods, 'File::Spec::Functions';
+    eval { require File::Basename; 1; } or push @badmods, 'File::Basename';
+    if( @badmods ) {
+        print STDERR "One or more modules not found: @badmods. Debugger will not process any local .perldbcmds files.\n\n";
+    } else {
+        ## We check for a 'project' scoped file and then a script scoped file.
+        ## ## By setting up the command files in the given order, we can load
+        ## global values, overriding with more granular settings.
+
+        for my $cmdfile ( File::Spec::Functions::catfile(Cwd::getcwd(),
+                                                         '.perldbcmds'),
+                          File::Spec::Functions::catfile($FindBin::Bin,
+                                                         File::Basename::basename($0) . '.perldbcmds')
+                      ) {
+            if ( -e $cmdfile ) {
+                print STDERR "Running debugger commands in\n    $cmdfile\nfor\n    $0...\n";
+                open my $cmdh, "<", $cmdfile or
+                  die "Cannot open $cmdfile:$!";
+                my @typeahead = (<$cmdh>, 'L');
+                close $cmdh;
+                my @returnto0 = grep { /^f\s/ } @typeahead;
+                push @typeahead,
+                  ( scalar(@returnto0) ? ("f $0", '.') : 'l' );
+                push @DB::typeahead, @typeahead;
+                last;
+            } else {
+                print STDERR "Debugger command file $cmdfile not found.\n\n";
+            }
+        }
+    }
+}
+
+# emacs:
+# Local Variables:
+# mode: cperl
+# End:
+#
+# vim: ft=perl
+#
