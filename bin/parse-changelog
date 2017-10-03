@@ -135,7 +135,7 @@ my $clih = IO::File->new($opt{cl}, "r")
   or die "Cannot open $opt{cl} for read:$!";
 
 my $filetag_re = qr(^\s+\* ([a-zA-Z0-9_./-]+));
-my $functag_re = qr([(]([a-zA-Z0-9_.*\<\>\[\]\|/, -]+)[)]);
+my $functag_re = qr([(]([a-zA-Z0-9_.*\<\>\[\]\|/,: -]+)[)]);
 
 my $entry_id = 0; ## A serial number, monotonically increasing. We assign one
                   ## to each new entry because 1) we are getting a new entry
@@ -432,14 +432,16 @@ sub push_to_output {
                 }
             } else {
                 my @wrapped = split(/\n/,wrap('','',@{$filedata->{$function}->{$order}}));
-                my $line1;
+                my $line1 = shift(@wrapped);
+                $line1 =~ s/^\s+//; ## If the file/function line is so long
+                                    ## that the text is pushed to the next
+                                    ## line, we get spurious space between the
+                                    ## lead and the first word.
                 if ( $function eq NOFUNC ) {
                     $lead = 'o '; ## Indent at file level; no func.
                     $indent = set_indent_from_lead($lead);
-                    $line1 = join('', $format_over, $lead, shift(@wrapped) );
-                } else {
-                    $line1 = join('', $format_over, $lead, shift(@wrapped) );
                 }
+                $line1 = join('', $format_over, $lead, $line1 );
                 push @output,
                   $line1,
                   ## Line 2+
