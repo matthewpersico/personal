@@ -2,6 +2,10 @@
 
 # .bash_profile
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
+## How to plug in (monkeypatch) set -x, ALLFUNCS_PROFILE, etc, if needed
+[ -e /tmp/bash_profile.${USER} ] && . /tmp/bash_profile.${USER}
+[ -e $HOME/bash_profile.${USER}.monkeypatch ] && .  $HOME/bash_profile.${USER}.monkeypatch
+
 bash_profile_echo=0
 ~/personal/bin/running_under_cron
 if (($? != 0)) && [ -n "$ALLFUNCS_PROFILE" ]
@@ -20,7 +24,14 @@ do
     then
         echo "Skipping $p because ${p}.skip found" >&2
     else
-        . $p
+        var=PROFILE_SKIP$(basename $p | tr '[a-z]' '[A-Z]' | sed 's/\./_/g')
+        val="$(eval echo \$$var)"
+        if [ -n "$val" ]
+        then
+            echo "Skipping $p because $var exists (value $val)" >&2
+        else
+            . $p
+        fi
     fi
 done
 
