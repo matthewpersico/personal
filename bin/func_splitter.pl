@@ -78,7 +78,7 @@ while (<>) {
 
         $check_next_is_audit == 1 && !m/## This is audit/ && do {
             push @funclines,
-              qq(    echo "\${FUNCNAME[0]} \\"\$@\\" ## \$(date +%Y%m%d%H%M%S)" >> \${HOME}/bloomberg/data/funcsaudit ## This is audit\n),
+              qq(    echo "\${FUNCNAME[0]} \\"\$@\\" ## \$(date +%Y%m%d%H%M%S)" >> \${TILDAE:-$HOME}/bloomberg/data/funcsaudit ## This is audit\n),
               $_;
             $check_next_is_audit=0;
             next;
