@@ -8,37 +8,61 @@ git-delete-repo ()
     ##@@ 0001||group||git-delete-repo||protocol namespace repo
     local usage_func="${FUNCNAME}-usage"
 
+    local pwdmode=0
+    local dirmode=''
     [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
-    local protocol=$1;shift
-    local namespace=$1;shift
-    local repo=$1;shift
+    [ "$1" = '--pwdmode' ] && pwdmode=1 && shift
+    [ "$1" = '--dirmode' ] && dirmode=$2 && shift && shift
+
+    local repo
     local returnpath=$(realpath $(pwd))
 
-    local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
-    if [ -z "$protocol_url" ]
+    if [ -n "$dirmode" ]
     then
-        echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
-        return $NOT_OK
+        builtin cd $dirmode
+        local root_or_err=$(git-root 2>&1)
+        local status=$?
+        if ((status))
+        then
+            func-echo "$root_or_err"
+            builtin cd $returnpath
+            return $status
+        else
+            builtin cd $root_or_err
+            repo=$(basename $(realpath $(pwd)))
+        fi
+    elif ((!pwdmode))
+    then
+        local protocol=$1;shift
+        local namespace=$1;shift
+        repo=$1;shift
+
+        local protocol_url=$(kvget gitfuncs_gitsvcs $protocol)
+        if [ -z "$protocol_url" ]
+        then
+            func-echo "$protocol is unknown. Valid protocols are:$(kvgetvalues gitfuncs_gitsvcs)"
+            return $NOT_OK
+        fi
+
+        ## Go to what we want to whack, to make sure it's there.
+        git-go $protocol/$namespace/$repo
+        status=$?
+        ((status != 0)) && return $NOT_OK; ## If the git-go fails, we should
+        ## see error messages, no need to
+        ## add more.
     fi
 
-    ## Go to what we want to whack, to make sure it's there.
-    git-go $protocol/$namespace/$repo
-    status=$?
-    ((status != 0)) && return $NOT_OK; ## If the git-go fails, we should see
-                                       ## error messages, no need to add more.
-
     local repopath=$(realpath $(pwd))
-
     (
         ## Subshell to allow cding around to be handled gracefully at the end
 
         ## Make sure it's clean
         if [ -d wt ] && [ "$(ls wt | wc -l)" != '0' ]
         then
-            echo "worktrees found:"
+            func-echo "worktrees found:"
             ls -la wt
-            echo
-            echo "Will not delete repo"
+            func-echo
+            func-echo "Will not delete repo"
             return $NOT_OK
         fi
 
@@ -46,8 +70,8 @@ git-delete-repo ()
         if [ -n "$dirty" ]
         then
             git status
-            echo
-            echo "Will not delete current repo"
+            func-echo
+            func-echo "Will not delete current repo"
             return $NOT_OK
         fi
 
@@ -58,8 +82,7 @@ git-delete-repo ()
                                            ## error messages, no need to add
                                            ## more.
 
-        echo "Done. Not touching remote repo."
-
+        func-echo "Done. Not touching remote repo. Resetting git list..."
         ## Remove the just-deleted repo from the list of local git repos.
         git-go-set
 
@@ -73,6 +96,5 @@ git-delete-repo ()
     else
         builtin cd
     fi
-
     return $status
 }
