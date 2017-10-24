@@ -4,8 +4,14 @@
 
 git-create-patches ()
 {
-    echo "${FUNCNAME[0]} \"$@\" ## $(date +%Y%m%d%H%M%S)" >> ${TILDAE:-$HOME}/personal/data/funcsaudit ## This is audit
     ##@@ 0001||group||git-create-patches||
+
+    local doshar=1
+
+    if [[ "$1" =~ -no-shar ]]
+    then
+        doshar=0
+    fi
 
     if [ ! "$(pwd)" = "$(git-root)" ]
     then
@@ -178,12 +184,25 @@ EORESTART
 done
 " > $restorescript
     chmod a+rwx $restorescript
-    local sharfile=$(git-root)/$(basename $(git-root)).shar
-    (cd $patchdir && shar -q -o $sharfile *.patch $(basename $restorescript))
-    echo "1 - $ cp ${sharfile}* {git root of the target}"
-    echo "2 - $ cd {git root of the target}"
-    echo "3 - $ mkdir $patchindir && unshar -d $patchindir $(basename $sharfile)*"
-    echo "4 - $ cd $patchindir"
-    echo "5 - $ ./$(basename $restorescript)"
+    stepcount=0
+    if ((doshar))
+    then
+        local sharfile=$(git-root)/$(basename $(git-root)).shar
+        (cd $patchdir && shar -q -o $sharfile *.patch $(basename $restorescript))
+        echo "$((stepcount+=1)) - $ cp ${sharfile}* {git root of the target}"
+        echo "$((stepcount+=1)) - $ cd {git root of the target}"
+        echo "$((stepcount+=1)) - $ mkdir $patchindir && unshar -d $patchindir $(basename $sharfile)*"
+        echo "$((stepcount+=1)) - $ cd $patchindir"
+        echo "$((stepcount+=1)) - $ ./$(basename $restorescript)"
+    else
+        local sharfile=$(git-root)/$(basename $(git-root)).shar
+        (cd $patchdir && shar -q -o $sharfile *.patch $(basename $restorescript))
+        echo "$((stepcount+=1)) - $ cd {git root of the target}"
+        echo "$((stepcount+=1)) - $ mkdir $patchindir"
+        echo "$((stepcount+=1)) - $ cd $patchindir"
+        echo "$((stepcount+=1)) - $ cp $patchdir/*.patch $patchdir/restore.* ."
+    fi
+    echo "$((stepcount+=1))5 - ./$(basename $restorescript)"
+
     return $OK
 }
