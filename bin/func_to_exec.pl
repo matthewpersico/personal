@@ -3,12 +3,23 @@ use warnings;
 
 ## This only does the physical transform. The complete set of steps for function X is:
 ##
-## $ git mv functions/X bin/X
-## $ git commit bin/X -m 'func to exec, mv phase'
-## $ ./func_to_exec.pl bin/X
-## $ diff -w bin/X bin/X.new
-## $ mv bin/X.new bin/X
-## $ git commit bin/X -m 'func to exec, convert phase'
+
+=for comment
+
+rm committem
+git mv functions/X* bin
+git commit functions/X* -m 'func to exec, mv phase'
+git commit bin/X* -m 'func to exec, mv phase'
+./bin/func_to_exec.pl bin/X*
+for i in bin/X*
+do
+    diff -w $i ${i}.new
+    resp=$(yesno "mv ${i}.new $i")
+    [ "$resp" = 'y' ] && mv ${i}.new $i") && echo $i >> committem
+done
+git commit $(cat committem) -m 'func to exec, convert phase'
+
+=cut
 
 my $current_file = '';
 my @funclines = ();
