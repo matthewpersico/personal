@@ -5,37 +5,50 @@
 
 grep_history ()
 {
+    local moreopts
+    moreopts=1
     local hostfilt=''
     local grepopts=''
     local epoch_ago=''
-    local endofopts=''
     local dodir=''
     local dofile=''
-    while [[ "$1" =~ ^- ]] && [ -z "$endofopts" ]
+    while [[ "$1" =~ ^- ]] && ((moreopts))
     do
-        case "$1" in
-            -h ) hostfilt=$2
-                 shift;shift ;;
+        ## Strip all leading dashes here so that -foo and --foo can both
+        ## be processed as 'foo'.
+        declare original="$1"
+        declare option="$1"
+        declare new=''
+        while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
+        do
+            new=$option
+            option=${option##-}
+        done
+        shift ## That way you avoid endless loops on invalid options
+
+        case "$option" in
+            h ) hostfilt=$2
+                shift;shift ;;
             ## Both date options imply "from this date, forward"
-            -[0-9]* )
+            [0-9]* )
                 local epoch_today=$(date --date=$(date +%Y%m%d) +%s) ## midnight today
                 local days_ago=$(echo "$1" | sed 's/^-//')
                 epoch_ago=$((epoch_today - (86400*days_ago)))
                 shift ;;
-            -d )
+            d )
                 epoch_ago=$(date --date=$2 +%s)
                 shift; shift ;;
-            -i | -l )
+            i | -l )
                 grepopts="$grepopts $1"
                 shift ;;
-            --dir )
+            dir )
                 dodir=--include-dir
                 shift ;;
-            --file )
-                dofile=--include-file
+            f|file )
+                dofile=--include-fileg
                 shift ;;
             -- )
-                endofopts=$1
+                moreopts=0
                 shift ;;
             * )
                 echo invalid option "$1"
