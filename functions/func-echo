@@ -1,6 +1,7 @@
 # -*- sh -*-
 
 # <Function Class: util>
+# <Function Justification: uses function env>
 
 func-echo ()
 {
@@ -23,20 +24,31 @@ func-echo ()
     local cont=0
     while [[ "$1" =~ ^- ]] && ((endofopts==0))
     do
-        case "$1" in
-           --head) echo; shift;;
-           --title)
-               echo
-               reset_title="${reset_normal}"
-               reset_normal=''
-               shift ;;
-           -n | --n) nonl='-n'; shift;;
-           -c | --c) cont=1; shift;;
-           --)
-               endofopts=1;;   ## No shift. Leave this arg in place to be
-                               ## processed later on as arguments to tests.
-           -* )
-               echo "func-echo: $1 is an invalid option."; return 1;;
+        ## Strip all leading dashes here so that -foo and --foo can both be
+        ## processed as 'foo'.
+        declare original="$1"
+        declare option="$1"
+        declare new=''
+        while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
+        do
+            new=$option
+            option=${option##-}
+        done
+        shift ## ...to you avoid endless loops on invalid options.
+
+        case $option in
+            head) echo ;;
+            title)
+                echo
+                reset_title="${reset_normal}"
+                reset_normal=''
+                ;;
+            n) nonl='-n' ;;
+            c) cont=1; ;;
+            --)
+                endofopts=1 ;;
+            -* )
+                echo "func-echo: $1 is an invalid option."; return 1;;
         esac
     done
 
@@ -51,5 +63,3 @@ func-echo ()
     fi
     echo $nonl -e "${ANSI_reverse}>>> ${printit}${reset_normal}: $@${reset_title}"
 }
-
-
