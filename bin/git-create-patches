@@ -1,0 +1,209 @@
+# -*- sh -*-
+
+# <Function Class: git>
+# <Function Justification: none>
+
+git-create-patches ()
+{
+    ##@@ 0001||group||git-create-patches||
+
+    local doshar=1
+
+    if [[ "$1" =~ -no-shar ]]
+    then
+        doshar=0
+        func-echo "Not creating shar files."
+        shift
+    fi
+
+    if [ ! "$(pwd)" = "$(git-root)" ]
+    then
+        echo "You must be in root dir of repo or worktree ($(git-root)), not $(pwd)"
+        return $NOT_OK
+    fi
+
+    local patchdir
+    patchdir="./patches_dir.outbound"
+
+    local patchpath
+    patchpath=$(realpath $patchdir)
+    if [ ! -d $patchpath ]
+    then
+        mkdir $patchpath || return $?
+    fi
+
+    local source_repo="$(echo $(hostname):$(git-root) | tr [/] [..])"
+    local patchindir
+    patchindir="./patches_dir.from.${source_repo}"
+    local patchinpath
+    patchinpath=$(realpath $patchindir)
+
+    echo "Creating patches..."
+    local patchlist
+    patchlist=$(mktemp --suffix=.git-create-patches)
+    local workpatchpath
+    workpatchpath=$(mktemp -d)
+    git format-patch -o $workpatchpath --full-index --root > $patchlist
+    if [ ! -s $patchlist ]
+    then
+        echo "No patches to apply."
+        return $NOT_OK
+    fi
+
+    local newsha
+    newsha=$(git-log-grab-sha -1)
+    local config_key_root
+    config_key_root=BOGUS
+    local new_files
+    new_files=$(diff $patchpath $workpatchpath 2>&1 | grep "Only in $workpatchpath" | sed -e 's/Only in //' -e 's/: /\//' )
+    if [ -z "$new_files" ]
+    then
+        echo "No new patches to apply."
+        return $NOT_OK
+    fi
+
+    cp -pvf $new_files $patchpath
+    \rm -f $patchpath/restore.*
+    local restorescript
+    restorescript=$patchpath/restore.${newsha}
+
+    ##
+    ## This generates the restore script for use on the other end
+    ##
+    echo "## -*- sh -*-
+PATCHPATH=\$(dirname \$(realpath \$0))
+GITREPOROOT=\$(dirname \$PATCHPATH)
+if [ ! -e \$GITREPOROOT/.git ]
+then
+    echo \"Not in a git repo. git init \$GITREPOROOT and re-run\"
+    exit 1
+fi
+
+current_branch=\$(git symbolic-ref HEAD | sed 's!refs\/heads\/!!')
+config_key_root=\"branch.\${current_branch}.lastpatched-from.${source_repo}.\"
+
+if [ -n \"\$1\" ]
+then
+    start_here=\$1
+    if [[ \$start_here =~ ^0 ]]; then start_here=\$(printf %o \$start_here); fi
+    ((start_here-=1))
+    last_applied=\$(ls \$PATCHPATH/\$(printf %04d \$start_here)-*.patch)
+else
+    last_applied=\$(git config --get \${config_key_root}patch )
+fi
+
+patchcount=$(cat $patchlist | wc -l)
+patchnum=0
+restart=\$(realpath \$0).\$(date +%Y%m%d%H%M%S).restart
+restartlink=\$(realpath \$0).restart
+for ii in \$(ls *.patch)
+do
+  i=\$PATCHPATH/\$ii
+  ((patchnum+=1))
+  echo
+  echo \"-- \$patchnum/\$patchcount --\"
+  if [ \"\$i\" \\> \"\$last_applied\" ]
+  then
+    log=\${i}.log
+    (git am \$i; s=\$?; echo \$s) 2>&1 | tee \$log
+    status=\$(tail -1 \$log)
+    if [ ! \$status = '0' ]
+    then
+      cat <<EORESTART > \$restart
+## \$((patchnum-1)) was the last successful patch
+
+## Errors for patch \$patchnum:
+\$(cat \$log | sed 's/^/## /')
+
+## These mark the failed patch as succeeded:
+git config \${config_key_root}patch \$i;
+git config \${config_key_root}date  \"\\\$(date)\"
+
+## This restarts the process:
+\$0
+EORESTART
+
+      chmod +x \$restart
+      \\rm -f \$restartlink
+      ln -s \$restart  \$restartlink
+
+      cat <<EORESTART | tee -a \$restart
+
+## The error log has been retained in
+##    \$log
+## and
+##    \$restart
+## which can be accessed by
+##    \$restartlink
+
+## After you have fixed the issue with the appropriate
+## git incantations, restart the patching process by executing
+##    \$restartlink
+
+## The 'appropriate git incantations' can be one of two sets of actions:
+
+## THESE ACTIONS HAVE BEEN CONFIRMED TO WORK:
+
+## o Skip that patch with git am --skip
+
+##   OR
+
+## o Apply ALL the edits in the patch file by hand. It
+##   appears that patch application is an all or nothing
+##   proposition; if one or more fails, the good ones
+##   are not applied.
+## o git add all modified files
+## o git am --continue to commit the adds and make the
+##   commit entry.
+
+## THESE ACTIONS HAVE **NOT** BEEN CONFIRMED TO WORK:
+
+## o Rollback the patch with git am --abort
+## o Apply ONLY the FAILED edits in the failed patch by hand.
+## o Remove the failed patch and its index entry (at the top
+##   of the patch file) from the patch file.
+## o Reapply the patch file with git am.
+##
+## These actions should relieve you of having to execute
+## the good patches by hand.
+
+## Either way once you have either reapplied or skipped the
+## patch, execute
+##    \$restartlink
+## in order to continue with the next patch.
+##
+EORESTART
+
+      exit \$status
+    else
+      \\rm -f \$log
+    fi
+    git config \${config_key_root}patch \$i
+    git config \${config_key_root}date  \"\$(date)\"
+    read -p 'Return to continue, CTRL-C to exit'
+  else
+    echo \"\$i <= \$last_applied, skipping\"
+  fi
+done
+" > $restorescript
+    chmod a+rwx $restorescript
+    stepcount=0
+    if ((doshar))
+    then
+        local sharfile=$(git-root)/$(basename $(git-root)).shar
+        (cd $patchdir && shar -q -o $sharfile *.patch $(basename $restorescript))
+        echo "$((stepcount+=1)) - $ cp ${sharfile}* {git root of the target}"
+        echo "$((stepcount+=1)) - $ cd {git root of the target}"
+        echo "$((stepcount+=1)) - $ mkdir $patchindir && unshar -d $patchindir $(basename $sharfile)*"
+        echo "$((stepcount+=1)) - $ cd $patchindir"
+        echo "$((stepcount+=1)) - $ ./$(basename $restorescript)"
+    else
+        echo "$((stepcount+=1)) - $ cd {git root of the target}"
+        echo "$((stepcount+=1)) - $ mkdir $patchindir"
+        echo "$((stepcount+=1)) - $ cd $patchindir"
+        echo "$((stepcount+=1)) - $ cp $patchdir/*.patch $patchdir/restore.* ."
+    fi
+    echo "$((stepcount+=1))5 - ./$(basename $restorescript)"
+
+    return $OK
+}
