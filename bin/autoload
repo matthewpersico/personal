@@ -51,7 +51,7 @@ _aload()
             r) doreload=1;;
             v) doverbose=1;;
             l) doevalshim=1;;
-            a) loadthese=$(find $OPTARG -maxdepth 1 -type f -printf '%f ');;
+            a) loadthese=$(find $OPTARG -maxdepth 1 -type f -printf '%f\n'| sort );;
             o) optimize=1;;
             y) summary=1;;
             f) loadthese=$(find $(_autoload_split_fpath) -maxdepth 1 -type f -printf '%f ');;
@@ -62,7 +62,8 @@ _aload()
     shift $(($OPTIND-1))
 
     [ -z "$loadthese" ] && loadthese="$@"
-
+    ## add more grep -v calls here as needed
+    loadthese=$(echo $loadthese | tr '[ ]' '[\n]' | grep -v '#')
     local func
     for func in $loadthese; do
         local exists_fn
@@ -122,7 +123,6 @@ _aload()
                     local file=$(_autoload_resolve '$func')
                     if [[ $file ]]
                     then
-                        echo "$(hostname)|$$|$(date +%F_%T)|$file|$(ps h $$)">>${HOME}/autoload_shim.log
                         . $file
                         '$brandtext'
                         '$func' "$@"
