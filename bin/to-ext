@@ -4,6 +4,7 @@
 
 declare moreopts=1
 declare opt_since=''
+declare opt_dirty=0
 while [[ "$1" =~ ^- ]] && ((moreopts)) && ((!endofopts))
 do
     ## Strip all leading dashes here so that -foo and --foo can both
@@ -20,8 +21,11 @@ do
                            ## a particular target.
             shift
             ;;
+        dirty )
+            opt_dirty=1;
+            ;;
         help )
-            echo "No help yet - read the code:"
+            func-echo "No help yet - read the code:"
             cat $0
             exit 0
             ;;
@@ -32,7 +36,7 @@ do
             moreopts=0
             ;;
         * )
-            echo "$original is an invalid option. See $0 --help";
+            func-echo "$original is an invalid option. See $0 --help";
             exit 1
             ;;
         esac
@@ -42,9 +46,15 @@ do
 ## on disk. We don't count any existing git-log-dump or git-rms as a problem.
 if (($(git st --porcelain 2>&1 | grep -E -v 'git-(log-dump|rms)' 2>&1 | wc -l)))
 then
-    echo "Will not create shar. Repo not clean."
+    func-echo "Repo not clean:"
     git status
-    exit 1
+    if ((opt_dirty))
+    then
+        func-echo "Continuing: --dirty specified. git-log-dump may not match code on disk."
+    else
+        func-echo "Stopping."
+        exit 1
+    fi
 fi
 
 ## Write the commit log to text. That will keep track of the modifications,
@@ -83,4 +93,4 @@ fi
 
 ## Make it.
 shar -q -o $sharout $files $addtionals
-echo sharfile is $sharout
+func-echo sharfile is $(ls ${sharout}*)
