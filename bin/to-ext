@@ -2,9 +2,45 @@
 
 ## to-ext
 
+declare moreopts=1
+declare opt_since=''
+while [[ "$1" =~ ^- ]] && ((moreopts)) && ((!endofopts))
+do
+    ## Strip all leading dashes here so that -foo and --foo can both
+    ## be processed as 'foo'.
+    declare original="$1"
+    declare option
+    option=$(dashstripper $original)
+    shift
+
+    case $option in
+        since )
+            opt_since=$1;  ## The last sha in the SOURCE repo that was
+                           ## successfully shar'ed, shipped and integrated with
+                           ## a particular target.
+            shift
+            ;;
+        help )
+            echo "No help yet - read the code:"
+            cat $0
+            exit 0
+            ;;
+        debug | -x )
+            set -x
+            ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            echo "$original is an invalid option. See $0 --help";
+            exit 1
+            ;;
+        esac
+    done
+
 ## Check that we are clean. Otherwise the git-log-dump will not match with mods
-## on disk. We don't count any existing git-log-dump as a problem.
-if (($(git st --porcelain 2>&1 | grep -v git-log-dump 2>&1 | wc -l)))
+## on disk. We don't count any existing git-log-dump or git-rms as a problem.
+if (($(git st --porcelain 2>&1 | grep -E -v 'git-(log-dump|rms)' 2>&1 | wc -l)))
 then
     echo "Will not create shar. Repo not clean."
     git status
@@ -15,7 +51,36 @@ fi
 ## perhaps to create a decent commit message on the other side.
 git log > git-log-dump
 
-## Create the shar
+## Non git members to add to the shar
+additionals="$additionals git-log-dump"
+
+## The shar file
 sharout=personal-bb-$(date +%Y-%m-%d).shar
-shar -q -o $sharout $(git ls-files) git-log-dump
+
+if [ -z "$opt_since" ]
+then
+    ## Without a sha to compare to, grab all files
+    files=$(git ls-files)
+else
+    ## Check the files changed from sha time to now and segregate the removed
+    ## ones for special processing.
+    tmp=$(mktemp)
+    for i in $(git diff --name-only $opt_since)
+    do
+        if [ -r $i ]
+        then
+            files="$files $i"
+        else
+            rms="$rms $i"
+        fi
+    done
+    if [ -n "$rms" ]
+    then
+        echo $rms > git-rms
+        additionals="$additionals git-rms"
+    fi
+fi
+
+## Make it.
+shar -q -o $sharout $files $addtionals
 echo sharfile is $sharout
