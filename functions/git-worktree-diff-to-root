@@ -15,7 +15,34 @@ git-worktree-diff-to-root ()
         return $NOT_OK;
     fi
 
-    local files="$@"
+    declare moreopts
+    moreopts=1
+    declare opt_reverse
+    opt_reverse=0
+    declare opt_color
+    opt_color='always'
+    declare diff_opts
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        ## Strip all leading dashes here so that -foo and --foo can both
+        ## be processed as 'foo'.
+        declare original="$1"
+        declare option
+        option=$(dashstripper $original)
+        shift ## That way you avoid endless loops on invalid options.
+
+        case $option in
+            reverse    ) opt_reverse=1 ;;
+            color      ) opt_color=$1; shift ;;
+            w          ) diff_opts="$diff_opts -w" ;;
+            help       ) echo "No documentation yet. Sorry."; return 0 ;;
+            debug | -x ) set -x ;;
+            --         ) moreopts=0 ;;
+            *          ) echo "$original is an invalid option. See $0 --help"; return 1;;
+        esac
+    done
+
+    declare files="$@"
     if [ -z "$files" ]
     then
         files=$(git ls-files)
@@ -26,17 +53,16 @@ git-worktree-diff-to-root ()
         fi
     fi
 
-    local root=$(pwd);
+    declare root=$(pwd);
     root=${root%%/wt*}
-    local coloropt='always'
-    is-redirected $STDOUT && coloropt=never
+    is-redirected $STDOUT && opt_color=never
     for i in $files
     do
-        if [ "$1" = '--reverse' ]
+        if ((opt_reverse))
         then
-            git --no-pager diff --no-index --color=$coloropt ${root}/$i $i 2>&1
+            git --no-pager diff --no-index --color=$opt_color $diff_opts ${root}/$i $i 2>&1
         else
-            git --no-pager diff --no-index --color=$coloropt $i ${root}/$i 2>&1
+            git --no-pager diff --no-index --color=$opt_color $diff_opts $i ${root}/$i 2>&1
         fi
     done | less -RE
 }
