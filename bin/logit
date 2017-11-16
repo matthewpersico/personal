@@ -17,6 +17,7 @@ logit [ --tee ] \\
       [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
       [ --purge | --purgeprior ] \\
       [ --tpe ] \\
+      [ --ts ] \\
       [ -- ] \\
       command [arg ..]
 
@@ -62,8 +63,11 @@ logit [ --help | -h ]
                  running the command, but keep those with
                  today's date in the log name.
 
-      --tpe    - A shortcut for --tee --purge --edit, the three most commonly
-                 used switches.
+      --tpe    - A shortcut for --tee --purge --edit, the three most
+                 commonly used switches.
+
+      --ts     - Use the 'ts' command to prepend a time stamp to each
+                 output line.
 
       --       - Ends options to logit. Command and its options
                  follow. Only needed if one or more logit options
@@ -83,6 +87,7 @@ EOUSAGE
 logfile=''
 logdir=''
 teeit=0
+tsit=0
 edit=''
 edit_echo=''
 edit_on_fail=''
@@ -91,7 +96,7 @@ notimestamp=''
 original_argv="$0 $@"
 
 # Read the options and args from command line.
-OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,help, -n 'logit' -- "$@")
+OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
 status=$?
 if ((status != 0))
 then
@@ -148,6 +153,9 @@ while true ; do
             edit="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit="$EDITOR"
             purge=all
+            shift ;;
+        --ts)
+            tsit=1
             shift ;;
         --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
         *) echo "Internal error! You probably forgot to add a -- option between the logit options and the command to run." ; usage 1 ;;
@@ -311,8 +319,18 @@ fi
     echo "********************"
     echo "start time: $(date)"
     eval $envs
-    $command $cmdargs
-    status=$?
+    if((tsit))
+    then
+        $command $cmdargs | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
+                    $|=1;
+                    select((select(STDERR), $| = 1)[0]);
+                    ($s,$ms)=Time::HiRes::gettimeofday();
+                    $ms=substr('000000' . $ms,-6);
+                    print strftime "[%Y-%m-%d %H:%M:%S.$ms]", localtime($s)'
+    else
+        $command $cmdargs
+    fi
+    status=${PIPESTATUS[0]}
     echo
 
     echo "********************"
