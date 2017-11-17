@@ -219,8 +219,14 @@ today=${now%%T*}
 
 if [ -z "$logdir" ]
 then
-    logdir=$(pwd)
-    [ -d ./logit ] && logdir=$(pwd)/logit
+    if [[ $logfile =~ / ]]
+    then
+        logdir=$(dirname $logfile)
+        logfile=$(basename $logfile)
+    else
+        logdir=$(pwd)
+        [ -d ./logit ] && logdir=$(pwd)/logit
+    fi
 fi
 
 logspec="$logdir/$logfile"
@@ -256,7 +262,16 @@ then
     termheight=$(x-current-root-height)
     if ((termheight >1024)); then termheight=40; else termheight=20; fi
 
-    $termer -g 132x${termheight}+100+100 -title "logit tee on $(hostname)" -e tail -f $logspec &
+    if [[ $termer =~ xterm ]]
+    then
+         type xterm_Xground 2>/dev/null 1>/dev/null
+         if(($?==0))
+         then
+             colors="-fg $(xterm_foreground) -bg $(xterm_background)"
+         fi
+    fi
+
+    $termer -g 132x${termheight}+100+100 $colors -title "logit tee on $(hostname)" -e tail -f $logspec &
     sleep 2 ## Give the terminal a chance to come up and start tailing so we
     ## see the whole log in the tail
     tailpid=$(pstree | grep $logspec | grep 'tail -f' | grep -v xterm | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
@@ -324,8 +339,8 @@ fi
         $command $cmdargs | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
                     $|=1;
                     select((select(STDERR), $| = 1)[0]);
-                    ($s,$ms)=Time::HiRes::gettimeofday();
-                    $ms=substr('000000' . $ms,-6);
+                    ($s,$ms)=gettimeofday();
+                    $ms=substr(q(000000) . $ms,-6);
                     print strftime "[%Y-%m-%d %H:%M:%S.$ms]", localtime($s)'
     else
         $command $cmdargs
