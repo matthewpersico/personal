@@ -1,0 +1,80 @@
+#!/usr/bin/env perl
+
+=begin metadata
+
+Name: myunshar
+From: unshar
+Description: extract files from a shell archive
+Author: Larry Wall, larry@wall.org
+License: perl
+
+=end metadata
+
+=cut
+
+while (@ARGV && $ARGV[0] =~ s/^-//) {
+    local $_ = shift;
+    while (/([cdfqx])/g) {
+	if ($1 eq 'd') {
+	    $opts{'d'} = /\G(.*)/g && $1 ? $1 : shift;
+    } elsif ( $1 eq 'x' ) {
+        $opts{'x'} ||= {};
+        my $key = /\G(.*)/g && $1 ? $1 : shift;
+        $opts{'x'}->{$key}=1;
+	} else {
+	    $opts{$1}++;
+	}
+    }
+}
+
+if ( !$opts{'x'} ) {
+    die "No sense in using $0 if you're not extracting individual files\n";
+}
+
+local $SIG{__WARN__} = $opts{'q'} ? sub {} : sub { print @_ };
+
+$ENV{1} = $opts{'c'} || $opts{'f'} ? '-c' : '';
+
+while (<>) {
+    last if /^[#:]/;
+}
+
+die "No script found.\n" unless $_;
+
+if ($opts{'d'}) {
+    chdir $opts{'d'} || die "Can't chdir '$opts{'d'}': $!";
+}
+
+## Pull off the head stuff
+my $head;
+while (<>) {
+    last if /# ========/; ## This is the first file
+    $head .= $_;
+}
+
+my $current_file;
+
+## Now get files
+do {
+    my @code;
+    $current_file = $_;
+    $current_file =~ s/# =+ ([^= ]+) =.*/$1/;
+    chomp $current_file;
+    while (<>) {
+        last if $_ =~ m/# =+ [^= ]+ =.*/;
+        push @code, $_;
+    }
+    $opts{'x'}->{$current_file} and
+      $opts{'x'}->{$current_file} = \@code;
+} while ($_);
+
+my $all = join('',
+               $head,
+               map {@$_} values(%{$opts{'x'}})
+           );
+open(REM,">./.r") || die "Can't create ./.r";
+print REM $all;
+close REM;
+chmod 0700, './.r';
+print qx(./.r $ENV{1});
+0;

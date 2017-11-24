@@ -17,6 +17,7 @@ logit [ --tee ] \\
       [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
       [ --purge | --purgeprior ] \\
       [ --tpe ] \\
+      [ --ts ] \\
       [ -- ] \\
       command [arg ..]
 
@@ -62,8 +63,11 @@ logit [ --help | -h ]
                  running the command, but keep those with
                  today's date in the log name.
 
-      --tpe    - A shortcut for --tee --purge --edit, the three most commonly
-                 used switches.
+      --tpe    - A shortcut for --tee --purge --edit, the three most
+                 commonly used switches.
+
+      --ts     - Use the 'ts' command to prepend a time stamp to each
+                 output line.
 
       --       - Ends options to logit. Command and its options
                  follow. Only needed if one or more logit options
@@ -83,6 +87,7 @@ EOUSAGE
 logfile=''
 logdir=''
 teeit=0
+tsit=0
 edit=''
 edit_echo=''
 edit_on_fail=''
@@ -91,7 +96,7 @@ notimestamp=''
 original_argv="$0 $@"
 
 # Read the options and args from command line.
-OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,help, -n 'logit' -- "$@")
+OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
 status=$?
 if ((status != 0))
 then
@@ -148,6 +153,9 @@ while true ; do
             edit="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit="$EDITOR"
             purge=all
+            shift ;;
+        --ts)
+            tsit=1
             shift ;;
         --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
         *) echo "Internal error! You probably forgot to add a -- option between the logit options and the command to run." ; usage 1 ;;
@@ -211,8 +219,14 @@ today=${now%%T*}
 
 if [ -z "$logdir" ]
 then
-    logdir=$(pwd)
-    [ -d ./logit ] && logdir=$(pwd)/logit
+    if [[ $logfile =~ / ]]
+    then
+        logdir=$(dirname $logfile)
+        logfile=$(basename $logfile)
+    else
+        logdir=$(pwd)
+        [ -d ./logit ] && logdir=$(pwd)/logit
+    fi
 fi
 
 logspec="$logdir/$logfile"
@@ -248,7 +262,16 @@ then
     termheight=$(x-current-root-height)
     if ((termheight >1024)); then termheight=40; else termheight=20; fi
 
-    $termer -g 132x${termheight}+100+100 -title "logit tee on $(hostname)" -e tail -f $logspec &
+    if [[ $termer =~ xterm ]]
+    then
+         type xterm_Xground 2>/dev/null 1>/dev/null
+         if(($?==0))
+         then
+             colors="-fg $(xterm_foreground) -bg $(xterm_background)"
+         fi
+    fi
+
+    $termer -g 132x${termheight}+100+100 $colors -title "logit tee on $(hostname)" -e tail -f $logspec &
     sleep 2 ## Give the terminal a chance to come up and start tailing so we
     ## see the whole log in the tail
     tailpid=$(pstree | grep $logspec | grep 'tail -f' | grep -v xterm | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
@@ -311,8 +334,18 @@ fi
     echo "********************"
     echo "start time: $(date)"
     eval $envs
-    $command $cmdargs
-    status=$?
+    if((tsit))
+    then
+        $command $cmdargs | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
+                    $|=1;
+                    select((select(STDERR), $| = 1)[0]);
+                    ($s,$ms)=gettimeofday();
+                    $ms=substr(q(000000) . $ms,-6);
+                    print strftime "[%Y-%m-%d %H:%M:%S.$ms]", localtime($s)'
+    else
+        $command $cmdargs
+    fi
+    status=${PIPESTATUS[0]}
     echo
 
     echo "********************"

@@ -1,6 +1,7 @@
 # -*- sh -*-
 
-# <Function Class: git
+# <Function Class: git>
+# <Function Justification: none>
 
 git-process-changelog ()
 {
@@ -28,9 +29,10 @@ git-process-changelog ()
     local pcl=$(which parse-changelog)
     local pcl_flags=''
     local noless=''
+    local git_editor
 
     ## Options first
-    OPTSARGS=$(getoptp -o hv --long commit,withstatus,diff,noless,help -n $FUNCNAME -- "$@")
+    OPTSARGS=$(getoptp -o hv --long commit,withstatus,diff,noless,help,editor: -n $FUNCNAME -- "$@")
     status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -54,6 +56,9 @@ git-process-changelog ()
             --noless)
                 noless=1
                 shift ;;
+            --editor)
+                git_editor=$2
+                shift; shift;;
             -h|--help) $usage_func; return $OK ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
@@ -121,7 +126,12 @@ git-process-changelog ()
         ##<TODO> In preparation of $pcl skipping files that do not have an entry, as
         ##<TODO> opposed to aborting the run, we need to re-read the filelist from the -F
         ##<TODO> file here.
-        git commit -F $parsed_cl --edit $opt_v $filelist
+        if [ -z "$git_editor" ]
+        then
+            git commit -F $parsed_cl --edit $opt_v $filelist
+        else
+            GIT_EDITOR=$git_editor git commit -F $parsed_cl --edit $opt_v $filelist
+        fi
         status=$?
         if((status!=0))
         then
@@ -136,5 +146,3 @@ git-process-changelog ()
     [ -n "$gr" ] && _git-cd-return
 
 }
-
-
