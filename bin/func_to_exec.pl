@@ -1,7 +1,9 @@
-g#!/usr/bin/env perl
+#!/usr/bin/env perl
 
 use strict;
 use warnings;
+
+use File::Basename;
 
 ## This only does the physical transform. The complete set of steps for function X is:
 ##
@@ -53,24 +55,14 @@ while (<>) {
         }
         ## Set up for new file.
         $current_pathfile = $ARGV;
+        $current_file = basename $ARGV;
         @funclines = ();
         print qq($current_pathfile\n);
     }
 
-    ## Shebang insertion.
-    m/# -\*- sh -\*-/ &&do {
-        push @funclines, qq(#!/usr/bin/env bash\n);
-        next;
-    };
-
-    ## Function class replacement.
-    m/# <Function Class:/ && do {
+    ## Function class replaced with current filename.
+    m/# <(?:Function )?Class:/i && do {
         push @funclines, qq(# $current_file\n);
-        next;
-    };
-
-    m/# <Class:/ && do {
-        push @funclines, qq(# $current_pathfile\n);
         next;
     };
 
@@ -78,22 +70,33 @@ while (<>) {
         next;
     };
 
-    ## Throw away function first line and first '{'. Only because we are
-    ## fastidious about format.
+    ## The next three function-related sections only work because we are
+    ## fastidious about format of the functions in files. Format MUST BE:
+    ##
+    ## funcname ()
+    ## {
+    ##  .. code goes here..
+    ## }
+    ##
+    ## In particular the function open and close braces must be on their own
+    ## lines.
+
+    ## Matches the function first line (its name and ()). Gets the following
+    ## first '{'. Throws both away.
     m/^([a-zA-Z0-9_\+-]+)\s*\(\)/ && do {
         my $throwaway = <>;
         next;
     };
 
-    ## Throw away function last '}'. Only because we are fastidious about
+    ## Throw away function last '}'.
     ## format.
     m/^}/ && next;
 
     ## Spacing; remove the first level of indentation from all lines now that
-    ## we are not in a function. Only because we are fastidious about format.
+    ## we are not in a function.
     $_ =~ s/^    //;
 
-    ## Fix the audit line.
+    ## Remove audit lines.
     m/## This is audit/ && do {
         $_ =~ s/funcsaudit/binaudit/;
         $_ =~ s/\$\{FUNCNAME\[0\]\}/$current_pathfile/;
@@ -111,7 +114,8 @@ while (<>) {
         ##
         ##       local x; # the local variable
         ##
-        ## That's why we diff and visually inspect next if $_ =~ m/#.*local/;
+        ## That's why we diff and visually inspect instead of trying
+        ##    next if $_ =~ m/#.*local/;
         $_ =~ s/(\b)local(\b)/${1}declare${2}/g;
     };
 
