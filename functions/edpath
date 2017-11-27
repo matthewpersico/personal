@@ -2,9 +2,12 @@
 #
 # Name:        edpath
 #
-# Author:      Stephen Collyer (scollyer@netspinner.co.uk)
+# Author:      Matthew Persico (matthew.persico@gmail.com)
 #
-# Copyright:   Netspinner Ltd 2000-2003
+# Copyright:   Matthew Persico (matthew.persico@gmail.com)
+#
+# Derived from work by Stephen Collyer (scollyer@netspinner.co.uk),
+#                      Copyright: Netspinner Ltd 2000-2003
 #
 # <Function Class: path functions>
 # <Function Justification: env mod>
@@ -22,7 +25,7 @@ edpath ()
     typeset opt_x opt_v
     typeset sep=:
 
-    typeset pathvar VAR TEMP
+    typeset pathvar TEMP
 
     pathfunc_usage_init
     typeset -a USAGE
@@ -65,26 +68,27 @@ edpath ()
         pathvar=$1
     fi
 
-    [ -n "$opt_p" ] && pathvar=$opt_p # use specified pathvar
-    [ -z "$pathvar" ] && pathvar=PATH  # default
-
     [ -n "$opt_s" ] && sep=$opt_s;
+    [ -n "$opt_p" ] && pathvar=$opt_p
+    [ -z "$pathvar" ] && pathvar=PATH
 
     ###########################################################################
     # main
     ###########################################################################
 
     TEMP=/tmp/edpath.out.$$
-
-    VAR=\$$pathvar                        # VAR="$LIBPATH" for example
-    eval export OLD$pathvar=$VAR          # store old path in e.g OLDPATH
-
-    listpath -s "${sep}" -p $pathvar > $TEMP  # write path elements to file
-    ${EDITOR:-vi} $TEMP                   # edit the file
-    eval $pathvar=$(makepath -s "${sep}" < $TEMP)
-                                          # reconstruct path
-
-    /bin/rm -f $TEMP                      # remove temporary file
+    listpath -s "${sep}" -p $pathvar > $TEMP
+    ${EDITOR:-vi} $TEMP
+    local newvalue
+    local line
+    while read line
+    do
+        [ -n "$newvalue" ] \
+            && newvalue="${newvalue}${sep}${line}" \
+                || newvalue="${line}"
+    done < $TEMP
+    eval $pathvar="'$newvalue'"
+    /bin/rm -f $TEMP
     [ -n "$opt_v" ] && listpath -s "${sep}" -p $pathvar
     [ -n "$opt_x" ] && export $pathvar
 }

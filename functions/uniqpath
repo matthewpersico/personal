@@ -2,9 +2,12 @@
 #
 # Name:        uniqpath
 #
-# Author:      Stephen Collyer (scollyer@netspinner.co.uk)
+# Author:      Matthew Persico (matthew.persico@gmail.com)
 #
-# Copyright:   Netspinner Ltd 2000-2003
+# Copyright:   Matthew Persico (matthew.persico@gmail.com)
+#
+# Derived from work by Stephen Collyer (scollyer@netspinner.co.uk),
+#                      Copyright: Netspinner Ltd 2000-2003
 #
 # <Function Class: path functions>
 # <Function Justification: env mod>
@@ -22,7 +25,7 @@ uniqpath ()
     typeset opt_x opt_v
     typeset sep=:
 
-    typeset pathvar npath
+    typeset pathvar npath TEMP
 
     pathfunc_usage_init
     typeset -a USAGE
@@ -65,17 +68,30 @@ uniqpath ()
         pathvar=$1
     fi
 
+    [ -n "$opt_s" ] && sep=$opt_s;
     [ -n "$opt_p" ] && pathvar=$opt_p # use specified pathvar
     [ -z "$pathvar" ] && pathvar=PATH  # default
-
-    [ -n "$opt_s" ] && sep=$opt_s;
 
     ###########################################################################
     # main
     ###########################################################################
 
-    npath=$(listpath -s "${sep}" -p $pathvar | awk '{seen[$0]++; if (seen[$0]==1){print}}')
-    eval $pathvar=$(makepath -s "${sep}" "$npath")
+    # Long path variable values may overflow arg list limits on some Unices. It
+    # is also difficult, in a series of pipes, to deal with paths that have
+    # spaces in them . Therefore we use an intermediate file.
+
+    TEMP=/tmp/uniqpath.out.$$
+    listpath -s "${sep}" -p $pathvar | awk '{seen[$0]++; if (seen[$0]==1){print}}' > $TEMP
+    local newvalue
+    local line
+    while read line
+    do
+        [ -n "$newvalue" ] \
+            && newvalue="${newvalue}${sep}${line}" \
+                || newvalue="${line}"
+    done < $TEMP
+    eval $pathvar="'$newvalue'"
+    /bin/rm -f $TEMP
     [ -n "$opt_v" ] && listpath -s "${sep}" -p $pathvar
     [ -n "$opt_x" ] && export $pathvar
 }
