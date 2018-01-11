@@ -9,6 +9,7 @@ declare grepopts=''
 declare epoch_ago=''
 declare dodir=''
 declare dofile=''
+declare matchdir=''
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
     ## Strip all leading dashes here so that -foo and --foo can both
@@ -24,6 +25,22 @@ do
     shift ## That way you avoid endless loops on invalid options
 
     case "$option" in
+        help )
+            cat <<EOHELP
+-h host        : only from this host
+-n             : start n days ago
+-d epoch       : epoch seconds ago
+-i/-l          : pass these to grep
+--dir          : include the cwd at time of command
+--matchdir dir : only include commands whose pwd
+                 matches the regexp 'dir'; implies
+                 --dir
+-f/--file      : include name of the history file
+                 where command was written
+-fo/--fileonly : print history file name only, no commands
+EOHELP
+            exit 0
+            ;;
         h ) hostfilt=$1
             shift ;;
         ## Both date options imply "from this date, forward"
@@ -41,6 +58,9 @@ do
         dir )
             dodir=--include-dir
             ;;
+        matchdir )
+            matchdir="--match-dir $1"
+            shift ;;
         f|file )
             dofile=--include-file
             ;;
@@ -74,5 +94,5 @@ then
     echo "No history files found matching date params"
 else
     # DEBUG perl -d:ptkdb $(which parse_bash_hist)\
-    parse_bash_hist $dodir $dofile $grepopts -- "$1" $histfs
+    parse_bash_hist $dodir $dofile $matchdir $grepopts -- "$1" $histfs
 fi
