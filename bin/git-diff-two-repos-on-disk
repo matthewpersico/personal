@@ -1,0 +1,82 @@
+# -*- sh -*-
+
+# <Function Class: git>
+# <Function Justification: none>
+
+git-diff-two-repos-on-disk ()
+{
+    ##@@ 0001||group||git-diff-two-repos-on-disk||
+    local usage_func="${FUNCNAME}-usage"
+
+    OPTSARGS=$(getoptp -o h --long help -n $FUNCNAME -- "$@")
+    local status=$?
+    ((status != 0)) && $usage_func ${FUNCNAME} && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
+        esac
+    done
+
+    local -A repo
+    if [ -n "$2" ]
+    then
+        repo[this]=$(realpath $1)
+        repo[other]=$(realpath $2)
+    else
+        repo[this]=$(pwd)
+        repo[other]=$(realpath $1)
+    fi
+
+    if [ ${repo[this]} = ${repo[other]} ]
+    then
+        echo Other dir is this dir. Whoops! Bye.
+        return $NOT_OK
+    fi
+
+    local -A list
+    list[this]=$(mktemp --suffix=.git-diff-two-repos-on-disk.this)
+    list[other]=$(mktemp  --suffix=.git-diff-two-repos-on-disk.other)
+
+    local -A opposed
+    opposed[this]=other
+    opposed[other]=this
+
+    local which
+    for which in this other
+    do
+        perl -e 'chdir $ARGV[0];
+                 print qx(git ls-files)' ${repo[$which]} > ${list[$which]}
+    done
+
+    local -A seen
+    for which in this other
+    do
+        local line
+        while IFS='' read -r line || [[ -n "$line" ]]
+        do
+            if [ -z "${seen[$line]}" ]
+            then
+                seen[$line]=$line
+
+                local output=$(diff -q "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line")
+                if [[ "$output" =~ 'No such file or directory' ]]
+                then
+                    echo "Copying ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
+                    cp -vf ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line
+                elif [ -n "$output" ]
+                then
+                    echo '*****'
+                    local diffcmd=$(which colordiff 2>/dev/null)
+                    [ -z "$diffcmd" ] && diffcmd=diff
+                    echo $diffcmd -u "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
+                    $diffcmd -u "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
+                fi
+            fi
+        done < ${list[$which]}
+    done
+}
