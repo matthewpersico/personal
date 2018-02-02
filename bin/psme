@@ -1,8 +1,77 @@
 ## -*- sh -*-
-set -x
 case $OS_O in
-    GNU/Linux ) ps lxf -U ${USER}; exit $? ;;
-    Cygwin ) ps -U ${USER} ; exit $? ;;
+    GNU/Linux ) cmd="ps lxf -U ${USER}" ;;
+    Cygwin ) cmd="ps -U ${USER}" ;;
     * ) echo "psme does not support $OS_O" ; exit 1 ;;
 esac
-set +x
+
+$cmd | perl -d:ptkdb -e 'use strict;
+use warnings;
+use Text::Wrap;
+
+our %opt;
+my %print;
+my $wrap_min=0;
+
+while(@ARGV && $ARGV[0] =~ m/^-/) {
+    my $o = shift @ARGV;
+    $o =~ s/^-+//;
+
+    if ( $o =~ m/pid/ ) {
+        $opt{$o} = shift;
+        delete $opt{command};
+    } elsif ( $o =~ m/comm/ ) {
+        $opt{command} = shift;
+        delete $opt{pid};
+    } elsif ( $o =~ m/wrap/ ) {
+        $opt{$o} = `tput cols`;
+        chomp $opt{$o};
+        delete $opt{trunc};
+        delete $opt{raw};
+    } elsif ( $o =~ m/trunc/ ) {
+        $opt{$o} = `tput cols`;
+        chomp $opt{$o};
+        delete $opt{wrap};
+        delete $opt{raw};
+    } elsif ( $o =~ m/raw/ ) {
+        delete $opt{trunc};
+        delete $opt{wrap};
+    }
+}
+
+my $striplead;
+while(<>) {
+    my $l = $_;
+    my @f = split(/\s+/,$l);
+    if ($f[2] eq q(PID)) {
+        print $_;
+        $wrap_min = index($l, q(COMMAND));
+        next;
+    }
+
+    if (!$opt{pid} || $f[2] == $opt{pid}) {
+        $print{$f[2]} = 1;
+        my $command = substr($l, $wrap_min);
+        $command =~ m/^(\s+)/;
+        $striplead = length($1);
+    } else {
+        my $parent = $f[3];
+        if (defined $print{$parent}) {
+            $print{$f[2]} = 1;
+        }
+    }
+    if(defined $print{$f[2]}) {
+        if ($opt{trunc} ) {
+            chomp $l;
+            print substr($l,0,$wrap_min),
+                  substr($l,$wrap_min + $striplead,
+                         $opt{trunc} - $wrap_min),"\n";
+        } elsif ($opt{wrap} && length($l) > $opt{wrap} ) {
+            $Text::Wrap::columns=$opt{wrap};
+            print substr($l,0,$wrap_min),
+            print wrap(q(),q( ) x $wrap_min,substr($l,$wrap_min + $striplead));
+        } else {
+            print $l;
+        }
+    }
+}' -- --trunc $@
