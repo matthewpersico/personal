@@ -5,7 +5,7 @@ case $OS_O in
     * ) echo "psme does not support $OS_O" ; exit 1 ;;
 esac
 
-$cmd | perl -d:ptkdb -e 'use strict;
+$cmd | perl -e 'use strict;
 use warnings;
 use Text::Wrap;
 
@@ -46,14 +46,21 @@ while(<>) {
     if ($f[2] eq q(PID)) {
         print $_;
         $wrap_min = index($l, q(COMMAND));
+        $striplead = 0;
         next;
     }
 
-    if (!$opt{pid} || $f[2] == $opt{pid}) {
+    if (!$opt{pid} || $f[2] eq $opt{pid}) {
         $print{$f[2]} = 1;
         my $command = substr($l, $wrap_min);
         $command =~ m/^(\s+)/;
-        $striplead = length($1);
+        if($opt{pid} && $f[2] eq $opt{pid}) {
+            my $stripped = $1;
+            $stripped ||= q();
+            if($opt{pid} && $f[2] == $opt{pid}){
+                $striplead = length($stripped);
+            }
+        }
     } else {
         my $parent = $f[3];
         if (defined $print{$parent}) {
@@ -66,10 +73,21 @@ while(<>) {
             print substr($l,0,$wrap_min),
                   substr($l,$wrap_min + $striplead,
                          $opt{trunc} - $wrap_min),"\n";
-        } elsif ($opt{wrap} && length($l) > $opt{wrap} ) {
-            $Text::Wrap::columns=$opt{wrap};
-            print substr($l,0,$wrap_min),
-            print wrap(q(),q( ) x $wrap_min,substr($l,$wrap_min + $striplead));
+        } elsif ($opt{wrap} ) {
+            my $ll = substr($l,0,$wrap_min) . substr($l,$wrap_min + $striplead);
+            my $indent_idx = index($ll, q(\\_));
+            if ($indent_idx>-1) {
+                $indent_idx+=3
+            } else {
+                $indent_idx=$wrap_min;
+            }
+            if($indent_idx) {
+                $Text::Wrap::columns=$opt{wrap};
+                print wrap(q(),( q( ) x $indent_idx) . q( ++ ), $ll);
+#                print wrap(q(),( q( ) x $indent_idx ), $ll);
+            } else {
+                print $l;
+            }
         } else {
             print $l;
         }
