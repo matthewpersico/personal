@@ -13,14 +13,14 @@ fi
 ## Find sources, set targets
 src_paths="$@"
 bad=0
-for i in $src_paths
+for src_path  in $src_paths
 do
-    if [ ! -r $i ]
+    if [ ! -r $src_path ]
     then
-        echo "$i not found"
+        echo "$src_path not found"
         ((bad+=1))
     fi
-    file=$(basename $i)
+    file=$(basename $src_path)
     files="$files $file"
     tgt_paths="$tgt_paths bin/$file"
 done
@@ -38,18 +38,25 @@ echo func_to_exec.pl $tgt_paths
 func_to_exec.pl $tgt_paths
 
 rm -f commit_list   ## a file holding the functions we chose to commit after conversion
-for i in $tgt_paths
+for tgt_path in $tgt_paths
 do
-    resp=''
-    diff -w $i ${i}.new && true ## so that a diff does not trigger an exit due
-                                ## to the -e setting
-    resp=$(yesno "mv ${i}.new $i")
-    if [ "$resp" = 'y' ]
-    then
-        mv ${i}.new $i
-        chmod +x $i
-        echo $i >> commit_list
-    fi
+    resp='e' ## Assume we want to edit
+    while [ "$resp" = 'e' ]
+    do
+        diff -w $tgt_path ${tgt_path}.new && true ## so that a diff does not
+                                                  ## trigger an exit due to the
+                                                  ## -e setting
+        resp=$(pick "mv ${tgt_path}.new $tgt_path" "y/n/e" )
+        if [ "$resp" = 'y' ]
+        then
+            mv ${tgt_path}.new $tgt_path
+            chmod +x $tgt_path
+            echo $tgt_path >> commit_list
+        elif [ "$resp" = 'e']
+        then
+            $EDITOR $tgt_path
+        fi
+    done
 done
 
 if [ -s commit_list ]

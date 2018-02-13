@@ -3,19 +3,34 @@
 # git-diff-two-repos-on-disk
 
 ##@@ 0001||group||git-diff-two-repos-on-disk||
-declare usage_func="${FUNCNAME}-usage"
 
-OPTSARGS=$(getoptp -o h --long help -n $FUNCNAME -- "$@")
+OPTSARGS=$(getoptp -o h --long nocolor,help,exclude:,side-by-side,width: -n $FUNCNAME -- "$@")
 declare status=$?
-((status != 0)) && $usage_func ${FUNCNAME} && exit $status
+((status != 0)) && printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)" && exit $status
 
+declare nocolor=0
+declare exclude=''
+declare side_by_side='-u'
+declare width=''
 eval set -- "$OPTSARGS"
 while true
 do
     case "$1" in
-        -h|--help) $usage_func; exit $OK ;;
-        --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) echo "Internal error!"; $usage_func ${FUNCNAME}; exit $NOT_OK ;;
+        -h|--help)
+            printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)"
+            exit $OK ;;
+        --nocolor)
+            nocolor=1 ; shift ;;
+        --exclude)
+            exclude=$2; shift; shift ;;
+        --side-by-side)
+            side_by_side='-y --suppress-common-lines'; shift;;
+        --width)
+            width="-W $2"; shift; shift;;
+        --)
+            shift; break ;; ## end of opts, remaining $*, if any, are args
+        *)
+            echo "Internal error!"; printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)" ; exit $NOT_OK ;;
     esac
 done
 
@@ -24,9 +39,13 @@ if [ -n "$2" ]
 then
     repo[this]=$(realpath $1)
     repo[other]=$(realpath $2)
-else
+elif [ -n "$1" ]
+then
     repo[this]=$(pwd)
     repo[other]=$(realpath $1)
+else
+    echo "Need at least one directory"
+    printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)" ; exit $NOT_OK ;
 fi
 
 if [ ${repo[this]} = ${repo[other]} ]
@@ -48,6 +67,11 @@ for which in this other
 do
     perl -e 'chdir $ARGV[0];
              print qx(git ls-files)' ${repo[$which]} > ${list[$which]}
+    if [ -n "$exclude" ]
+    then
+        cat ${list[$which]} | grep -v "$exclude" > ${list[$which]}.filt
+        mv ${list[$which]}.filt ${list[$which]}
+    fi
 done
 
 declare -A seen
@@ -60,19 +84,30 @@ do
         then
             seen[$line]=$line
 
-            declare output=$(diff -q "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line")
+            declare output=$(diff -q "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line" 2>&1 | grep -v 'Common subdirectories')
             if [[ "$output" =~ 'No such file or directory' ]]
             then
                 echo "Copying ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
                 cp -vf ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line
             elif [ -n "$output" ]
             then
-                echo '*****'
+                echo '-----'
                 declare diffcmd=$(which colordiff 2>/dev/null)
-                [ -z "$diffcmd" ] && diffcmd=diff
-                echo $diffcmd -u "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
-                $diffcmd -u "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
+                ( [ -z "$diffcmd" ] || ((nocolor)) ) && diffcmd=diff
+                echo $diffcmd $side_by_side "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
+                $diffcmd $side_by_side "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
+                echo
             fi
         fi
     done < ${list[$which]}
 done
+
+exit 0
+
+__USAGE__
+Usage: git-diff-two-repos-on-disk [--nocolor] [src] tgt
+       git-diff-two-repos-on-disk [-h|-help]
+
+       Compare two repos on disk. If only one repo is specified,
+       'src' is taken as the current directory, which should be
+       a repo root.
