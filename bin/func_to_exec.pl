@@ -70,22 +70,34 @@ while (<>) {
         next;
     };
 
-    ## The next three function-related sections only work because we are
-    ## fastidious about format of the functions in files. Format MUST BE:
+    ## The next four function-related sections only work because we are
+    ## reasonably fastidious about format of the functions in files.
     ##
     ## funcname ()
     ## {
     ##  .. code goes here..
     ## }
     ##
-    ## In particular the function open and close braces must be on their own
-    ## lines.
+    ## or
+    ##
+    ## funcname () {
+    ##  .. code goes here..
+    ## }
+    ##
+    ## We used to only accept the first form, but we've come to accept the
+    ## second after we found it in some cases.  lines.
 
-    ## Matches the function first line (its name and ()). Gets the following
+    ## Matches the function first line (name () {). Throws it away.
+    m/^([a-zA-Z0-9_\+-]+) \s*\(\)\s*{\s*$/ && do {
+        next;
+    };
+
+    ## Matches the function first line (name and ()). Gets the following
     ## first '{'. Throws both away.
     m/^([a-zA-Z0-9_\+-]+)\s*\(\)/ && do {
         my $throwaway = <>;
-        next;
+        $throwaway =~ m/^{\s*$/ && next;
+        die "Mismatch: func () found but next line is not {";
     };
 
     ## Throw away function last '}'.

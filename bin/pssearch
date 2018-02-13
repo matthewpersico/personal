@@ -1,0 +1,179 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+use Text::Wrap;
+
+our %opt = (trunc => 0, wrap => 0, raw => 0,
+            level => 10000000,
+            head => 1,
+            this => 1,
+            exclude => 0,
+            user => '-e',
+            short => 0);
+my %print;
+my %noprint;
+my $wrap_min=0;
+
+use Getopt::Long;
+GetOptions(\%opt,
+           qw( pid=i
+
+               raw
+               wrap
+               trunc
+
+               level=i
+               head!
+               this!
+               exclude=i
+
+               user=s
+               e
+               short
+         ) )
+  or die ("Error in command line options\n");
+
+my $uic = $opt{trunc} + $opt{wrap} + $opt{raw};
+my $ui = '';
+if ( $uic == 0 ) {
+    $ui = 'trunc';
+} elsif ( $uic == 1 ) {
+    $ui = (grep { exists($opt{$_}) && $opt{$_} != 0}
+      qw (raw wrap trunc))[0];
+} else {
+    die "--trunc, --wrap, --raw are mutex\n";
+}
+$opt{$ui} = `tput cols`;
+if ($opt{user} ne '-e' ) {
+    $opt{user} = "-U $opt{user}";
+}
+
+if (@ARGV) {
+    my $nohead = ($opt{head} ? '' : '--nohead');
+    my $status;
+    for my $pid (@ARGV) {
+        system(
+            join(' ',
+                 ##'perl', '-d:ptkdb',
+                 $0,
+                 '--pid', $pid,
+                 "--$ui",
+                 '--level', $opt{level},
+                 ($opt{head} ? '--head' : '--nohead'),
+                 ($opt{this} ? '--this' : '--nothis'),
+                 $opt{user},
+                 '--exclude', ($opt{this} ? 0 : $$),
+             )
+        );
+        $status += ($? >> 8);
+        print qq(\n);
+        $nohead = '--nohead';
+    }
+    exit $status;
+}
+
+my $ih;
+for ($ENV{OS_O} || '') {
+    /Cygwin/ && do {
+        open(IH, '-|', "ps $opt{user}");
+        last;
+    };
+    open(IH, '-|', "ps lf $opt{user}");
+    last;
+}
+my $striplead=-1;
+my $header;
+my $printed;
+my $pidcol=2;
+my $ppidcol=3;
+
+#          1         2         3         4         5         6
+#0123456789012345678901234567890123456789012345678901234567890123456789
+#F   UID   PID  PPID PRI  NI    VSZ   RSS WCHAN  STAT TTY        TIME COMMAND
+#5 17245 29116 29107  20   0 145984  2640 poll_s S    ?          0:17 sshd: mpersico5@pts/0
+
+while(<IH>) {
+    my $l = $_;
+    if ($opt{short}) {
+        $l = ( substr($l,0,20) .
+                 substr($l,69) );
+    }
+    my @f = split(/\s+/,$l);
+    if ($f[$pidcol] eq q(PID)) {
+        $header = $l if not $opt{nohead};
+        $wrap_min = index($l, q(COMMAND));
+        $striplead = 0;
+        next;
+    }
+
+    my $pid = $f[$pidcol];
+    my $ppid = $f[$pidcol];
+    if ( !$opt{pid} && $opt{this} ) {
+        ## No matching. Print every line.
+        $print{$f[$pidcol]} = 1;
+    } elsif ( ( !$opt{this} && $$ == $pid )
+                or
+                ( $opt{exclude} && $opt{exclude} == $pid )
+                or
+                exists $noprint{$ppid}) {
+        $noprint{$pid} = 1;
+    } else {
+        ## We are looking for a pid
+        if (defined $opt{pid} && $pid eq $opt{pid}) {
+            ## We matched it. Figure out how far in we want to indent.
+            my $cmd = substr($l, $wrap_min);
+            $cmd =~ m/^([|\s]+(?:\\_ )?)/;
+            my $stripped = $1;
+            $stripped ||= q();
+            $striplead = length($stripped);
+            $print{$f[$pidcol]} = 1;
+        } else {
+            ## We didn't match it. See if we printed its parent. If so then print this one.
+            my $parent = $f[$ppidcol];
+            if (defined $print{$parent}) {
+                $print{$f[$pidcol]} = 1;
+            }
+        }
+    }
+
+    if(defined $print{$f[$pidcol]}) {
+        if($header) {
+            print $header;
+            $printed++;
+            $header = '';
+        }
+        if ($opt{trunc} ) {
+            chomp $l;
+            print substr($l,0,$wrap_min),
+                  substr($l,$wrap_min + $striplead,
+                         $opt{trunc} - $wrap_min),"\n";
+            $printed++;
+        } elsif ($opt{wrap} ) {
+            my $ll = substr($l,0,$wrap_min) . substr($l,$wrap_min + $striplead);
+            my $indent_idx = index($ll, q(\\_));
+            if ($indent_idx>-1) {
+                $indent_idx+=3
+            } else {
+                $indent_idx=$wrap_min;
+            }
+            if($indent_idx) {
+                $Text::Wrap::columns=$opt{wrap};
+                print wrap(q(),( q( ) x ($indent_idx + 4 )), $ll);
+                $printed++;
+            } else {
+                print $l;
+                $printed++;
+            }
+        } else {
+            print $l;
+            $printed++;
+        }
+    }
+}
+
+if(! $printed && $opt{pid}) {
+    print "No process found for pid $opt{pid}\n";
+    exit 1;
+}
+exit 0;
