@@ -1,0 +1,148 @@
+# -*- sh -*-
+
+# <Function Class: git>
+# <Function Justification: none>
+
+git-process-changelog ()
+{
+    ##@@ 0001||group||git-process-changelog||'Guts' function for *-with-changelog functions
+
+    local usage_func="${FUNCNAME}-usage"
+
+    ## All of the *-changelog functions work best in the git-root, which is
+    ## where the $GITFUNCS_CHANGELOG_NAME is anyway
+    local pwd=$(pwd)
+    local gr=$(git-root)
+    if [ ! "$pwd" = "$gr" ]
+    then
+        _git-cd-to $gr  || return $?
+    else
+        gr=''
+    fi
+
+    local action='read'
+    local parse_flag=''
+    local diff=''
+    local opt_v='' ## passed to commit
+    local status=0
+    local parsed_cl=$(mktemp --suffix=.git-process-changelog)
+    local pcl=$(which parse-changelog)
+    local pcl_flags=''
+    local noless=''
+    local git_editor
+
+    ## Options first
+    OPTSARGS=$(getoptp -o hv --long commit,withstatus,diff,noless,help,editor: -n $FUNCNAME -- "$@")
+    status=$?
+    ((status != 0)) && $usage_func && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -v) opt_v=$1
+                shift;;
+            --commit)
+                action=commit;
+                pcl_flags="$pcl_flags --write --ncl $parsed_cl"
+                shift ;;
+            --withstatus)
+                action=withstatus;
+                pcl_flags="$pcl_flags --withstatus";
+                shift ;;
+            --diff)
+                pcl_flags="$pcl_flags --diff"
+                shift ;;
+            --noless)
+                noless=1
+                shift ;;
+            --editor)
+                git_editor=$2
+                shift; shift;;
+            -h|--help) $usage_func; return $OK ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        esac
+    done
+
+    ## Everything else is a file
+    if [ -z $1 ]
+    then
+        echo "No files specified."
+        [ -n "$gr" ] && _git-cd-return
+        return $NOT_OK
+    fi
+    local filelist
+    for i in "$@"
+    do
+        filelist="$filelist $(realpath $i)"
+    done
+
+    ## Find the changelog
+    local changelogdir=$(git-root)
+    if ((status != 0))
+    then
+        $usage_func
+        [ -n "$gr" ] && _git-cd-return
+        return $status
+    fi
+
+    local changelog="${changelogdir}/$GITFUNCS_CHANGELOG_NAME"
+    if [ ! -r $changelog ]
+    then
+        echo "$changelog not readable"
+        [ -n "$gr" ] && _git-cd-return
+        return $NOT_OK
+    fi
+    if [ "$action" = 'commit' ] && [ ! -w $changelog ]
+    then
+        echo "$changelog not writable"
+        [ -n "$gr" ] && _git-cd-return
+        return $NOT_OK
+    fi
+
+    local changelogbkp="${changelog}.bkp"
+
+    local others=$(find $changelogdir -name $GITFUNCS_CHANGELOG_NAME | grep -v "$changelog")
+    if [ -n "$others" ]
+    then
+        echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir."
+        [ -n "$gr" ] && _git-cd-return
+        return $NOT_OK
+    fi
+
+    ## Backup
+    cp -f $changelog $changelogbkp
+    $DEBUG_PROCESS_CHANGELOG $pcl --cl $changelog $pcl_flags $filelist
+    status=$?
+    if ((status!=0))
+    then
+        [ -n "$gr" ] && _git-cd-return
+        return $status
+    fi
+
+    if [ "$action" = 'commit' ]
+    then
+        ##<TODO> In preparation of $pcl skipping files that do not have an entry, as
+        ##<TODO> opposed to aborting the run, we need to re-read the filelist from the -F
+        ##<TODO> file here.
+        if [ -z "$git_editor" ]
+        then
+            git commit -F $parsed_cl --edit $opt_v $filelist
+        else
+            GIT_EDITOR=$git_editor git commit -F $parsed_cl --edit $opt_v $filelist
+        fi
+        status=$?
+        if((status!=0))
+        then
+            ## Restore
+            echo "Rolling back $changelog"
+            cp -f $changelogbkp $changelog
+            [ -n "$gr" ] && _git-cd-return
+            return $status
+        fi
+    fi
+    [ -f $changelogbkp ] && \rm -f $changelogbkp
+    [ -n "$gr" ] && _git-cd-return
+
+}
