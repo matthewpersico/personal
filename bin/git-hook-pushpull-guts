@@ -1,71 +1,67 @@
 # -*- sh -*-
 
-# <Function Class: git>
-# <Function Justification: none>
+# git-hook-pushpull-guts
 
-git-hook-pushpull-guts ()
-{
-    local REPOS="$@"
+declare REPOS="$@"
 
-    local current_template=$(git config --get init.templatedir)
-    if [ "$current_template" != "${gitfuncs_githook_root}" ]
-    then
-        echo "Error: Config says init.templatedir = '$current_template'"
-        echo "       It should be '${gitfuncs_githook_root}'"
-        echo "       Please correct."
-        return $NOT_OK
-    fi
+declare current_template=$(git config --get init.templatedir)
+if [ "$current_template" != "${gitfuncs_githook_root}" ]
+then
+    echo "Error: Config says init.templatedir = '$current_template'"
+    echo "       It should be '${gitfuncs_githook_root}'"
+    echo "       Please correct."
+    exit $NOT_OK
+fi
 
-    if [ ! -d "$current_template" ]
-    then
-        echo "Error: Can't find '$current_template'"
-        echo "       Please correct."
-        return $NOT_OK
-    fi
+if [ ! -d "$current_template" ]
+then
+    echo "Error: Can't find '$current_template'"
+    echo "       Please correct."
+    exit $NOT_OK
+fi
 
-    local hooks
-    hooks=$(ls ${gitfuncs_githook_dir}/*)
+declare hooks
+hooks=$(ls ${gitfuncs_githook_dir}/*)
 
-    local REPO
-    for REPO in $REPOS
+declare REPO
+for REPO in $REPOS
+do
+    (($# > 1)) && echo "== $REPO"
+    for h in $hooks
     do
-        (($# > 1)) && echo "== $REPO"
-        for h in $hooks
-        do
-            local hooktgtdir="${TILDAE:-$HOME}/$(git-strip-repo $REPO)/.git/hooks"
-            if [ -f $hooktgtdir ]
-            then
-                echo $hooktgtdir is a file. whoops....
-                ## Fix up accidental directory overwrite
-                \rm $hooktgtdir
-                mkdir $hooktgtdir
-            fi
+        declare hooktgtdir="${TILDAE:-$HOME}/$(git-strip-repo $REPO)/.git/hooks"
+        if [ -f $hooktgtdir ]
+        then
+            echo $hooktgtdir is a file. whoops....
+            ## Fix up accidental directory overwrite
+            \rm $hooktgtdir
+            mkdir $hooktgtdir
+        fi
 
-            local hooktgtpath="$hooktgtdir/$(basename $h)"
-            if [ ! -e $hooktgtpath ] || [ $h -nt $hooktgtpath ]
+        declare hooktgtpath="$hooktgtdir/$(basename $h)"
+        if [ ! -e $hooktgtpath ] || [ $h -nt $hooktgtpath ]
+        then
+            if [ ! -e $hooktgtpath ]
             then
-                if [ ! -e $hooktgtpath ]
-                then
-                    echo "$hooktgtpath not found. Copying from $h..."
-                elif [ $h -nt $hooktgtpath ]
-                then
-                    echo "$hooktgtpath out of date. Updating from $h..."
-                fi
-                cp -pv $h $hooktgtpath
-                chmod +x $hooktgtpath
-            elif [ $h -ot $hooktgtpath ]
+                echo "$hooktgtpath not found. Copying from $h..."
+            elif [ $h -nt $hooktgtpath ]
             then
-                local tmpout=$(mktempv --suffix=.git-push-hook)
-                diff  $h  $hooktgtpath 1>$tmpout 2>&1
-                if [ -s $tmpout ]
-                then
-                    echo "$hooktgtpath newer than $h. Here's the diff, older to newer:"
-                    cat $tmpout
-                fi
-                rm -f $tmpout
-            else
-                echo "$hooktgtpath up to date"
+                echo "$hooktgtpath out of date. Updating from $h..."
             fi
-        done
+            cp -pv $h $hooktgtpath
+            chmod +x $hooktgtpath
+        elif [ $h -ot $hooktgtpath ]
+        then
+            declare tmpout=$(mktempv --suffix=.git-push-hook)
+            diff  $h  $hooktgtpath 1>$tmpout 2>&1
+            if [ -s $tmpout ]
+            then
+                echo "$hooktgtpath newer than $h. Here's the diff, older to newer:"
+                cat $tmpout
+            fi
+            rm -f $tmpout
+        else
+            echo "$hooktgtpath up to date"
+        fi
     done
-}
+done

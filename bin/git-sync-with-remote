@@ -1,55 +1,52 @@
 # -*- sh -*-
 
-# <Function Class: git>
-# <Function Justification: none>
+# git-sync-with-remote
 
-git-sync-with-remote ()
-{
-    ##@@ 0001||group||git-sync-with-remote||
+##@@ 0001||group||git-sync-with-remote||
 
-    local usage_func="${FUNCNAME}-usage"
-    local iam=$(func-name-spoof)
+declare usage_func="${FUNCNAME}-usage"
+declare iam=$(func-name-spoof)
 
-    local opt_branch=''
-    local opt_remote='origin'
-    local opt_confirm='0'
-    local opt_stash='0'
-    local do_stash='0'
+declare opt_branch=''
+declare opt_remote='origin'
+declare opt_confirm='0'
+declare opt_stash='0'
+declare do_stash='0'
 
-    local OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,confirm -n $iam -- "$@")
-    status=$?
-    ((status != 0)) && $usage_func && return $status
-    eval set -- "$OPTSARGS"
-    while true
-    do
-        case "$1" in
-            -s|--stash) opt_stash=1; shift;;
-            -c|--confirm) opt_confirm=1; shift;;
-            -r|--remote) opt_remote="$2"; shift; shift ;;
-            -b|--branch) opt_branch="$2"; shift; shift ;;
-            -h|--help) $usage_func $iam; return $OK ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) func-echo "Internal error!"; $usage-func $iam; return $NOT_OK ;;
-        esac
-    done
+declare OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,confirm -n $iam -- "$@")
+status=$?
+((status != 0)) && $usage_func && exit $status
+eval set -- "$OPTSARGS"
+while true
+do
+    case "$1" in
+        -s|--stash) opt_stash=1; shift;;
+        -c|--confirm) opt_confirm=1; shift;;
+        -r|--remote) opt_remote="$2"; shift; shift ;;
+        -b|--branch) opt_branch="$2"; shift; shift ;;
+        -h|--help) $usage_func $iam; exit $OK ;;
+        --) shift; break ;; ## end of opts, remaining $*, if any, are args
+        *) func-echo "Internal error!"; $usage-func $iam; exit $NOT_OK ;;
+    esac
+done
 
-    if [ -z "$opt_branch" ]
-    then
-        func-echo "--branch required"
-        $usage-func $iam
-        return $NOT_OK
-    fi
+if [ -z "$opt_branch" ]
+then
+    func-echo "--branch required"
+    $usage-func $iam
+    exit $NOT_OK
+fi
 
-    local cb=$(git rev-parse --abbrev-ref HEAD)
-    status=$?
-    ((status != 0 )) && return $NOT_OK
+declare cb=$(git rev-parse --abbrev-ref HEAD)
+status=$?
+((status != 0 )) && exit $NOT_OK
 
-    if [ "$cb" == '' ]
-    then
-        func-echo
-        cat <<EOF
+if [ "$cb" == '' ]
+then
+    func-echo
+    cat <<EOF
 
-$iam is used to keep your current git repo DEVELOPMENT branch in your local
+$iam is used to keep your current git repo DEVELOPMENT branch in your declare
 clone in sync with changes in
 
 branch "${opt_branch}"
@@ -59,20 +56,20 @@ However, you do not appear to even be in a repo. I'm exiting. Try again in a
 proper repo.
 
 EOF
-        return $NOT_OK
-    fi
+    exit $NOT_OK
+fi
 
-    if [ "$cb" == "$opt_branch" ]
+if [ "$cb" == "$opt_branch" ]
+then
+    func-echo
+    declare msgoverride=$(find $(git-root) -name .git-sync-with-remove.txt)
+    if [ -n "$msgoverride" ] && [ -r "$msgoverride" ]
     then
-        func-echo
-        local msgoverride=$(find $(git-root) -name .git-sync-with-remove.txt)
-        if [ -n "$msgoverride" ] && [ -r "$msgoverride" ]
-        then
-            cat $msgoverride
-        else
-            cat <<EOF
+        cat $msgoverride
+    else
+        cat <<EOF
 
-$iam is used to keep your current git repo DEVELOPMENT branch in your local
+$iam is used to keep your current git repo DEVELOPMENT branch in your declare
 clone in sync with changes in
 
 branch "${opt_branch}"
@@ -84,135 +81,135 @@ another branch. Then rerun the command. Or just do a 'git status' to check this
 branch or a 'git pull' if you really need to refresh this branch.
 
 EOF
-        fi
-        return $NOT_OK
     fi
+    exit $NOT_OK
+fi
 
-    ## Stash any modified items before checking and proceeding.
-    local needs_stash=$(echo $(git-is-staged && git-is-unstaged) | wc -w)
-    if ((needs_stash))
+## Stash any modified items before checking and proceeding.
+declare needs_stash=$(echo $(git-is-staged && git-is-unstaged) | wc -w)
+if ((needs_stash))
+then
+    if ((opt_stash))
     then
-        if ((opt_stash))
-        then
-            do_stash=1
-        else
-            git status
-            local resp=$(func-yesno "Stash" n)
-            if [ "$resp" = 'n' ]
-            then
-                func-echo "Will not proceed without a stash"
-                return $NOT_OK
-            else
-                do_stash=1
-            fi
-        fi
+        do_stash=1
     else
-        if ((opt_stash))
+        git status
+        declare resp=$(func-yesno "Stash" n)
+        if [ "$resp" = 'n' ]
         then
-            func-echo "stash not needed"
-        fi
-    fi
-    if ((do_stash))
-    then
-        git stash
-        status=$?
-        if [ "$status" = '0' ]
-        then
-            ok_to_pop=1
+            func-echo "Will not proceed without a stash"
+            exit $NOT_OK
         else
-            return $status
+            do_stash=1
         fi
     fi
-
-    ## Grab head of log
-    local oldsha=$(git-log-grab-sha -1)
-    func-echo --head 'Log before pull:'
-    git-log-shas-range $oldsha $oldsha
-
-    ## Check the local branch against its origin
-    stcheck=$(mktemp --suffix=.git-sync-with-remote)
-    git status 1>$stcheck 2>&1
-    grep "Your branch is up.to.date with 'origin/$cb'." $stcheck 1>/dev/null
-    status=$?
-    if [ "$status" != '0' ]
+else
+    if ((opt_stash))
     then
-        func-echo
-        cat $stcheck
-        cat <<EOF
+        func-echo "stash not needed"
+    fi
+fi
+if ((do_stash))
+then
+    git stash
+    status=$?
+    if [ "$status" = '0' ]
+    then
+        ok_to_pop=1
+    else
+        exit $status
+    fi
+fi
+
+## Grab head of log
+declare oldsha=$(git-log-grab-sha -1)
+func-echo --head 'Log before pull:'
+git-log-shas-range $oldsha $oldsha
+
+## Check the declare branch against its origin
+stcheck=$(mktemp --suffix=.git-sync-with-remote)
+git status 1>$stcheck 2>&1
+grep "Your branch is up.to.date with 'origin/$cb'." $stcheck 1>/dev/null
+status=$?
+if [ "$status" != '0' ]
+then
+    func-echo
+    cat $stcheck
+    cat <<EOF
 Your branch should be up to date with its origin in order to simplify the
 rebase.
 EOF
-        local resp=$(func-yesno "Do you want to continue anyway" n)
+    declare resp=$(func-yesno "Do you want to continue anyway" n)
+    if [ "$resp" == 'n' ]
+    then
+        if ((do_stash))
+        then
+            func-echo 'Stash pop...'
+            git stash pop
+        fi
+        exit $OK
+    fi
+fi
+
+declare ok_to_pull=1
+((opt_confirm)) && ok_to_pull=0
+
+func-echo 'Fetching to check...'
+git fetch ${opt_remote} ${opt_branch}
+
+declare diffoutput=$(mktemp --suffix=.gf-syr)
+git diff ...${opt_remote} > $diffoutput 2>&1
+declare diffc=$(cat $diffoutput | wc -l)
+if ((diffc)) && ((opt_confirm))
+then
+    func-echo --head "===== diffs ====="
+    cat $diffoutput
+    \rm $diffoutput
+fi
+
+declare logoutput=$(mktemp --suffix=.gf-syr)
+git log ...${opt_remote} > $logoutput 2>&1
+declare logc=$(cat $logoutput | wc -l)
+if ((logc)) && ((opt_confirm))
+then
+    ((diffc)) && echo
+    func-echo "=====  log  ====="
+    cat $logoutput
+    \rm $logoutput
+fi
+
+if ((diffc)) || ((logc))
+then
+    if ((opt_confirm))
+    then
+        declare resp=$(func-yesno "Ok to pull" n)
         if [ "$resp" == 'n' ]
         then
             if ((do_stash))
             then
                 func-echo 'Stash pop...'
                 git stash pop
-            fi
-            return $OK
-        fi
-    fi
-
-    local ok_to_pull=1
-    ((opt_confirm)) && ok_to_pull=0
-
-    func-echo 'Fetching to check...'
-    git fetch ${opt_remote} ${opt_branch}
-
-    local diffoutput=$(mktemp --suffix=.gf-syr)
-    git diff ...${opt_remote} > $diffoutput 2>&1
-    local diffc=$(cat $diffoutput | wc -l)
-    if ((diffc)) && ((opt_confirm))
-    then
-        func-echo --head "===== diffs ====="
-        cat $diffoutput
-        \rm $diffoutput
-    fi
-
-    local logoutput=$(mktemp --suffix=.gf-syr)
-    git log ...${opt_remote} > $logoutput 2>&1
-    local logc=$(cat $logoutput | wc -l)
-    if ((logc)) && ((opt_confirm))
-    then
-        ((diffc)) && echo
-        func-echo "=====  log  ====="
-        cat $logoutput
-        \rm $logoutput
-    fi
-
-    if ((diffc)) || ((logc))
-    then
-        if ((opt_confirm))
-        then
-            local resp=$(func-yesno "Ok to pull" n)
-            if [ "$resp" == 'n' ]
-            then
-                if ((do_stash))
-                then
-                    func-echo 'Stash pop...'
-                    git stash pop
-                    return $OK
-                fi
+                exit $OK
             fi
         fi
-    else
-        func-echo "No difference with remote."
-        if ((do_stash))
-        then
-            func-echo 'Stash pop...'
-            git stash pop
-        fi
-        return $OK
     fi
-
-    func-echo 'Pulling to sync...'
-    git pull --rebase ${opt_remote} ${opt_branch}
-    status=$?
-    if [ ! "$status" = '0' ]
+else
+    func-echo "No difference with remote."
+    if ((do_stash))
     then
-        func-echo
-        cat <<EOF
+        func-echo 'Stash pop...'
+        git stash pop
+    fi
+    exit $OK
+fi
+
+func-echo 'Pulling to sync...'
+git pull --rebase ${opt_remote} ${opt_branch}
+status=$?
+if [ ! "$status" = '0' ]
+then
+    func-echo
+    cat <<EOF
 
 It appears the pull --rebase was not successful. Assuming the issue was not a
 system issue, but rather related to conflicts:
@@ -236,75 +233,74 @@ your branch.
 Then push the branch up to your fork so you can submit a pull request.
 
 EOF
-        if ((do_stash))
-        then
-            func-echo "Leaving stash stashed so a not to further complicate the issue"
-        fi
-        return $NOT_OK
-    fi
-
-    ## Grab head of log
-    local newsha=$(git-log-grab-sha -1)
-
-    ## Show log
-    func-echo --head 'Log after pull:'
-    git-log-shas-range $oldsha $newsha
-
-    func-echo --head "pull --rebase successful. Pushing..."
-    git push
-    status=$?
-    if [ "$status" != '0' ]
+    if ((do_stash))
     then
-        resp=$(func-yesno "'git push' complained. Shall I re-push with --force" n)
-        if [ "$resp" = 'y' ]
-        then
-            git push --force
-            status=$?
-        fi
+        func-echo "Leaving stash stashed so a not to further complicate the issue"
     fi
+    exit $NOT_OK
+fi
 
-    local ask_pop=0
-    if [ ! "$status" = '0' ]
+## Grab head of log
+declare newsha=$(git-log-grab-sha -1)
+
+## Show log
+func-echo --head 'Log after pull:'
+git-log-shas-range $oldsha $newsha
+
+func-echo --head "pull --rebase successful. Pushing..."
+git push
+status=$?
+if [ "$status" != '0' ]
+then
+    resp=$(func-yesno "'git push' complained. Shall I re-push with --force" n)
+    if [ "$resp" = 'y' ]
     then
-        func-echo
-        cat <<EOF
+        git push --force
+        status=$?
+    fi
+fi
+
+declare ask_pop=0
+if [ ! "$status" = '0' ]
+then
+    func-echo
+    cat <<EOF
 It appears that the git push was not successful and you declined to use --force,
 or the --force was also unsuccessful.
 EOF
-        if ((do_stash))
-        then
-            func-echo
-            cat <<EOF
+    if ((do_stash))
+    then
+        func-echo
+        cat <<EOF
 It may be that you decided not to force the push since you still have work to do,
 in which case you will want to pop the latest stash.
 EOF
-            ask_pop=1
-        fi
+        ask_pop=1
     fi
+fi
 
-    if ((do_stash))
+if ((do_stash))
+then
+    resp='y'
+    if ((ask_pop))
     then
-        resp='y'
-        if ((ask_pop))
+        resp=$(func-yesno "Shall I pop the last git stash" n)
+    fi
+    if [ "$resp" = 'y' ]
+    then
+        func-echo 'Stash pop...'
+        git stash pop
+        status=$?
+        if ((status != 0))
         then
-            resp=$(func-yesno "Shall I pop the last git stash" n)
-        fi
-        if [ "$resp" = 'y' ]
-        then
-            func-echo 'Stash pop...'
-            git stash pop
-            status=$?
-            if ((status != 0))
-            then
-                func-echo
-                cat <<EOF
+            func-echo
+            cat <<EOF
 It appears that the stash pop failed. There may be conflicts. Once you fix the
 conflicts, you can drop the stash, as all of the non-conflicted files were
 successfully popped - that's the way that git stashes work.
 EOF
-                return $?
-            fi
+            exit $?
         fi
     fi
+fi
 
-}

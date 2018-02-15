@@ -1,50 +1,47 @@
 # -*- sh -*-
 
-# <Function Class: git>
-# <Function Justification: none>
+# git-check-with-remote
 
-git-check-with-remote ()
-{
-    ##@@ 0001||group||git-check-with-remote||
+##@@ 0001||group||git-check-with-remote||
 
-    local usage_func="${FUNCNAME}-usage"
-    local iam=$(func-name-spoof)
+declare usage_func="${FUNCNAME}-usage"
+declare iam=$(func-name-spoof)
 
-    local opt_branch=''
-    local opt_remote='origin'
-    local opt_bail_on_dirty='0'
-    local OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,bail_on_dirty -n $iam -- "$@")
-    status=$?
-    ((status != 0)) && $usage_func $iam && return $status
-    eval set -- "$OPTSARGS"
-    while true
-    do
-        case "$1" in
-            --bail_on_dirty) opt_bail_on_dirty=1; shift;;
-            -r|--remote) opt_remote="$2"; shift; shift ;;
-            -b|--branch) opt_branch="$2"; shift; shift ;;
-            -h|--help) $usage-func $iam; return $OK ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func $iam; return $NOT_OK ;;
-        esac
-    done
+declare opt_branch=''
+declare opt_remote='origin'
+declare opt_bail_on_dirty='0'
+declare OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,bail_on_dirty -n $iam -- "$@")
+status=$?
+((status != 0)) && $usage_func $iam && exit $status
+eval set -- "$OPTSARGS"
+while true
+do
+    case "$1" in
+        --bail_on_dirty) opt_bail_on_dirty=1; shift;;
+        -r|--remote) opt_remote="$2"; shift; shift ;;
+        -b|--branch) opt_branch="$2"; shift; shift ;;
+        -h|--help) $usage-func $iam; exit $OK ;;
+        --) shift; break ;; ## end of opts, remaining $*, if any, are args
+        *) echo "Internal error!"; $usage_func $iam; exit $NOT_OK ;;
+    esac
+done
 
-    if [ -z "$opt_branch" ]
-    then
-        echo "--branch required"
-        $usage_func $iam
-        return $NOT_OK
-    fi
+if [ -z "$opt_branch" ]
+then
+    echo "--branch required"
+    $usage_func $iam
+    exit $NOT_OK
+fi
 
-    local cb=$(git rev-parse --abbrev-ref HEAD)
-    status=$?
-    ((status != 0 )) && return $NOT_OK
+declare cb=$(git rev-parse --abbrev-ref HEAD)
+status=$?
+((status != 0 )) && exit $NOT_OK
 
-    if [ "$cb" == '' ]
-    then
-        cat <<EOF
+if [ "$cb" == '' ]
+then
+    cat <<EOF
 
-$iam is used to check your current git repo DEVELOPMENT branch in your local
+$iam is used to check your current git repo DEVELOPMENT branch in your declare
 clone against changes in
 
 branch "${opt_branch}"
@@ -54,14 +51,14 @@ However, you do not appear to even be in a repo. I'm exiting. Try again in a
 proper repo.
 
 EOF
-        return $NOT_OK
-    fi
+    exit $NOT_OK
+fi
 
-    if [ "$cb" == "$opt_branch" ]
-    then
-        cat <<EOF
+if [ "$cb" == "$opt_branch" ]
+then
+    cat <<EOF
 
-$iam is used to check your current git repo DEVELOPMENT branch in your local
+$iam is used to check your current git repo DEVELOPMENT branch in your declare
 clone against changes in
 
 branch "${opt_branch}"
@@ -73,76 +70,75 @@ branch Then rerun the command. Or just do a 'git pull' if you really need to
 refresh this branch.
 
 EOF
-        return $NOT_OK
-    fi
+    exit $NOT_OK
+fi
 
-    ## Check the local branch against its origin
-    stcheck=$(mktemp --suffix=.git-check-with-remote.1)
-    git status 1>$stcheck 2>&1
-    grep "Your branch is up.to.date with 'origin/$cb'." $stcheck 1>/dev/null
-    status=$?
-    if [ "$status" != '0' ]
-    then
-        cat $stcheck
-        cat <<EOF
+## Check the declare branch against its origin
+stcheck=$(mktemp --suffix=.git-check-with-remote.1)
+git status 1>$stcheck 2>&1
+grep "Your branch is up.to.date with 'origin/$cb'." $stcheck 1>/dev/null
+status=$?
+if [ "$status" != '0' ]
+then
+    cat $stcheck
+    cat <<EOF
 Your branch should be up to date with its origin in order to simplify the
 check.
 EOF
-        if ((opt_bail_on_dirty))
+    if ((opt_bail_on_dirty))
+    then
+        echo Exiting.
+        exit $NOT_OK
+    else
+        declare resp=$(func-yesno "Do you want to continue anyway" n)
+        if [ "$resp" == 'n' ]
         then
-            echo Exiting.
-            return $NOT_OK
-        else
-            local resp=$(func-yesno "Do you want to continue anyway" n)
-            if [ "$resp" == 'n' ]
-            then
-                return $NOT_OK
-            fi
+            exit $NOT_OK
         fi
     fi
+fi
 
-    local ok_to_pull=1
-    ((opt_confirm)) && ok_to_pull=0
+declare ok_to_pull=1
+((opt_confirm)) && ok_to_pull=0
 
-    ## Now grab the remote branch
-    local gflog=$(mktemp --suffix=.git-check-with-remote.2)
-    git fetch ${opt_remote} ${opt_branch} 2>$gflog
-    local rc=$?
-    if ((rc))
-    then
-        cat $gflog
-        rm -f $gflog
-        return $NOT_OK
-    fi
+## Now grab the remote branch
+declare gflog=$(mktemp --suffix=.git-check-with-remote.2)
+git fetch ${opt_remote} ${opt_branch} 2>$gflog
+declare rc=$?
+if ((rc))
+then
+    cat $gflog
     rm -f $gflog
+    exit $NOT_OK
+fi
+rm -f $gflog
 
-    ## Log the local branch
-    local locallog=$(mktemp --suffix=.git-check-with-remote.locallog)
-    git log > $locallog
+## Log the declare branch
+declare locallog=$(mktemp --suffix=.git-check-with-remote.locallog)
+git log > $locallog
 
-    ## Log the local copy of the remote branch
-    local remotelog=$(mktemp --suffix=.git-check-with-remote.remotelog)
-    git log ${opt_remote}/${opt_branch} > $remotelog
+## Log the declare copy of the remote branch
+declare remotelog=$(mktemp --suffix=.git-check-with-remote.remotelog)
+git log ${opt_remote}/${opt_branch} > $remotelog
 
-    ## Diff 'em
-    local difflog=$(mktemp --suffix=.git-check-with-remote.difflog)
-    diff $locallog $remotelog 1> $difflog 2>&1
+## Diff 'em
+declare difflog=$(mktemp --suffix=.git-check-with-remote.difflog)
+diff $locallog $remotelog 1> $difflog 2>&1
 
-    if [ -s $difflog ]
+if [ -s $difflog ]
+then
+    if [ "$(cat $difflog | wc -l)" = '10' ] \
+           && [ ! "$(grep -E "Merge pull request.*$(git-get-current-branch)" $difflog)" = '' ]
     then
-        if [ "$(cat $difflog | wc -l)" = '10' ] \
-               && [ ! "$(grep -E "Merge pull request.*$(git-get-current-branch)" $difflog)" = '' ]
-        then
-            echo "Only diff to ${opt_remote} is merge pull request."
-        else
-            echo
-            echo "*** git repo: $(pwd)"
-            echo "*** Current branch $(git-get-current-branch) and ${opt_remote}/${opt_branch} are not synced:"
-            echo
-            cat $difflog
-        fi
+        echo "Only diff to ${opt_remote} is merge pull request."
+    else
+        echo
+        echo "*** git repo: $(pwd)"
+        echo "*** Current branch $(git-get-current-branch) and ${opt_remote}/${opt_branch} are not synced:"
+        echo
+        cat $difflog
     fi
+fi
 
-    rm -f $locallog $remotelog $difflog
-    return $OK
-}
+rm -f $locallog $remotelog $difflog
+exit $OK
