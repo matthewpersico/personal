@@ -1,0 +1,65 @@
+# -*- sh -*-
+
+# <Function Class: gits>
+# <Function Justification: none>
+
+_git-go-get ()
+{
+
+    ## no, we don't need getopt processing here. This is an internal func so we
+    ## just have to GET IT RIGHT when we call it.
+    local update=$1
+    shift
+    local roots=$1
+    shift
+    local mbig=$1
+    shift
+    local wt=$1
+    shift
+    local only_wt=$1
+    shift
+    local filter=$1
+    shift
+
+    git-go-set-filename
+    if [ ! -e $gitfuncs_git_go_file ] || ((update))
+    then
+        git-go-set $mbig
+    fi
+
+    local tmpfile=$(mktemp --suffix=._git-go-get)
+    cp $gitfuncs_git_go_file $tmpfile
+
+    if ((roots==0))
+    then
+        cat $tmpfile | grep '(repo)' | sed 's/(repo)//' > ${tmpfile}.001
+        mv ${tmpfile}.001 ${tmpfile}
+    fi
+
+    if ((mbig==0))
+    then
+        cat $tmpfile | grep -v 'MBIG' > ${tmpfile}.001
+        mv ${tmpfile}.001 ${tmpfile}
+    fi
+
+    if ((wt==0))
+    then
+        cat $tmpfile | grep -v '/wt/' > ${tmpfile}.001
+        mv ${tmpfile}.001 ${tmpfile}
+    fi
+
+    if ((only_wt==1))
+    then
+        cat $tmpfile | grep '/wt/' > ${tmpfile}.001
+        mv ${tmpfile}.001 ${tmpfile}
+    fi
+
+    if [ -n "$filter" ]
+    then
+        cat $tmpfile | grep -i $filter > ${tmpfile}.001
+        mv ${tmpfile}.001 ${tmpfile}
+    fi
+
+    cat $tmpfile
+    \rm -f $tmpfile
+}
