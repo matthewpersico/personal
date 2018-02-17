@@ -2,6 +2,8 @@
 
 set -e ## Die on errors
 
+source $BASH_INC_DIR/on_exit
+
 if [[ "$(pwd)" =~ functions ]] || \
        [[ "$(pwd)" =~ bin ]]
 then
@@ -37,7 +39,11 @@ git commit $tgt_paths -m 'func to exec, mv (create) phase'
 echo func_to_exec.pl $tgt_paths
 func_to_exec.pl $tgt_paths
 
-rm -f commit_list   ## a file holding the functions we chose to commit after conversion
+commit_list=$(mktemp --suffix func_to_exec)    ## a file holding the functions
+                                               ## we chose to commit after
+                                               ## conversion
+rm_on_exit $commit_list
+
 for tgt_path in $tgt_paths
 do
     resp='e' ## Assume we want to edit
@@ -51,18 +57,24 @@ do
         then
             mv ${tgt_path}.new $tgt_path
             chmod +x $tgt_path
-            echo $tgt_path >> commit_list
-        elif [ "$resp" = 'e']
+            echo $tgt_path >> $commit_list
+        elif [ "$resp" = 'e' ]
         then
             $EDITOR $tgt_path
         fi
     done
 done
 
-if [ -s commit_list ]
+if [ -s $commit_list ]
 then
-    echo "git commit $(cat commit_list) -m 'func to exec, convert phase'"
-    git commit $(cat commit_list) -m 'func to exec, convert phase'
+    commit_contents=$(cat $commit_list | tr '\n' ' ')
+    echo "git commit $commit_contents -m 'func to exec, convert phase'"
+    git commit $commit_contents -m 'func to exec, convert phase'
+    for i in $commit_contents
+    do
+        unset_contents="$unset_contents $(basename $i)"
+    done
+    echo "Remember to 'unset -f $commit_contents'"
 else
     echo nothing to commit after convert phase
 fi
