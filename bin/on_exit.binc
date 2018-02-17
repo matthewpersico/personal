@@ -1,0 +1,50 @@
+## -*- sh -*-
+
+## on-exit.binc - bash include
+
+## Stuff to do when you exit a script. For example, remove a temp directory
+## when the script exists.
+
+##    # Create a temp dir
+##    gitroot=$(mktemp --tmpdir=/tmp -d 1381bucket.cron.XXXXXX)
+##    # Register it for removal at script end
+##    rm_on_exit $gitroot
+
+## Note: DO NOT source this script into the environment. You do not want
+## multiple scripts sharing the on_exit_items or you may lose temp files before
+## you expect to.
+
+declare -a on_exit_items
+
+function on_exit()
+{
+    for i in "${on_exit_items[@]}"
+    do
+        [ "$ON_EXIT_VERBOSE" == '1' ] && echo "on_exit: $i" >&2
+        eval $i
+    done
+}
+
+function add_on_exit()
+{
+    local n=${#on_exit_items[*]}
+    on_exit_items[$n]="$*"
+    if [[ $n -eq 0 ]]; then
+        [ "$ON_EXIT_VERBOSE" == '1' ] && echo "add_on_exit: Setting trap (on_exit)" >&2
+        trap on_exit EXIT
+    fi
+}
+
+function rm_on_exit()
+{
+    for rmit in "$@"
+    do
+        if [ -d $rmit ]
+        then
+            add_on_exit rm -rf $rmit
+        else
+            add_on_exit rm -f $rmit
+        fi
+        ((n+=1))
+    done
+}
