@@ -1,0 +1,63 @@
+# -*- sh -*-
+
+# _git-go-get
+
+source $BASH_INC_DIR/on_exit.binc
+
+## no, we don't need getopt processing here. This is an internal func so we
+## just have to GET IT RIGHT when we call it.
+declare update=$1
+shift
+declare roots=$1
+shift
+declare mbig=$1
+shift
+declare wt=$1
+shift
+declare only_wt=$1
+shift
+declare filter=$1
+shift
+
+git-go-set-filename
+if [ ! -e $gitfuncs_git_go_file ] || ((update))
+then
+    git-go-set $mbig
+fi
+
+declare tmpfile=$(mktemp --suffix=._git-go-get)
+rm_on_exit $tmpfile
+cp $gitfuncs_git_go_file $tmpfile
+
+if ((roots==0))
+then
+    cat $tmpfile | grep '(repo)' | sed 's/(repo)//' > ${tmpfile}.001
+    mv ${tmpfile}.001 ${tmpfile}
+fi
+
+if ((mbig==0))
+then
+    cat $tmpfile | grep -v 'MBIG' > ${tmpfile}.001
+    mv ${tmpfile}.001 ${tmpfile}
+fi
+
+if ((wt==0))
+then
+    cat $tmpfile | grep -v '/wt/' > ${tmpfile}.001
+    mv ${tmpfile}.001 ${tmpfile}
+fi
+
+if ((only_wt==1))
+then
+    cat $tmpfile | grep '/wt/' > ${tmpfile}.001
+    mv ${tmpfile}.001 ${tmpfile}
+fi
+
+if [ -n "$filter" ]
+then
+    cat $tmpfile | grep -i $filter > ${tmpfile}.001
+    mv ${tmpfile}.001 ${tmpfile}
+fi
+
+cat $tmpfile
+\rm -f $tmpfile

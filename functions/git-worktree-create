@@ -16,7 +16,8 @@ git-worktree-create ()
     local message=''
     local dated=''
     local asmaster='master'
-    OPTSARGS=$(getoptp -o dfm:h --long dated,fetch,message:,asmaster:,help -n $FUNCNAME -- "$@")
+    local remote=origin
+    OPTSARGS=$(getoptp -o dfm:r:h --long dated,fetch,message:,asmaster:,remote:,help -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -29,6 +30,7 @@ git-worktree-create ()
             -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
             --asmaster) asmaster=$2; shift ; shift ;;
             -h|--help) $usage_func; return $OK ;;
+            -r|--remote) remote=$2; shift ; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Error getting options!"; $usage_func; return $NOT_OK ;;
         esac
@@ -56,13 +58,6 @@ git-worktree-create ()
     fi
     local wt="$1${dated}"
     shift
-
-    local remote
-    if [ -n "$1" ]
-    then
-        [ -n "$remote" ] && shift
-    fi
-    [ -z "$remote" ] && remote=origin
     func-echo "Using '$remote' as remote."
 
     ((verbose)) && func-echo 'Check for existing worktrees with same name.'
@@ -135,8 +130,6 @@ git-worktree-create ()
         git push --set-upstream $remote $wtbranch
         git-branch-info created "$(date +%Y%m%d.%H%M%S%z)"
     else
-        ## Not convinced this is the optimal set of actions. Probably better to
-        ## modify or replace the add command.
         git branch --track $wtsubdir $wtbranch
         git checkout $wtsubdir
      fi

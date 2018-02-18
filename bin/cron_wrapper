@@ -2,12 +2,6 @@
 ## Control when cron jobs mail output
 
 CW_bin=$(realpath $(dirname $0))
-OPTSARGS=$($CW_bin/getoptp --long mailtype:,to:,subject:,checkkinit,id:,x,keeplog -n $(basename $0) -- "$@")
-status=$?
-((status != 0)) && exit $status
-
-eval set -- "$OPTSARGS"
-
 mailtype=''
 mailto=$MAILTO
 mailsubject=''
@@ -15,39 +9,67 @@ checkkinit=0
 setx=0
 setv=0
 keeplog=0
-
-while true
+endofopts=0
+while [[ "$1" =~ ^- ]] && ((!endofopts))
 do
-    ## Remeber to add new options to the getoptp call above, in addition to
-    ## adding them here.
-    case "$1" in
-        --x)
-            setx=1;
-            shift;;
-        --x)
-            setv=1;
-            shift;;
-        --mailtype)
-            mailtype=$(echo "$2" | tr '[A-Z]' '[a-z]')
-            shift; shift;;
-        --to)
-            mailto="$2"
+    ## Strip all leading dashes here so that -foo and --foo can both
+    ## be processed as 'foo'.
+    original="$1"
+    option="$1"
+    declare new=''
+    while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
+    do
+        new=$option
+        option=${option##-}
+    done
+    shift ## That way you avoid endless loops on invalid options.
+
+    case $option in
+        x)
+            setx=1
+            ;;
+        v)
+            setv=1
+            ;;
+        mailtype)
+            mailtype=$(echo "$1" | tr '[A-Z]' '[a-z]')
+            shift
+            ;;
+        to)
+            mailto="$1"
             MAILTO=$mailto; export MAILTO
-            shift; shift;;
-        --keeplog)
-            keeplog=1; shift;;
-        --subject)
-            mailsubject="$2"
-            shift; shift;;
-        --checkkinit)
+            shift
+            ;;
+        keeplog)
+            keeplog=1
+            ;;
+        subject)
+            mailsubject="$1"
+            shift
+            ;;
+        checkkinit)
             checkkinit=1
-            shift;;
-        --id ) shift; shift;; ## used so that there is something unique on the
-                              ## command line for email subjects if there's a
-                              ## hard die
-        --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) echo "Internal error!"; exit 1;;
+            ;;
+        id )
+            shift ## Specified so that there is something unique on the command
+                  ## line for cron email subjects if there's a hard die. Not
+                  ## used in the script anywhere.
+             ;;
+        help )
+            echo "No documentation yet. Look at the code:"
+            cat $0
+            exit 0
+            ;;
+        --)
+            endofopts=1 ## end of opts, remaining $*, if any, are args
+            ;;
+        *)
+            echo "$original is an invalid option. See $0 --help"
+            exit 1
+            ;;
     esac
+
+
 done
 
 [ -z "$mailtype" ] && echo "Mail type required" && exit 1
@@ -85,9 +107,9 @@ do
     esac
 done
 
-temproot=$(mktemp)
-alllog=${temproot}.cron_wrapper.alllog
-profilelog=${temproot}.cron_wrapper.profilelog
+temproot=$(mktemp --suffix .cron_wrapper)
+alllog=${temproot}.alllog
+profilelog=${temproot}.profilelog
 did_profile=0
 
 for p in ${TILDAE:-$HOME}/.bash_profile ${TILDAE:-$HOME}/.profile
@@ -108,6 +130,9 @@ then
     cat $profilelog
     exit 42
 fi
+
+source $BASH_INC_DIR/on_exit.binc
+rm_on_exit $temproot $alllog $profilelog
 
 if((checkkinit))
 then

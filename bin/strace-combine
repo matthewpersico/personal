@@ -1,0 +1,59 @@
+#!/usr/bin/env perl
+use strict;
+use warnings;
+
+use POSIX qw(strftime);
+
+my @order;
+my $current_file='';
+my $current_pid='';
+my $timelen = undef;
+my $epoch_to_date = 0;
+
+while (<>) {
+
+    if( not defined $timelen ) {
+        if ($_ =~ m/\d{2,2}:\d{2,2}:\d{2,2}\.\d{6,6}/ ) {
+            $timelen = 15;
+        } elsif ($_ =~ m/\d{10,10}\.\d{6,6}/ ) {
+            $timelen = 17;
+            $epoch_to_date = 1;
+        } else {
+            die "no time found, cannot combine $ARGV\n";
+        }
+    }
+
+    if( $current_file ne $ARGV) {
+        print STDERR "$ARGV...\n";
+        $current_file = $current_pid = $ARGV;
+        $current_pid =~ s/^.*\.(\d+)/$1/;
+    }
+    my %line = (
+        time => substr($_, 0, $timelen),
+        line => $_,
+        pid => $current_pid,
+        htime => ($epoch_to_date
+                    ? ( strftime("%Y-%m-%d.%H:%M:%S",
+                                 localtime(substr($_, 0, $timelen-7)))
+                        . substr($_, $timelen-7,7) )
+                    : substr($_, 0, $timelen)
+                ),
+    );
+    push @order, \%line;
+}
+
+print STDERR "printing...\n";
+my $lines = scalar(@order);
+print STDERR "$lines\n";
+for ( sort { $a->{time} cmp $b->{time} } @order ) {
+    print STDERR "$lines\n"
+      if (($lines-- % 10000) == 1);
+    printf('%6d %s %s',
+           $_->{pid},
+           $_->{htime},
+           substr($_->{line},$timelen));
+}
+print STDERR "cleanup...\n";
+@order=();
+print STDERR "bye!\n";
+exit 0;

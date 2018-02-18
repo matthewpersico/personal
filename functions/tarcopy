@@ -5,64 +5,55 @@
 
 tarcopy ()
 {
-    ##@@ none||none||tarcopy||Use the tar trick to copy  arg1/* to arg2/* or arg2/arg1/*, with some intelligence.
+    ##@@ none||none||tarcopy||Use the tar trick to copy a tree of files to a single target dir
 
-    local srcdir=$1
-    local tgtdir=$2
-    if [ ! -e $srcdir ]
+    declare moreopts
+    moreopts=1
+    declare exttaropts
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        declare original="$1"
+        declare option
+        option=$(dashstripper $original)
+        shift
+
+        case $option in
+            p )
+                exttaropts="$extaropts -p"
+                ;;
+            v )
+                exttaropts="$extaropts -v"
+                ;;
+            help )
+                echo "No documentation yet. Look at the code:"
+                cat $0
+                return 0
+                ;;
+            debug | -x )
+                set -x
+                ;;
+            --)
+                moreopts=0
+                ;;
+            * )
+                echo "$original is an invalid option. See $0 --help"; return 1;;
+        esac
+    done
+
+    if (($#<2))
     then
-        echo "$srcdir not found"
+        echo "usage : src [src...] tgtdir"
         return $(false)
     fi
-    if [ ! -d $srcdir ]
-    then
-        echo "Source '$srcdir' must be a directory"
-        return $(false)
-    fi
-    if [ $(basename $srcdir) = $(basename $tgtdir) ]
-    then
-        echo "You're trying to copy $srcdir to $tgtdir."
-        echo "You probably want to use $(dirname $tgtdir)"
-        echo "as the target instead."
-        return $(false)
-    fi
-    if [ ! -e $tgtdir ]
-    then
-        echo "$tgtdir not found. Creating..."
-        mkdir $tgtdir || return $(false)
-    fi
+
+    local tgtdir=${@: -1}
     if [ ! -d $tgtdir ]
     then
-        echo "Target '$tgtdir' must be a directory"
+        echo "Target '$tgtdir' must be an existing directory"
         return $(false)
     fi
-    tgtdir=$(realpath $tgtdir)
-    startdir=$(pwd)
-    if [ "$srcdir" != '.' ]
-    then
-        echo "WARNING: You are about to copy $srcdir into $tgtdir"
-        echo "instead of copying the CONTENTS of $srcdir into $tgtdir"
-        read -p "Do you want to copy the (d)irectory or its (c)ontents? " resp
-        if [ "$resp" = 'd' ]
-        then
-            echo 'Ok...'
-        elif [ "$resp" = 'c' ]
-        then
-            echo "Yeah, that's what I figured"
-            echo "*** builtin cd $srcdir"
-            builtin cd $srcdir
-            srcdir='.'
-        else
-            echo "d or c, how hard could that have been???"
-            return $(false)
-        fi
-    fi
-    echo "*** tar cf - $srcdir | ( builtin cd $tgtdir; tar xvfp -)"
-    tar cf - $srcdir | ( builtin cd $tgtdir; tar xvfp -)
-    if [ $(pwd) != "$startdir" ]
-    then
-        echo "*** builtin cd $startdir"
-        builtin cd $startdir
-    fi
-    return $(true)
+
+    ## B - reblock
+    tar cf - "${@:1:$# - 1}" | tar -C $tgtdir $exttaropts -xBf -
+    return $?
 }

@@ -155,9 +155,12 @@ LINE: while (<$clih>) {
         push @oldput, [];
         push @{$oldput[-1]}, $_;
     } elsif (length($_) == 0 ) {
-        ## blank
-        push @{$oldput[-1]}, $_;
-        %current=();
+        if($entry_id) {
+            ## blank
+            push @{$oldput[-1]}, $_;
+            %current=();
+        } ## else it's a blank line before first entry - ignore fat fingered
+          ## typing
     } elsif ( /^\s+$/) {
         ## technically blank, so let's make it so
         push @{$oldput[-1]}, '';
@@ -380,11 +383,12 @@ sub push_to_output {
           '' ;
         return;
     }
-    ## We compose the marker this way so that the grep does nto
+    ## We compose the markers this way so that the grep does not
     ## falsely find this code.
     my $marker = join('', qw( < G C S > ));
+    my $excl_marker = join('', qw( < G C S L I T E R A L > ));
     my @gcs;
-    @gcs = `grep -i '$marker' $file`
+    @gcs = `grep -i '$marker' $file | grep -v '$excl_marker'`
       if not exists $deleted{$file};
     if (@gcs) {
         push @output, map{"${format_over}$_"} ('GCS Entries:', map{chomp;$_} @gcs), '';
