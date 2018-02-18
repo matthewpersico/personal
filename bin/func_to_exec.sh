@@ -2,6 +2,8 @@
 
 set -e ## Die on errors
 
+source $BASH_INC_DIR/on_exit
+
 if [[ "$(pwd)" =~ functions ]] || \
        [[ "$(pwd)" =~ bin ]]
 then
@@ -13,14 +15,14 @@ fi
 ## Find sources, set targets
 src_paths="$@"
 bad=0
-for i in $src_paths
+for src_path  in $src_paths
 do
-    if [ ! -r $i ]
+    if [ ! -r $src_path ]
     then
-        echo "$i not found"
+        echo "$src_path not found"
         ((bad+=1))
     fi
-    file=$(basename $i)
+    file=$(basename $src_path)
     files="$files $file"
     tgt_paths="$tgt_paths bin/$file"
 done
@@ -37,25 +39,42 @@ git commit $tgt_paths -m 'func to exec, mv (create) phase'
 echo func_to_exec.pl $tgt_paths
 func_to_exec.pl $tgt_paths
 
-rm -f commit_list   ## a file holding the functions we chose to commit after conversion
-for i in $tgt_paths
+commit_list=$(mktemp --suffix func_to_exec)    ## a file holding the functions
+                                               ## we chose to commit after
+                                               ## conversion
+rm_on_exit $commit_list
+
+for tgt_path in $tgt_paths
 do
-    resp=''
-    diff -w $i ${i}.new && true ## so that a diff does not trigger an exit due
-                                ## to the -e setting
-    resp=$(yesno "mv ${i}.new $i")
-    if [ "$resp" = 'y' ]
-    then
-        mv ${i}.new $i
-        chmod +x $i
-        echo $i >> commit_list
-    fi
+    resp='e' ## Assume we want to edit
+    while [ "$resp" = 'e' ]
+    do
+        diff -w $tgt_path ${tgt_path}.new && true ## so that a diff does not
+                                                  ## trigger an exit due to the
+                                                  ## -e setting
+        resp=$(pick "mv ${tgt_path}.new $tgt_path" "y/n/e" )
+        if [ "$resp" = 'y' ]
+        then
+            mv ${tgt_path}.new $tgt_path
+            chmod +x $tgt_path
+            echo $tgt_path >> $commit_list
+        elif [ "$resp" = 'e' ]
+        then
+            $EDITOR $tgt_path
+        fi
+    done
 done
 
-if [ -s commit_list ]
+if [ -s $commit_list ]
 then
-    echo "git commit $(cat commit_list) -m 'func to exec, convert phase'"
-    git commit $(cat commit_list) -m 'func to exec, convert phase'
+    commit_contents=$(cat $commit_list | tr '\n' ' ')
+    echo "git commit $commit_contents -m 'func to exec, convert phase'"
+    git commit $commit_contents -m 'func to exec, convert phase'
+    for i in $commit_contents
+    do
+        unset_contents="$unset_contents $(basename $i)"
+    done
+    echo "Remember to 'unset -f $commit_contents'"
 else
     echo nothing to commit after convert phase
 fi

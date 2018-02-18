@@ -26,11 +26,11 @@ addpath ()
     typeset opt_f opt_b opt_i
     typeset sep=:
 
-    typeset pathvar COMMAND dirname tmp element
+    typeset pathvar COMMAND dirname tmp element TEMP
 
     pathfunc_usage_init
     typeset -a USAGE
-    i=0; USAGE[i]="addpath [-h] [-s separator] [-f|-b] [-x] [-v] [[-p] pathvar] dirname"
+    i=0; USAGE[i]="addpath [-h] [-s separator] [-f|-b|-i n] [-x] [-v] [[-p] pathvar] dirname"
     ((i+=1)); USAGE[i]="Idempotently adds 'dirname' to 'pathvar'."
     ((i+=1)); USAGE[i]="$USAGE_OPT_P1"
     ((i+=1)); USAGE[i]="$USAGE_OPT_P2"
@@ -40,6 +40,9 @@ addpath ()
     ((i+=1)); USAGE[i]="$USAGE_OPT_S"
     ((i+=1)); USAGE[i]="-f - Add to front of 'pathvar'."
     ((i+=1)); USAGE[i]="-b - Add to back of 'pathvar' (default behavior)."
+    ((i+=1)); USAGE[i]="-i n - Add to 'pathvar' in position 'n'. Indexing starts"
+    ((i+=1)); USAGE[i]="   at 1. Elements are moved down to make room for the"
+    ((i+=1)); USAGE[i]="   added 'dirname'."
     ((i+=1)); USAGE[i]="$USAGE_OPT_X"
     ((i+=1)); USAGE[i]="$USAGE_OPT_V"
     ((i+=1)); USAGE[i]="$USAGE_OPT_H"
@@ -48,7 +51,7 @@ addpath ()
     # handle options
     ###########################################################################
 
-    options "hp:s:xvfb" "$@"
+    options "hp:s:xvfbi:" "$@"
     shift $options_shift_val
     if [ -n "$opt_h" ]
     then
@@ -124,6 +127,29 @@ addpath ()
             if [ -n "$opt_f" ]
             then
                 newvalue="${dirname}${sep}${oldvalue}"
+            elif [ -n "$opt_i" ]
+            then
+                TEMP=$(mktemp --suffix .addpath)
+                listpath -s "${sep}" -p $pathvar | grep -v $MATCH "$delit" > $TEMP
+                local newvalue
+                local line
+                local idx=0
+                local addin
+                ((opt_i-=1))
+                while read line
+                do
+                    if ((idx != opt_i))
+                    then
+                        addin="${line}"
+                    else
+                        addin="${dirname}${sep}${line}";
+                    fi
+                    [ -n "$newvalue" ] \
+                        && newvalue="${newvalue}${sep}${addin}" \
+                            || newvalue="${addin}"
+                    ((idx+=1))
+                done < $TEMP
+                rm -rf $TEMP
             else
                 newvalue="${oldvalue}${sep}${dirname}"
             fi
