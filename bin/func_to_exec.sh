@@ -2,7 +2,7 @@
 
 set -e ## Die on errors
 
-source $BASH_INC_DIR/on_exit
+source $BASH_INC_DIR/on_exit.binc
 
 if [[ "$(pwd)" =~ functions ]] || \
        [[ "$(pwd)" =~ bin ]]
@@ -12,17 +12,26 @@ then
     exit 1
 fi
 
+if [ -z "$1" ]
+then
+    echo "usage: $0 func [func...]"
+    echo "       You can use or not use the 'function/'"
+    echo "       prefix;we will adjust."
+    exit 1;
+fi
+
 ## Find sources, set targets
 src_paths="$@"
 bad=0
-for src_path  in $src_paths
+for src_path in $src_paths
 do
-    if [ ! -r $src_path ]
+    adj_src_path="functions/$(basename $src_path)"
+    if [ ! -r $adj_src_path ]
     then
-        echo "$src_path not found"
+        echo "$adj_src_path not found"
         ((bad+=1))
     fi
-    file=$(basename $src_path)
+    file=$(basename $adj_src_path)
     files="$files $file"
     tgt_paths="$tgt_paths bin/$file"
 done
