@@ -1,58 +1,54 @@
 # -*- sh -*-
 
-# <Function Class: git>
-# <Function Justification: none>
+# git-commit-with-changelog
 
-git-commit-with-changelog ()
-{
-    ##@@ 0001||group||git-commit-with-changelog||Use $GITFUNCS_CHANGELOG_NAME entries to create commit messages
+##@@ 0001||group||git-commit-with-changelog||Use $GITFUNCS_CHANGELOG_NAME entries to create commit messages
 
-    local usage_func="${FUNCNAME}-usage"
+declare usage_func="${FUNCNAME}-usage"
 
-    ## All of the *-changelog functions work best in the git-root, which is
-    ## where the $GITFUNCS_CHANGELOG_NAME is anyway
-    local pwd=$(pwd)
-    local gr=$(git-root)
-    if [ ! "$pwd" = "$gr" ]
+## All of the *-changelog functions work best in the git-root, which is
+## where the $GITFUNCS_CHANGELOG_NAME is anyway
+declare pwd=$(pwd)
+declare gr=$(git-root)
+if [ ! "$pwd" = "$gr" ]
+then
+    echo "Current directory ($pwd) is not the git root ($gr)"
+    declare resp=$(func-yesno "Go there")
+    if [ "$resp" = 'n' ]
     then
-        echo "Current directory ($pwd) is not the git root ($gr)"
-        local resp=$(func-yesno "Go there")
-        if [ "$resp" = 'n' ]
-        then
-            return $NOT_OK
-        fi
-        _git-cd-to $gr || return $?
-    else
-        gr=''
+        exit $NOT_OK
     fi
+    _git-cd-to $gr || exit $?
+else
+    gr=''
+fi
 
-    local opt_a
-    local opt_v
-    ## Options first
-    OPTSARGS=$(getoptp -o ave:h -n $FUNCNAME -- "$@")
-    status=$?
-    ((status != 0)) && $usage_func && return $status
+declare opt_a
+declare opt_v
+## Options first
+OPTSARGS=$(getoptp -o ave:h -n $FUNCNAME -- "$@")
+status=$?
+((status != 0)) && $usage_func && exit $status
 
-    eval set -- "$OPTSARGS"
-    while true
-    do
-        case "$1" in
-            -a) opt_a=$1; shift ;;
-            -v) opt_v=$1; shift ;;
-            -e) opt_edit="--editor $2"; shift; shift;;
-            -h) $usage_func; return $OK ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
-        esac
-    done
+eval set -- "$OPTSARGS"
+while true
+do
+    case "$1" in
+        -a) opt_a=$1; shift ;;
+        -v) opt_v=$1; shift ;;
+        -e) opt_edit="--editor $2"; shift; shift;;
+        -h) $usage_func; exit $OK ;;
+        --) shift; break ;; ## end of opts, remaining $*, if any, are args
+        *) echo "Internal error!"; $usage_func; exit $NOT_OK ;;
+    esac
+done
 
-    local files="$@"
-    ## This causes the same behavior as git commit with no args (default to
-    ## only staged files), but we need to pass files into git-process.
-    [ -z "$files" ] && files=$(git-what-is-staged)
-    [ -n "$opt_a" ] && files=$(git-what-is-modified)
-    git-process-changelog --commit $opt_v $opt_edit $files
-    status=$?
-    [ -n "$gr" ] && _git-cd-return
-    return $status
-}
+declare files="$@"
+## This causes the same behavior as git commit with no args (default to
+## only staged files), but we need to pass files into git-process.
+[ -z "$files" ] && files=$(git-what-is-staged)
+[ -n "$opt_a" ] && files=$(git-what-is-modified)
+git-process-changelog --commit $opt_v $opt_edit $files
+status=$?
+[ -n "$gr" ] && _git-cd-exit
+exit $status
