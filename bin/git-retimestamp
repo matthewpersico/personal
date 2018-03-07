@@ -2,6 +2,8 @@
 
 # git-retimestamp
 
+source $BASH_INC_DIR/on_exit.binc
+
 ##@@ 0001||group||git-retimestsamp||Adjust all non-modified, tracked files to have the date of their last commit, not the pull date.
 declare verbose=0
 if [[ "$1" =~ -v ]]
@@ -9,14 +11,14 @@ then
     verbose=1
 fi
 
-## Get the files
+## Get the list of files.
 declare -A gitfiles
 for i in $(git ls-files)
 do
     gitfiles[$i]=1
 done
 
-## Remove any that are currently modified
+## Remove from the list any that are currently modified.
 declare msgd=''
 for i in $(git-is-mod)
 do
@@ -35,9 +37,11 @@ do
     [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
 done
 
-## Parse the log
+## Parse the log to get the date and modify accordingly.
 declare gitdate
-date > /tmp/get-retimestamp.log
+declare tmpfile=$(mktemp --suffix=.git-retimestamp)
+rm_on_exit $tmpfile
+date > $tmpfile
 git log  --date=iso --name-only | \
     while read -r i;
     do
@@ -49,7 +53,7 @@ git log  --date=iso --name-only | \
             gitdate=$(echo $i | sed -E 's/Date:\s+//')
         elif [ -n "${gitfiles[$i]}" ]
         then
-            echo "gitfiles[$i] => ${gitfiles[$i]}" >> /tmp/get-retimestamp.log
+            echo "gitfiles[$i] => ${gitfiles[$i]}" >> $tmpfile
             unset gitfiles[$i]
             [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
             declare filedate=$(stat -c %y $i | sed 's/\.[0-9]+//')

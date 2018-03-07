@@ -21,9 +21,9 @@ then
 fi
 
 ## Find sources, set targets
-src_paths="$@"
+raw_src_paths="$@"
 bad=0
-for src_path in $src_paths
+for src_path in $raw_src_paths
 do
     adj_src_path="functions/$(basename $src_path)"
     if [ ! -r $adj_src_path ]
@@ -34,6 +34,7 @@ do
     file=$(basename $adj_src_path)
     files="$files $file"
     tgt_paths="$tgt_paths bin/$file"
+    src_paths="$stc_paths $adj_src_path"
 done
 [ -z "$tgt_paths" ] && echo "no sources found to convert" && exit 1
 ((bad)) && echo "some sources bad. bailing" && exit 1
@@ -48,9 +49,9 @@ git commit $tgt_paths -m 'func to exec, mv (create) phase'
 echo func_to_exec.pl $tgt_paths
 func_to_exec.pl $tgt_paths
 
-commit_list=$(mktemp --suffix func_to_exec)    ## a file holding the functions
-                                               ## we chose to commit after
-                                               ## conversion
+commit_list=$(mktemp --suffix=.func_to_exec)    ## a file holding the functions
+                                                ## we chose to commit after
+                                                ## conversion
 rm_on_exit $commit_list
 
 for tgt_path in $tgt_paths
@@ -83,7 +84,7 @@ then
     do
         unset_contents="$unset_contents $(basename $i)"
     done
-    echo "Remember to 'unset -f $commit_contents'"
+    echo "Remember to 'unset -f $unset_contents'"
 else
     echo nothing to commit after convert phase
 fi
