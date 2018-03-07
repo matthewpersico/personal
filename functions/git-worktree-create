@@ -17,7 +17,7 @@ git-worktree-create ()
     local dated=''
     local asmaster='master'
     local remote=origin
-    OPTSARGS=$(getoptp -o dfm:r:h --long dated,fetch,message:,asmaster:,remote:,help -n $FUNCNAME -- "$@")
+    OPTSARGS=$(getoptp -o dfm:r:h --long dated,fetch,message:,asmaster:,remote:,orphan,help -n $FUNCNAME -- "$@")
     local status=$?
     ((status != 0)) && $usage_func && return $status
 
@@ -25,12 +25,17 @@ git-worktree-create ()
     while true
     do
         case "$1" in
-            -d|--dated) dated="_$(date +%Y-%m-%d)"; shift;;
+            -d|--dated) dated="_$(date +%Y-%m-%d)"; shift ;;
             -f|--fetch) fetch_existing=1; fetch_opt="-r"; shift ;;
-            -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
-            --asmaster) asmaster=$2; shift ; shift ;;
+            -m|--message) opt_m=$1; message="$2"; shift; shift ;;
+            --asmaster) asmaster=$2; shift; shift ;;
             -h|--help) $usage_func; return $OK ;;
             -r|--remote) remote=$2; shift ; shift ;;
+            --orphan) echo "Sorry, cannot create orphans this way."
+                      echo "First create the orphan, then create a"
+                      echo "worktree for it using --fetch."
+                      return $NOOK
+                      ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
             *) echo "Error getting options!"; $usage_func; return $NOT_OK ;;
         esac
@@ -106,7 +111,7 @@ git-worktree-create ()
         #### - WARNING - This should only be used if the repo is YOUR FORK of a
         #### - canonical repo. If you are working in a CLONE of the CANONICAL,
         #### - you do NOT want to do this. Until we can tell the difference,
-        #### - don't.
+        #### - we won't automajically do this.
         #### git push origin master
     fi
 
