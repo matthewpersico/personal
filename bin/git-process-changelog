@@ -4,6 +4,8 @@
 
 ##@@ 0001||group||git-process-changelog||'Guts' function for *-with-changelog functions
 
+source $BASH_INC_DIR/on_exit.binc
+
 declare usage_func="${FUNCNAME}-usage"
 
 ## All of the *-changelog functions work best in the git-root, which is
@@ -23,13 +25,15 @@ declare diff=''
 declare opt_v='' ## passed to commit
 declare status=0
 declare parsed_cl=$(mktemp --suffix=.git-process-changelog)
+rm_on_exit $parsed_cl
 declare pcl=$(which parse-changelog)
 declare pcl_flags=''
 declare noless=''
 declare git_editor
+declare skip_no_changelog
 
 ## Options first
-OPTSARGS=$(getoptp -o hv --long commit,withstatus,diff,noless,help,editor: -n $FUNCNAME -- "$@")
+OPTSARGS=$(getoptp -o hv --long commit,withstatus,diff,noless,help,editor:,skip-no-changelog -n $FUNCNAME -- "$@")
 status=$?
 ((status != 0)) && $usage_func && exit $status
 
@@ -52,6 +56,9 @@ do
             shift ;;
         --noless)
             noless=1
+            shift ;;
+        --skip-no-changelog)
+            skip_no_changelog='--skipmissing'
             shift ;;
         --editor)
             git_editor=$2
@@ -110,7 +117,7 @@ fi
 
 ## Backup
 cp -f $changelog $changelogbkp
-$DEBUG_PROCESS_CHANGELOG $pcl --cl $changelog $pcl_flags $filelist
+$DEBUG_PROCESS_CHANGELOG $pcl --cl $changelog $pcl_flags $skip_no_changelog $filelist
 status=$?
 if ((status!=0))
 then
@@ -120,9 +127,10 @@ fi
 
 if [ "$action" = 'commit' ]
 then
-    ##<TODO> In preparation of $pcl skipping files that do not have an entry, as
-    ##<TODO> opposed to aborting the run, we need to re-read the filelist from the -F
-    ##<TODO> file here.
+    ## We rebuild the filelist from the commit message file so that we can
+    ## account for having skipped files because they do not have a
+    ## changelog entry.
+    filelist=$(perl -ne 'next if $_ =~ m/^(SUMMARY LINE HERE|o | |\n)/;print $_' $parsed_cl)
     if [ -z "$git_editor" ]
     then
         git commit -F $parsed_cl --edit $opt_v $filelist
@@ -141,4 +149,3 @@ then
 fi
 [ -f $changelogbkp ] && \rm -f $changelogbkp
 [ -n "$gr" ] && _git-cd-exit
-

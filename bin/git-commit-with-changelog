@@ -25,8 +25,10 @@ fi
 
 declare opt_a
 declare opt_v
+declare opt_edit
+declare opt_skip
 ## Options first
-OPTSARGS=$(getoptp -o ave:h -n $FUNCNAME -- "$@")
+OPTSARGS=$(getoptp -o ave:sh -n $FUNCNAME -- "$@")
 status=$?
 ((status != 0)) && $usage_func && exit $status
 
@@ -37,9 +39,13 @@ do
         -a) opt_a=$1; shift ;;
         -v) opt_v=$1; shift ;;
         -e) opt_edit="--editor $2"; shift; shift;;
-        -h) $usage_func; exit $OK ;;
+        -s) opt_skip='--skip-no-changelog'; shift;;
+        -h) printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)"
+            exit $OK ;;
         --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) echo "Internal error!"; $usage_func; exit $NOT_OK ;;
+        *) echo "Internal error!"
+           printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)"
+           exit $NOT_OK ;;
     esac
 done
 
@@ -48,7 +54,26 @@ declare files="$@"
 ## only staged files), but we need to pass files into git-process.
 [ -z "$files" ] && files=$(git-what-is-staged)
 [ -n "$opt_a" ] && files=$(git-what-is-modified)
-git-process-changelog --commit $opt_v $opt_edit $files
+git-process-changelog --commit $opt_v $opt_edit $opt_skip $files
 status=$?
 [ -n "$gr" ] && _git-cd-exit
 exit $status
+
+__USAGE__
+git-commit-with-changelog [-a] [ -v] [-e editor] [-s] [file [file...]]
+
+Use the local changelog as the commit message.
+
+-a Try to commit all modified files, staged and unstaged, just like the
+     'git commit' command.
+
+-v verbose
+
+-e Edit the commit message after it has been extracted from the changelog
+     file but before the commit, using the specified editor.
+
+-s Skip files that do not have a changelog entry, but continue with those that
+   do. Without this flag, if a file to commit does not have a changelog entry,
+   processing stops and nothing is committed.
+
+If files are not specified, the list of all modified files is used.
