@@ -133,10 +133,13 @@ while (<>) {
 
     ## No returns outside of funcs.
     m/\breturn\b/ && do {
-        next if $_ =~ m/#.*return/; ## See above about comments and
-                                    ## pathologicals.
+        next if $_ =~ m/#.*return|_git-cd-return/;
+        ## See above about comments and pathologicals.
         $_ =~ s/(\b)return(\b)/${1}exit${2}/g;
     };
+
+    ## echo becomes just echo
+    $_ =~ m/echo/echo/g;
 
     ## If we get here, we want it.
     push @funclines, $_;

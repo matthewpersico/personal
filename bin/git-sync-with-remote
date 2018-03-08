@@ -28,13 +28,13 @@ do
         -b|--branch) opt_branch="$2"; shift; shift ;;
         -h|--help) $usage_func $iam; exit $OK ;;
         --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) func-echo "Internal error!"; $usage_func $iam; exit $NOT_OK ;;
+        *) echo "Internal error!"; $usage_func $iam; exit $NOT_OK ;;
     esac
 done
 
 if [ -z "$opt_branch" ]
 then
-    func-echo "--branch required"
+    echo "--branch required"
     $usage_func $iam
     exit $NOT_OK
 fi
@@ -45,7 +45,7 @@ status=$?
 
 if [ "$cb" == '' ]
 then
-    func-echo
+    echo
     cat <<EOF
 
 $iam is used to keep your current git repo DEVELOPMENT branch in your declare
@@ -63,7 +63,7 @@ fi
 
 if [ "$cb" == "$opt_branch" ]
 then
-    func-echo
+    echo
     declare msgoverride=$(find $(git-root) -name .git-sync-with-remote.txt)
     if [ -n "$msgoverride" ] && [ -r "$msgoverride" ]
     then
@@ -99,7 +99,7 @@ then
         declare resp=$(func-yesno "Stash" n)
         if [ "$resp" = 'n' ]
         then
-            func-echo "Will not proceed without a stash"
+            echo "Will not proceed without a stash"
             exit $NOT_OK
         else
             do_stash=1
@@ -108,7 +108,7 @@ then
 else
     if ((opt_stash))
     then
-        func-echo "stash not needed"
+        echo "stash not needed"
     fi
 fi
 if ((do_stash))
@@ -125,7 +125,7 @@ fi
 
 ## Grab head of log
 declare oldsha=$(git-log-grab-sha -1)
-func-echo --head 'Log before pull:'
+echo --head 'Log before pull:'
 git-log-shas-range $oldsha $oldsha
 
 ## Check the declare branch against its origin
@@ -136,7 +136,7 @@ grep "Your branch is up.to.date with 'origin/$cb'." $stcheck 1>/dev/null
 status=$?
 if [ "$status" != '0' ]
 then
-    func-echo
+    echo
     cat $stcheck
     cat <<EOF
 Your branch should be up to date with its origin in order to simplify the
@@ -147,7 +147,7 @@ EOF
     then
         if ((do_stash))
         then
-            func-echo 'Stash pop...'
+            echo 'Stash pop...'
             git stash pop
         fi
         exit $OK
@@ -157,7 +157,7 @@ fi
 declare ok_to_pull=1
 ((opt_confirm)) && ok_to_pull=0
 
-func-echo 'Fetching to check...'
+echo 'Fetching to check...'
 git fetch ${opt_remote} ${opt_branch}
 
 declare diffoutput=$(mktemp --suffix=.git-sync-with-remote.diff)
@@ -166,7 +166,7 @@ git diff ...${opt_remote} > $diffoutput 2>&1
 declare diffc=$(cat $diffoutput | wc -l)
 if ((diffc)) && ((opt_confirm))
 then
-    func-echo --head "===== diffs ====="
+    echo --head "===== diffs ====="
     cat $diffoutput
     \rm $diffoutput
 fi
@@ -178,7 +178,7 @@ declare logc=$(cat $logoutput | wc -l)
 if ((logc)) && ((opt_confirm))
 then
     ((diffc)) && echo
-    func-echo "=====  log  ====="
+    echo "=====  log  ====="
     cat $logoutput
     \rm $logoutput
 fi
@@ -192,28 +192,28 @@ then
         then
             if ((do_stash))
             then
-                func-echo 'Stash pop...'
+                echo 'Stash pop...'
                 git stash pop
                 exit $OK
             fi
         fi
     fi
 else
-    func-echo "No difference with remote."
+    echo "No difference with remote."
     if ((do_stash))
     then
-        func-echo 'Stash pop...'
+        echo 'Stash pop...'
         git stash pop
     fi
     exit $OK
 fi
 
-func-echo 'Pulling to sync...'
+echo 'Pulling to sync...'
 git pull --rebase ${opt_remote} ${opt_branch}
 status=$?
 if [ ! "$status" = '0' ]
 then
-    func-echo
+    echo
     cat <<EOF
 
 It appears the pull --rebase was not successful. Assuming the issue was not a
@@ -240,7 +240,7 @@ Then push the branch up to your fork so you can submit a pull request.
 EOF
     if ((do_stash))
     then
-        func-echo "Leaving stash stashed so a not to further complicate the issue"
+        echo "Leaving stash stashed so a not to further complicate the issue"
     fi
     exit $NOT_OK
 fi
@@ -249,10 +249,10 @@ fi
 declare newsha=$(git-log-grab-sha -1)
 
 ## Show log
-func-echo --head 'Log after pull:'
+echo --head 'Log after pull:'
 git-log-shas-range $oldsha $newsha
 
-func-echo --head "pull --rebase successful. Pushing..."
+echo --head "pull --rebase successful. Pushing..."
 git push
 status=$?
 if [ "$status" != '0' ]
@@ -268,14 +268,14 @@ fi
 declare ask_pop=0
 if [ ! "$status" = '0' ]
 then
-    func-echo
+    echo
     cat <<EOF
 It appears that the git push was not successful and you declined to use --force,
 or the --force was also unsuccessful.
 EOF
     if ((do_stash))
     then
-        func-echo
+        echo
         cat <<EOF
 It may be that you decided not to force the push since you still have work to do,
 in which case you will want to pop the latest stash.
@@ -293,12 +293,12 @@ then
     fi
     if [ "$resp" = 'y' ]
     then
-        func-echo 'Stash pop...'
+        echo 'Stash pop...'
         git stash pop
         status=$?
         if ((status != 0))
         then
-            func-echo
+            echo
             cat <<EOF
 It appears that the stash pop failed. There may be conflicts. Once you fix the
 conflicts, you can drop the stash, as all of the non-conflicted files were
