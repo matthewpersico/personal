@@ -4,6 +4,8 @@
 
 ##@@ 0001||group||git-check-with-remote||
 
+source $BASH_INC_DIR/on_exit.binc
+
 declare usage_func="${FUNCNAME}-usage"
 declare iam=$(func-name-spoof)
 
@@ -74,7 +76,8 @@ EOF
 fi
 
 ## Check the declare branch against its origin
-stcheck=$(mktemp --suffix=.git-check-with-remote.1)
+declare stcheck=$(mktemp --suffix=.git-check-with-remote.check)
+rm_on_exit $stcheck
 git status 1>$stcheck 2>&1
 grep "Your branch is up.to.date with 'origin/$cb'." $stcheck 1>/dev/null
 status=$?
@@ -102,7 +105,8 @@ declare ok_to_pull=1
 ((opt_confirm)) && ok_to_pull=0
 
 ## Now grab the remote branch
-declare gflog=$(mktemp --suffix=.git-check-with-remote.2)
+declare gflog=$(mktemp --suffix=.git-check-with-remote.gflog)
+rm_on_exit $gflog
 git fetch ${opt_remote} ${opt_branch} 2>$gflog
 declare rc=$?
 if ((rc))
@@ -115,14 +119,17 @@ rm -f $gflog
 
 ## Log the declare branch
 declare locallog=$(mktemp --suffix=.git-check-with-remote.locallog)
+rm_on_exit $locallog
 git log > $locallog
 
 ## Log the declare copy of the remote branch
 declare remotelog=$(mktemp --suffix=.git-check-with-remote.remotelog)
+rm_on_exit $remotelog
 git log ${opt_remote}/${opt_branch} > $remotelog
 
 ## Diff 'em
 declare difflog=$(mktemp --suffix=.git-check-with-remote.difflog)
+rm_on_exit $difflog
 diff $locallog $remotelog 1> $difflog 2>&1
 
 if [ -s $difflog ]
@@ -140,5 +147,4 @@ then
     fi
 fi
 
-rm -f $locallog $remotelog $difflog
 exit $OK
