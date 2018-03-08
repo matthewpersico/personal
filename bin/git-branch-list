@@ -1,0 +1,38 @@
+# -*- sh -*-
+
+# git-branch-list
+
+##@@ 0001||group||git-branch-list||
+
+declare strip=0
+declare remote=''
+declare output='cat'
+declare OPTSARGS=$(getoptp -o ra --long strip,nostrip,remote,all,grep: -n $FUNCNAME -- "$@")
+status=$?
+((status != 0)) && echo "Exiting." && exit $status
+eval set -- "$OPTSARGS"
+while true
+do
+    case "$1" in
+        -a | --all) remote='-a'; shift;;
+        -r | --remote) remote='-r'; shift;;
+        --strip) strip=1; shift;;
+        --nostrip) strip=0; shift;;
+        --grep) output="grep --color=never $2"; shift; shift;;
+        --) shift; break ;; ## end of opts, remaining $*, if any, are args
+        *) echo "Internal error!"; exit $NOT_OK ;;
+    esac
+done
+
+## Update the declare branches with remote. Shunt away the output - not
+## needed, interferes with functions that call git-branch-list and read the
+## output.
+[ -n "$remote" ] && git remote update > /dev/null
+
+declare opts="--list $remote"
+if ((strip))
+then
+    git branch --no-color $opts | sed 's/^[ *] //' | sed 's/ .*//' | $output
+else
+    git branch $opts | $output
+fi
