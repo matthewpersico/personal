@@ -27,25 +27,36 @@ declare opt_a
 declare opt_v
 declare opt_edit
 declare opt_skip
-## Options first
-OPTSARGS=$(getoptp -o ave:sh -n $FUNCNAME -- "$@")
-status=$?
-((status != 0)) && $usage_func && exit $status
-
-eval set -- "$OPTSARGS"
-while true
+declare moreopts
+moreopts=1
+while [[ "$1" =~ ^- ]] && ((moreopts))
 do
-    case "$1" in
-        -a) opt_a=$1; shift ;;
-        -v) opt_v=$1; shift ;;
-        -e) opt_edit="--editor $2"; shift; shift;;
-        -s) opt_skip='--skip-no-changelog'; shift;;
-        -h) printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)"
+    declare original="$1"
+    declare option
+    option="$1"
+    declare new=''
+    while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
+    do
+        new=$option
+        option=${option##-}
+    done
+    shift ## That way you avoid endless loops on invalid options.
+    case $option in
+        a ) opt_a='-a';;
+        v ) opt_v='-v';;
+        e ) opt_edit="--editor $1"; shift;;
+        s ) opt_skip='--skip-no-changelog';;
+        h | help )
+            printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)"
             exit $OK ;;
-        --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) echo "Internal error!"
-           printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)"
-           exit $NOT_OK ;;
+        debug | x )
+            set -x
+            ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            echo "$original is an invalid option. See $0 --help"; exit $NOT_OK;;
     esac
 done
 
