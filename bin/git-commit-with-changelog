@@ -1,0 +1,90 @@
+# -*- sh -*-
+
+# git-commit-with-changelog
+
+##@@ 0001||group||git-commit-with-changelog||Use $GITFUNCS_CHANGELOG_NAME entries to create commit messages
+
+declare usage_func="${FUNCNAME}-usage"
+
+## All of the *-changelog functions work best in the git-root, which is
+## where the $GITFUNCS_CHANGELOG_NAME is anyway
+declare pwd=$(pwd)
+declare gr=$(git-root)
+if [ ! "$pwd" = "$gr" ]
+then
+    echo "Current directory ($pwd) is not the git root ($gr)"
+    declare resp=$(func-yesno "Go there")
+    if [ "$resp" = 'n' ]
+    then
+        exit $NOT_OK
+    fi
+    _git-cd-to $gr || exit $?
+else
+    gr=''
+fi
+
+declare opt_a
+declare opt_v
+declare opt_edit
+declare opt_skip
+declare moreopts
+moreopts=1
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    declare option
+    option="$1"
+    declare new=''
+    while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
+    do
+        new=$option
+        option=${option##-}
+    done
+    shift ## That way you avoid endless loops on invalid options.
+    case $option in
+        a ) opt_a='-a';;
+        v ) opt_v='-v';;
+        e ) opt_edit="--editor $1"; shift;;
+        s ) opt_skip='--skip-no-changelog';;
+        h | help )
+            printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)"
+            exit $OK ;;
+        debug | x )
+            set -x
+            ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            echo "$original is an invalid option. See $0 --help"; exit $NOT_OK;;
+    esac
+done
+
+declare files="$@"
+## This causes the same behavior as git commit with no args (default to
+## only staged files), but we need to pass files into git-process.
+[ -z "$files" ] && files=$(git-what-is-staged)
+[ -n "$opt_a" ] && files=$(git-what-is-modified)
+git-process-changelog --commit $opt_v $opt_edit $opt_skip $files
+status=$?
+[ -n "$gr" ] && _git-cd-exit
+exit $status
+
+__USAGE__
+git-commit-with-changelog [-a] [ -v] [-e editor] [-s] [file [file...]]
+
+Use the local changelog as the commit message.
+
+-a Try to commit all modified files, staged and unstaged, just like the
+     'git commit' command.
+
+-v verbose
+
+-e Edit the commit message after it has been extracted from the changelog
+     file but before the commit, using the specified editor.
+
+-s Skip files that do not have a changelog entry, but continue with those that
+   do. Without this flag, if a file to commit does not have a changelog entry,
+   processing stops and nothing is committed.
+
+If files are not specified, the list of all modified files is used.

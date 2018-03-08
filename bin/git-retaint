@@ -12,5 +12,19 @@ then
 else
     files="$@"
 fi
-
-sedinplace -v $files 's/##<GCS> -w -T git-untaint/-wT/' ## <GCSLITERAL>
+## Make the change on line 1, remove line 2
+echo "Processing these files: $files" | tr '[\n]' '[ ]'
+perl -pi -e 'BEGIN{$lastARGV=""}
+             if ($lastARGV ne $ARGV) {
+                 $lastARGV = $ARGV;
+                 $ln=1;
+             }
+             if ($ln == 1) {
+                 chomp $_;
+                 $_=~s/\s+$//;   # We chop the whitespace here...
+                 $_ .= " -wT\n"; # ...so that we can add it back
+                                 # here, in case it is chopped
+                                 # externally by perltidy
+                 $skip=<>;
+             }
+             $ln++;' $files

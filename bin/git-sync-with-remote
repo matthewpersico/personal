@@ -4,6 +4,8 @@
 
 ##@@ 0001||group||git-sync-with-remote||
 
+source $BASH_INC_DIR/on_exit.binc
+
 declare usage_func="${FUNCNAME}-usage"
 declare iam=$(func-name-spoof)
 
@@ -26,14 +28,14 @@ do
         -b|--branch) opt_branch="$2"; shift; shift ;;
         -h|--help) $usage_func $iam; exit $OK ;;
         --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) func-echo "Internal error!"; $usage-func $iam; exit $NOT_OK ;;
+        *) func-echo "Internal error!"; $usage_func $iam; exit $NOT_OK ;;
     esac
 done
 
 if [ -z "$opt_branch" ]
 then
     func-echo "--branch required"
-    $usage-func $iam
+    $usage_func $iam
     exit $NOT_OK
 fi
 
@@ -62,7 +64,7 @@ fi
 if [ "$cb" == "$opt_branch" ]
 then
     func-echo
-    declare msgoverride=$(find $(git-root) -name .git-sync-with-remove.txt)
+    declare msgoverride=$(find $(git-root) -name .git-sync-with-remote.txt)
     if [ -n "$msgoverride" ] && [ -r "$msgoverride" ]
     then
         cat $msgoverride
@@ -127,7 +129,8 @@ func-echo --head 'Log before pull:'
 git-log-shas-range $oldsha $oldsha
 
 ## Check the declare branch against its origin
-stcheck=$(mktemp --suffix=.git-sync-with-remote)
+declare stcheck=$(mktemp --suffix=.git-sync-with-remote.check)
+rm_on_exit $stcheck
 git status 1>$stcheck 2>&1
 grep "Your branch is up.to.date with 'origin/$cb'." $stcheck 1>/dev/null
 status=$?
@@ -157,7 +160,8 @@ declare ok_to_pull=1
 func-echo 'Fetching to check...'
 git fetch ${opt_remote} ${opt_branch}
 
-declare diffoutput=$(mktemp --suffix=.gf-syr)
+declare diffoutput=$(mktemp --suffix=.git-sync-with-remote.diff)
+rm_on_exit $diffoutput
 git diff ...${opt_remote} > $diffoutput 2>&1
 declare diffc=$(cat $diffoutput | wc -l)
 if ((diffc)) && ((opt_confirm))
@@ -167,7 +171,8 @@ then
     \rm $diffoutput
 fi
 
-declare logoutput=$(mktemp --suffix=.gf-syr)
+declare logoutput=$(mktemp --suffix=.git-sync-with-remote.log)
+rm_on_exit $logoutput
 git log ...${opt_remote} > $logoutput 2>&1
 declare logc=$(cat $logoutput | wc -l)
 if ((logc)) && ((opt_confirm))
@@ -303,4 +308,3 @@ EOF
         fi
     fi
 fi
-

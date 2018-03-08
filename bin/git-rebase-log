@@ -1,0 +1,43 @@
+# -*- sh -*-
+
+# git-rebase-log
+
+##@@ 0001||group||git-rebase_log||Show the log, rebase on the last commit id
+
+declare rebase_sha
+declare resp
+if [ -z "$1" ]
+then
+    ## Show the current commit
+    func-echo --head 'Current commits:'
+    git log -2
+    ## The first one we can rebase on is the third one in the log
+    rebase_sha=$(git-log-grab-sha -3)
+else
+    rebase_sha=$1
+fi
+
+func-echo --head 'Rebaseable commits:'
+while ((1))
+do
+    ## show the log
+    git-log-shas-range $rebase_sha $rebase_sha
+
+    resp=$(func-pick "Rebase on $rebase_sha" "y/n/q" 'n')
+    if [ "$resp" = 'q' ]
+    then
+        exit $TRUE
+    fi
+    if [ "$resp" = 'y' ]
+    then
+        git rebase -i $rebase_sha
+        declare status=$?
+        (($status)) && exit $status
+        func-echo --head 'Log is now:'
+        git log ${rebase_sha}^1..HEAD
+        exit $status
+    fi
+
+    ## Get the next log
+    rebase_sha=$(git-log-grab-sha -2 $rebase_sha)
+done
