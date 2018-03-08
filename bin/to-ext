@@ -41,12 +41,14 @@ do
             func-echo "$original is an invalid option. See $0 --help";
             exit 1
             ;;
-        esac
-    done
+    esac
+done
+
+git_sha_file="git-sha"
 
 ## Check that we are clean. Otherwise the git-log-dump will not match with mods
 ## on disk. We don't count any existing git-log-dump or git-rms as a problem.
-if (($(git st --porcelain 2>&1 | grep -E -v 'git-(log-dump|rms|links)' 2>&1 | wc -l)))
+if (($(git st --porcelain 2>&1 | grep -E -v 'git-(log-dump|rms|links|sha)' 2>&1 | wc -l)))
 then
     func-echo "Repo not clean:"
     git status
@@ -59,8 +61,18 @@ then
     fi
 fi
 
+if [ -z $opt_since ]
+then
+    if [ -f $git_sha_file ]
+    then
+        git checkout $git_sha_file
+        opt_since=$(cat $git_sha_file | sed 's/commit //')
+    fi
+fi
+
 ## Write the commit log to text. That will keep track of the modifications,
 ## perhaps to create a decent commit message on the other side.
+git log | head -1 > $git_sha_file
 git log > git-log-dump
 
 ## Non git members to add to the shar
@@ -76,7 +88,7 @@ then
 else
     ## Check the files changed from sha time to now and segregate the removed
     ## ones for special processing.
-    tmp=$(mktemp --suffix .to-ext)
+    tmp=$(mktemp --suffix=.to-ext)
     rm_on_exit $tmp
     for i in $(git diff --name-only $opt_since)
     do
@@ -117,3 +129,5 @@ done
 ## Make it.
 shar -q -m -o $sharout -p -M $files $additionals
 func-echo sharfile is $(ls ${sharout}*)
+
+echo "Don't forget to check in $git_sha_file"
