@@ -2,7 +2,9 @@
 All my UNIX goodies including dotfiles so I can put them on any machine.
 
 * cd ~
-* git clone <THIS REPO> personal
+* git config --global user.name "Matthew O. Persico"
+* git config --global user.email "matthew.persico@gmail.com"
+* git clone git@github.com:matthewpersico/personal.git personal
 * cd personal/dotfiles
 * ./dotfilesfuncs
 * makesymlinks
