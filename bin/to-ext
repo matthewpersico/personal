@@ -7,6 +7,7 @@ source $BASH_INC_DIR/on_exit.binc
 declare moreopts=1
 declare opt_since=''
 declare opt_dirty=0
+declare opt_reset=0
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
     ## Strip all leading dashes here so that -foo and --foo can both
@@ -17,6 +18,9 @@ do
     shift
 
     case $option in
+        reset )
+            opt_reset=1
+            ;;
         since )
             opt_since=$1;  ## The last sha in the SOURCE repo that was
                            ## successfully shar'ed, shipped and integrated with
@@ -27,7 +31,7 @@ do
             opt_dirty=1;
             ;;
         help )
-            printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)"
+            script-usage
             exit 0
             ;;
         debug | x )
@@ -37,16 +41,16 @@ do
             moreopts=0
             ;;
         * )
-            echo "$original is an invalid option. See $0 --help";
+            echo "$original is an invalid option.";
+            script-usage
             exit 1
             ;;
     esac
 done
 
-git_sha_file="git-sha"
-
 ## Check that we are clean. Otherwise the git-log-dump will not match with mods
-## on disk. We don't count any existing git-log-dump or git-rms as a problem.
+## on disk. We don't count any existing git-log-dump, git-rms or git-links
+## files as a problem since we are going to redo them anyway.
 if (($(git st --porcelain 2>&1 | grep -E -v 'git-(log-dump|rms|links|sha)' 2>&1 | wc -l)))
 then
     echo "Repo not clean:"
@@ -60,7 +64,8 @@ then
     fi
 fi
 
-if [ -z $opt_since ]
+declare git_sha_file="git-sha"
+if ((!opt_reset)) && [ -z $opt_since ]
 then
     if [ -f $git_sha_file ]
     then
@@ -78,7 +83,24 @@ git log > git-log-dump
 declare additionals="--text-files git-log-dump"
 
 ## The shar file
-sharout=personal-bb-$(date +%Y-%m-%d).shar
+sharoutroot=$(git config --get ext.name)
+if [ -z "$sharoutroot" ]
+then
+    echo No shar root name specified.
+    echo Shall I run
+    declare cmd="git config --add ext.name $(basename $(pwd))"
+    resp=$(yesno "$cmd" n)
+    if [ "$resp" = 'n' ]
+    then
+        echo "Bailing. Run your own git config --add ext.name command,"
+        echo "then rerun this script."
+        exit 1
+    fi
+    ## else
+    $cmd
+    sharoutroot=$(git config --get ext.name)
+fi
+sharout=${sharoutroot}-$(date +%Y-%m-%d).shar
 
 if [ -z "$opt_since" ]
 then
@@ -135,9 +157,12 @@ exit 0
 
 __USAGE__
 
-to-ext - Create a shar to copy files.
+to-ext - Create a shar to copy files
 
 Uses a sha passed via --since or from the file 'git-sha' to figure out what
-files have been added, changed or removed. Dumps the log to file
-'git-log-dump', puts removals in file 'git-rms', creates a shar of all the
-files.
+files have been added, changed or removed since the last time this command was
+run. Dumps the log to file 'git-log-dump', puts removals in file 'git-rms',
+creates a shar of all the files.
+
+Take shar over to the target repo (use a branch named 'incoming'). Run
+'from-ext' with the shar name. Commit changes. Sync to cloud.
