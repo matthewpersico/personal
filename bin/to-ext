@@ -6,7 +6,6 @@ source $BASH_INC_DIR/on_exit.binc
 
 declare moreopts=1
 declare opt_since=''
-declare opt_dirty=0
 declare opt_reset=0
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
@@ -26,9 +25,6 @@ do
                            ## successfully shar'ed, shipped and integrated with
                            ## a particular target.
             shift
-            ;;
-        dirty )
-            opt_dirty=1;
             ;;
         help )
             script-usage
@@ -71,19 +67,14 @@ fi
 ## on disk. We don't count any existing git-log-dump, git-rms or git-links
 ## files as a problem since we are going to redo them anyway.
 if (($(git st --porcelain 2>&1 | \
-           grep -E -v 'git-(log-dump|rms|links|sha)' 2>&1 | \
+           grep -E -v 'git-(log-dump|rms|links)' 2>&1 | \
            grep -E -v "${sharoutroot}.*shar.*" 2>&1 | \
            wc -l)))
 then
     echo "Repo not clean:"
     git status
-    if ((opt_dirty))
-    then
-        echo "Continuing: --dirty specified. git-log-dump may not match code on disk."
-    else
-        echo "Stopping."
-        exit 1
-    fi
+    echo "If git-sha is modified, check it in immediately. Stopping."
+    exit 1
 fi
 
 declare git_sha_file="git-sha"
@@ -101,7 +92,6 @@ fi
 git log | head -1 > $git_sha_file
 git log > git-log-dump
 to_sha=$(cat $git_sha_file | sed 's/commit //')
-
 ## Non git members to add to the shar
 declare additionals="--text-files git-log-dump"
 
