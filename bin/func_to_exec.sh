@@ -1,7 +1,6 @@
 ## -*- sh -*-
 
 set -e ## Die on errors
-
 source $BASH_INC_DIR/on_exit.binc
 
 if [[ "$(pwd)" =~ functions ]] || \
@@ -34,7 +33,7 @@ do
     file=$(basename $adj_src_path)
     files="$files $file"
     tgt_paths="$tgt_paths bin/$file"
-    src_paths="$stc_paths $adj_src_path"
+    src_paths="$src_paths $adj_src_path"
 done
 [ -z "$tgt_paths" ] && echo "no sources found to convert" && exit 1
 ((bad)) && echo "some sources bad. bailing" && exit 1
