@@ -1,60 +1,56 @@
 # -*- sh -*-
 
-# <Function Class: dotfiles>
-# <Function Justification: none>
+# adddotfile
 
-adddotfile ()
-{
-    # Converts real files into dotfiles-based symlinks. Use this to add new
-    # files to be controlled.
-    if [ "$1" = '' ]
-    then
-        echo "usage: adddotfile fileToSymlink"
-        return 1
-    fi
+# Converts real files into dotfiles-based symlinks. Use this to add new
+# files to be controlled.
+if [ "$1" = '' ]
+then
+    echo "usage: adddotfile fileToSymlink"
+    exit 1
+fi
 
-    local link="$(cd $(dirname $1);pwd)/$(basename $1)"
-    local fullsrc=$(basename $1)
-    ## Strip the dot from the stored version.
-    fullsrc=$DOTFILES_DIR/${fullsrc##.}
-    ## All - to _
-    fullsrc=$(echo ${fullsrc} | tr '-' '_')
-    . $DOTFILES_MANIFEST
+declare link="$(cd $(dirname $1);pwd)/$(basename $1)"
+declare fullsrc=$(basename $1)
+## Strip the dot from the stored version.
+fullsrc=$DOTFILES_DIR/${fullsrc##.}
+## All - to _
+fullsrc=$(echo ${fullsrc} | tr '-' '_')
+. $DOTFILES_MANIFEST
 
-    # change to the dotfiles directory
-    echo -n "Changing to the $DOTFILES_DIR directory ..."
-    builtin cd $DOTFILES_DIR
-    echo "done"
+# change to the dotfiles directory
+echo -n "Changing to the $DOTFILES_DIR directory ..."
+builtin cd $DOTFILES_DIR
+echo "done"
 
-    # Move the requested dotfile to the dotfiles directory, add it to the git
-    # repo, link it and add it to the manifest.
-    if [ -f $fullsrc ]
-    then
-        echo "File '$fullsrc' already exists. Skipping processing of '$link'."
-    elif [ -d $fullsrc ]
-    then
-        echo "Directory '$fullsrc' already exists. Skipping processing of '$link'."
-    elif [ ! -e $link ]
-    then
-        echo "'$link' does not exist to be copied and linked. Skipping processing of '$link'."
-    elif [ ! -f $link ] && [ ! -d $link ]
-    then
-        echo "'$link' is not a file or directory that can be copied and linked. Skipping processing of '$link'."
-    else
-        srctype='directory'; if [ -f $link ]; then srctype='file'; fi
+# Move the requested dotfile to the dotfiles directory, add it to the git
+# repo, link it and add it to the manifest.
+if [ -f $fullsrc ]
+then
+    echo "File '$fullsrc' already exists. Skipping processing of '$link'."
+elif [ -d $fullsrc ]
+then
+    echo "Directory '$fullsrc' already exists. Skipping processing of '$link'."
+elif [ ! -e $link ]
+then
+    echo "'$link' does not exist to be copied and linked. Skipping processing of '$link'."
+elif [ ! -f $link ] && [ ! -d $link ]
+then
+    echo "'$link' is not a file or directory that can be copied and linked. Skipping processing of '$link'."
+else
+    srctype='directory'; if [ -f $link ]; then srctype='file'; fi
 
-        echo "Moving real $srctype '$link' to '$fullsrc'"
-        mv $link $fullsrc
+    echo "Moving real $srctype '$link' to '$fullsrc'"
+    mv $link $fullsrc
 
-        echo "Adding to local dotfiles repo. Don't forget to commit and push."
-        git add ${fullsrc##$(pwd)/}
+    echo "Adding to local dotfiles repo. Don't forget to commit and push."
+    git add ${fullsrc##$(pwd)/}
 
-        local linkloc=$(dirname $link)
-        local relsrc=${fullsrc#"${linkloc}/"}
-        echo "Creating symlink '$link' to $srctype '$fullsrc'"
-        (cd $linkloc
-         ln -s $relsrc $link)
-        _save_dotfile_entry $(basename $fullsrc) $link
-    fi
-    builtin cd -
-}
+    declare linkloc=$(dirname $link)
+    declare relsrc=${fullsrc#"${linkloc}/"}
+    echo "Creating symlink '$link' to $srctype '$fullsrc'"
+    (cd $linkloc
+     ln -s $relsrc $link)
+    _save_dotfile_entry $(basename $fullsrc) $link
+fi
+builtin cd -
