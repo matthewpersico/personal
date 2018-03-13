@@ -138,8 +138,8 @@ while (<>) {
         $_ =~ s/(\b)return(\b)/${1}exit${2}/g;
     };
 
-    ## echo becomes just echo
-    $_ =~ m/echo/echo/g;
+    ## func-echo becomes just echo
+    $_ =~ s/func-echo/echo/g;
 
     ## If we get here, we want it.
     push @funclines, $_;
