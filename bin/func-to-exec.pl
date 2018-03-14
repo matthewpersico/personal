@@ -20,7 +20,7 @@ if (@ARGV==0) {
   git mv functions/X* bin
   git commit functions/X* -m 'func to exec, mv phase'
   git commit bin/X* -m 'func to exec, mv phase'
-  ./bin/func_to_exec.pl bin/X*
+  ./bin/func-to-exec.pl bin/X*
   for i in bin/X*
   do
     diff -w $i ${i}.new
