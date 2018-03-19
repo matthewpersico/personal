@@ -1,0 +1,90 @@
+# -*- sh -*-
+
+declare reset_normal="${ANSI_reset}"
+declare reset_title=''
+declare endofopts=0
+declare nonl
+declare cont=0
+declare scriptname
+while [[ "$1" =~ ^- ]] && ((endofopts==0))
+do
+    ## Strip all leading dashes here so that -foo and --foo can both be
+    ## processed as 'foo'.
+    declare original="$1"
+    declare option="$1"
+    declare new=''
+    while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
+    do
+        new=$option
+        option=${option##-}
+    done
+    shift
+
+    case $option in
+        head) echo ;;
+        title)
+            echo
+            reset_title="${reset_normal}"
+            reset_normal=''
+            ;;
+        s) scriptname=$1 ; shift ;;
+        n) nonl='-n' ;;
+        c) cont=1 ;;
+        h|help) script-usage && exit 0;;
+        --)
+            endofopts=1 ;;
+        -* )
+            echo "script-echo: $1 is an invalid option."; return 1;;
+    esac
+done
+
+## If SCRIPT_ECHO_NAME is set, we use it. If not, try -s option then arg. This
+## way, we can specify $0 in all calls and whether the script is the first in
+## the chain or it's called from another script, we print the topmost script,
+## which is probably what we want.
+if [ -z "$SCRIPT_ECHO_NAME" ]
+then
+    if [ -z "$scriptname" ]
+    then
+        scriptname=$1
+    fi
+    if [ -z "$scriptname" ]
+    then
+        SCRIPT_ECHO_NAME='UNKNOWN SCRIPT'
+    else
+        SCRIPT_ECHO_NAME="$(basename $scriptname)"
+    fi
+    export SCRIPT_ECHO_NAME
+fi
+
+declare printit=${SCRIPT_ECHO_NAME}
+if ((cont))
+then
+    printit=$(echo $SCRIPT_ECHO_NAME | sed 's/./ /g') ## Substitutes all the
+                                                      ## characters for spaces,
+                                                      ## giving us a properly
+                                                      ## spaced indent, sans
+                                                      ## sctipt name,
+                                                      ## indicating a
+                                                      ## continuation of the
+                                                      ## prior line.
+fi
+echo $nonl -e "${ANSI_reverse}>>> ${printit}${reset_normal}: $@${reset_title}"
+
+exit 0;
+
+__USAGE__
+
+script-echo - label info with script name
+
+  script_echo [--head] [--title] [-n] [-c] [-s scriptname] text
+
+You should always call script_echo with $0 as the scriptname
+argument. Sometimes, you may run a script that does not make any script-echo
+calls, yet scripts that you call will call script-echo. In that case, you will
+end up with script-echo printing the names of the scripts you are calling. In
+this case execute
+
+  export SCRIPT_ECHO_NAME=$(basename $0)
+
+at the top of your script to get the labeling right down the stack.
