@@ -67,7 +67,7 @@ while (<>) {
     };
 
     m/# <Function Justification:\s+(.*)>/i && do {
-        next if $1 =~ m/^none.*>/;
+        next if $1 =~ m/^none*/;
         die "Function appears to have justification: $1\n";
     };
 
