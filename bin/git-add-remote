@@ -1,26 +1,67 @@
 # -*- sh -*-
 
-# <Function Class: git>
-# <Function Justification: none>
+# git-add-remote
 
-git-add-remote ()
+##@@ 0001||group||git-add-remote||
+
+if [ "$#" != '2' ]
+then
+    script-usage "$0" && exit "$NOT_OK"
+fi
+if [[ "$1" =~ -h ]]
+then
+    script-usage "$0" && exit "$OK"
+fi
+
+declare protocol=$1; shift
+declare org=$1; shift
+
+declare repo=$1;
+if [ -z "$repo" ]
+then
+    repo=$(git-get-current-repo-name)
+else
+    shift
+fi
+
+declare remote=$1;
+if [ -z "$remote" ]
+then
+    remote="$org"
+else
+    shift
+fi
+
+declare status
+git remote add "$remote" "$protocol:$remote/$repo"
+status=$?
+if ((status == 0))
+then
+    git remote -v | grep "$remote"
+    status=$?
+fi
+exit $status
+
 {
-    ##@@ 0001||group||git-add-remote||
+    USAGE << __EOUSAGE__
+__USAGE__
+git-add-remote protocol org [repo] [remotename]
 
-    local usage_func="${FUNCNAME}-usage"
+Add a remote tag for a remote repo
 
-    if [ "$#" != '2' ]
-    then
-        $usage_func ${FUNCNAME}; return $NOT_OK
-    fi
-    local protocol=$1; shift
-    local remote=$1; shift
-    current_repo=$(git-get-current-repo-name)
-    git remote add $remote $protocol:$remote/$current_repo
-    local $status=$?
-    if (( $status == 0 ))
-    then
-        git remote -v | grep $remote
-    fi
-    return $status
+  protocol  - how to get to the repo
+  org       - the organiztion of the repo
+  repo      - optional; uses the current repo
+              name if not specified
+  remotname - what to call the remote; uses
+              the org is not specified
+
+The point is that if you have forked foo/bar on github to me/bar and bob has
+also forked foo/bar on github, then the shortcut of
+
+  git-add-remote github bob
+
+in your clone of github:foo/bar will add a remote 'bob' as github:bob/bar to
+your local repo.
+__EOUSAGE__
 }
