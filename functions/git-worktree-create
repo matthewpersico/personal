@@ -6,7 +6,7 @@
 git-worktree-create ()
 {
     ##@@ 0001||group||git-worktree-create||
-    local usage_func="${FUNCNAME}-usage"
+    local usage_func="${FUNCNAME[0]}-usage"
 
     local verbose=1
     local fetch_existing=0
@@ -17,27 +17,34 @@ git-worktree-create ()
     local dated=''
     local asmaster='master'
     local remote=origin
-    OPTSARGS=$(getoptp -o dfm:r:h --long dated,fetch,message:,asmaster:,remote:,orphan,help -n $FUNCNAME -- "$@")
-    local status=$?
-    ((status != 0)) && $usage_func && return $status
-
-    eval set -- "$OPTSARGS"
-    while true
+    declare moreopts
+    moreopts=1
+    declare verbose
+    verbose=0
+    while [[ "$1" =~ ^- ]] && ((moreopts))
     do
-        case "$1" in
-            -d|--dated) dated="_$(date +%Y-%m-%d)"; shift ;;
-            -f|--fetch) fetch_existing=1; fetch_opt="-r"; shift ;;
-            -m|--message) opt_m=$1; message="$2"; shift; shift ;;
-            --asmaster) asmaster=$2; shift; shift ;;
-            -h|--help) $usage_func; return $OK ;;
-            -r|--remote) remote=$2; shift ; shift ;;
-            --orphan) echo "Sorry, cannot create orphans this way."
-                      echo "First create the orphan, then create a"
-                      echo "worktree for it using --fetch."
-                      return $NOOK
-                      ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Error getting options!"; $usage_func; return $NOT_OK ;;
+        ## Strip all leading dashes here so that -foo and --foo can both
+        ## be processed as 'foo'.
+        declare original="$1"
+        declare option
+
+        option=$(dashstripper "$original")
+        shift ## That way you avoid endless loops on invalid options.
+
+        case $option in
+            d|dated) dated="_$(date +%Y-%m-%d)";;
+            f|fetch) fetch_existing=1; fetch_opt="-r";;
+            m|message) opt_m=$1; message="$1"; shift ;;
+            asmaster) asmaster=$1; shift ;;
+            h|help) "$usage_func"; return "$OK" ;;
+            r|remote) remote=$1; shift ;;
+            orphan) echo "Sorry, cannot create orphans this way."
+                    echo "First create the orphan, then create a"
+                    echo "worktree for it using --fetch."
+                    return "$NOOK"
+                    ;;
+            --) moreopts=0 ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Error getting options!"; "$usage_func"; return "$NOT_OK" ;;
         esac
     done
 
@@ -51,7 +58,7 @@ git-worktree-create ()
             func-echo    "Current directory is $(pwd)."
             func-echo -c 'No wt subdir.'
             func-echo -c 'Will not manipulate worktrees outside of wt dir. Aborting.'
-            return $NOT_OK
+            return "$NOT_OK"
         fi
     fi
 
@@ -59,18 +66,17 @@ git-worktree-create ()
     then
         func-echo 'Need a branch name to use for the worktree spec.'
         $usage_func
-        return $NOT_OK
+        return "$NOT_OK"
     fi
     local wt="$1${dated}"
     shift
     func-echo "Using '$remote' as remote."
-
     ((verbose)) && func-echo 'Check for existing worktrees with same name.'
     wtdir="$(pwd)/$wt"
-    if [ -e $wtdir ]
+    if [ -e "$wtdir" ]
     then
         func-echo "$wtdir already exists. Aborting."
-        return $NOT_OK
+        return "$NOT_OK"
     fi
 
     local wtsubdir=$wt
@@ -80,7 +86,8 @@ git-worktree-create ()
     ## you need to.
     ((verbose)) && func-echo 'Check for existing branch.'
     local create_branch="-b"
-    local exists=$(git-branch-list --strip $fetch_opt | grep $wt)
+    local exists
+    exists=$(git-branch-list --strip "$fetch_opt" | grep "$wt")
     if [ -n "$exists" ]
     then
         func-echo "Branch $wt already exists. Using it."
@@ -89,22 +96,22 @@ git-worktree-create ()
     elif [ "$fetch_existing" = '1' ]
     then
         func-echo "Branch $wt does not exist to be fetched."
-        return $NOT_OK
+        return "$NOT_OK"
     else
         ## Since this worktree is going to create a branch of the local
         ## $asmaster, make sure the local $asmaster (where we should be right
         ## now) it is up to date.
-        if [ "$(git-get-current-branch)" != $asmaster ]
+        if [ "$(git-get-current-branch)" != "$asmaster" ]
         then
             func-echo "Cannot create branch and worktree because the current branch '$(git-get-current-branch)' is not the master branch '$asmaster'."
-            return $NOT_OK
+            return "$NOT_OK"
         fi
         func-echo "Checking local '$asmaster', starting point for branch."
         git pull
         status=$?
         ## We can return here with no other notice, assuming the error message
         ## from the pull would have been printed to stderr.
-        ((status)) && return $NOT_OK
+        ((status)) && return "$NOT_OK"
 
         ## Let's practice a little hygiene here and keep the origin master up
         ## to date with the upstream master.
@@ -122,21 +129,21 @@ git-worktree-create ()
     if ((status))
     then
         func-echo "Aborting."
-        return $NOT_OK
+        return "$NOT_OK"
     fi
 
     ((verbose)) && func-echo "cd $wtsubdir"
     ## dirlist, not builtin cd, to take advantage this cd enhancement
-    dirlist $wtsubdir
+    dirlist "$wtsubdir"
 
     if [ -n "$create_branch" ]
     then
         ((verbose)) && func-echo "git push --set-upstream $remote $wtbranch"
-        git push --set-upstream $remote $wtbranch
+        git push --set-upstream "$remote" "$wtbranch"
         git-branch-info created "$(date +%Y%m%d.%H%M%S%z)"
     else
-        git branch --track $wtsubdir $wtbranch
-        git checkout $wtsubdir
+        git branch --track "$wtsubdir" "$wtbranch"
+        git checkout "$wtsubdir"
      fi
 
     ## Convert the worktree's .git file to use a relative path to the master
@@ -155,5 +162,9 @@ git-worktree-create ()
     ## Add this repo to the list
     git-go-set
 
-    return $OK
+    ## For when we convert to a script and we can't cd to the new wt, which, by
+    ## the way, none of the real git commands do, anyway
+    func-echo "Worktree dir is $(pwd)"
+
+    return "$OK"
 }
