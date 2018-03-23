@@ -1,9 +1,9 @@
 # -*- sh -*-
 
 # <Function Class: util>
-# <Function Justification: uses function env>
+# <Function Justification: uses $0>
 
-func-echo ()
+script-echo ()
 {
     # ANSI_reset is in the env, not all caps so chellcheck complains.
     # shellcheck disable=SC2154
@@ -13,7 +13,7 @@ func-echo ()
     declare nonl
     declare cont=0
     declare title=0
-    declare funcname=${FUNCNAME[-1]}
+    declare scriptname=$0
     while [[ "$1" =~ ^- ]] && ((endofopts==0))
     do
         ## Strip all leading dashes here so that -foo and --foo can both be
@@ -39,22 +39,31 @@ func-echo ()
             n) nonl='-n' ;;
             c) cont=1 ;;
             h|help) func-usage && return "$OK";;
-            f) funcname=$1 ; shift ;;
+            s) scriptname=$1 ; shift ;;
             --)
                 endofopts=1 ;;
             -* )
-                echo "func-echo: '$original' is an invalid option."; return "$NOT_OK";;
+                echo "script-echo: '$original' is an invalid option."; return "$NOT_OK";;
         esac
     done
 
-    ## Not sure how this can happen. Need to revisit if it happens
-    [ "$funcname" = 'main' ] && funcname=$(basename "$0")
+    ## If SCRIPT_ECHO_NAME is set, we use it. This way, whether the script is
+    ## the first in the chain or it's called from another script, we print the
+    ## topmost script, which is probably what we want.
+    [ -n "$SCRIPT_ECHO_NAME" ] && SCRIPT_ECHO_NAME="$(basename "$scriptname")"
 
-    declare printit=${funcname}
+    ## If scriptname is not set then no SCRIPT_ECHO_NAME, no -s and $0 is not
+    ## available, which could happen if running the function outside a script
+    ## (in a cut 'n paste test, for example.
+    [ -z "$scriptname" ] && SCRIPT_ECHO_NAME='UNKNOWN SCRIPT'
+
+    export SCRIPT_ECHO_NAME
+
+    declare printit=${SCRIPT_ECHO_NAME}
     if ((cont))
     then
         ## Substitutes all the characters for spaces, giving us a properly
-        ## spaced indent, sans func name, indicating a continuation of the
+        ## spaced indent, sans script name, indicating a continuation of the
         ## prior line.
         # shellcheck disable=SC2001
         printit=$(echo "$printit" | sed 's/./ /g')
@@ -68,7 +77,7 @@ func-echo ()
 
         ## If there is a next line, it should be a continue line, but check
         ## before exec to not needlessly invoc.
-        if [ "$printit" = "$funcname" ]
+        if [ "$printit" = "${SCRIPT_ECHO_NAME}" ]
         then
             # shellcheck disable=SC2001
             printit=$(echo "$printit" | sed 's/./ /g')
@@ -88,12 +97,12 @@ return 0 ## USAGE guard during sourcing this file.
 
 /dev/null<<EOSTRING
 __USAGE__
-func-echo - label info with function name
+script-echo - label info with script name
 
-  func-echo [--head] [--title] [-n] [-c] [ -f funcname ] "text" ["text"...]
+  script-echo [--head] [--title] [-n] [-c] [-s scriptname] "text" ["text"...]
 
 Print the first "text" on a line with a reversed-color prefix containing the
-function name. Print subsequent lines indented with reversed color spaces,
+script name. Print subsequent lines indented with reversed color spaces,
 indicating continuation.
 
 --head
@@ -109,11 +118,20 @@ indicating continuation.
 -c
   Print the first "text" element as a continuation line.
 
--f Override the derived function name with this option. Useful if your function
-  is a utility function called from some other function and you want to print
-  from the caller's perspective, not the utility's.
+-s
+  Override '$0' with this option, unless SCRIPT_ECHO_NAME is set, which will
+  take precedence. Sometimes, you may run a script that does not make any
+  script-echo calls, yet that script may call other scripts which in turn will
+  call script-echo. In that case, you will end up with script-echo printing the
+  names of the scripts you are calling, not the name of the master script,
+  confusing the output. In this case execute
+
+    export SCRIPT_ECHO_NAME="$(basename "$0")"
+
+  at the top of your master script to get the labeling correct all the way down
+  the call tree.
 
 __EOUSAGE__
 EOSTRING
 
-#  LocalWords:  funcname shellcheck util func
+#  LocalWords:  scriptname
