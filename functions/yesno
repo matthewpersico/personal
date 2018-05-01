@@ -1,33 +1,83 @@
-# -*- sh -*-
+#!/usr/bin/env bash
 
 # <Function Class: util>
 # <Function Justification: maybe - frequency>
 
 yesno ()
 {
-    ##@@ none||none||yesno||Args: Prompt, y/n default, command and args to run if 'y', returns command status. If no command, prints response, returns 0.
     declare prompt_text=$1;shift
     declare choices="y/n"
     declare default=$1;shift
-    declare cmd
-    cmd="$@"
+    declare -a cmd
+    cmd=("$@")
 
     declare respyn
     respyn=$(pick "$prompt_text" "$choices" "$default")
 
 	if [ "$respyn" = 'y' ] || [ "$respyn" = 'n' ]
 	then
-        if [ -z "$cmd" ]
+        if (( ${#cmd[@]} == 0 ))
         then
             ## No command, give response
-	        echo $respyn
-	        return $(true)
+	        echo "$respyn"
+	        return "$OK"
         elif [ "$respyn" = 'y' ]
         then
-            $cmd
+            "${cmd[@]}"
             return $?
         else
-            return $(true)
+            return "$OK"
         fi
 	fi
 }
+
+return 0 ## usage guard when sourcing
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+yesno - prompt for a yes or no answer
+
+=head1 SYNOPSIS
+
+  yesno "prompt text" "[y|n|]" [command and args to execute if yes]
+
+  Examples:
+
+  resp=$(yesno "prompt text" "n"
+  if [ "$resp" = 'y' ]
+  then
+    ## yes actions...
+  else
+    ## no actions...
+  fi
+
+  yesno "prompt text" "n" [command and args to execute if yes])
+
+  [ "$(yesno "prompt text")" = 'y' ] && command and args to execute if yes
+
+=head1 DESCRIPTION
+
+Print the prompt text, print the user's response, which is limited to 'y' or 'n', and use that to make a decision. Accepts 'Y' and 'N'. Does not accept 'yes' or 'no' or 'true', etc. Returns 0.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item "prompt text"
+
+Prints this text, followed the literal text '(y/n) ?', waiting for your response.
+
+=item "[y|n|]"
+
+The default response if you just hit return. If you do not want a default, specify a blank string, i.e: "". <B>Note: Due to
+
+=item command and args to execute if yes
+
+You can execute this command with args on a posititve response. If you do this, the return value ($?) of 'yesno' is the status of the command.
+
+=back
+
+=cut
+
+__PODUSAGE__
