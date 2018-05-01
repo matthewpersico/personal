@@ -1,44 +1,113 @@
-# -*- sh -*-
+#!/usr/bin/env bash
 
 # <Function Class: git>
 # <Function Justification: none>
 
 git-to-stdout ()
 {
-    ##@@ 0001||group||git-to-stdout||Equivalent of cvs -p. Provide a uuid and one or more path/to/file arguments.
+    declare moreopts=1
+    declare file=0
 
-    local usage_func="${FUNCNAME}-usage"
-    OPTSARGS=$(getoptp -o hf --long help,file -n $FUNCNAME -- "$@")
-    local status=$?
-    ((status != 0)) && $usage_func && return $status
-
-    local file=0
-    eval set -- "$OPTSARGS"
-    while true
+    while [[ "$1" =~ ^- ]] && ((moreopts))
     do
-        case "$1" in
-            -h|--help) $usage_func; return $OK ;;
-            -f|--file) file=1; shift ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        declare original="$1"
+        declare option
+        option=$(dashstripper "$original")
+        shift
+        case $option in
+            ## standard options
+            h | help )
+                func-usage
+                return 0
+                ;;
+            f | file)
+                file=1;;
+            --)
+                moreopts=0
+                ;;
+            * )
+                func-echo -- "$original is an invalid option. See $0 --help";
+                return 1
+                ;;
         esac
     done
 
     if (($# < 2 ))
     then
-        $usage_func
-        return $NOT_OK
+        func-usage
+        return "$NOT_OK"
     fi
 
     local uuid=$1;shift
-    for i in $@
+    for i in "$@"
     do
         if ((file))
         then
-            echo ${i}.${uuid}
-            git show ${uuid}:${i} > $(git-root)/${i}.${uuid}
+            echo "${i}.${uuid}"
+            git show "${uuid}:${i}" > "$(git-root)/${i}.${uuid}"
         else
-            git show ${uuid}:${i};
+            git show "${uuid}:${i}"
         fi
     done
 }
+
+## The End, to make sure we never eval the usage statement
+return 0
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+foo - script/command/function that does something
+
+=head1 SYNOPSIS
+
+ foo [--option1] [ --option2 optionarg ] arg1 [arg2 ...] \
+     [fee] [dfsdfs] [sfsdfsf]
+
+=head1 DESCRIPTION
+
+Describe in general terms what foo does.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item arg
+
+Describe what arg does, should be, etc. Add a new =item for each distinct arg.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --option1
+
+Describe what --option1 does.
+
+=item --option2
+
+Describe what --option2 does. Describe what optionarg does.
+
+=over 2
+
+=item *
+
+A choice for optionarg
+
+=item *
+
+Another choice for optionarg
+
+=back
+
+=back
+
+=cut
+
+__PODUSAGE__

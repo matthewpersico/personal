@@ -1,24 +1,25 @@
 # -*- sh -*-
 
 # <Function Class: util>
-# <Function Justification: maybe - env mod>
+# <Function Justification: env mod>
 
 safe_func_export ()
 {
     ##@@ none||none||safe_func_export|||Examine the SHELL variable to see if export -f is supported. If so, do so.
     [ -z "$1" ] && echo "usage: safe_func_export [funcname || --all]" && return 1;
-    if [ -n "$SHELL" ] && [ $(basename $SHELL) = "bash" ]
+    if [ -n "$SHELL" ] && [ "$(basename "$SHELL")" = "bash" ]
     then
-        local funcnames
+        local -a funcnames
         if [ "$1" = '--file' ]
         then
-            funcnames=$(grep -E '^[a-zA-Z0-9_-]+\s*\(\)' $2 | sed 's/().*//')
+            readarray -t funcnames < <(grep -E '^[a-zA-Z0-9_-]+\s*\(\)' "$2" | sed 's/\s*().*//')
         elif [ "$1" = '--all' ]
         then
-            funcnames=$( declare -F | grep -v -- '-fx' | sed 's/declare -f//' )
+            readarray -t funcnames < <(declare -F | grep -v -- '-fx' | sed 's/declare -f//')
         else
-            funcnames="$@"
+            funcnames=("$@")
         fi
-        export -f $funcnames
+        # shellcheck disable=SC2163
+        export -f "${funcnames[@]}"
     fi
 }

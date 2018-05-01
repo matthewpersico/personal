@@ -1,104 +1,122 @@
-# -*- sh -*-
-
+#!/usr/bin/env bash
+#
 # <Function Class: git>
 # <Function Justification: change cwd>
 
 git-go ()
 {
-    ##@@ 0001||group||git-go||
-
-    local usage_func="${FUNCNAME}-usage"
-
     local PS3="Choose by number, /string to rematch, q to quit: "
+    local -a git_get_opts
     local opt_list=0
-    local opt_update=0
-    local opt_roots=0
-    local opt_mbig=0
-    local opt_wt=1
-    local opt_subwt_only=0
+    local opt_wt='-w'
+    local opt_subwt_only=''
     local opt_gse=0
     local opt_mod=0
-    local OPTSARGS=$(getoptp -o slurmhp: --long mod,stat,list,update,roots,mbig,help,wt,nowt,subwt,wtonly,listfull -n $FUNCNAME -- "$@")
-    status=$?
-    ((status != 0)) && $usage_func && return $status
-    eval set -- "$OPTSARGS"
-    while true
+    local opt_exact=''
+    local moreopts
+    moreopts=1
+    while [[ "$1" =~ ^- ]] && ((moreopts))
     do
-        case "$1" in
-            -l|--list) opt_list=1; shift ;;
-            --listfull) opt_list=2; shift ;;
-            -m|--mbig) opt_mbig=1; shift ;;
-            -r|--roots) opt_roots=1; shift ;;
-            -u|--update) opt_update=1; shift ;;
-            --wt) opt_wt=1; shift ;;
-            --nowt) opt_wt=0; shift ;;
-            --subwt) opt_subwt_only=1; shift ;;
-            --wtonly) opt_subwt_only=1; shift ;;
-            --stat) opt_gse=1; opt_list=1; shift ;;
-            --mod) opt_mod=1; shift;;
-            -h|--help) $usage_func; return $OK ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+        ## Strip all leading dashes here so that -foo and --foo can both
+        ## be processed as 'foo'.
+        declare original="$1"
+        declare option
+
+        option=$(dashstripper "$original")
+        shift ## That way you avoid endless loops on invalid options.
+
+        case $option in
+            e | exact ) opt_exact='--exact';;
+            et | exact-tail ) opt_exact='--exact-tail';;
+            eh | exact-head ) opt_exact='--exact-head';;
+            l | list ) opt_list=1 ;;
+            listfull ) opt_list=2 ;;
+            m | mbig ) git_get_opts+=('-m') ;;
+            r | roots ) git_get_opts+=('-r') ;;
+            u | update ) git_get_opts+=('-u') ;;
+            wt ) opt_wt='-w' ;;
+            nowt ) opt_wt='' ;;
+            subwt ) opt_subwt_only='-o' ;;
+            wtonly ) opt_subwt_only='-o' ;;
+            stat ) opt_gse=1; opt_list=1 ;;
+            mod ) opt_mod=1;;
+            h | help ) func-usage git-go; return "$OK" ;;
+            -- ) moreopts=0; break ;; ## end of opts, remaining $*, if any, are args
+            * ) echo "$original is an invalid option."; func-usage git-go; return "$NOT_OK" ;;
         esac
     done
 
-    local tgt
-    tgt=$1
-    shift;
+    [ -n "$opt_wt" ] && git_get_opts+=("$opt_wt")
+    [ -n "$opt_subwt_only" ] && git_get_opts+=("$opt_subwt_only");
+    [ -n "$opt_exact" ] && git_get_opts+=("$opt_exact")
 
-    local opt_repo_no=0
+    local tgt
     if [ -n "$1" ]
     then
-        opt_repo_no=$1;
+        tgt="$1"
+        shift;
+    fi
+    local opt_repo_no=0
+    local opt_repo_sel=''
+    if [ -n "$1" ]
+    then
+        if is-int "$1"
+        then
+            opt_repo_no=$1
+        else
+            opt_repo_sel=$1
+        fi
         shift
     fi
 
     if [[ "$tgt" =~ /$ ]]
     then
-        tgt="$(dirname $tgt)/$(basename $tgt)"
+        tgt="$(dirname "$tgt")/$(basename "$tgt")"
     fi
-    local REPOS
-    REPOS=$(_git-go-get $opt_update $opt_roots $opt_mbig $opt_wt $opt_subwt_only "$tgt")
-    if [ -z "$REPOS" ]
+    local -a REPOS
+    readarray -t REPOS < <(_git-go-get "${git_get_opts[@]}" "$tgt")
+
+    if ((${#REPOS[@]}==0))
     then
-        echo $tgt does not match any repo
-        return $NOT_OK
-    fi
-    if [ "$(echo $REPOS | wc -w)" = '1' ]
+        echo "$tgt" does not match any repo
+        return "$NOT_OK"
+    elif ((${#REPOS[@]}==1))
     then
-        echo "Matches only $REPOS. Going there."
-        REPO=$REPOS
+        echo "Matches only ${REPOS[0]}. Going there."
+        REPO=${REPOS[0]}
     else
-        if (($opt_mod))
+        if ((opt_mod))
         then
-            for r in $REPOS
+            for r in "${REPOS[@]}"
             do
-                (cd ${TILDAE:-$HOME}/$r
+                (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return "$NOT_OK")
                  if (( $(git st --porcelain | wc  -l) ))
                  then
                      echo
-                     func-echo $r
+                     func-echo -- "$r"
                      git st
                  fi)
             done
-        elif (($opt_list))
+        elif ((opt_list))
         then
             local r
             local gse
             local sched
             local rr
-            local lastwasmarker=0
-            for r in $REPOS
+            for r in "${REPOS[@]}"
             do
-                (($opt_list==1)) && rr=$(echo '~'/${r})
-                (($opt_list==2)) && rr=$(echo $nonl ${TILDAE:-$HOME}/${r})
+                # shellcheck disable=SC2088
+                ((opt_list==1)) && rr="~/${r}"
+                ((opt_list==2)) && rr="${TILDAE:-$HOME}/${r}"
                 if ((!opt_gse))
                 then
-                    echo $rr
+                    echo "$rr"
                 else
-                    gse=$(cd ${TILDAE:-$HOME}/$r; git-branch-info local-status)
-                    sched=$(cd ${TILDAE:-$HOME}/$r; git-branch-info delete-worktree)
-                    [ -n "$sched" ] && sched=$(date --date @$sched)
+                    gse=$(cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return "$NOT_OK");
+                          git-branch-info local-status)
+                    sched=$(cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return "$NOT_OK");
+                            git-branch-info delete-worktree)
+                    [ -n "$sched" ] && sched=$(date --date "@${sched}")
                     if [ -n "$gse" ] || [ -n "$sched" ]
                     then
                         echo "$rr:"
@@ -114,7 +132,7 @@ git-go ()
             if ((opt_repo_no))
             then
                 local r
-                for r in $REPOS
+                for r in "${REPOS[@]}"
                 do
                     ((opt_repo_no-=1))
                     if((opt_repo_no == 0))
@@ -122,13 +140,31 @@ git-go ()
                         REPO=$r
                     fi
                 done
-            else
-                REPOS=$(tail_number_add $REPOS)
-                COLUMNS=1 ## One character wide terminal, forces list to be one column.
-
-                select REPO in $REPOS
+            elif [ -n "$opt_repo_sel" ]
+            then
+                local -a REPOSTMP
+                local r
+                for r in "${REPOS[@]}"
                 do
-                    if (($opt_list))
+                    [[ "$r" =~ $opt_repo_sel ]] && REPOSTMP+=("$r")
+                done
+                REPOS=("${REPOSTMP[@]}")
+            fi
+
+            if ((${#REPOS[@]}==1))
+            then
+                ## Re-check singlematch condition in case we modified REPOS
+                ## above.
+                echo "Matches only ${REPOS[0]}. Going there."
+                REPO=${REPOS[0]}
+            else
+                readarray -t REPOS < <(tail_number_add "${REPOS[@]}")
+                COLUMNS=1 ## One character wide terminal, forces list to be one
+                          ## column.
+
+                select REPO in "${REPOS[@]}"
+                do
+                    if ((opt_list))
                     then
                         return
                     fi
@@ -136,12 +172,12 @@ git-go ()
                     then
                         REPO=$(tail_number_strip "$REPO")
                         break
-                    elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
+                    elif [ "$(echo "$REPLY" | tr '[:upper:]' '[:lower]')" = 'q' ]
                     then
                         return
-                    elif [[ "$(echo $REPLY)" =~ ^/ ]]
+                    elif [[ "$REPLY" =~ ^/ ]]
                     then
-                        git-go ${REPLY#/}
+                        git-go "${REPLY#/}"
                         return $?
                     else
                         echo "'$REPLY' is an invalid choice"
@@ -153,8 +189,61 @@ git-go ()
     if [ -n "$REPO" ]
     then
         ## dirlist, not builtin cd to take advantage this cd enhancement
-        dirlist ${TILDAE:-$HOME}/$(git-strip-repo $REPO)
+        dirlist "${TILDAE:-$HOME}/$(git-strip-repo "$REPO")"
         git-check-hook
     fi
     return
 }
+
+return 0 ## USAGE guard when sourcing
+:<<'__USAGE__'
+Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] \
+              [--wt|--nowt|--wtonly ] [--mod] [dirmatch] [item]
+
+       git-go [-h|--help]
+
+       Presents a list of all git repos in ${TILDAE:-$HOME}/gits for you to
+       choose and then cd to.
+
+       --list
+           Skip the choosing part and just exit, printing each repo dir with a
+           litteral '~'.
+
+       --listfull
+           Skip the choosing part and just exit, printing each repo dir with
+           '~' expanded.
+
+       --stat
+           Invoke as if --list was specified but only for repos with extended
+           status information.
+
+       --update
+           Rescan to pick up new and deleted repos and worktrees.
+
+       --roots
+           Include the non-git directories where gits live as choices so you
+           can add new repos.
+
+       --mbig
+           Include the directories in MBIG as choices.
+
+       --wt
+           Include the worktree subdirectories in repos as choices. This is the
+           default.
+
+       --nowt
+           Override the default and do not include the worktree subdirectories
+           in repos as choices.
+
+       --wto[nly]
+           Include only the worktrees as choices.
+
+       --mod
+           Show status of repos that have mods outstanding.
+
+       'dirmatch' will filter the list using grep.
+
+       'item' is an integer N which will pick the Nth item in the
+           list of repos that would be presented if you didn't specify
+           an 'item'. Useful if you are cycling between a small number of repos.
+__USAGE__

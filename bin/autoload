@@ -391,6 +391,11 @@ OPTIONS
 
            don't shim it, just eval directly.
 
+        -w Print the full path to the single script containing the specified
+           function. 'w' stands for 'where' because 'f' (find) and 'l' (locate)
+           are already used as options. Note that with this option, only one
+           function name is processed.
+
         -y Summar(y). Print the number of loaded, exported and optimized
            functions.
 
@@ -515,12 +520,21 @@ autoload()
     local opt OPTIND OPTARG
     local passthru
     local dumpopt
-    while getopts psuema:yxrvlohf opt
+    while getopts psuema:yxrvlohfw opt
     do
         case $opt in
             p|s) dumpopt="$dumpopt -${opt}";;
             u) shift $((OPTIND-1)); _autoload_remove "$@"; return;;
             e) shift $((OPTIND-1)); _autoload_edit "$@"; return;;
+            w) shift $((OPTIND-1))
+               local wfuncname=$1
+               shift;
+               if (($#))
+               then
+                   echo "-w processes only one function name" >&2
+                   echo "'$@' will all be ignored" >&2
+               fi
+               _autoload_resolve "$wfuncname"; return;;
             m) shift $((OPTIND-1)); _autoload_page "$@"; return;;
             x|r|v|l|y|f|o) passthru="$passthru -$opt";;
             a) passthru="$passthru -$opt $OPTARG";;

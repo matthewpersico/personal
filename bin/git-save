@@ -1,0 +1,177 @@
+## -*- sh -*-
+
+## git-save
+
+## git stash alternative
+set -e
+
+source $BASH_INC_DIR/on_exit.binc
+
+declare moreopts; moreopts=1
+declare verbose;  verbose=0
+declare action;   action='save' ## default
+declare sbshort;  sbshort=''
+
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    ## Strip all leading dashes here so that -foo and --foo can both
+    ## be processed as 'foo'.
+    declare original="$1"
+    declare option
+
+    option=$(dashstripper $original)
+    shift ## That way you avoid endless loops on invalid options.
+
+    case $option in
+        list | save | restore | drop | diff | brief)
+            action=$option;;
+
+        contents )
+            sbshort=$1
+            action=$option;;
+
+        ## standard options
+        help )
+            echo "No documentation yet. Look at the code:"
+            cat $0
+            exit 0
+            ;;
+        debug | x ) set -x; ;;
+        verbose | v ) verbose=1 ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            echo "$original is an invalid option. See $0 --help"; exit 1;;
+        esac
+    done
+
+## Continue on with anything left in "$@"
+
+## Get current branch name
+declare cb=$(git-get-current-branch)
+
+## Save branch root
+declare sbr="git-save/$cb"
+
+declare tmp=$(mktemp --suffix=.git-save)
+rm_on_exit $tmp
+
+case $action in
+    list )
+        git-branch-list --strip --grep "$sbr" | tee $tmp
+        [ ! -s $tmp ] && echo "No 'save' branches found for $cb"
+        exit $OK
+        ;;
+
+    save )
+        git-is-clean && \
+            echo "Repo is clean. Nothing to save." && \
+            exit $NOT_OK
+
+        ## Derive new branch name
+        sb="$sbr/$(date +%Y_%m_%d_%H_%M_%S)"
+        echo "Saving to $sb..."
+
+        ## Checkout the new branch
+        git checkout -b "$sb"
+
+        ## Save everything int the new branch. Skip any commit triggers since
+        ## the code may not be in a verifiable state, but a stash wouldn't have
+        ## checked either.
+        git commit -a --no-verify -m "git-save of $cb"
+
+        ## Back to our branch. The new/changed/deleted files are restored to
+        ## unaltered state.
+        git checkout $cb
+
+        exit $OK
+        ;;
+esac
+
+git-branch-list --strip --grep "$sbr" > $tmp
+if [ ! -s $tmp ]
+then
+    echo "No 'save' branches found for $cb"
+    exit $NOT_OK
+fi
+if [ -n "$sbshort" ]
+then
+    sb="$sbr/sbhort"
+else
+    declare sbs=($(cat $tmp))
+    if (( ${#sbs[@]} > 1 ))
+    then
+        PS3="Select a number, or 'q' to quit:"
+        select sb in ${sbs[@]}
+        do
+            if [ -n "$sb" ]
+            then
+                break
+            elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
+            then
+                exit $OK
+            else
+                echo "Invalid reply"
+            fi
+        done
+    else
+        sb=${sbs[0]}
+    fi
+fi
+
+case $action in
+    diff )
+        git diff $cb $sb
+        ;;
+    brief )
+        git diff --name-status $cb $sb
+        ;;
+    restore )
+        declare data=$(git diff --name-status $cb $sb)
+        ## Data is
+        ## S file
+        ## where S is the status - A(dded) M(odified) D(eleted)
+
+        ## Segregate the files by type
+        declare type
+        declare -A files
+        declare field=0
+        for el in $data
+        do
+            if ((field==0))
+            then
+                type=$el
+            else
+                files[$type]="${files[$type]} $el"
+            fi
+            field=$(((field+1)%2))
+        done
+
+        ## Act on the types
+        declare restore="${files[A]} ${files[M]}"
+        [ -n "$restore" ] && git checkout $sb $restore
+        unset files[A] files[M]
+
+        declare remove="${files[D]}"
+        [ -n "$remove" ] && git rm -f $remove
+        unset files[D]
+
+        ## Insurance
+        declare remain_types=${!files[@]}
+        if [ -n "$remain_types" ]
+        then
+            echo Ugh - unhandled types
+            for ut in $remain_types
+            do
+                echo $ut - ${files[$ut]}
+            done
+            \rm $tmp
+            exit $NOT_OK
+        fi
+        ;;
+    drop )
+        git branch -D $sb
+        exit $?
+        ;;
+esac

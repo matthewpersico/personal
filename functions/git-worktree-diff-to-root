@@ -7,12 +7,11 @@ git-worktree-diff-to-root ()
 {
     ##@@ 0001||group||git-worktree-diff-to-root||diff worktree file against root file
 
-    local in_a_wt
     git-in-a-worktree
-    if [ ! "$?" = $TRUE ]
+    if [ ! "$?" = "$TRUE" ]
     then
         func-echo "Must be in a wt"
-        return $NOT_OK;
+        return "$NOT_OK";
     fi
 
     declare moreopts
@@ -28,41 +27,42 @@ git-worktree-diff-to-root ()
         ## be processed as 'foo'.
         declare original="$1"
         declare option
-        option=$(dashstripper $original)
+        option=$(dashstripper "$original")
         shift ## That way you avoid endless loops on invalid options.
 
         case $option in
-            reverse    ) opt_reverse=1 ;;
-            color      ) opt_color=$1; shift ;;
-            w          ) diff_opts="$diff_opts -w" ;;
-            help       ) echo "No documentation yet. Sorry."; return 0 ;;
-            debug | -x ) set -x ;;
-            --         ) moreopts=0 ;;
-            *          ) echo "$original is an invalid option. See $0 --help"; return 1;;
+            reverse   ) opt_reverse=1 ;;
+            color     ) opt_color=$1; shift ;;
+            w         ) diff_opts="$diff_opts -w" ;;
+            help      ) echo "No documentation yet. Sorry."; return 0 ;;
+            debug | x ) set -x ;;
+            --        ) moreopts=0 ;;
+            *         ) echo "$original is an invalid option. See $0 --help"; return 1;;
         esac
     done
 
-    declare files="$@"
-    if [ -z "$files" ]
+    declare -a files=("$@")
+    if ((${#files[@]}==0))
     then
-        files=$(git ls-files)
-        if [ -z "$files" ]
+        mapfile -t files < <(git ls-files)
+        if ((${#files[@]}==0))
         then
             func-echo "No git files found. Is current dir '$(pwd)' a git repo?"
-            return $NOT_OK;
+            return "$NOT_OK";
         fi
     fi
 
-    declare root=$(pwd);
+    declare root
+    root=$(pwd);
     root=${root%%/wt*}
-    is-redirected $STDOUT && opt_color=never
-    for i in $files
+    is-redirected "$STDOUT" && opt_color=never
+    for i in "${files[@]}"
     do
+        declare -a comp=("${root}/$i" "$i")
         if ((opt_reverse))
         then
-            git --no-pager diff --no-index --color=$opt_color $diff_opts ${root}/$i $i 2>&1
-        else
-            git --no-pager diff --no-index --color=$opt_color $diff_opts $i ${root}/$i 2>&1
+            comp=("$i" "${root}/$i")
         fi
+        git --no-pager diff --no-index --color=$opt_color "$diff_opts" "${comp[@]}" 2>&1
     done | less -RE
 }

@@ -1,127 +1,139 @@
 # -*- sh -*-
+# shellcheck disable=SC2148
 
 # git-process-changelog
 
-##@@ 0001||group||git-process-changelog||'Guts' function for *-with-changelog functions
-
-source $BASH_INC_DIR/on_exit.binc
-
-declare usage_func="${FUNCNAME}-usage"
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+script-echo -i
 
 ## All of the *-changelog functions work best in the git-root, which is
 ## where the $GITFUNCS_CHANGELOG_NAME is anyway
-declare pwd=$(pwd)
-declare gr=$(git-root)
+declare pwd
+pwd=$(pwd)
+declare gr
+gr=$(git-root)
 if [ ! "$pwd" = "$gr" ]
 then
-    _git-cd-to $gr  || exit $?
+    _git-cd-to "$gr" || exit $?
 else
     gr=''
 fi
 
 declare action='read'
-declare parse_flag=''
-declare diff=''
 declare opt_v='' ## passed to commit
 declare status=0
-declare parsed_cl=$(mktemp --suffix=.git-process-changelog)
-rm_on_exit $parsed_cl
-declare pcl=$(which parse-changelog)
-declare pcl_flags=''
-declare noless=''
+declare parsed_cl
+parsed_cl=$(mktemp --suffix=.git-process-changelog)
+rm_on_exit "$parsed_cl"
+declare pcl
+pcl=$(which parse-changelog)
+declare -a pcl_flags
 declare git_editor
-declare skip_no_changelog
-
-## Options first
-OPTSARGS=$(getoptp -o hv --long commit,withstatus,diff,noless,help,editor:,skip-no-changelog -n $FUNCNAME -- "$@")
-status=$?
-((status != 0)) && $usage_func && exit $status
-
-eval set -- "$OPTSARGS"
-while true
+declare moreopts
+moreopts=1
+while [[ "$1" =~ ^- ]] && ((moreopts))
 do
-    case "$1" in
-        -v) opt_v=$1
-            shift;;
-        --commit)
+    declare original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift ## That way you avoid endless loops on invalid options.
+
+    case $option in
+        ## standard options
+        h | help )
+            script-usage
+            ## (return if a func, exit if a script) 0
+            ;;
+        debug | x ) set -x; trap 'set +x' EXIT;;
+        verbose | v )
+            opt_v='-v'
+            ;;
+        commit)
             action=commit;
-            pcl_flags="$pcl_flags --write --ncl $parsed_cl"
-            shift ;;
-        --withstatus)
+            pcl_flags+=(--write --ncl "$parsed_cl")
+            ;;
+        withstatus)
             action=withstatus;
-            pcl_flags="$pcl_flags --withstatus";
-            shift ;;
-        --diff)
-            pcl_flags="$pcl_flags --diff"
-            shift ;;
-        --noless)
-            noless=1
-            shift ;;
-        --skip-no-changelog)
-            skip_no_changelog='--skipmissing'
-            shift ;;
-        --editor)
+            pcl_flags+=(--withstatus)
+            ;;
+        diff)
+            pcl_flags+=(--diff)
+            ;;
+        noclonly)
+            pcl_flags+=(--noclonly)
+            ;;
+        skip-no-changelog)
+            pcl_flags+=(--skipmissing)
+            ;;
+        editor)
             git_editor=$2
-            shift; shift;;
-        -h|--help) $usage_func; exit $OK ;;
-        --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) echo "Internal error!"; $usage_func; exit $NOT_OK ;;
+            shift;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            script-echo -- "$original is an invalid option. See $0 --help";
+            ## (return if a func, exit if a script) 1
+            ;;
     esac
 done
 
 ## Everything else is a file
-if [ -z $1 ]
+if [ -z "$1" ]
 then
-    echo "No files specified."
-    [ -n "$gr" ] && _git-cd-exit
-    exit $NOT_OK
+    script-echo "No files specified."
+    [ -n "$gr" ] && _git-cd-return
+    exit "$NOT_OK"
 fi
-declare filelist
+declare -a filelist
 for i in "$@"
 do
-    filelist="$filelist $(realpath $i)"
+    filelist+=("$(realpath "$i")")
 done
 
 ## Find the changelog
-declare changelogdir=$(git-root)
+declare changelogdir
+changelogdir=$(git-root)
 if ((status != 0))
 then
-    $usage_func
-    [ -n "$gr" ] && _git-cd-exit
+    script-usage
+    [ -n "$gr" ] && _git-cd-return
     exit $status
 fi
 
 declare changelog="${changelogdir}/$GITFUNCS_CHANGELOG_NAME"
-if [ ! -r $changelog ]
+if [ ! -r "$changelog" ]
 then
-    echo "$changelog not readable"
-    [ -n "$gr" ] && _git-cd-exit
-    exit $NOT_OK
+    script-echo -- "$changelog not readable"
+    [ -n "$gr" ] && _git-cd-return
+    exit "$NOT_OK"
 fi
-if [ "$action" = 'commit' ] && [ ! -w $changelog ]
+if [ "$action" = 'commit' ] && [ ! -w "$changelog" ]
 then
-    echo "$changelog not writable"
-    [ -n "$gr" ] && _git-cd-exit
-    exit $NOT_OK
+    script-echo -- "$changelog not writable"
+    [ -n "$gr" ] && _git-cd-return
+    exit "$NOT_OK"
 fi
 
 declare changelogbkp="${changelog}.bkp"
 
-declare others=$(find $changelogdir -name $GITFUNCS_CHANGELOG_NAME | grep -v "$changelog")
+declare others
+others=$(find "$changelogdir" -name "$GITFUNCS_CHANGELOG_NAME" | grep -v "$changelog")
 if [ -n "$others" ]
 then
-    echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir."
-    [ -n "$gr" ] && _git-cd-exit
-    exit $NOT_OK
+    script-echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir."
+    [ -n "$gr" ] && _git-cd-return
+    exit "$NOT_OK"
 fi
 
 ## Backup
-cp -f $changelog $changelogbkp
-$DEBUG_PROCESS_CHANGELOG $pcl --cl $changelog $pcl_flags $skip_no_changelog $filelist
+cp -f "$changelog" "$changelogbkp"
+$DEBUG_PROCESS_CHANGELOG "$pcl" --cl "$changelog" "${pcl_flags[@]}" "${filelist[@]}"
 status=$?
 if ((status!=0))
 then
-    [ -n "$gr" ] && _git-cd-exit
+    [ -n "$gr" ] && _git-cd-return
     exit $status
 fi
 
@@ -130,22 +142,37 @@ then
     ## We rebuild the filelist from the commit message file so that we can
     ## account for having skipped files because they do not have a
     ## changelog entry.
-    filelist=$(perl -ne 'next if $_ =~ m/^(SUMMARY LINE HERE|o | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' $parsed_cl)
+    declare -a filelist_refreshed
+    mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY LINE HERE|o | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$parsed_cl")
+    echo about to commit "${filelist_refreshed[@]}"
     if [ -z "$git_editor" ]
     then
-        git commit -F $parsed_cl --edit $opt_v $filelist
+        git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
     else
-        GIT_EDITOR=$git_editor git commit -F $parsed_cl --edit $opt_v $filelist
+        GIT_EDITOR=$git_editor git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
     fi
     status=$?
     if((status!=0))
     then
         ## Restore
-        echo "Rolling back $changelog"
-        cp -f $changelogbkp $changelog
-        [ -n "$gr" ] && _git-cd-exit
+        script-echo "Rolling back $changelog"
+        cp -f "$changelogbkp" "$changelog"
+        [ -n "$gr" ] && _git-cd-return
         exit $status
     fi
 fi
-[ -f $changelogbkp ] && \rm -f $changelogbkp
-[ -n "$gr" ] && _git-cd-exit
+[ -f "$changelogbkp" ] && \rm -f "$changelogbkp"
+[ -n "$gr" ] && _git-cd-return
+
+exit 0
+
+:<< __EOUSAGE__
+__USAGE__
+NAME
+    git-process-changelog
+
+SYNOPSYS
+
+DESCRIPTION
+    TBD
+__EOUSAGE__

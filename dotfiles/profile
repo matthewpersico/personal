@@ -1,4 +1,5 @@
 # -*- sh -*-
+# shellcheck disable=SC2148
 # ~/.profile.${USER}
 # Isolates my stuff.
 
@@ -19,7 +20,7 @@ else
 fi
 
 [ -z "$CRON" ] && \
-    CRON=$(${TILDAE}/personal/bin/running_under_cron && echo true || echo false) && \
+    CRON=$("${TILDAE}/personal/bin/running_under_cron" && echo true || echo false) && \
     export CRON
 
 ## OS_O is the 'proclaimed' operating system name. Use this where a system may
@@ -41,14 +42,19 @@ fi
 export OS_ID
 
 ## How to plug in (monkeypatch) set -x, ALLFUNCS_PROFILE, etc, if needed
-[ -e /tmp/profile.${USER} ] && . /tmp/profile.${USER}
-[ -e ${TILDAE}/profile.${USER}.monkeypatch ] && .  ${TILDAE}/profile.${USER}.monkeypatch
+# shellcheck disable=SC1090
+[ -e "/tmp/profile.${USER}" ] && . "/tmp/profile.${USER}"
+# shellcheck disable=SC1090
+[ -e "${TILDAE}/profile.${USER}.monkeypatch" ] && . "${TILDAE}/profile.${USER}.monkeypatch"
 
 ! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
     echo "$(date): ${TILDAE}/profile.${USER} is running..."
 
 ## NFS cross-mount check
-if [ ! "$(basename $(realpath $SHELL))" = 'bash' ]
+declare undershell
+undershell="$(realpath "$SHELL")"
+undershell="$(basename "$undershell")"
+if [ ! "$undershell" = 'bash' ]
 then
     echo "Skipping profile.mpersico5 under '$SHELL'"
     return 0 ## return is ok even though this is not a function because this
@@ -73,7 +79,8 @@ export FPATH=$PERSONALROOT/functions ## First profile called so init is
 if [ -z "$(declare -F autoload )" ]
 then
     ## Load autoloading. All of these functions get exported.
-    . $PERSONALBIN/autoload
+    # shellcheck disable=SC1090
+    . "$PERSONALBIN/autoload"
 fi
 
 if [ -z "$(declare -F autoloaded-personal)" ]
@@ -90,12 +97,13 @@ then
     ## have exported the functions. This script will run 'autoload -l' on
     ## specified functions to do just that - unshim the most widely used
     ## functions.
-    [ -f $PERSONALDATA/autoload-unshim.dat ] && \
-        . $PERSONALBIN/autoload-unshim -y $PERSONALDATA/autoload-unshim.dat
+    # shellcheck disable=SC1090
+    [ -f "$PERSONALDATA/autoload-unshim.dat" ] && \
+        . "$PERSONALBIN/autoload-unshim" -y "$PERSONALDATA/autoload-unshim.dat"
 fi
 
 ## Now that functions are loaded, we can use them, starting with addpath.
-addpath -fx PATH $PERSONALBIN
+addpath -fx PATH "$PERSONALBIN"
 
 ##
 ## env setup
@@ -108,24 +116,25 @@ addpath -fx PATH $PERSONALBIN
 _profile_env_init_list='util.env cd.env perl.env git.env dotfiles.env xtermfuncs'
 for _profile_env in ${_profile_env_init_list}
 do
-    _profile_envvar="$(echo $_profile_env | tr [:lower:] [:upper:] | tr -d [.] )_LOADED"
-    _profile_envvar_val="$(eval echo \$$_profile_envvar)"
+    _profile_envvar="$(echo "$_profile_env" | tr '[:lower:]' '[:upper:]' | tr -d '.' )_LOADED"
+    _profile_envvar_val="$(eval echo "\$$_profile_envvar")"
     if [ -z "$_profile_envvar_val" ]
     then
         ! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && echo "$(date): Loading $_profile_env"
-        . $PERSONALBIN/$_profile_env
+        # shellcheck disable=SC1090
+        . "$PERSONALBIN/$_profile_env"
     else
         ! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && echo "$(date): Skipped loading $_profile_env, $_profile_envvar=$_profile_envvar_val"
     fi
 done
 
-if [ $CRON = 'false' ]
+if [ "$CRON" = 'false' ]
 then
     ## Items we don't need in a cron job, some potentially fatal in that
     ## environment
 
     ## Check the personal repo.
-    git-daily-repo-check $PERSONALROOT
+    git-daily-repo-check "$PERSONALROOT"
 
     # MISC
 
@@ -142,7 +151,7 @@ then
 
     # Editing
     EDITOR='vi'
-    [ $(which emacs 2>/dev/null) ] && EDITOR='emacsclient -c'
+    [ "$(which emacs 2>/dev/null)" ] && EDITOR='emacsclient -c'
     export EDITOR
 
     # for silencing emacs dbus warning message

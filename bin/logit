@@ -1,101 +1,26 @@
 # -*- sh -*-
-
+# shellcheck shell=bash
 #
 # logit
 #
 
 # Take args, treat as a command + args and run all output to a file.
 
-source $BASH_INC_DIR/on_exit.binc
-
-usage ()
-{
-    cat <<EOUSAGE
-[FOO=BAR [ FOO2=BAR2... ] ] \\
-logit [ --tee ] \\
-      [ --log log_basename ] \\
-      [ --notimestamp ] \\
-      [ --dir log_directory ] \\
-      [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
-      [ --purge | --purgeprior ] \\
-      [ --tpe ] \\
-      [ --ts ] \\
-      [ -- ] \\
-      command [arg ..]
-
-logit [ --help | -h ]
-
-      --tee    - Spin up a terminal and show the log
-                 output in it as it is generated.
-
-      --log    - Provide a root name for the log if
-                 the command is generic.
-
-      --notimestamp
-               - Do not add a timestamp to the log name.
-                 Use if the log name provided by --log is
-                 unique or you don't care about overwriting
-                 logs.
-
-      --dir    - Put the logs in specifed directory, not
-                 current working directory. If not specified
-                 and there is a 'logit' subdir of the current
-                 working directory, logs will be placed in './logit'.
-
-      --edit   - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
-                 \$EDITOR ($EDITOR). Run the first one found in order
-                 to edit log file when the command exits.
-
-      --edit-echo -
-                 Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
-                 \$EDITOR ($EDITOR). Echo the command that would have
-                 been generated for --edit. This allows you to decide
-                 whether or not to edit the log.
-
-      --edit-on-fail -
-                 Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
-                 \$EDITOR ($EDITOR). Run the first one found in order
-                 to edit the log file if the command fails.
-
-      --purge  - Remove all similarly named log files before
-                 running the command.
-
-      --purgeprior -
-                 Remove all similarly named log files before
-                 running the command, but keep those with
-                 today's date in the log name.
-
-      --tpe    - A shortcut for --tee --purge --edit, the three most
-                 commonly used switches.
-
-      --ts     - Use the 'ts' command to prepend a time stamp to each
-                 output line.
-
-      --       - Ends options to logit. Command and its options
-                 follow. Only needed if one or more logit options
-                 are specified.
-
-      --help   - show this text.
-
-      FOO=BAR  - Any environment variables you want to set before
-                 running your command should be set before calling
-                 logit.
-
-EOUSAGE
-    exit $1
-}
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.bin"
 
 # Inits
-logfile=''
-logdir=''
-teeit=0
-tsit=0
-edit=''
-edit_echo=''
-edit_on_fail=''
-purge=''
-notimestamp=''
-original_argv="$0 $@"
+declare logfile=''
+declare logdir=''
+declare teeit=0
+declare tsit=0
+declare edit=''
+declare edit_echo=''
+declare edit_on_fail=''
+declare purge=''
+declare notimestamp=''
+declare -a original_argv
+original_argv+=("$0" "$@")
 
 # Read the options and args from command line.
 OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
@@ -118,7 +43,7 @@ eval set -- "$OPTSARGS"
 while true ; do
     case "$1" in
         -h|--help)
-            usage 0 ;;
+            script-usage; exit 0 ;;
         --log)
             logfile="$2"
             shift 2 ;;
@@ -160,7 +85,9 @@ while true ; do
             tsit=1
             shift ;;
         --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
-        *) echo "Internal error! You probably forgot to add a -- option between the logit options and the command to run." ; usage 1 ;;
+        *) echo "Internal error! You probably forgot to add a -- option between the logit options and the command to run."
+           script-usage
+           exi 1 ;;
     esac
 done
 
@@ -168,7 +95,7 @@ done
 if [ -z "$1" ]
 then
     echo "Command required."
-    usage 1
+    script-usage; exit 1
 fi
 
 before_command=1
@@ -203,7 +130,7 @@ then
         if [ "$isafunc" != "$command is a function" ]
         then
             echo "'$command' is not a function or not found or not executable."
-            usage 1
+            script-usage; exit 1
         fi
     fi
 fi
@@ -283,7 +210,7 @@ fi
     echo "********************"
     echo "  logit invocation"
     echo "********************"
-    echo $original_argv
+    echo "${original_argv[@]}"
     echo
 
     if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]
@@ -394,3 +321,76 @@ then
     fi
 fi
 exit $status
+
+:<<'__USAGE__'
+[FOO=BAR [ FOO2=BAR2... ] ] \\
+logit [ --tee ] \\
+      [ --log log_basename ] \\
+      [ --notimestamp ] \\
+      [ --dir log_directory ] \\
+      [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
+      [ --purge | --purgeprior ] \\
+      [ --tpe ] \\
+      [ --ts ] \\
+      [ -- ] \\
+      command [arg ..]
+
+logit [ --help | -h ]
+
+      --tee    - Spin up a terminal and show the log
+                 output in it as it is generated.
+
+      --log    - Provide a root name for the log if
+                 the command is generic.
+
+      --notimestamp
+               - Do not add a timestamp to the log name.
+                 Use if the log name provided by --log is
+                 unique or you don't care about overwriting
+                 logs.
+
+      --dir    - Put the logs in specifed directory, not
+                 current working directory. If not specified
+                 and there is a 'logit' subdir of the current
+                 working directory, logs will be placed in './logit'.
+
+      --edit   - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
+                 \$EDITOR ($EDITOR). Run the first one found in order
+                 to edit log file when the command exits.
+
+      --edit-echo -
+                 Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
+                 \$EDITOR ($EDITOR). Echo the command that would have
+                 been generated for --edit. This allows you to decide
+                 whether or not to edit the log.
+
+      --edit-on-fail -
+                 Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
+                 \$EDITOR ($EDITOR). Run the first one found in order
+                 to edit the log file if the command fails.
+
+      --purge  - Remove all similarly named log files before
+                 running the command.
+
+      --purgeprior -
+                 Remove all similarly named log files before
+                 running the command, but keep those with
+                 today's date in the log name.
+
+      --tpe    - A shortcut for --tee --purge --edit, the three most
+                 commonly used switches.
+
+      --ts     - Use the 'ts' command to prepend a time stamp to each
+                 output line.
+
+      --       - Ends options to logit. Command and its options
+                 follow. Only needed if one or more logit options
+                 are specified.
+
+      --help   - show this text.
+
+      FOO=BAR  - Any environment variables you want to set before
+                 running your command should be set before calling
+                 logit.
+
+__USAGE__

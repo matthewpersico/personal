@@ -1,9 +1,11 @@
-# -*- sh -*-
-# shellcheck shell=bash
+#!/usr/bin/env bash
 
-# git-clone
+# _git-clone_guts
 
-##@@ 0001||group||git-clone||Clone a repo locally. Args: protocol namespace repo
+script-echo -i
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
 
 declare opt_y=0
 declare opt_t=0
@@ -12,7 +14,10 @@ declare opt_worktree=1
 declare opt_local=0
 declare protocol
 declare pipe
+declare pipeoff
 declare moreopts
+declare namespace
+declare repo
 moreopts=1
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
@@ -24,6 +29,8 @@ do
     case $option in
         pipe )
             pipe=$1
+            add_on_exit echo "/" '>' "$pipe" '&'
+            pipeoff=$?
             shift;;
         p | proto | protocol )
             protocol=$1
@@ -57,23 +64,20 @@ do
             script-usage
             exit 0
             ;;
-        debug | x )
-            set -x
-            trap 'set +x' EXIT
-            ;;
+        debug | x ) set -x; add_on_exit set +x;;
         --)
             moreopts=0
             ;;
         * )
             echo "$original is an invalid option. See $0 --help";
-            ## (return if a func, exit if a script) 1
+            return 1
             ;;
     esac
 done
 
 [ -z "$1" ] && script-usage && exit "$NOT_OK"
 
-declare namespace=$1;shift
+namespace=$1;shift
 if [[ "$namespace" == */* ]]
 then
     declare -a tmpa
@@ -92,36 +96,35 @@ if [ "$local_protocol" != "$protocol" ]
 then
     if ((opt_local == 0))
     then
-        script-echo    "You must be in a declare directory path ending in"
-        script-echo -c "   $protocol"
-        script-echo -c "You are in $cwpath"
+        script-echo -- "You must be in a declare directory path ending in"\
+                    "   $protocol" \
+                    "You are in $cwpath"
         # gitfuncs_root set externally
         # shellcheck disable=SC2154
         declare shouldbein="$gitfuncs_gitroot/$protocol"
         if [ ! -d "$shouldbein" ]
         then
-            script-echo    "Cannot find '$shouldbein'."
-            script-echo -c "Correct and re-execute."
+            script-echo -- "Cannot find '$shouldbein'." "Correct and re-execute."
             exit "$NOT_OK"
         else
             declare resp
             if ((opt_y))
             then
-                script-echo "Going to $shouldbein"
+                script-echo -- "Going to $shouldbein"
                 resp='y'
             else
                 resp=$(script-yesno "cd to $shouldbein")
             fi
             if [ "$resp" = 'n' ]
             then
-                script-echo "Correct and re-execute."
+                script-echo -- "Correct and re-execute."
                 exit "$NOT_OK"
             else
                 _git-cd-to "$shouldbein"
             fi
         fi
     else
-        script-echo "--declare specifed. Cloning into $(pwd)/$repo"
+        script-echo -- "--declare specifed. Cloning into $(pwd)/$repo"
     fi
 fi
 
@@ -129,7 +132,7 @@ declare protocol_url
 protocol_url="$(kvstore get gitfuncs_gitsvcs "$protocol")"
 if [ -z "$protocol_url" ]
 then
-    script-echo "$protocol is unknown. Valid protocols are:$(kvstore vals gitfuncs_gitsvcs)"
+    script-echo -- "$protocol is unknown. Valid protocols are:$(kvstore vals gitfuncs_gitsvcs)"
     exit "$NOT_OK"
 fi
 
@@ -148,21 +151,21 @@ then
 fi
 
 declare cmd="git clone ${protocol_url}$namespace/$repo $namespace/$repo"
-script-echo "$cmd ..."
+script-echo -- "$cmd ..."
 $cmd
 status=$?; [ "$status" != '0' ] && exit $status
 if ((opt_t))
 then
-    script-echo 'Setting timestamps...'
+    script-echo -- 'Setting timestamps...'
     (builtin cd "$namespace/$repo"; git-retimestamp)
-    script-echo 'Done'
+    script-echo -- 'Done'
 fi
 
 ## dirlist, not builtin cd, to take advantage this cd enhancement
 dirlist "$namespace/$repo"
 if [ -n "$opt_triangle_namespace" ]
 then
-    script-echo "Setting up triangle workflow with ${protocol_url}$opt_triangle_namespace/${repo}..."
+    script-echo -- "Setting up triangle workflow with ${protocol_url}$opt_triangle_namespace/${repo}..."
     git-set-triangle "${protocol_url}" "$opt_triangle_namespace" "$namespace" "$repo"
     git pull # To refresh from the upstream
 fi
@@ -170,7 +173,7 @@ git remote -v
 
 if ((opt_worktree))
 then
-    script-echo "Setting up for worktrees..."
+    script-echo -- "Setting up for worktrees..."
     mkdir wt
     ls -ld "$(pwd)/wt"
 fi
@@ -180,15 +183,15 @@ git-go-set
 
 if [ -z "$pipe" ]
 then
-    script-echo "Done. Execute" "gitgo $namespace/$repo" "to use."
+    script-echo -- "Done. Execute" "gitgo $namespace/$repo" "to use."
 else
+    del-on-exit "$pipeoff"
     echo "$namespace/$repo" > "$pipe" &
 fi
 exit 0
 
 :<<'__USAGE__'
-git-clone - wraps 'git clone'
-
+NAME
+   git-clone - wraps 'git clone'
 TBD
-
 __USAGE__

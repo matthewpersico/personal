@@ -1,4 +1,5 @@
 # -*- sh -*-
+# shellcheck shell=bash
 
 # <Function Class: git>
 # <Function Justification: none>
@@ -7,29 +8,40 @@ git-update-this-hook ()
 {
     ##@@ 0001||group||git-update-hook||
 
-    local hooks="$@"
-    if [ -z "$hooks" ]
+    declare -a hooks
+    hooks=("$@")
+    if ((${hooks[@]}==0))
     then
-        hooks=$(ls ${gitfuncs_githook_dir}/* | grep -v README.md | grep -v $GITFUNCS_CHANGELOG_NAME)
+        local filename
+        # shellcheck disable=SC2154 #global non-all cap
+        for filename in ${gitfuncs_githook_dir}/*
+        do
+            if [[ $filename =~ ^(README.md|$GITFUNCS_CHANGELOG_NAME)$ ]]
+            then
+                continue
+            fi
+            hooks+=("$filename")
+        done
     else
         local h
-        local newh
-        for h in $hooks
+        declare -a newh
+        for h in "${hooks[@]}"
         do
-            newh="$newh ${gitfuncs_githook_dir}/$h"
+            newh+=("${gitfuncs_githook_dir}/$h")
         done
-        hooks="$newh"
+        hooks=("${newh[@]}")
     fi
     local REPOS REPO
-    REPOS=$(_git-go-get 0 0 1 0 0)
+    REPOS=$(_git-go-get -m)
     for REPO in $REPOS
     do
-        for h in $hooks
+        for h in "${hooks[@]}"
         do
-           local hookdir="${TILDAE:-$HOME}/$(git-strip-repo $REPO)/.git/hooks"
-           if [ -e "$hookdir/$(basename $h)" ]
+           local hookdir
+           hookdir="${TILDAE:-$HOME}/$(git-strip-repo "$REPO")/.git/hooks"
+           if [ -e "$hookdir/$(basename "$h")" ]
            then
-               cp -v $h $hookdir
+               cp -v "$h" "$hookdir"
            fi
         done
     done

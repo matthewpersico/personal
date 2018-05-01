@@ -19,13 +19,13 @@ uniqpath ()
     # local variables
     ###########################################################################
 
-    typeset options_shift_val options_missing_arg options_unknown_opt
+    typeset options_shift_val options_missing_arg options_unknown_option
     typeset options_num_args_left
     typeset opt_h opt_p opt_s
     typeset opt_x opt_v
     typeset sep=:
 
-    typeset pathvar npath TEMP
+    typeset pathvar TEMP
 
     pathfunc_usage_init
     typeset -a USAGE
@@ -46,7 +46,7 @@ uniqpath ()
     ###########################################################################
 
     options "hp:s:xv" "$@"
-    shift $options_shift_val
+    shift "$options_shift_val"
 
     if [ -n "$opt_h" ]
     then
@@ -55,15 +55,15 @@ uniqpath ()
     fi
     if [ -n "$options_missing_arg" ]
     then
-        Usage "$USAGE" "Missing argument for -$options_missing_arg"
+        Usage "${USAGE[@]}" "Missing argument for -$options_missing_arg"
         return
     fi
     if [ -n "$options_unknown_option" ]
     then
-        Usage "$USAGE" "Unknown option -$options_unknown_option"
+        Usage "${USAGE[@]}" "Unknown option -$options_unknown_option"
         return
     fi
-    if [ $options_num_args_left -eq 1 ]
+    if [ "$options_num_args_left" -eq 1 ]
     then
         pathvar=$1
     fi
@@ -84,7 +84,7 @@ uniqpath ()
     listpath -s "${sep}" -p $pathvar | awk '{seen[$0]++; if (seen[$0]==1){print}}' > $TEMP
     local newvalue
     local line
-    while read line
+    while read -r line
     do
         [ -n "$newvalue" ] \
             && newvalue="${newvalue}${sep}${line}" \
@@ -93,7 +93,9 @@ uniqpath ()
     eval $pathvar="'$newvalue'"
     /bin/rm -f $TEMP
     [ -n "$opt_v" ] && listpath -s "${sep}" -p $pathvar
+    # shellcheck disable=SC2163
     [ -n "$opt_x" ] && export $pathvar
+
 }
 
 # emacs

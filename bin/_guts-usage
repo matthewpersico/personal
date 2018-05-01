@@ -1,0 +1,28 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# _guts-usage
+
+declare tgt="$1"
+if grep -q -E "^:<<'__PODUSAGE" "$tgt"
+then
+    pod2text "$tgt" | ${PAGER:cat}
+elif grep -q -E "^:<<'__USAGE" "$tgt"
+then
+    printf '%s'   "$( sed -e "0,/^:<<'__USAGE__/d" -e '/^__USAGE__/,$d' "$tgt" )" | ${PAGER:cat}
+
+    ## If your script is a wrapper around another script, and you
+    ## do not want to repeat all of the wrapped help text in the
+    ## wrapper help, just put a script-usage command in your help
+    ## between these chain markers and we will execute that,
+    ## pulling in that help too. We assume that the chained help
+    ## comes after your help. TODO: Allow for embedded help in the
+    ## above text.
+    declare chain
+    chain="$(sed -e "0,/^:<<'__USAGE_CHAIN/d" -e '/^__USAGE_CHAIN/,$d' "$tgt")"
+    [ -n "$chain" ] && $chain | ${PAGER:cat}
+else
+    echo "No usage text found for $tgt" >&2
+fi
+
+## No exit here; we are called from inside a function. Just return to caller.

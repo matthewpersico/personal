@@ -6,10 +6,11 @@
 
 script-echo ()
 {
+    [ "$1" = "-i" ] && CMD_ECHO_AS="${CMD_ECHO_AS:-${0}}" && export CMD_ECHO_AS && return 0
     cmd-echo -s "${CMD_ECHO_AS:-$0}" "$@"
 }
 
-return 0 ## USAGE guard during sourcing this file.
+return 0 ## PODUSAGE guard
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -17,6 +18,8 @@ return 0 ## USAGE guard during sourcing this file.
   script-echo - label echos in scripts with the command name
 
 =head1 SYNOPSIS
+
+ script-echo -i ## somewhere near the top of your program.
 
  script-echo [--head] [--title] [-n] [-c] -- "text" ["text"...]
 
@@ -28,12 +31,17 @@ reversed color spaces, indicating continuation.
 
 The name to print is determined as either the envar CMD_ECHO_AS or $0.
 
-You must call 'script-echo' in only in scripts. Calling 'script-echo' in a
-function could pollute the environment; the CMD_ECHO_AS ennvar, used to
-communicate the command name across the function/script process barrier will
-end up being set in function's process. If you called that function from your
-command line, all subsequent usages of func-echo or script-echo will to print
-the wrong command.
+You should call 'script-echo' in only in scripts. Calling 'script-echo' in a
+function could pollute the environment.
+
+Furthermore, if you are calling functions in your scripts that themselves call
+'func-echo', you need to stop 'func-echo' from trying to set CMD_ECHO_AS
+itself. Putting this command
+
+ script-echo -i
+
+in your script before any function calls will immediately set the CMD_ECHO_AS
+envvar if it has not already been set.
 
 =head1 OPTIONS
 

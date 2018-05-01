@@ -1,15 +1,16 @@
-# -*- sh -*-
+#!/usr/env/bin bash
 
 # git-branch-list
 
-##@@ 0001||group||git-branch-list||
+script-echo -i
 
 declare strip=0
 declare remote=''
 declare output='cat'
-declare OPTSARGS=$(getoptp -o ra --long strip,nostrip,remote,all,grep: -n $FUNCNAME -- "$@")
+declare OPTSARGS
+OPTSARGS=$(getoptp -o ra --long strip,nostrip,remote,all,grep: -n "$0" -- "$@")
 status=$?
-((status != 0)) && script-echo -s $0 "Exiting." && exit $status
+((status != 0)) && script-echo "Exiting." && exit $status
 eval set -- "$OPTSARGS"
 while true
 do
@@ -20,7 +21,7 @@ do
         --nostrip) strip=0; shift;;
         --grep) output="grep --color=never $2"; shift; shift;;
         --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) script-echo -s $0 "Internal error!"; exit $NOT_OK ;;
+        *) script-echo "Internal error!"; exit "$NOT_OK" ;;
     esac
 done
 
@@ -29,10 +30,12 @@ done
 ## output.
 [ -n "$remote" ] && git remote update > /dev/null
 
-declare opts="--list $remote"
+declare -a opts
+opts=("--list")
+[ -n "$remote" ] && opts+=("$remote")
 if ((strip))
 then
-    git branch --no-color $opts | sed 's/^[ *] //' | sed 's/ .*//' | $output
+    git branch --no-color "${opts[@]}" | sed 's/^[ *] //' | sed 's/ .*//' | $output
 else
-    git branch $opts | $output
+    git branch "${opts[@]}" | $output
 fi

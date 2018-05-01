@@ -1,74 +1,75 @@
 # -*- sh -*-
+# shellcheck disable=SC2148
 
 # git-commit-with-changelog
-
-##@@ 0001||group||git-commit-with-changelog||Use $GITFUNCS_CHANGELOG_NAME entries to create commit messages
-
-## All of the *-changelog functions work best in the git-root, which is
-## where the $GITFUNCS_CHANGELOG_NAME is anyway
-declare pwd=$(pwd)
-declare gr=$(git-root)
-if [ ! "$pwd" = "$gr" ]
-then
-    script-echo -s $0 "Current directory ($pwd) is not the git root ($gr)"
-    declare resp=$(func-yesno "Go there")
-    if [ "$resp" = 'n' ]
-    then
-        exit $NOT_OK
-    fi
-    _git-cd-to $gr || exit $?
-else
-    gr=''
-fi
+script-echo -i
 
 declare opt_a
 declare opt_v
-declare opt_edit
+declare -a opt_edit
 declare opt_skip
+declare opt_debug
 declare moreopts
 moreopts=1
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
     declare original="$1"
     declare option
-    option="$1"
-    declare new=''
-    while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
-    do
-        new=$option
-        option=${option##-}
-    done
+    option=$(dashstripper "$original")
     shift ## That way you avoid endless loops on invalid options.
+
     case $option in
         a ) opt_a='-a';;
         v ) opt_v='-v';;
-        e ) opt_edit="--editor $1"; shift;;
+        e ) opt_edit=(--editor "$1"); shift;;
         s ) opt_skip='--skip-no-changelog';;
         h | help )
             script-usage
-            exit $OK ;;
-        debug | x )
-            set -x
-            ;;
+            exit "$OK" ;;
+        debug | x ) set -x; opt_debug='-x'; trap 'set +x' EXIT ;;
         --)
             moreopts=0
             ;;
         * )
-            script-echo -s $0 "$original is an invalid option. See $0 --help"; exit $NOT_OK;;
+            script-echo -- "$original is an invalid option. See $0 --help"; exit "$NOT_OK";;
     esac
 done
 
-declare files="$@"
-## This causes the same behavior as git commit with no args (default to
-## only staged files), but we need to pass files into git-process.
-[ -z "$files" ] && files=$(git-what-is-staged)
-[ -n "$opt_a" ] && files=$(git-what-is-modified)
-git-process-changelog --commit $opt_v $opt_edit $opt_skip $files
+## All of the *-changelog functions work best in the git-root, which is
+## where the $GITFUNCS_CHANGELOG_NAME is anyway
+declare pwd
+pwd=$(pwd)
+declare gr
+gr=$(git-root)
+if [ ! "$pwd" = "$gr" ]
+then
+    script-echo "Current directory ($pwd) is not the git root ($gr)"
+    declare resp
+    resp=$(script-yesno "Go there")
+    if [ "$resp" = 'n' ]
+    then
+        exit "$NOT_OK"
+    fi
+    _git-cd-to "$gr" || exit $?
+else
+    gr=''
+fi
+
+declare -a filenames
+filenames=("$@")
+if ((${#filenames[@]}==0))
+then
+    ## This causes the same behavior as git commit with no filenames (default
+    ## to only staged files), but we need to pass files into git-process-changelog.
+    mapfile -t filenames < <(git-what-is-staged)
+fi
+[ -n "$opt_a" ] && mapfile -t filenames < <(git-what-is-modified)
+git-process-changelog --commit $opt_v $opt_debug "${opt_edit[@]}" $opt_skip "${filenames[@]}"
 status=$?
-[ -n "$gr" ] && _git-cd-exit
+[ -n "$gr" ] && _git-cd-to $gr || exit $?
 exit $status
 
-__USAGE__
+:<<'__USAGE__'
 git-commit-with-changelog [-a] [ -v] [-e editor] [-s] [file [file...]]
 
 Use the local changelog as the commit message.
@@ -86,3 +87,4 @@ Use the local changelog as the commit message.
    processing stops and nothing is committed.
 
 If files are not specified, the list of all modified files is used.
+__USAGE__
