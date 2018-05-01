@@ -30,8 +30,9 @@ my %current = ();
 my %output = ();
 my %opt = (
     cl => undef,
-    ncl => undef,
+    newcl => undef,
     diff => 0,
+    noclonly => 0,
     write => 0,
     withstatus => 0,
     missingok => 0,
@@ -45,12 +46,14 @@ select((select(STDERR), $| = 1)[0]);
 
 GetOptions(\%opt,
            'cl=s',
-           'ncl=s',
+           'newcl|ncl=s',
            'diff',
+           'noclonly',
            'write',
            'withstatus',
            'missingok',
            'skipmissing',
+           'relok',
        ) or die "Bad options";
 
 die "-cl ChangeLog option required"
@@ -64,13 +67,13 @@ if( $opt{write} ) {
              or $opt{missingok}
              or $opt{diff});
 
-    if( !$opt{ncl} ) {
-        die "-ncl ChangeLog option required with --write";
+    if( !$opt{newcl} ) {
+        die "-newcl ChangeLog option required with --write";
     } else {
-        $opt{ncl} = rel2abs($opt{ncl});
+        $opt{newcl} = rel2abs($opt{newcl});
     }
-} elsif( $opt{ncl} ) {
-    warn "parse-changelog: -ncl ChangeLog option ignores without --write\n";
+} elsif( $opt{newcl} ) {
+    warn "parse-changelog: -newcl ChangeLog option ignored without --write\n";
 }
 
 ## You must specify all the files for which you want to grab a changelog
@@ -78,9 +81,15 @@ if( $opt{write} ) {
 ## changelog lives, that's an issue for the caller of this program.
 for (@ARGV) {
     if (substr($_, 0, 1) ne '/') {
-        warn "parse-changelog: $_ is not a fully qualified filename (does not start with '/'. Fatal.\n";
-        $exit++;
-    } elsif ( ! -e $_ ) {
+        if( $opt{relok} ) {
+            $_ = rel2abs($_);
+        } else {
+            warn "parse-changelog: $_ is not a fully qualified filename (does not start with '/'. Fatal.\n";
+            $exit++;
+            next;
+        }
+    }
+    if ( ! -e $_ ) {
         my @ok=qx(git st $_ | grep deleted:);
         if(scalar(@ok) != 1 ) {
             warn "parse-changelog: $_ not found." . ($opt{write} ? ' Fatal.' : '') . "\n";
@@ -116,7 +125,11 @@ if($opt{withstatus}) {
 ################################
 if($opt{diff}) {
     $opt{missingok}=1;
-    my @diff = map {chomp; $_} qx(git -c color.diff=always diff @file_list);
+    ## Remove any deleted files
+    my @diff_list = ( map {chomp; substr($_,3)}
+                        grep { ! m/^[D ]{2,2}/ }
+                        qx(git st --porcelain @file_list));
+    my @diff = map {chomp; $_} qx(git -c color.diff=always diff @diff_list);
     my $entry;
     for my $line (@diff) {
         if ($line =~ m/^....diff --git a/) {
@@ -249,7 +262,7 @@ if ( %nocl and $opt{skipmissing}) {
 my $clnew;
 my $clnewh;
 if( $opt{write} ) {
-    $clnew = $opt{ncl};
+    $clnew = $opt{newcl};
     $clnewh =  IO::File->new($clnew, "w")
       or die "Cannot open $clnew for write:$!";
 } else {
@@ -430,6 +443,11 @@ sub push_to_output {
                 if ($output[-1] eq "${format_over}NE") {
                     pop @output;
                     if(not @gcs) {
+                        ## TO DO - work backwards in $output[-1] until you
+                        ## reach the first non-control character and insert the
+                        ## no entry found string. In this way, the string will
+                        ## also be highlighted if the entry is highlighted
+                        ## (highly likely as a git status output).
                         $output[-1] .= ': No Changelog entry found.';
                         $space_files = 0;
                     } else {

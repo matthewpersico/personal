@@ -1,0 +1,92 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# <Function Class: util>
+# <Function Justification: assumes ${FUNCMAME}>
+
+func-usage ()
+{
+    ##@@ none||none||func-usage||Reads '${FUNCNAME}' or first arg for a __USAGE__ tag pair and prints everything between.
+    if [ "$1" = '-h' ]
+    then
+        func-usage func-usage # Arg not strictly necessary, but it shuts up
+                              # the shellcheck command.
+    else
+        declare tgt="$1"
+        [ -z "$tgt" ] && tgt="${FUNCNAME[1]}"
+        if [ ! -r "$tgt" ]
+        then
+            local newtgt
+            newtgt=$(autoload -w "$tgt") ## A personally modified version of
+                                         ## the autoload demo script that comes
+                                         ## with bash. -w is "where" and it
+                                         ## locates the file in which the
+                                         ## function was defined (effectively a
+                                         ## find command on FPATH).
+            if [ ! -r "$newtgt" ]
+            then
+                func-echo "Cannot find $tgt on FPATH to get usage text"
+                return 1
+            else
+                tgt="$newtgt"
+            fi
+        fi
+        ## And once we have a filename, we just call _guts-usage on it.
+        _guts-usage "$tgt"
+    fi
+}
+
+return 0
+
+:<<'__USAGE__'
+NAME
+    func-usage - search for usage text in a shell function and print it
+
+SYNOPIS
+
+    func-usage [function|script]
+    func-usage -h
+
+DESCRIPTION
+
+    "func-usage" prints usage text that is at the end of a function definition
+    file. Without argments, uses "${FUNCNAME[1]}" as the function to look for
+    on FPATH. With a "function", tries to find "function" on FPATH. With a
+    "script", tries to find it in the file system.
+
+    The text to be printed is identified by placing it inside of a heredoc. The
+    opening line of the heredoc should be
+
+    :<<'__USAGE__'
+
+    including the quotes and the closing line should contain only the word
+    "__USAGE__", no quotes.  The text of the heredoc definiton lines should
+    start in the first column.
+
+    The ":<<" construct allows the creation of a heredoc without assigning to a
+    variable. The single quotes around "'__USAGE__'" will prevent interpolation
+    inside the string.
+
+    At any point in your function where you want to display the text, such as
+    part of --help processing, just call the "func-usage" function.
+
+    You must ensure that your usage text will not throw an error or be executed
+    when the function is sourced in. The easiest way to do this is to make sure
+    that there is a "return 0" command after the function definition, just
+    before your heredoc, which you should place at the end of the file. The
+    "return 0" statement will prevent bash from reading any of the usage text
+    when the script is sourced.
+
+    The format of the usage text is up to you: man page, short blurb, whatever
+    free-form text you use. Spacing and tabs will be respected.
+
+USING PERL'S POD
+
+    Alternatively, you could create your usage text using a "__PODUSAGE__"
+    marker instead of "__USAGE__". When we see the __PODUSAGE__ marker, instead
+    of searching for the heredoc an just printing it, we instead run "pod2txt"
+    on the whole file. POD is the Plain Old Documentation system that comes
+    with Perl; it's like "markup" with tags for headers and indentations. Run
+    "perldoc pod" for details.
+
+__USAGE__

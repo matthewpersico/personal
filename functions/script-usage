@@ -1,10 +1,111 @@
 # -*- sh -*-
+# shellcheck shell=bash
 
 # <Function Class: util>
-# <Function Justification: yes - assumes $0>
+# <Function Justification: assumes $0>
+
+## Development Notes: See below
 
 script-usage ()
 {
-    ##@@ none||none||script-usage||Reads '$0' for a __USAGE__ tag and prints everything after that.
-    printf '%s\n' "$(sed '0,/^__USAGE__$/d' $0)"
+    ##@@ none||none||script-usage||Reads '$0' or first arg for a __USAGE__ tag pair and prints everything between.
+    if [ "$1" = '-h' ]
+    then
+        func-usage
+    else
+        declare tgt="$1"
+        [ -z "$tgt" ] && tgt="$0"
+        if [ ! -r "$tgt" ]
+        then
+            local newtgt
+            newtgt=$(which "$tgt" 2>/dev/null)
+            if [ ! -r "$newtgt" ]
+            then
+                func-echo "Cannot find $tgt on PATH to get usage text"
+                return 1
+            else
+                tgt="$newtgt"
+            fi
+        fi
+        ## And once we have a filename, we just call _guts-usage on it.
+        _guts-usage "$tgt"
+    fi
 }
+
+return 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+ script-usage - search for usage text in a shell script and print it
+
+=head1 SYNOPIS
+
+ script-usage [command|script]
+ script-usage -h
+
+=head1 DESCRIPTION
+
+"script-usage" prints usage text that is at the end of a file. Without
+argments, uses "$0" as the file to check. With a "command", tries to find
+"command" on the path. With a "script", tries to find it in the file system.
+
+The text to be printed is identified by placing it inside of a heredoc. The
+opening line of the heredoc should be
+
+  :<<'__USAGE__'
+
+including the quotes and the closing line should contain only the word
+"__USAGE__", no quotes.  The text of the heredoc definiton lines should start
+in the first column.
+
+The ":<<" construct allows the creation of a heredoc without assigning to a
+variable. The single quotes around "'__USAGE__'" will prevent interpolation
+inside the string.
+
+At any point in your script where you want to display the text, such as part of
+--help processing, just call the "script-usage" function.
+
+You must ensure that your usage text will not throw an error or be executed
+when the script is run. The easiest way to do this is to make sure that there
+is an "exit 0" command just before your heredoc, which you should place at the
+end of the file. The "exit 0" statement will prevent bash from reading any of
+the usage text when the script is executed.
+
+The format of the usage text is up to you: man page, short blurb, whatever
+free-form text you use. Spacing and tabs will be respected.
+
+=head1 USING POD
+
+Alternatively, you could create your usage text using a "__PODUSAGE__" marker
+instead of "__USAGE__". When we see the __PODUSAGE__ marker, instead of
+searching for the heredoc an just printing it, we instead run "pod2txt" on the
+whole file. POD is the Plain Old Documentation system that comes with Perl;
+it's like "markup" with tags for headers and indentations. Run "perldoc pod"
+for details.
+
+__PODUSAGE__
+
+## Development Notes:
+
+## 1) There's no reason why you couldn't simply code a usage() function in
+## every script and have the script call usage() when you have an error or a -h
+## option and be done with all this.
+
+## However, this function (script-usage) did not come first: func-usage
+## did. And you cannot define a usage() function for each defined function; the
+## various definitions would overwrite each other as the function files were
+## sourced in. And a usage-func-per-function would expand the env space beyond
+## reason. So, the "find-the-file-and-suck-out-the-text" functionality was
+## born.
+
+## Then, when I decided to extend the idea to scripts, it was a natural to take
+## the text processing part of func-usage and plop it here so it could be
+## shared, leaving the file-the-file functionality in func-usage. (Of course, I
+## should probably further move the text processing part into _usage_guts and
+## call that from here and func-echo).
+
+## Doing it this way also allows us to run 'script-usage foo' instead of 'foo
+## -h', which is safer than letting the script execute who knows what init code
+## before it 1) sees "Oh, all I need to do is print a string" and 20 throws
+## away all that initialization.

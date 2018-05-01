@@ -6,21 +6,17 @@
 perl-filter-code ()
 {
     local file
-    for file in $*
+    local -a foundperl
+    for file in "$@"
     do
-        head -1 $file | grep perl | grep -E '^#!' > /dev/null
-        if [ "$?" == '0' ]
+        if head -1 "$file" | grep perl | grep -E '^#!' > /dev/null \
+                || \
+           echo "$file" | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null
         then
-            foundperl="$foundperl $i"
-        else
-            echo $file | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null
-            if [ "$?" == '0' ]
-            then
-                foundperl="$foundperl $i"
-            fi
+            foundperl+=("$i")
         fi
     done
-    echo $foundperl
-    local words=($foundperl)
-    return ${#words[@]}
+    echo "${foundperl[@]}"
+    ((${#foundperl[@]}>0)) && return "$OK"
+    return "$NOT_OK"
 }

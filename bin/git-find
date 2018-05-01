@@ -1,0 +1,52 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# git-find
+
+##@@ 0001||group||git-find||A convenience function around: git ls-files $(git rev-parse --show-toplevel) | grep -E fileExpression'
+
+declare opt_untracked_only
+opt_untracked_only=0
+declare opt_all
+opt_all=0
+OPTSARGS=$(getoptp -o auh --long all,untracked-only,help -n "$(basename "$0")" -- "$@")
+declare status
+status=$?
+((status != 0)) && script-usage && exit $status
+
+eval set -- "$OPTSARGS"
+while true
+do
+    case "$1" in
+        --untracked_only|-u) opt_untracked_only=1; shift ;;
+        --all|-a) opt_all=1; shift ;;
+        -h|--help) script-usage; exit "$OK" ;;
+        --) shift; break ;; ## end of opts, remaining $*, if any, are args
+        *) echo "Internal error!"; script-usage; exit "$NOT_OK" ;;
+    esac
+done
+
+if [ "$opt_untracked_only" = 1 ] && [ "$opt_all" = 1 ]
+then
+    echo "--untracked_only and --all are mutually exclusive"
+    script-usage
+    exit 1
+fi
+
+declare ls_files_opts
+ls_files_opts="-c"
+if [ "$opt_untracked_only" = 1 ]
+then
+    ls_files_opts="-o"
+elif [ "$opt_all" = 1 ]
+then
+    ls_files_opts="-c -o"
+fi
+
+declare -a to_find
+mapfile -t to_find < <(ls)
+[ -n "$1" ] && to_find=("$@")
+for f in "${to_find[@]}"
+do
+    git ls-files "$ls_files_opts" "$(git rev-parse --show-toplevel)" | grep -E "$f" | sort
+done

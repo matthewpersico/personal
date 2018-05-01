@@ -1,0 +1,180 @@
+#!/usr/bin/env bash
+
+# <Function Class: util>
+# <Function Justification: can export>
+
+function cmd-echo() {
+    ## ANSI_reset is in the env, variable is not all caps, so shellcheck
+    ## complains.
+    # shellcheck disable=SC2154
+    declare reset_normal="${ANSI_reset}"
+    declare reset_title=''
+    declare moreopts=1
+    declare nonl=''
+    declare continueline=0
+    declare title=0
+    declare callname=''
+
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        declare original="$1"
+        declare option="$1"
+        declare new=''
+        while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
+        do
+            new=$option
+            option=${option##-}
+        done
+        shift
+
+        case $option in
+            head ) echo ;;
+            title )
+                echo
+                title=1
+                reset_title="${reset_normal}"
+                reset_normal=''
+                ;;
+            n ) nonl='-n' ;;
+            c ) continueline=1 ;;
+            h | help ) func-usage cmd-echo && return "$OK";;
+            f ) callname=$1; shift ;;
+            s ) callname="$(basename "$1")"; shift
+                if [ -z "$CMD_ECHO_AS" ]
+                then
+                    CMD_ECHO_AS="$callname"
+                    export CMD_ECHO_AS
+                fi
+                ;;
+            --)
+                moreopts=0 ;;
+            -* )
+                echo "cmd-echo: '$original' is an invalid option."
+                return "$NOT_OK"
+                ;;
+        esac
+    done
+
+    declare printit='?'
+    if [ -z "$callname" ]
+    then
+        echo "cmd-echo ASSERT WARN: no -f or -s specified"
+    else
+        printit=$callname
+    fi
+
+    declare p
+    for p in "$@"
+    do
+        if ((continueline))
+        then
+            ## Substitutes all characters for spaces, giving us a properly
+            ## spaced indent, sans func name, which indicates a continuation of
+            ## the prior line.
+            # shellcheck disable=SC2001
+            printit=$(echo "$printit" | sed 's/./ /g')
+        fi
+
+        ## ANSI_reverse is in the env, variable is not all caps, so shellcheck
+        ## complains.
+        # shellcheck disable=SC2154
+        echo $nonl -e "${ANSI_reverse}>>> ${printit}${reset_normal}: $p${reset_title}"
+
+        ## If there is a next line, it should be a continue line
+        ((continueline)) || continueline=1
+
+        ## Reset out of title
+        if ((title))
+        then
+            title=0 ## no need to reset for ever
+            reset_normal="${ANSI_reset}"
+            reset_title=''
+        fi
+    done
+
+}
+
+return 0 ## USAGE guard during sourcing this file.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+  cmd-echo - label echo with passed in function or script name
+
+=head1 SYNOPSIS
+
+ cmd-echo [ -f funcname | -s scriptname ] \
+             [--head] [--title] [-n] [-c] -- "text" ["text"...]
+
+=head1 DESCRIPTION
+
+Call 'cmd-echo' to print the first "text" on a line with a reversed-color
+prefix containing the script or function name. Print subsequent lines indented
+with reversed color spaces, indicating continuation.
+
+'cmd-echo' is probably not what you want to call. See 'func-echo' and
+'script-echo' instead.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --
+
+Indicates end of options to 'func-echo' so that all subsequent arguments are
+taken as text to print. Technically not necessary UNLESS your first argument to
+print happens to match one of the options to 'func-echo'.
+
+=item -f
+
+Called from a function, use the value as the name. See func-echo for an
+explanation of how value is determined.
+
+=item -s
+
+Called from a script, use the value as the name. Also set CMD_ECHO_AS to this
+value if CMD_ECHO_AS is not set and export CMD_ECHO_AS. See script-echo for an
+explanation of how value is determined.
+
+=item --head
+
+Print a blank line for spacing before printing any text.
+
+=item --title
+
+Print a blank line for spacing before printing any text and then print the
+entire first text line as reversed, not just the command name.
+
+=item -n
+
+Do not print a new line at the end of each line.
+
+=item -c
+
+Print the first "text" element as a continuation line.
+
+=back
+
+=head1 Environment Variable
+
+=over 4
+
+=item CMD_ECHO_NAME
+
+With no other actions, each call to func/script/cmd-echo in a set of nested
+function calls and script executions would print each individual function or
+script name as invoked. This is ususally not what you want; you want all output
+to look like it came from the same initial command.
+
+We accomplish this with the CMD_ECHO_NAME environment variable. The first
+function or script that calls func/script/cmd-echo will set CMD_ECHO_NAME as
+appropriate. All subsequent nested script calls will use this
+name.
+
+The value of CMD_ECHO_NAME will take precedence over any --cmd-name setting.
+
+=cut
+
+__PODUSAGE__
+
+#  LocalWords:  funcname shellcheck util func

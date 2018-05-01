@@ -65,7 +65,6 @@ options ()
     options_missing_arg=
     options_shift_val=0
     options_num_args_left=0
-    options_exit_on_error=0
 
     # ensure we have at least 2 arguments (getopts spec and at least one other)
 
@@ -98,12 +97,12 @@ options ()
     status=0
     OPTERR=0
     OPTIND=1
-    while getopts $opts argname
+    while getopts "$opts" argname
     do
         if [ "$argname" = "?" ]
         then                                # code handles bash getopts bug
 	    status=1
-            if echo $opts | grep $OPTARG >/dev/null 2>&1
+            if echo "$opts" | grep "$OPTARG" >/dev/null 2>&1
             then                            # option is really known so it must
                 options_missing_arg="$options_missing_arg $OPTARG" # have a missing arg
             else
@@ -119,9 +118,9 @@ options ()
         fi
         if [ "$OPTARG" != "" ]
         then
-            eval opt_$argname=$OPTARG  # set option name to value
+            eval "opt_$argname=$OPTARG"  # set option name to value
         else
-            eval opt_$argname=1        # set option name to 1
+            eval "opt_$argname=1"        # set option name to 1
         fi
     done
 
@@ -129,13 +128,15 @@ options ()
     # "shift $options_shift_val" to get rid of the arguments we have
     # processed for it.
 
-    let num=$OPTIND-1
-    options_shift_val=$num
+    ((num=OPTIND-1))
+    # shellcheck disable=SC2034 # set for the caller
+    options_shift_val="$num"
 
     # options_num_args_left tells the caller how many unprocessed
     # arguments there are
 
-    let options_num_args_left=$#-$num
+    # shellcheck disable=SC2034
+    ((options_num_args_left=$#-num))
 
     return $status
 }

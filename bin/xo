@@ -1,18 +1,19 @@
-## -*- sh -*-
+#!/usr/bin/env bash
 
 ## Grabs all my processes that have emacs in the command.
 ## Filters out the grep command
 ## Filters in where parent ppid is 1 (in case emacs is running a perl debugger
 ## or some other subprocess)
 
-source $BASH_INC_DIR/on_exit.binc
-
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+script-echo -i
 debug=0
 forceX=0
 emacs_exe=$(which emacs)
 emacsclient_exe=$(which emacsclient)
-gim=''
-which=''
+declare -a gim
+declare -a which
 as_visual=0
 new_frame=0
 more_opts=1
@@ -23,16 +24,14 @@ do
     shift ## That way you avoid endless loops on invalid options.
 
     case $option in
-        debug | x )
-            set -x ## Set by option
-            debug=1
-            ;;
+        debug | x ) set -x; debug=1 ;;
         forceX )
             forceX=1
             ;;
         which )
-            theNext=$(which $1)
-            [ -n "$theNext" ] && which="$which $theNext"
+            ##theNext=$(which "$1")
+            ##[ -n "$theNext" ] && which="$which $theNext"
+            which+=("$1")
             shift
             ;;
         root )
@@ -40,12 +39,12 @@ do
             emacsclient_exe="$1/emacsclient"
             for i in $emacs_exe $emacsclient_exe
             do
-                [ -x $i ] || (script-echo -s $0 "Cannot find '$i'. --root cannot be used." && exit 1);
+                [ -x "$i" ] || (script-echo "Cannot find '$i'. --root cannot be used." && exit 1);
             done
             shift
             ;;
         gim )
-            gim=$(git-is-mod)
+            gim=("$(git-is-mod)")
             ;;
         nf )
             new_frame=1
@@ -56,13 +55,13 @@ do
             more_opts=0
             ;;
         * )
-            script-echo -s $0 "$original is an invalid option. See $0 --help"; exit 1;;
+            script-echo -- "$original is an invalid option. See $0 --help"; exit 1;;
     esac
 done
 
 ## Temp file for processing and diagnostic messages.
 procs=$(mktemp --suffix=.xo)
-rm_on_exit $procs
+rm_on_exit "$procs"
 
 ##
 ## Main
@@ -79,7 +78,7 @@ case $OS in
         grepargs='-- emacs-w32'
         ;;
     * )
-        script-echo -s $0 "ps command for $OS not defined"
+        script-echo "ps command for $OS not defined"
         exit 1
         ;;
 esac
@@ -114,21 +113,21 @@ fi
 ## Get potential emacs server processes. The last grep is because emacsclient
 ## is called usually directly (no path, no processing by this script) when the
 ## $EDITOR command is used.
-$pscmd | grep $grepargs | grep -v grep | \
+$pscmd | grep "$grepargs" | grep -v grep | \
     grep -vi "$emacs_exe -Q" | \
     grep -vi "$emacsclient_exe -c" | \
-    grep -vi " emacsclient -c " >$procs 2>&1
+    grep -vi " emacsclient -c " >"$procs" 2>&1
 if ((debug))
 then
-    cat $procs
+    cat "$procs"
 fi
 
 ## Count how many
 if((hasX))
 then
-    serverup=$(cut -c $cutrange $procs | grep '    1' | wc -l)
+    serverup=$(cut -c "$cutrange" "$procs" | grep -c '    1')
 else
-    serverup=$(cat $procs | grep "$emacs_exe -nw" | wc -l)
+    serverup=$(grep -c "$emacs_exe -nw" "$procs")
 fi
 
 ## If we are being used as the git editor or EDITOR, we don't want to start up
@@ -149,39 +148,39 @@ then
     then
         if (( hasX ))
         then
-            $emacs_exe "$@" $gim $which &
+            $emacs_exe "$@" "${gim[@]}" "${which[@]}" &
         else
-            $emacs_exe -nw "$@" $gim $which  < /dev/tty
+            $emacs_exe -nw "$@" "${gim[@]}" "${which[@]}"  < /dev/tty
         fi
     else
-        script-echo -s $0 "No emacs server found. Start one and try again or use -m."
+        script-echo "No emacs server found. Start one and try again or use -m."
     fi
 elif ((serverup==1))
 then
-    if [ ! "$#" = 0 ] || [ -n "$gim" ] || [ -n "$which" ]
+    if [ ! "$#" = 0 ] || ((${#gim[@]})) || ((${#which[@]}))
     then
         if ((new_frame))
         then
-            $emacsclient_exe -c "$@" $gim $which | grep -v 'Waiting for Emacs' &
+            $emacsclient_exe -c "$@" "${gim[@]}" "${which[@]}" | grep -v 'Waiting for Emacs' &
         elif ((as_visual==1))
         then
-            $emacsclient_exe -c "$@" $gim $which
+            $emacsclient_exe -c "$@" "${gim[@]}" "${which[@]}"
         else
-            $emacsclient_exe -n -a $emacs_exe "$@" $gim $which
+            $emacsclient_exe -n -a "$emacs_exe" "$@" "${gim[@]}" "${which[@]}"
         fi
     else
-        script-echo -s $0 "Server already up. Specify a file to edit."
+        script-echo "Server already up. Specify a file to edit."
         $pscmd | head -1
-        cat $procs
+        cat "$procs"
     fi
 else
-    script-echo -s $0 "More than one potential emacs server process found:"
-    cat $procs
+    script-echo "More than one potential emacs server process found:"
+    cat "$procs"
 fi
 
 exit 0
 
-__USAGE__
+:<<'__USAGE__'
 usage: xo [--debug] [--forceX] [--root] \\
           [--gim] [--which file[,file...]] \\
           [-- any-emacs-opts] [file [file...]]
@@ -222,3 +221,4 @@ usage: xo [--debug] [--forceX] [--root] \\
                     use this without the intervening --, as in:
 
                     $ xo +123:45 some.file
+__USAGE__

@@ -1,6 +1,6 @@
 #!/opt/bb/bin/bash
 
-rmv=''
+declare rmv=''
 if [ "$1" = '--verbose' ]
 then
     rmv='-v'
@@ -9,7 +9,7 @@ fi
 rmv='-v'
 
 ## Number of days to look back
-lookback=1
+declare lookback=1
 if [[ "$1" =~ [0-9] ]]
 then
     lookback=$1
@@ -19,6 +19,7 @@ then
     echo "Use positive numbers for lookback"
     exit 1
 fi
+declare mtime
 ((mtime=lookback - 1)) ## Conversion for mtime
 if ((mtime>-1))
 then
@@ -27,18 +28,18 @@ fi
 
 if [ -n "$rmv" ]
 then
-    ((l=lookback))
-    ago=$(date --date="$l days ago")
+    ago=$(date --date="$lookback days ago")
     echo "Output for cleantemp.cron, which cleans /tmp of files and subdirectories older than $ago"
 fi
 
-files=0
-dirs=0
+declare files=0
+declare dirs=0
 
 echo "Before clean:"
 df -h /tmp
 
 ## Remove all the 'old' non directories
+declare i
 for i in $(find /tmp -depth -mtime $mtime ! -type d)
 do
     if [[ $i =~ systemd ]] \
@@ -47,7 +48,14 @@ do
     then
         echo "Skipping $i"
     else
-        [ -n "$rmv" ] && ls -la $i
+        if [ -n "$rmv" ]
+        then
+            ls -la $i
+            if [ ${#i} = '15' ] && [ -f $i ]
+            then
+                cat $i
+            fi
+        fi
         \rm $rmv -f $i
         ((files+=1))
     fi

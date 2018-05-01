@@ -9,29 +9,27 @@ tarcopy ()
 
     declare moreopts
     moreopts=1
-    declare exttaropts
+    declare -a ext_tar_opts
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
         declare original="$1"
         declare option
-        option=$(dashstripper $original)
+        option=$(dashstripper "$original")
         shift
 
         case $option in
             p )
-                exttaropts="$extaropts -p"
+                ext_tar_opts+=('-p')
                 ;;
             v )
-                exttaropts="$extaropts -v"
+                ext_tar_opts+=('-v')
                 ;;
             help )
                 echo "No documentation yet. Look at the code:"
-                cat $0
+                cat "$0"
                 return 0
                 ;;
-            debug | -x )
-                set -x
-                ;;
+            debug | x ) set -x ;;
             --)
                 moreopts=0
                 ;;
@@ -43,17 +41,17 @@ tarcopy ()
     if (($#<2))
     then
         echo "usage : src [src...] tgtdir"
-        return $(false)
+        return "$(false)"
     fi
 
-    local tgtdir=${@: -1}
-    if [ ! -d $tgtdir ]
+    local tgtdir="${*: -1}"
+    if [ ! -d "$tgtdir" ]
     then
         echo "Target '$tgtdir' must be an existing directory"
-        return $(false)
+        return "$(false)"
     fi
 
     ## B - reblock
-    tar cf - "${@:1:$# - 1}" | tar -C $tgtdir $exttaropts -xBf -
+    tar cf - "${@:1:$# - 1}" | tar -C "$tgtdir" "${ext_tar_opts[@]}" -xBf -
     return $?
 }

@@ -1,0 +1,21 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+git-clone ()
+{
+    local pipename
+    pipename=$(mktemp -u --suffix .git-clone.fifo)
+    mkfifo "$pipename"
+    local cea; cea="$(func-echo -i)"
+    CMD_ECHO_AS="$cea" _git-clone-guts --pipe "$pipename" "$@"
+    local gitgoto
+    gitgoto="$(cat "$pipename")"
+    [ ! "$gitgoto" = '/' ] && git-go --exact-tail "$gitgoto"
+    \rm -f "$pipename"
+}
+
+return 0;
+
+:<<'__USAGE_CHAIN__'
+script-usage _git-clone-guts
+__USAGE_CHAIN__

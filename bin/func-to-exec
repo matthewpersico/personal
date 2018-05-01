@@ -1,105 +1,164 @@
 ## -*- sh -*-
+# shellcheck disable=SC2148
 
-set -e ## Die on errors
-set -u ## Die on un-inited vars
-
-# shellcheck disable=SC1090
-source "$BASH_INC_DIR/on_exit.binc"
-
+## func-to-exec
+script-echo -i
 if [[ "$(pwd)" =~ functions ]] || \
        [[ "$(pwd)" =~ bin ]]
 then
-    script-echo -s "$0" 'Cannot be in functions or bin subdir for conversion.'
-    script-echo -s "$0" -c 'cd .. and re-exec.'
+    script-echo 'Cannot be in functions or bin subdir for conversion.' \
+                'cd .. and re-exec.'
     exit 1
 fi
 
 if [ -z "$1" ]
 then
-    script-echo -s "$0" "usage: $0 func [func...]"
-    script-echo -s "$0" -c "       You can use or not use the 'function/'"
-    script-echo -s "$0" -c "       prefix;we will adjust."
+    script-echo "usage: $0 func [func...]" \
+                "       You can use or not use the 'function/'" \
+                "       prefix;we will adjust."
     exit 1;
 fi
 
 ## Find sources, set targets
-declare raw_src_paths="$*"
+declare -a funcnames ## the keys for the *_paths hashes
+declare -A src_paths ## key is name (x), value is source (function/x)
+declare src_path
+declare -A tgt_paths ## key is name (x), value is target (bin/x)
+declare tgt_path
+declare -A tmp_paths ## key is name (x), value is temp (bin/x.tmp)
+declare tmp_path
+
+declare -a raw_src_paths
+raw_src_paths=("$@")
+declare raw_src_path
 declare bad=0
 declare justified=''
-declare src_paths
-declare adj_src_path
-for src_path in $raw_src_paths
+for raw_src_path in "${raw_src_paths[@]}"
 do
-    adj_src_path="functions/$(basename "$src_path")"
-    if [ ! -r "$adj_src_path" ]
+    declare funcname
+    funcname="$(basename "$raw_src_path")"
+
+    src_path="functions/$funcname"
+    if [ ! -r "$src_path" ]
     then
-        script-echo -s "$0" "$adj_src_path not found"
+        script-echo -- "$src_path not found"
         ((bad+=1))
     else
-        justified=$(grep 'Function Justification' "$adj_src_path" | \
+        justified=$(grep 'Function Justification' "$src_path" | \
                         grep -i -v none)
         if [ -n "$justified" ]
         then
-            script-echo -s "$0" "Not converting $adj_src_path: $(grep "$adj_src_path") 'Function Justification'"
+            script-echo "Not converting $src_path: $(grep 'Function Justification' "$src_path")"
             ((bad+=1))
         else
-            file=$(basename "$adj_src_path")
-            files="$files $file"
-            tgt_paths="$tgt_paths bin/$file"
-            src_paths="$src_paths $adj_src_path"
+            funcnames+=("$funcname")
+            src_paths["$funcname"]="$src_path"
+            tgt_paths["$funcname"]="bin/$funcname"
+            tmp_paths["$funcname"]="bin/${funcname}.tmp"
         fi
     fi
 done
-set +x
-[ -z "$tgt_paths" ] && script-echo -s "$0" "No sources found to convert" && exit 1
-((bad)) && script-echo -s "$0" "Some sources bad. bailing" && exit 1
+((${#src_paths[@]}==0)) && script-echo "No sources found to convert. Bailing." && exit 1
+((bad)) && script-echo "Some sources bad. Bailing" && exit 1
 
-script-echo -s "$0" git mv "$src_paths" bin
-git mv "$src_paths" bin
-script-echo -s "$0" "git commit $src_paths -m 'func to exec, mv (delete) phase'"
-git commit "$src_paths" -m 'func to exec, mv (delete) phase'
-script-echo -s "$0" "git commit $tgt_paths -m 'func to exec, mv (create) phase'"
-git commit "$tgt_paths" -m 'func to exec, mv (create) phase'
-
-script-echo -s "$0" func-to-exec.pl "$tgt_paths"
-func-to-exec.pl "$tgt_paths"
-
-commit_list=$(mktemp --suffix=.func-to-exec)    ## a file holding the functions
-                                                ## we chose to commit after
-                                                ## conversion
-rm_on_exit "$commit_list"
-
-for tgt_path in $tgt_paths
+## Copy function files to bin
+script-echo "Copying function files..."
+for funcname in "${funcnames[@]}"
 do
+    cp "${src_paths[$funcname]}" "${tgt_paths[$funcname]}"
+done
+
+## Do the conversions
+script-echo "Converting to scripts..."
+func-to-exec.pl "${tgt_paths[@]}" ## Each conversion of bin/foo will be in bin/foo.new
+
+## Review the conversions
+declare -a commit_list ## the list of function files we chose to commit after
+                       ## conversion
+declare -a revert_list ## the list of function files we chose NOT to commit
+                       ## after conversion
+declare tgt_path
+declare resp
+for funcname in "${funcnames[@]}"
+do
+    func-echo --head --title "$funcname"
+    tmp_path="${tmp_paths[$funcname]}"
+    src_path="${src_paths[$funcname]}"
     resp='e' ## Assume we want to edit
     while [ "$resp" = 'e' ]
     do
-        diff -w "$tgt_path" "${tgt_path}.new" && true ## so that a diff does
-                                                      ## not trigger an exit
-                                                      ## due to the -e setting
-        resp=$(pick "mv ${tgt_path}.new $tgt_path" "y/n/e" )
+        declare scstatus=1
+        while((scstatus>0))
+        do
+            shellcheck "$tmp_path" > /tmp/func-to-exec.$$
+            scstatus=$?
+            if((scstatus))
+            then
+                $EDITOR "${tmp_path}" /tmp/func-to-exec.$$
+            fi
+            \rm /tmp/func-to-exec.$$
+        done
+
+        diff -w "${src_path}" "${tmp_path}" && true ## so that a diff does not
+                                                    ## trigger an exit due to
+                                                    ## the -e setting
+        resp=$(pick "$funcname - Keep conversion" "y/n/e" )
         if [ "$resp" = 'y' ]
         then
-            mv "${tgt_path}.new" "$tgt_path"
-            chmod +x "$tgt_path"
-            echo "$tgt_path" >> "$commit_list"
+            commit_list+=("$funcname")
         elif [ "$resp" = 'e' ]
         then
-            $EDITOR "$tgt_path"
+            $EDITOR "${tmp_path}"
+        else
+            revert_list+=("$funcname")
         fi
     done
 done
 
-if [ -s "$commit_list" ]
+## Unwind rejects
+for funcname in "${revert_list[@]}"
+do
+    script-echo "Reverting $funcname..."
+    tgt_path="${tgt_paths[$funcname]}"
+    tmp_path="${tmp_paths[$funcname]}"
+    \rm -f "$tgt_path" "$tmp_path"
+    unset src_paths["$funcname"]
+    unset tgt_paths["$funcname"]
+    unset tmp_paths["$funcname"]
+done
+
+if ((!${#commit_list[@]}))
 then
-    commit_contents=$(tr '\n' ' ' < "$commit_list")
-    script-echo -s "$0" "git commit $commit_contents -m 'func to exec, convert phase'"
-    git commit "$commit_contents" -m 'func to exec, convert phase'
-    for i in $commit_contents
-    do
-        unset_contents="$unset_contents $(basename "$i")"
-    done
-    script-echo -s "$0" "Remember to 'unset -f $unset_contents'"
-else
-    script-echo -s "$0" nothing to commit after convert phase
+    script-echo 'Nothing to commit.'
+    exit 0
 fi
+
+## Get rid of the new files we used as input to the Perl conversion script.
+\rm -f "${tgt_paths[@]}"
+
+## Do the git move
+script-echo "git mv ${src_paths[*]} bin"
+git mv "${src_paths[@]}" bin
+
+## Commit the move
+script-echo "git commit ${src_paths[*]} ${tgt_paths[*]} -m 'func to exec, move phase'"
+git commit "${src_paths[@]}" "${tgt_paths[@]}" -m 'func to exec, move phase'
+
+## Overlay the moves with the converted temps
+script-echo "Overlay with converted files..."
+declare -a unset_contents
+for funcname in "${commit_list[@]}"
+do
+    tgt_path="${tgt_paths[$funcname]}"
+    tmp_path="${tmp_paths[$funcname]}"
+    \mv "${tmp_path}" "${tgt_path}"
+    chmod 755 "${tgt_path}"
+    unset_contents+=("$funcname")
+done
+
+## Commit the conversions
+script-echo "git commit ${tgt_paths[*]} -m 'func to exec, convert phase'"
+git commit "${tgt_paths[@]}" -m 'func to exec, convert phase'
+
+## Reminder
+script-echo 'Remember to' "unset -f ${unset_contents[*]}"

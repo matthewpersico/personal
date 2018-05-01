@@ -1,10 +1,10 @@
 ## -*- sh -*-
+# shellcheck disable=SC2148
 
 ## on-exit.binc - bash include
 
-## Stuff to do when you exit a script. So far, we only handle removing temp
-## files and directories (from
-## http://www.linuxjournal.com/content/use-bash-trap-statement-cleanup-temporary-files)
+## Stuff to do when you exit a script. From
+## http://www.linuxjournal.com/content/use-bash-trap-statement-cleanup-temporary-files
 
 ##    # Include the file
 ##    source $BASH_INC_DIR/on_exit.binc
@@ -12,50 +12,74 @@
 ##    # Create a temp
 ##    gitroot=$(mktemp)
 ##
-##    # Immediately register it for removal at script end
+##    # Immediately register it so that it will be removed at script exit
 ##    rm_on_exit $gitroot
 
 ## Note: DO NOT source this script into the login environment. It won't work
 ## unless you export each function; subshells and commands won't see the
 ## functions otherwise. Besides, you do not want multiple scripts sharing the
-## same on_exit_items array or you may lose temp files before you expect
+## same _on_exit_items array or you may lose temp files before you expect
 ## to. Source this into each script that has temps you want to cleanly
 ## handle. Nested calls work as expected/desired with respect to scope.
+declare -a _on_exit_items
 
-declare -a on_exit_items
-
-function on_exit()
+function on-exit ()
 {
-    for i in "${on_exit_items[@]}"
+    for i in "${_on_exit_items[@]}"
     do
+        [ -z "$i" ] && continue
         [ "$ON_EXIT_VERBOSE" == '1' ] && echo "on_exit: $i" >&2
-        eval $i
+        eval "$i"
     done
 }
 
-function add_on_exit()
+function on_exit()
 {
-    local n=${#on_exit_items[*]}
-    on_exit_items[$n]="$*"
+    on-exit
+}
+
+function add-on-exit()
+{
+    local n=${#_on_exit_items[*]}
+    _on_exit_items[$n]="$*"
     if [[ $n -eq 0 ]]; then
         [ "$ON_EXIT_VERBOSE" == '1' ] && echo "add_on_exit: Setting trap (on_exit)" >&2
         trap on_exit EXIT
     fi
+    return "$n"
 }
 
-function rm_on_exit()
+function add_on_exit()
+{
+    add-on-exit "$@"
+    return $?
+}
+
+function del-on-exit()
+{
+    _on_exit_items[$1]=''
+}
+
+function del_on_exit()
+{
+    del-on-exit "$@"
+}
+
+function rm-on-exit()
 {
     for rmit in "$@"
     do
-        if [ -d $rmit ]
+        if [ -d "$rmit" ]
         then
-            add_on_exit rm -rf $rmit
+            add-on-exit rm -rf "$rmit"
         else
-            add_on_exit rm -f $rmit
+            add-on-exit rm -f "$rmit"
         fi
         ((n+=1))
     done
 }
 
-## Note: Do not write mktemp_roe - the file will be deleted when you exit the
-## function.
+function rm_on_exit()
+{
+    rm-on-exit "$@"
+}
