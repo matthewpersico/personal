@@ -1,15 +1,13 @@
-# -*- sh -*-
+#!/usr/bin/env bash
 
 # git-rebase-log
-
-##@@ 0001||group||git-rebase_log||Show the log, rebase on the last commit id
 
 declare rebase_sha
 declare resp
 if [ -z "$1" ]
 then
     ## Show the current commit
-    echo --head 'Current commits:'
+    script-echo --head 'Current commits:'
     git log -2
     ## The first one we can rebase on is the third one in the log
     rebase_sha=$(git-log-grab-sha -3)
@@ -17,29 +15,35 @@ else
     rebase_sha=$1
 fi
 
-echo --head 'Rebaseable commits:'
+script-echo --head 'Rebaseable commits:'
 while ((1))
 do
     ## show the log
-    echo git-log-shas-range $rebase_sha $rebase_sha
-    git-log-shas-range $rebase_sha $rebase_sha
+    git-log-shas-range "$rebase_sha" "$rebase_sha"
 
-    resp=$(func-pick "Rebase on $rebase_sha" "y/n/q" 'n')
+    resp=$(script-pick "Rebase on $rebase_sha" "y/n/q" 'n')
     if [ "$resp" = 'q' ]
     then
-        exit $TRUE
+        exit "$OK"
     fi
     if [ "$resp" = 'y' ]
     then
-        git rebase -i $rebase_sha
+        git rebase -i "$rebase_sha"
         declare status=$?
-        (($status)) && exit $status
-        echo --head 'Log is now:'
-        git log ${rebase_sha}^1..HEAD
+        ((status)) && exit "$status"
+        script-echo --head 'Log is now:'
+        if(($(git log | grep -c -E '^commit') > 2))
+        then
+            # shellcheck disable=SC2086 #No need to quote $rebase_sha
+            git log ${rebase_sha}^1..HEAD
+        else
+            ## With less than three commits, the git log statement above won't
+            ## work; just show the whole log
+            git log
+        fi
         exit $status
     fi
 
     ## Get the next log
-    echo git-log-grab-sha -2 $rebase_sha
-    rebase_sha=$(git-log-grab-sha -2 $rebase_sha)
+    rebase_sha=$(git-log-grab-sha -2 "$rebase_sha")
 done

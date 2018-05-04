@@ -68,7 +68,7 @@ LINE: while (<>) {
     ##
     ## Ensure shebang, unwind shellcheck shell spec.
     ##
-    if ($lineno == 1) {
+    if ($lineno == 1 and $_ !~ m|^#!/usr/bin/env bash| ) {
         ## Line 1 must be a shebang.
         push @funclines, qq(#!/usr/bin/env bash\n);
         next LINE;

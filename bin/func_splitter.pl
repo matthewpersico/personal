@@ -93,7 +93,7 @@ while (<>) {
         my $funclinesstring = join('', @funclines);
         my $oh = IO::File->new("> $current_func");
         $oh->print(<<EOH);
-# -*- sh -*-
+#!/usr/bin/env bash
 
 # <Function Class: $ARGV>
 
