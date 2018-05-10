@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
 
-# =-=-=-=-=-=
 # sedinplace
-# =-=-=-=-=-=
 
 ##
 ## Declarations
@@ -12,31 +10,31 @@
 typeset sedcmdfile=$(mktemp --suffix=.sedinplace)
 finish ()
 {
-    if [ -e $sedcmdfile ]
+    if [ -e "$sedcmdfile" ]
     then
-        rm -rf $sedcmdfile
+        rm -rf "$sedcmdfile"
     fi
 }
 
-typeset sedopts=''	        ## Options to the sed command
-typeset sedopt_inplace='-i'	## Particular option typeset sedopts
-typeset opt_confirm=0
-typeset opt_verbose=0
-typeset opt_new=''
-typeset opt_keepscript=0
-typeset OPTSARGS
-typeset status
-typeset arg
-typeset exitstatus=0
+declare sedopts=''	        ## Options to the sed command
+declare sedopt_inplace='-i'	## Particular option declare sedopts
+declare opt_confirm=0
+declare opt_verbose=0
+declare opt_new=''
+declare opt_keepscript=0
+declare OPTSARGS
+declare status
+declare arg
+declare exitstatus=0
 declare -a files
-typeset f
+declare f
 
 ##
 ## OPTS and ARGS
 ##
 
 ## Read the args and options from the command line
-OPTSARGS=$(getoptp -o kcbvn: -l keepscript,confirm,backup,verbose,new: -n $0 -- "$@")
+OPTSARGS=$(getoptp -o kcbvn: -l keepscript,confirm,backup,verbose,new: -n "$0" -- "$@")
 status=$?
 ((status != 0)) && echo "Exiting." && exit $status
 
@@ -81,7 +79,7 @@ if ((opt_keepscript==0))
 then
     trap finish EXIT SIGINT
 else
-    print The sed command script is $sedcmdfile
+    print The sed command script is "$sedcmdfile"
 fi
 
 ## process args
@@ -95,17 +93,17 @@ do
 	    files+=("$arg")
     else
         ### TODO - NEED A WAY TO GET ARGS WITH SPACES IN HERE!!!!!!!!
-	    echo "$arg" >> $sedcmdfile
+	    echo "$arg" >> "$sedcmdfile"
     fi
 done
 
 if [ $opt_verbose = 1 ]
 then
-    echo "Processing these files: ${files[@]}"
+    echo "Processing these files: ${files[*]}"
 fi
 
 sedopts="$sedopt_inplace"
-sed $sedopts -f $sedcmdfile ${files[@]}
+sed $sedopts -f "$sedcmdfile" "${files[@]}"
 status=$?
 if [ $status != 0 ]
 then
@@ -115,36 +113,35 @@ then
     echo "for sed's temporaries and the final product."
 fi
 
-for f in ${files[@]}
+for f in "${files[@]}"
 do
-    if [ -e ${f}.sip ]
+    if [ -e "${f}.sip" ]
     then
-	    diff --text ${f}.sip $f 1>/tmp/sedinplace.diff.$$
+	    diff --text "${f}.sip" "$f" 1>/tmp/sedinplace.diff.$$
 	    status=$?
 	    if [ $status = 0 ]
 	    then
-            rmopt=''
             if ((opt_verbose))
             then
 		        echo "No changes in $f"
             fi
-		    \rm ${f}.sip
+		    \rm "${f}.sip"
         elif ((opt_new))
         then
-            \mv ${f} ${f}.${opt_new};status=$?;((status)) && echo "Rename ${f} ${f}.${opt_new} error. Exiting." && exit 1
-            \mv ${f}.sip ${f};status=$?;((status)) && echo "Rename ${f}.sip ${f} error. Exiting." && exit 1
+            \mv "${f}" "${f}.${opt_new}";status=$?;((status)) && echo "Rename ${f} ${f}.${opt_new} error. Exiting." && exit 1
+            \mv "${f}.sip" "${f}";status=$?;((status)) && echo "Rename ${f}.sip ${f} error. Exiting." && exit 1
             ((opt_verbose)) && echo "${f}.${opt_new}"
         elif ((opt_confirm))
         then
             echo
-            echo diff --text ${f}.sip $f
+            echo diff --text "${f}.sip" "$f"
             cat /tmp/sedinplace.diff.$$
 		    resp=$(yesno "Keep edits? ('n' reverts the edits)")
 		    if [ "$resp" = 'n' ]
 		    then
-		        mv -v ${f}.sip $f
+		        mv -v "${f}.sip" "$f"
 		    else
-		        \rm ${f}.sip
+		        \rm "${f}.sip"
 	        fi
         fi
     fi
