@@ -6,8 +6,8 @@
 source "$BASH_INC_DIR/on_exit.binc"
 script-echo -i
 
-## All of the *-changelog functions work best in the git-root, which is
-## where the $GITFUNCS_CHANGELOG_NAME is anyway
+## This function works best in the git-root, which is where the
+## $GITFUNCS_CHANGELOG_NAME is anyway
 declare pwd
 pwd=$(pwd)
 declare gr
@@ -15,8 +15,6 @@ gr=$(git-root)
 if [ ! "$pwd" = "$gr" ]
 then
     _git-cd-to "$gr" || exit $?
-else
-    gr=''
 fi
 
 declare action='read'
@@ -82,7 +80,6 @@ done
 if [ -z "$1" ]
 then
     script-echo "No files specified."
-    [ -n "$gr" ] && _git-cd-return
     exit "$NOT_OK"
 fi
 declare -a filelist
@@ -97,7 +94,6 @@ changelogdir=$(git-root)
 if ((status != 0))
 then
     script-usage
-    [ -n "$gr" ] && _git-cd-return
     exit $status
 fi
 
@@ -105,13 +101,11 @@ declare changelog="${changelogdir}/$GITFUNCS_CHANGELOG_NAME"
 if [ ! -r "$changelog" ]
 then
     script-echo -- "$changelog not readable"
-    [ -n "$gr" ] && _git-cd-return
     exit "$NOT_OK"
 fi
 if [ "$action" = 'commit' ] && [ ! -w "$changelog" ]
 then
     script-echo -- "$changelog not writable"
-    [ -n "$gr" ] && _git-cd-return
     exit "$NOT_OK"
 fi
 
@@ -122,7 +116,6 @@ others=$(find "$changelogdir" -name "$GITFUNCS_CHANGELOG_NAME" | grep -v "$chang
 if [ -n "$others" ]
 then
     script-echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir."
-    [ -n "$gr" ] && _git-cd-return
     exit "$NOT_OK"
 fi
 
@@ -132,7 +125,6 @@ $DEBUG_PROCESS_CHANGELOG "$pcl" --cl "$changelog" "${pcl_flags[@]}" "${filelist[
 status=$?
 if ((status!=0))
 then
-    [ -n "$gr" ] && _git-cd-return
     exit $status
 fi
 
@@ -156,12 +148,10 @@ then
         ## Restore
         script-echo "Rolling back $changelog"
         cp -f "$changelogbkp" "$changelog"
-        [ -n "$gr" ] && _git-cd-return
         exit $status
     fi
 fi
 [ -f "$changelogbkp" ] && \rm -f "$changelogbkp"
-[ -n "$gr" ] && _git-cd-return
 
 exit 0
 
