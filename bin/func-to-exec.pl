@@ -204,16 +204,16 @@ exit 0
 :<<'__PODUSAGE__'
 =head1 NAME
 
-foo - script that does something
+$current_file - script that does something
 
 =head1 SYNOPSIS
 
- foo [--option1] [ --option2 optionarg ] arg1 [arg2 ...] \
+ $current_name [--option1] [ --option2 optionarg ] arg1 [arg2 ...] \
      [fee] [dfsdfs] [sfsdfsf]
 
 =head1 DESCRIPTION
 
-Describe in general terms what foo does.
+Describe in general terms what $current_name does.
 
 =head1 ARGUMENTS
 

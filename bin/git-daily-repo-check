@@ -4,11 +4,12 @@
 
 if [ -r ~/.git-daily-repo-check.hosts ]
 then
-    grep $(hostname)  ~/.git-daily-repo-check.hosts
-    if(($?))
+    declare x
+    x=$(grep "$(hostname)" ~/.git-daily-repo-check.hosts)
+    if [ -z "$x" ]
     then
         ## Host name not found in the file
-        echo Skipping git-daily-repo-check on $(hostname)
+        echo "Skipping git-daily-repo-check on $(hostname)"
         exit 0
     fi
 fi
@@ -16,8 +17,11 @@ fi
 declare repo=$1; shift;
 [ -z "$repo" ] && echo "Missing repo location arg. Exiting." && exit 1
 ( ## to isolate 'cd' effects
-    cd $repo
-    declare repo_key="$(echo $(date +%Y%m%d;echo :;git st --porcelain | sha1sum) |  sed 's/ //g')"
+    # shellcheck disable=SC2164
+    cd "$repo"
+    declare repo_key
+    # shellcheck disable=SC2001
+    repo_key="$(echo "$(date +%Y%m%d;echo :;git st --porcelain | sha1sum)" |  sed 's/ //g')"
     declare repo_key_cache='.git-daily-repo-check.marker'
     declare repo_key_last
     [ -r $repo_key_cache ] && repo_key_last=$(cat $repo_key_cache 2>/dev/null)
@@ -27,6 +31,6 @@ declare repo=$1; shift;
         git-check-with-master --bail_on_dirty
         echo "** Check $(pwd) against itself ***"
         git status
-        echo $repo_key > $repo_key_cache
+        echo "$repo_key" > $repo_key_cache
     fi
 )
