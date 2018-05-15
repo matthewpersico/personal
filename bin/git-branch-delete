@@ -1,119 +1,185 @@
 #!/usr/bin/env bash
 
-# <Function Class: git>
-# <Function Justification: none>
+# git-branch-delete
 
-git-branch-delete ()
-{
-    local no_remote=0
-    local opt_yes=0
-    local do_go_set=1
-    OPTSARGS=$(getoptp -o y --long yes,no-remote,local-only,no-go-set -n $FUNCNAME -- "$@")
-    local status=$?
-    ((status != 0)) && $usage_func && return $status
+script-echo -i
 
-    eval set -- "$OPTSARGS"
-    while true
-    do
-        case "$1" in
-            -y|--yes) opt_yes=1; shift ;;
-            --no-remote|--local-only) no_remote=1; shift ;;
-            --no-go-set) do_go_set=0; shift ;;
-            -h|--help) $usage_func; return $OK ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) func-echo "Internal error!"; $usage_func; return $NOT_OK ;;
-        esac
-    done
+declare no_remote
+no_remote=0
+declare opt_yes
+opt_yes=0
+declare do_go_set
+do_go_set=1
+OPTSARGS=$(getoptp -o y --long yes,no-remote,declare-only,no-go-set -n "$0" -- "$@")
+declare status
+status=$?
+((status != 0)) && script-usage && exit $status
 
-    local branch=$1;
-    local current_branch=$(git-get-current-branch)
-    if [ -z "$branch" ]
+eval set -- "$OPTSARGS"
+while true
+do
+    case "$1" in
+        -y|--yes) opt_yes=1; shift ;;
+        --no-remote|--declare-only) no_remote=1; shift ;;
+        --no-go-set) do_go_set=0; shift ;;
+        -h|--help) script-usage; exit "$OK" ;;
+        --) shift; break ;; ## end of opts, remaining $*, if any, are args
+        *) script-echo "Internal error!"; script-usage; exit "$NOT_OK" ;;
+    esac
+done
+
+declare branch
+branch=$1;
+declare current_branch
+current_branch=$(git-get-current-branch)
+if [ -z "$branch" ]
+then
+    declare branchesa
+    readarray -t branchesa < <(git-branch-list --strip)
+    if [ ${#branchesa[@]} == '0' ]
     then
-        local branchesa=($(git-branch-list --strip))
-        if [ ${#branchesa[@]} == '0' ]
+        script-echo "No branches found. Are you in a git repo?"
+        exit "$NOT_OK"
+    fi
+    declare PS3
+    PS3="Choose by number, q to quit: "
+    declare selected
+    COLUMNS=1 ## One character wide terminal, forces list to be one column
+    select selected in "${branchesa[@]}"
+    do
+        if [ -n "$selected" ]
         then
-            func-echo "No branches found. Are you in a git repo?"
-            return $NOT_OK
-        fi
-        local PS3="Choose by number, q to quit: "
-        local selected
-        COLUMNS=1 ## One character wide terminal, forces list to be one column
-        select selected in ${branchesa[@]}
-        do
-            if [ -n "$selected" ]
+            if [ "$selected" == "$current_branch" ]
             then
-                if [ "$selected" == "$current_branch" ]
-                then
-                    func-echo -- "$selected is current. Cannot delete current."
-                else
-                    branch=$selected
-                    break
-                fi
-            elif [ "$(echo $REPLY | tr '[A-Z]' '[a-z]')" = 'q' ]
-            then
-                return $OK
+                script-echo -- "$selected is current. Cannot delete current."
             else
-                func-echo "'$REPLY' is an invalid choice"
+                branch=$selected
+                break
             fi
-        done
+        elif [ "$(echo "$REPLY" | tr '[:upper:]' '[:lower:]')" = 'q' ]
+        then
+            exit "$OK"
+        else
+            script-echo "'$REPLY' is an invalid choice"
+        fi
+    done
+fi
+
+if [ -n "$branch" ]
+then
+    ## $branch was either $1 or we did not ctrl-c out of the select.
+    if [ "$branch" = "$current_branch" ]
+    then
+        script-echo "Nope, you can't delete the current branch."
+        exit "$NOT_OK"
     fi
 
-    if [ -n "$branch" ]
+    declare brdelstat
+    git branch -d "$branch"
+    brdelstat=$?
+    if ((brdelstat))
     then
-        ## $branch was either $1 or we did not ctrl-c out of the select.
-        if [ "$branch" = "$current_branch" ]
-        then
-            func-echo "Nope, you can't delete the current branch."
-            return $NOT_OK
-        fi
+        script-echo "ERROR: git branch -d $branch failed. Returning $brdelstat."
+        exit $brdelstat
+    fi
+    script-echo "Branch deleted locally."
 
-        local brdelstat
-        git branch -d $branch
-        brdelstat=$?
-        if ((brdelstat))
-        then
-            func-echo "ERROR: git branch -d $branch failed. Returning $brdelstat."
-            return $brdelstat
-        fi
-        func-echo "Branch deleted locally."
+    if [ "$no_remote" = '1' ]
+    then
+        exit "$OK"
+    fi
 
-        if [ "$no_remote" = '1' ]
+    remotes=$(git remote)
+    for remote in $remotes
+    do
+        declare inremote
+        inremote=$(git-branch-list --strip -r | grep "$remote/$branch")
+        if [ -n "$inremote" ]
         then
-            return $OK
-        fi
-
-        remotes=$(git remote)
-        for remote in $remotes
-        do
-            local inremote=$(git-branch-list --strip -r | grep "$remote/$branch")
-            if [ -n "$inremote" ]
+            declare resp
+            if ((opt_yes))
             then
-                local resp
-                if ((opt_yes))
-                then
-                    resp='y'
-                else
-                    resp=$(func-yesno "Try deleting in remote '$remote'" n)
-                fi
-                if [ "$resp" == 'y' ]
-                then
-                    git push --delete $remote $branch ## This should not fail
+                resp='y'
+            else
+                resp=$(script-yesno "Try deleting in remote '$remote'" n)
+            fi
+            if [ "$resp" == 'y' ]
+            then
+                git push --delete "$remote" "$branch" ## This should not fail
                                                       ## since we have checked
                                                       ## that the branch exists
                                                       ## in the remote.
-                    brdelstat=$?
-                    if ((brdelstat))
-                    then
-                        func-echo "ERROR: git push --delete $remote $branch failed. Returning $brdelstat."
-                        return $brdelstat
-                    fi
-                    func-echo "Branch deleted remotely."
+                brdelstat=$?
+                if ((brdelstat))
+                then
+                    script-echo "ERROR: git push --delete $remote $branch failed. Returning $brdelstat."
+                    exit $brdelstat
                 fi
+                script-echo "Branch deleted remotely."
             fi
-        done
-    fi
+        fi
+    done
+fi
 
-    ## Update with changed branches
-    ((do_go_set)) && git-go-set
-    return $?
-}
+## Update with changed branches
+((do_go_set)) && git-go-set
+exit $?
+## POD guard
+exit 0
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-branch-delete - script that does something
+
+=head1 SYNOPSIS
+
+ git-branch-delete [--option1] [ --option2 optionarg ] arg1 [arg2 ...]
+     [fee] [dfsdfs] [sfsdfsf]
+
+=head1 DESCRIPTION
+
+Describe in general terms what git-branch-delete does.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item arg
+
+Describe what arg does, should be, etc. Add a new =item for each distinct arg.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --option1
+
+Describe what --option1 does.
+
+=item --option2
+
+Describe what --option2 does. Describe what optionarg does.
+
+=over 2
+
+=item *
+
+A choice for optionarg
+
+=item *
+
+Another choice for optionarg
+
+=back
+
+=back
+
+=cut
+
+__PODUSAGE__
