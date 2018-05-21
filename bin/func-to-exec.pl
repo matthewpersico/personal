@@ -187,6 +187,9 @@ LINE: while (<>) {
     $current_file_has_pod=1
       if $_ =~ m/^:<<'__PODUSAGE__'/;
 
+    ## Fix up the name used to id the program in getopt
+    s/(getoptp.*)\$FUNCNAME/${1}"\$0"/;
+
     ## Now that we are here, we want it.
     push @funclines, $_;
 }
@@ -208,12 +211,12 @@ $current_file - script that does something
 
 =head1 SYNOPSIS
 
- $current_name [--option1] [ --option2 optionarg ] arg1 [arg2 ...] \
+ $current_file [--option1] [ --option2 optionarg ] arg1 [arg2 ...] \
      [fee] [dfsdfs] [sfsdfsf]
 
 =head1 DESCRIPTION
 
-Describe in general terms what $current_name does.
+Describe in general terms what $current_file does.
 
 =head1 ARGUMENTS
 

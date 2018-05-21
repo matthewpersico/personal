@@ -5,14 +5,14 @@
 
 git-branch-info ()
 {
-    ##@@ 0001||group||git-branch-info||Read, write or delete meta information for a branch
-    local usage_func="${FUNCNAME}-usage"
-    local branch=$(git rev-parse --abbrev-ref HEAD)
+    local branch
+    branch=$(git rev-parse --abbrev-ref HEAD)
     local timestamp=''
     local delete=0
-    OPTSARGS=$(getoptp -o b:tdu --long branch:,timestamp,delete,unset -n $FUNCNAME -- "$@")
+    local OPTSARGS
+    OPTSARGS=$(getoptp -o b:tdu --long branch:,timestamp,delete,unset -n "${FUNCNAME[@]}" -- "$@")
     local status=$?
-    ((status != 0)) && $usage_func && return $status
+    ((status != 0)) && func-usage && return $status
 
     eval set -- "$OPTSARGS"
     while true
@@ -22,7 +22,7 @@ git-branch-info ()
             --timestamp|-t) timestamp="[$(date)]"; shift;;
             --delete|-d|--unset|-u) delete=1; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+            *) echo "Internal error!"; func-usage; return 1 ;;
         esac
     done
 
@@ -47,15 +47,16 @@ git-branch-info ()
         if((delete))
         then
             ## Remove existing key
-            git config --unset $full_key
+            git config --unset "$full_key"
         else
             ## Read existing key
-            git config $get_option $full_key | \
+            git config "$get_option" "$full_key" | \
                 perl -p -e 's/%20/ /g' | \
                 sort
         fi
     else
-        local value=$(echo $@ | perl -p -e 's/\s/%20/g')
-        git config $full_key "${timestamp}$value"
+        local value
+        value=$(echo "$@" | perl -p -e 's/\s/%20/g')
+        git config "$full_key" "${timestamp}$value"
     fi
 }

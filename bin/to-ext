@@ -2,7 +2,8 @@
 
 ## to-ext
 
-source $BASH_INC_DIR/on_exit.binc
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
 
 declare moreopts=1
 declare opt_since=''
@@ -13,7 +14,7 @@ do
     ## be processed as 'foo'.
     declare original="$1"
     declare option
-    option=$(dashstripper $original)
+    option="$(dashstripper "$original")"
     shift
 
     case $option in
@@ -48,7 +49,8 @@ if [ -z "$sharoutroot" ]
 then
     echo No shar root name specified.
     echo Shall I run
-    declare cmd="git config --add ext.name $(basename $(pwd))"
+    declare cmd
+    cmd="git config --add ext.name $(basename "$(pwd)")"
     resp=$(yesno "$cmd" n)
     if [ "$resp" = 'n' ]
     then
@@ -64,10 +66,9 @@ fi
 ## Check that we are clean. Otherwise the git-log-dump will not match with mods
 ## on disk. We don't count any existing git-log-dump, git-rms or git-links
 ## files as a problem since we are going to redo them anyway.
-if (($(git st --porcelain 2>&1 | \
+if (($(git status --porcelain 2>&1 | \
            grep -E -v 'git-(log-dump|rms|links)' 2>&1 | \
-           grep -E -v "${sharoutroot}.*shar.*" 2>&1 | \
-           wc -l)))
+           grep -c -E -v "${sharoutroot}.*shar.*" 2>&1)))
 then
     echo "Repo not clean:"
     git status
@@ -76,12 +77,12 @@ then
 fi
 
 declare git_sha_file="git-sha"
-if ((!opt_reset)) && [ -z $opt_since ]
+if ((!opt_reset)) && [ -z "$opt_since" ]
 then
     if [ -f $git_sha_file ]
     then
         git checkout $git_sha_file
-        opt_since=$(cat $git_sha_file | sed 's/commit //')
+        opt_since=$(sed 's/commit //' $git_sha_file)
     fi
 fi
 
@@ -89,7 +90,7 @@ fi
 ## perhaps to create a decent commit message on the other side.
 git log | head -1 > $git_sha_file
 git log > git-log-dump
-to_sha=$(cat $git_sha_file | sed 's/commit //')
+to_sha=$(sed 's/commit //' $git_sha_file)
 ## Non git members to add to the shar
 declare additionals="--text-files git-log-dump"
 
@@ -99,7 +100,8 @@ if [ -z "$sharoutroot" ]
 then
     echo No shar root name specified.
     echo Shall I run
-    declare cmd="git config --add ext.name $(basename $(pwd))"
+    declare cmd
+    cmd="git config --add ext.name $(basename "$(pwd)")"
     resp=$(yesno "$cmd" n)
     if [ "$resp" = 'n' ]
     then
@@ -116,16 +118,17 @@ if [ -z "$opt_since" ]
 then
     ## Without a sha to compare to, grab all files
     files=$(git ls-files)
-    opt_since=$(echo $to_sha | sed 's/./0/g')
+    # shellcheck disable=SC2001 # Can't use ${var//patt/repl}; need rexep . to match all
+    opt_since=$(echo "$to_sha" | sed 's/./0/g')
     rm -f git-rms
 else
     ## Check the files changed from sha time to now and segregate the removed
     ## ones for special processing.
     tmp=$(mktemp --suffix=.to-ext)
-    rm_on_exit $tmp
-    for i in $(git diff --name-only $opt_since)
+    rm_on_exit "$tmp"
+    for i in $(git diff --name-only "$opt_since")
     do
-        if [ -r $i ]
+        if [ -r "$i" ]
         then
             files="$files $i"
         else
@@ -135,7 +138,7 @@ else
     rm -f git-rms
     if [ -n "$rms" ]
     then
-        echo $rms > git-rms
+        echo "$rms" > git-rms
         additionals="$additionals git-rms"
     fi
 fi
@@ -143,16 +146,14 @@ fi
 ## Handle links
 tmp="$files"
 files=''
-links=''
 rm -f git-links
-gr=$(git-root)
-bngr=$(basename $gr)
+gr=$(git root)
+bngr=$(basename "$gr")
 for i in $tmp
 do
-    if [ -h $i ]
+    if [ -h "$i" ]
     then
-        link=$i
-        tgt=$(readlink $i | sed "s|$gr|$bngr|")
+        tgt=$(readlink "$i" | sed "s|$gr|$bngr|")
         echo "$i:$tgt" > git-links
     else
         files="$files $i"
@@ -162,9 +163,9 @@ done
 
 ## Make it.
 sharout="${sharoutroot}-${opt_since}-${to_sha}-$(date +%Y-%m-%d).shar"
-shar -q -m -o $sharout -p -M $files $additionals
+shar -q -m -o "$sharout" -p -M "$files" "$additionals"
 echo
-echo Done. sharfile is "'$(ls ${sharout}*)'"
+echo Done. sharfile is "'$(ls "${sharout}"*)'"
 echo "Don't forget to check in $git_sha_file"
 
 exit 0

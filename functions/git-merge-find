@@ -5,23 +5,22 @@
 
 git-merge-find ()
 {
-    ##@@ 0001||group||git-merge-find||Is there a merge record in ~/.gitconfig.merge_audit for given or current branch.
-
     local opt_silent=0
     local opt_all=0
-    OPTSARGS=$(getoptp -o sha --long silent,help,all -n $FUNCNAME -- "$@")
+    local OPTSARGS
+    OPTSARGS=$(getoptp -o sha --long silent,help,all -n "${FUNCNAME[@]}" -- "$@")
     local status=$?
-    ((status != 0)) && $usage_func && return $status
+    ((status != 0)) && func-usage && return $status
 
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
             -s|--silent) opt_silent=1; shift ;;
-            -h|--help) $usage_func; return $OK ;;
+            -h|--help) func-usage; return 0 ;;
             -a|--all) opt_all=1; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+            *) echo "Internal error!"; func-usage; return 1 ;;
         esac
     done
 
@@ -36,25 +35,24 @@ git-merge-find ()
     else
         if ((opt_all==0))
         then
-            git-in-a-repo
-            if (( $? == 0 ))
+            if git-in-a-repo
             then
                 r=$(git remote -v | grep origin | grep '(fetch)' | perl -an -e '$F[1] =~ s/[\/:]/--/g; print $F[1]')
                 b=$(git-get-current-branch)
             else
                 echo "Not in a repo"
-                return $NOT_OK
+                return 1
             fi
         fi
         search="${r}--${b}"
         rid=$(git remote -v | grep origin | grep '(fetch)' | perl -an -e 'print $F[1]')
         searchid="${rid}:${b}"
     fi
-    merged=$(git config -f ${TILDAE:-$HOME}/.gitconfig.merge_audit --list | grep -E -- "${search}" 2>/dev/null)
+    merged=$(git config -f "${TILDAE:-$HOME}/.gitconfig.merge_audit" --list | grep -E -- "${search}" 2>/dev/null)
     if [ -z "$merged" ]
     then
         ((opt_silent)) || echo "No record of merging $searchid to anywhere."
-        return $NOT_OK
+        return 1
     else
         echo "$merged" | perl -n -e '
  BEGIN { $me = getlogin };
@@ -83,6 +81,6 @@ git-merge-find ()
      print(map {$_->{m}} sort {$a->{d} cmp $b->{d}} @out)
  };
 '
-        return $OK
+        return 0
     fi
 }

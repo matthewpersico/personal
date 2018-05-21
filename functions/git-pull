@@ -5,26 +5,25 @@
 
 git-pull ()
 {
-    ##@@ 0001||group||git-pull||Show log state after pull. -t to invoke timestamp fixer.
-    local usage_func="${FUNCNAME}-usage"
-
     local opt_t=0
-    OPTSARGS=$(getoptp -o th --long timestamp,help -n $FUNCNAME -- "$@")
+    local OPTSARGS
+    OPTSARGS=$(getoptp -o th --long timestamp,help -n "${FUNCNAME[0]}" -- "$@")
     local status=$?
-    ((status != 0)) && $usage_func ${FUNCNAME} && return $status
+    ((status != 0)) && func-usage && return $status
 
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
             -t|--timestamp) opt_t=1; shift ;;
-            -h|--help) $usage_func; return $OK ;;
+            -h|--help) func-usage; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func ${FUNCNAME}; return $NOT_OK ;;
+            *) echo "Internal error!"; func-usage; return 1 ;;
         esac
     done
 
-    local oldsha=$(git-log-grab-sha -1)
+    local oldsha
+    oldsha=$(git-log-grab-sha -1)
     git pull
     if ((opt_t))
     then
@@ -32,5 +31,5 @@ git-pull ()
         git-retimestamp
         func-echo Done
     fi
-    git-log-shas-range -f "pre-pull:" $oldsha $(git-log-grab-sha -1)
+    git-log-shas-range -f "pre-pull:" "$oldsha" "$(git-log-grab-sha -1)"
 }

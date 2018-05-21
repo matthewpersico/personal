@@ -5,31 +5,30 @@
 
 git-delete-repo ()
 {
-    ##@@ 0001||group||git-delete-repo||protocol namespace repo
-    local usage_func="${FUNCNAME}-usage"
-
     local pwdmode=0
     local dirmode=''
-    [ -z "$1" ] && $usage_func ${FUNCNAME} && return $NOT_OK
+    [ -z "$1" ] && func-usage && return 1
     [ "$1" = '--pwdmode' ] && pwdmode=1 && shift
     [ "$1" = '--dirmode' ] && dirmode=$2 && shift && shift
 
     local repo
-    local returnpath=$(realpath $(pwd))
+    local returnpath
+    returnpath=$(realpath "$(pwd)")
 
     if [ -n "$dirmode" ]
     then
-        builtin cd $dirmode
-        local root_or_err=$(git-root 2>&1)
+        builtin cd "$dirmode"
+        local root_or_err
+        root_or_err="$(git root 2>&1)"
         local status=$?
         if ((status))
         then
             func-echo -- "$root_or_err"
-            builtin cd $returnpath
+            builtin cd "$returnpath"
             return $status
         else
-            builtin cd $root_or_err
-            repo=$(basename $(realpath $(pwd)))
+            builtin cd "$root_or_err"
+            repo=$(basename "$(realpath "$(pwd)")")
         fi
     elif ((!pwdmode))
     then
@@ -37,33 +36,33 @@ git-delete-repo ()
         local namespace=$1;shift
         repo=$1;shift
 
-        local protocol_url=$(kvstore get gitfuncs_gitsvcs $protocol)
+        local protocol_url
+        protocol_url=$(kvstore get gitfuncs_gitsvcs "$protocol")
         if [ -z "$protocol_url" ]
         then
             func-echo -- "$protocol is unknown. Valid protocols are:$(kvstore vals gitfuncs_gitsvcs)"
-            return $NOT_OK
+            return 1
         fi
 
         ## Go to what we want to whack, to make sure it's there.
-        git-go $protocol/$namespace/$repo
+        git-go "$protocol/$namespace/$repo"
         status=$?
-        ((status != 0)) && return $NOT_OK; ## If the git-go fails, we should
+        ((status != 0)) && return 1; ## If the git-go fails, we should
         ## see error messages, no need to
         ## add more.
     fi
 
-    local repopath=$(realpath $(pwd))
     (
         ## Subshell to allow cding around to be handled gracefully at the end
 
         ## Make sure it's clean
-        if [ -d wt ] && [ "$(ls wt | wc -l)" != '0' ]
+        if [ -d wt ] && (($(find wt | wc -l) > 1))
         then
             func-echo "worktrees found:"
             ls -la wt
             func-echo
             func-echo "Will not delete repo"
-            return $NOT_OK
+            return 1
         fi
 
         dirty=$(git status --porcelain)
@@ -72,13 +71,13 @@ git-delete-repo ()
             git status
             func-echo
             func-echo "Will not delete current repo"
-            return $NOT_OK
+            return 1
         fi
 
         builtin cd ..
-        \rm -rf $repo
+        \rm -rf "$repo"
         status=$?
-        ((status != 0)) && return $NOT_OK; ## If the rm fails, we should see
+        ((status != 0)) && return 1; ## If the rm fails, we should see
                                            ## error messages, no need to add
                                            ## more.
 
@@ -86,13 +85,13 @@ git-delete-repo ()
         ## Remove the just-deleted repo from the list of local git repos.
         git-go-set
 
-        return $OK
+        return 0
     )
 
     status=$?
-    if [ -d $returnpath ]
+    if [ -d "$returnpath" ]
     then
-        builtin cd $returnpath
+        builtin cd "$returnpath"
     else
         builtin cd
     fi

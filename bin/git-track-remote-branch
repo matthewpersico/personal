@@ -2,8 +2,6 @@
 
 # git-track-remote-branch
 
-##@@ 0001||group||git-track-remote-branch||Create a branch, or use an existing non-tracking branch, to track a remote branch
-
 declare remote=$1
 declare branch=$2
 declare local_branch=$3
@@ -11,25 +9,28 @@ if [ -z "$remote" ] || [ -z "$branch" ]
 then
     echo "Usage: git-track-remote-branch remote branch [localbranch]"
     echo "       Missing one or both arguments (remote, branch)"
-    exit $NOT_OK
+    exit 1
 fi
 [ -z "$local_branch" ] && local_branch=$branch
 
-declare local-branch_exists=$(git branch --list $local_branch)
+declare local_branch_exists
+local-branch_exists="$(git branch --list "$local_branch")"
 if [ -z "$local_branch_exists" ]
 then
     ## Does not exists, create and track
-    git checkout -b $local_branch --track $remote/$branch
+    git checkout -b "$local_branch" --track "$remote/$branch"
 else
-    declare already_tracking_remote=$(git config branch.$local_branch.remote)
+    declare already_tracking_remote
+    already_tracking_remote="$(git config branch."$local_branch".remote)"
     if [ -z "$already_tracking_remote" ]
     then
         ## Exists, not tracking, track
-        git branch --set-upstream-to $remote/$branch $local_branch
+        git branch --set-upstream-to "$remote/$branch" "$local_branch"
     else
-        declare already_tracking_branch=$(git config branch.$local_branch.merge | sed 's|refs/heads/||')
+        declare already_tracking_branch
+        already_tracking_branch=$(git config branch."$local_branch".merge | sed 's|refs/heads/||')
         echo "Branch $local_branch is already tracking $already_tracking_branch in $already_tracking_remote"
-        exit $NOT_OK
+        exit 1
     fi
 fi
 exit $?

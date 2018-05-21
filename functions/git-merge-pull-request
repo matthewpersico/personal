@@ -5,26 +5,19 @@
 
 git-merge-pull-request ()
 {
-    ##@@ 0001||group||git-merge-pull-request||Merge a remote pull request from command line.
-    local usage_func=git-merge-pull-request-usage
-    local iam=$(func-name-spoof)
-    local spoofing=$?
-
     local protocol=$1;shift
-    local protocol_url=$(kvstore get gitfuncs_gitsvcs $protocol)
+    local protocol_url
+    protocol_url=$(kvstore get gitfuncs_gitsvcs "$protocol")
     if [ -z "$protocol_url" ]
     then
         echo "$protocol is unknown. Valid protocols are:$(kvstore vals gitfuncs_gitsvcs)"
-        return $NOT_OK
+        return 1
     fi
 
-    local usage_arg
-    [ "$spoofing" = "$(true)" ] && usage_arg=$protocol
-
-    local opt_help=0
     local opt_verbose=0
     local opt_keep=0
-    OPTSARGS=$(getoptp -o vhk --long verbose,help,keep -n $FUNCNAME -- "$@")
+    local OPTSARGS
+    OPTSARGS=$(getoptp -o vhk --long verbose,help,keep -n "${FUNCNAME[@]}" -- "$@")
     local status=$?
     ((status != 0)) && return $status
 
@@ -32,11 +25,11 @@ git-merge-pull-request ()
     while true
     do
         case "$1" in
-            -h|--help) $usage_func $iam $usage_arg ; return $OK;;
+            -h|--help) func-usage ; return 0;;
             -k|--keep) opt_keep=1; shift ;;
             -v|--verbose) opt_verbose=1; shift ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; $usage_func; return $NOT_OK ;;
+            *) echo "Internal error!"; func-usage; return 1 ;;
         esac
     done
 
@@ -73,17 +66,17 @@ git-merge-pull-request ()
         confirm_args=1
     fi
 
-    asplit tgt / $tgtarg
-    asplit src / $srcarg
+    asplit tgt / "$tgtarg"
+    asplit src / "$srcarg"
 
     ## Ok, we just split on '/' assuming some form of namespace/repo/branch, but
     ## branch could itself have slashed in it. Sooooo, we fix that up here:
     local tmpend=${#src[@]}
     local tmpcount=$((tmpend - ibranch))
-    tmp=(${src[$inamespace]} ${src[$irepo]} $(ajoin / ${src[@]:$ibranch:$tmpcount}))
+    tmp=("${src[$inamespace]}" "${src[$irepo]}" "$(ajoin / "${src[@]:$ibranch:$tmpcount}")")
     src=("${tmp[@]}")
     tmpend=${#tgt[@]}
-    tmp=(${tgt[$inamespace]} ${tgt[$irepo]} $(ajoin / ${tgt[@]:$ibranch:((tmpend-2))}))
+    tmp=("${tgt[$inamespace]}" "${tgt[$irepo]}" "$(ajoin / "${tgt[@]:$ibranch:((tmpend-2))}")")
     tgt=("${tmp[@]}")
 
     ## Here, we set defaults for missing data...
@@ -93,7 +86,8 @@ git-merge-pull-request ()
     ([ "${tgt[$ibranch]}"    = '-' ] || [ -z "${tgt[$ibranch]}"    ] ) && tgt[$ibranch]=master
 
     local srcurl="$protocol:${src[$inamespace]}/${src[$irepo]}"
-    local remote_ref=$(ajoin _ $(asplit - / $(ajoin '_' ${src[@]})))
+    local remote_ref
+    remote_ref=$(ajoin _ "$(asplit - / "$(ajoin '_' "${src[@]}")")")
 
     local merge_src='remote'
     [ "${src[$inamespace]}" = "${tgt[$inamespace]}" ] && \
@@ -102,28 +96,32 @@ git-merge-pull-request ()
 
     if ((confirm_args))
     then
-        local resp=$(func-yesno "Merging to $protocol:${tgt[$inamespace]}/${tgt[$irepo]}/${tgt[$ibranch]} from $protocol:${src[$inamespace]}/${src[$irepo]}/${src[$ibranch]}")
+        local resp
+        resp=$(func-yesno "Merging to $protocol:${tgt[$inamespace]}/${tgt[$irepo]}/${tgt[$ibranch]} from $protocol:${src[$inamespace]}/${src[$irepo]}/${src[$ibranch]}")
         if [ "$resp" = 'n' ]
         then
-            return $NOT_OK
+            return 1
         fi
     fi
     ((opt_verbose)) && func-echo --head "Clone $protocol:${tgt[$inamespace]}/${tgt[$irepo]}..."
-    ${protocol}-clone ${tgt[$inamespace]} ${tgt[$irepo]}
+    "${protocol}-clone" "${tgt[$inamespace]}" "${tgt[$irepo]}"
     local status=$?
     ((status)) && _git-cd-unwind && return $status
-    local tgt_repo_dir=$(pwd)
+    local tgt_repo_dir
+    tgt_repo_dir=$(pwd)
 
     ((opt_verbose)) && func-echo --head "Switch to branch ${tgt[$ibranch]}..."
     git checkout ${tgt[$ibranch]}
     local status=$?
     ((status)) && _git-cd-unwind && return $status
 
-    local origcommitsha=$(git rev-parse HEAD)
-    local newcommitsha=$(git rev-parse HEAD)
+    local origcommitsha
+    origcommitsha=$(git rev-parse HEAD)
+    local newcommitsha
+    newcommitsha=$(git rev-parse HEAD)
     local currentlogmsg="Current last commit on target branch ${tgt[$ibranch]}"
     func-echo --head "****** $currentlogmsg"
-    git-log-shas-range ${origcommitsha} ${newcommitsha}
+    git-log-shas-range "${origcommitsha}" "${newcommitsha}"
     status=$?
     ((status)) && _git-cd-unwind && return $status
     func-echo "******"
@@ -132,26 +130,26 @@ git-merge-pull-request ()
     then
         ((opt_verbose)) && func-echo --head "Add $srcurl... as a remote"
         ((opt_verbose)) && func-echo -c     "git remote add $remote_ref $srcurl"
-        git remote add $remote_ref $srcurl
+        git remote add "$remote_ref" "$srcurl"
         status=$?
         ((status)) && _git-cd-unwind && return $status
 
         ((opt_verbose)) && func-echo --head "Fetch only the pull request branch (${src[$ibranch]}) from $srcurl (as remote ref $remote_ref)"
         ((opt_verbose)) && func-echo -c     "git fetch $remote_ref ${src[$ibranch]}"
-        git fetch $remote_ref ${src[$ibranch]}
+        git fetch "$remote_ref" "${src[$ibranch]}"
         status=$?
         ((status)) && _git-cd-unwind && return $status
 
         ((opt_verbose)) && func-echo --head "Do the merge"
         ((opt_verbose)) && func-echo -c     "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
-        git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}
+        git rebase ${tgt[$ibranch]} "${remote_ref}/${src[$ibranch]}"
         status=$?
         ((status)) && _git-cd-unwind && return $status
 
         newcommitsha=$(git rev-parse HEAD)
         local lasttwologmsg="Last commits on target branch ${tgt[$ibranch]}"
         func-echo --head "****** $lasttwologmsg"
-        git-log-shas-range ${origcommitsha} ${newcommitsha}
+        git-log-shas-range "${origcommitsha}" "${newcommitsha}"
         status=$?
         ((status)) && _git-cd-unwind && return $status
         func-echo "****** **************************"
@@ -163,27 +161,28 @@ git-merge-pull-request ()
         echo
     else
         func-echo --head "Fetch only the pull request branch (${src[$irbranch]}) from $srcurl"
-        git fetch $srcurl ${src[$ibranch]}
+        git fetch "$srcurl" "${src[$ibranch]}"
         status=$?
         ((status)) && _git-cd-unwind && return $status
         [ "$(func-yesno cont)" = 'n' ] && echo return
 
         func-echo --head "Do the merge"
-        git rebase $tgt{$ibranch} origin/${src[$ibranch]}
+        git rebase "${tgt[$ibranch]}" "origin/${src[$ibranch]}"
         status=$?
         ((status)) && _git-cd-unwind && return $status
         [ "$(func-yesno cont)" = 'n' ] && echo return
-        git checkout $tgt{$ibranch}
+        git checkout "${tgt[$ibranch]}"
 
         newcommitsha=$(git rev-parse HEAD)
 
         pause 'Go to another terminal, do a git log and see what you got. Then quit this, come back and fix the code accordingly.'
         ## INSERT SOME git log comparison instructions here!!!!!!
-        _git-cd-unwind && return $NOT_OK
+        _git-cd-unwind && return 1
     fi
 
     local pushback="git push origin HEAD:${tgt[$ibranch]}"
-    local resp=$(func-yesno "Push back to ${protocol} via '$pushback'")
+    local resp
+    resp=$(func-yesno "Push back to ${protocol} via '$pushback'")
     local retval
     if [ "$resp" = 'y' ]
     then
@@ -198,10 +197,11 @@ git-merge-pull-request ()
             ## have not been cleaned up so we can clean them up. We store the
             ## source with sha as key and the target with the time of merge as
             ## the value.
-            local sha=$(git-log-grab-sha -1)
-            git-merge-write $sha $protocol ${tgt[@]} ${src[@]}
+            local sha
+            sha=$(git-log-grab-sha -1)
+            git-merge-write "$sha" "$protocol" "${tgt[@]}" "${src[@]}"
             ## Read what we just wrote
-            git-merge-find $sha
+            git-merge-find "$sha"
 
             ## Cleanup the tmp repo used for the merge.
             if ((opt_keep))
@@ -232,9 +232,8 @@ git-merge-pull-request ()
             ## go back and whack it.
             if [ -n "$current_branch_delete" ]
             then
-                _git-cd-to $current_branch_delete
-                git-in-a-worktree
-                if [ "$?" = "$TRUE" ]
+                _git-cd-to "$current_branch_delete"
+                if git-in-a-worktree
                 then
                     git-delete-current-worktree --schedule 24
                 else
@@ -246,13 +245,14 @@ git-merge-pull-request ()
             fi
         fi
     else
-        local fmpr=$(pwd)/FINISH-merge-pull-request
+        local fmpr
+        fmpr=$(pwd)/FINISH-merge-pull-request
         func-echo    "Ok. Remember to '$pushback' soon before the master head advances."
         func-echo -c "We will write the local file $fmpr with this command for your future convenience."
-        echo "$pushback" > $fmpr
-        echo "git-delete-current-repo" >> $fmpr
-        git-log-shas-range ${origcommitsha} ${newcommitsha} | comment-stream "## " >> $fmpr
-        chmod +x $fmpr
+        echo "$pushback" > "$fmpr"
+        echo "git-delete-current-repo" >> "$fmpr"
+        git-log-shas-range "${origcommitsha}" "${newcommitsha}" | comment-stream "## " >> "$fmpr"
+        chmod +x "$fmpr"
         retval=0
     fi
     _git-cd-unwind && return $retval

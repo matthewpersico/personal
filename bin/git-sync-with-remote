@@ -2,22 +2,20 @@
 
 # git-sync-with-remote
 
-##@@ 0001||group||git-sync-with-remote||
-
-source $BASH_INC_DIR/on_exit.binc
-
-declare usage_func="${FUNCNAME}-usage"
-declare iam=$(func-name-spoof)
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
 
 declare opt_branch=''
 declare opt_remote='origin'
 declare opt_confirm='0'
 declare opt_stash='0'
 declare do_stash='0'
+declare resp
 
-declare OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,confirm -n $iam -- "$@")
+declare OPTSARGS
+OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,confirm -n git-sync-with-remote -- "$@")
 status=$?
-((status != 0)) && $usage_func && exit $status
+((status != 0)) && script-usage && exit $status
 eval set -- "$OPTSARGS"
 while true
 do
@@ -26,53 +24,56 @@ do
         -c|--confirm) opt_confirm=1; shift;;
         -r|--remote) opt_remote="$2"; shift; shift ;;
         -b|--branch) opt_branch="$2"; shift; shift ;;
-        -h|--help) $usage_func $iam; exit $OK ;;
+        -h|--help) script-usage; exit 0 ;;
         --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) echo "Internal error!"; $usage_func $iam; exit $NOT_OK ;;
+        *) echo "Internal error!"; script-usage; exit 1 ;;
     esac
 done
 
 if [ -z "$opt_branch" ]
 then
     echo "--branch required"
-    $usage_func $iam
-    exit $NOT_OK
+    script-usage
+    exit 1
 fi
 
-declare cb=$(git rev-parse --abbrev-ref HEAD)
+declare cb
+cb=$(git rev-parse --abbrev-ref HEAD)
 status=$?
-((status != 0 )) && exit $NOT_OK
+((status != 0 )) && exit 1
 
 if [ "$cb" == '' ]
 then
     echo
+    # shellcheck disable=SC2154
     cat <<EOF
 
-$iam is used to keep your current git repo DEVELOPMENT branch in your declare
-clone in sync with changes in
+git-sync-with-remote is used to keep your current git repo DEVELOPMENT branch
+in your declare clone in sync with changes in
 
 branch "${opt_branch}"
-repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
+  repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
 
 However, you do not appear to even be in a repo. I'm exiting. Try again in a
 proper repo.
 
 EOF
-    exit $NOT_OK
+    exit 1
 fi
 
 if [ "$cb" == "$opt_branch" ]
 then
     echo
-    declare msgoverride=$(find $(git-root) -name .git-sync-with-remote.txt)
+    declare msgoverride
+    msgoverride=$(find "$(git root)" -name .git-sync-with-remote.txt)
     if [ -n "$msgoverride" ] && [ -r "$msgoverride" ]
     then
-        cat $msgoverride
+        cat "$msgoverride"
     else
         cat <<EOF
 
-$iam is used to keep your current git repo DEVELOPMENT branch in your declare
-clone in sync with changes in
+git-sync-with-remote is used to keep your current git repo DEVELOPMENT branch
+in your declare clone in sync with changes in
 
 branch "${opt_branch}"
 repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
@@ -84,11 +85,12 @@ branch or a 'git pull' if you really need to refresh this branch.
 
 EOF
     fi
-    exit $NOT_OK
+    exit 1
 fi
 
 ## Stash any modified items before checking and proceeding.
-declare needs_stash=$(echo $(git-is-staged && git-is-unstaged) | wc -w)
+declare needs_stash
+needs_stash=$( (git-is-staged && git-is-unstaged) | wc -w )
 if ((needs_stash))
 then
     if ((opt_stash))
@@ -96,11 +98,11 @@ then
         do_stash=1
     else
         git status
-        declare resp=$(func-yesno "Stash" n)
+        resp=$(func-yesno "Stash" n)
         if [ "$resp" = 'n' ]
         then
             echo "Will not proceed without a stash"
-            exit $NOT_OK
+            exit 1
         else
             do_stash=1
         fi
@@ -115,34 +117,34 @@ if ((do_stash))
 then
     git stash
     status=$?
-    if [ "$status" = '0' ]
+    if [ "$status" != '0' ]
     then
-        ok_to_pop=1
-    else
         exit $status
     fi
 fi
 
 ## Grab head of log
-declare oldsha=$(git-log-grab-sha -1)
+declare oldsha
+oldsha=$(git-log-grab-sha -1)
 echo --head 'Log before pull:'
-git-log-shas-range $oldsha $oldsha
+git-log-shas-range "$oldsha" "$oldsha"
 
 ## Check the declare branch against its origin
-declare stcheck=$(mktemp --suffix=.git-sync-with-remote.check)
-rm_on_exit $stcheck
-git status 1>$stcheck 2>&1
-grep "Your branch is up.to.date with 'origin/$cb'." $stcheck 1>/dev/null
+declare stcheck
+stcheck=$(mktemp --suffix=.git-sync-with-remote.check)
+rm_on_exit "$stcheck"
+git status 1>"$stcheck" 2>&1
+grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null
 status=$?
 if [ "$status" != '0' ]
 then
     echo
-    cat $stcheck
+    cat "$stcheck"
     cat <<EOF
 Your branch should be up to date with its origin in order to simplify the
 rebase.
 EOF
-    declare resp=$(func-yesno "Do you want to continue anyway" n)
+    resp=$(func-yesno "Do you want to continue anyway" n)
     if [ "$resp" == 'n' ]
     then
         if ((do_stash))
@@ -150,51 +152,54 @@ EOF
             echo 'Stash pop...'
             git stash pop
         fi
-        exit $OK
+        exit 0
     fi
 fi
 
-declare ok_to_pull=1
-((opt_confirm)) && ok_to_pull=0
-
 echo 'Fetching to check...'
-git fetch ${opt_remote} ${opt_branch}
+git fetch "${opt_remote}" "${opt_branch}"
 
-declare diffoutput=$(mktemp --suffix=.git-sync-with-remote.diff)
-rm_on_exit $diffoutput
-git diff ...${opt_remote} > $diffoutput 2>&1
-declare diffc=$(cat $diffoutput | wc -l)
+declare diffoutput
+diffoutput=$(mktemp --suffix=.git-sync-with-remote.diff)
+rm_on_exit "$diffoutput"
+git diff ..."${opt_remote}" > "$diffoutput" 2>&1
+declare diffc
+diffc=$(wc -l < "$diffoutput")
 if ((diffc)) && ((opt_confirm))
 then
     echo --head "===== diffs ====="
-    cat $diffoutput
-    \rm $diffoutput
+    cat "$diffoutput"
+    \rm "$diffoutput"
 fi
 
-declare logoutput=$(mktemp --suffix=.git-sync-with-remote.log)
-rm_on_exit $logoutput
-git log ...${opt_remote} > $logoutput 2>&1
-declare logc=$(cat $logoutput | wc -l)
+declare logoutput
+logoutput=$(mktemp --suffix=.git-sync-with-remote.log)
+rm_on_exit "$logoutput"
+git log ..."${opt_remote}" > "$logoutput" 2>&1
+declare logc
+# shellcheck disable=SC2002
+logc=$(wc -l < "$logoutput")
+
 if ((logc)) && ((opt_confirm))
 then
     ((diffc)) && echo
     echo "=====  log  ====="
-    cat $logoutput
-    \rm $logoutput
+    cat "$logoutput"
+    \rm "$logoutput"
 fi
 
 if ((diffc)) || ((logc))
 then
     if ((opt_confirm))
     then
-        declare resp=$(func-yesno "Ok to pull" n)
+        resp=$(func-yesno "Ok to pull" n)
         if [ "$resp" == 'n' ]
         then
             if ((do_stash))
             then
                 echo 'Stash pop...'
                 git stash pop
-                exit $OK
+                exit 0
             fi
         fi
     fi
@@ -205,11 +210,11 @@ else
         echo 'Stash pop...'
         git stash pop
     fi
-    exit $OK
+    exit 0
 fi
 
 echo 'Pulling to sync...'
-git pull --rebase ${opt_remote} ${opt_branch}
+git pull --rebase "${opt_remote}" "${opt_branch}"
 status=$?
 if [ ! "$status" = '0' ]
 then
@@ -242,15 +247,16 @@ EOF
     then
         echo "Leaving stash stashed so a not to further complicate the issue"
     fi
-    exit $NOT_OK
+    exit 1
 fi
 
 ## Grab head of log
-declare newsha=$(git-log-grab-sha -1)
+declare newsha
+newsha=$(git-log-grab-sha -1)
 
 ## Show log
 echo --head 'Log after pull:'
-git-log-shas-range $oldsha $newsha
+git-log-shas-range "$oldsha" "$newsha"
 
 echo --head "pull --rebase successful. Pushing..."
 git push

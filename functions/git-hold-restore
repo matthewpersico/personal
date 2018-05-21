@@ -6,38 +6,42 @@
 git-hold-restore ()
 {
     ##@@ 0001||group||git-hold-restore||take entries back from the git hold stash
-    local holdroot=$(git-root)/.githold
-    local unholdthese="$@"
-    if [ -z "$unholdthese" ]
+    local holdroot
+    holdroot=$(git root)/.githold
+    local -a unholdthese
+    unholdthese=("$@")
+    if [ -z "${unholdthese[0]}" ]
     then
-        unholdthese=$(git-hold-find)
+        readarray -t unholdthese < <(git-hold-find)
     else
-        unholdthese=''
+        unholdthese=()
         local i
         for i in "$@"
         do
-            local j=$(git-hold-find | grep $i)
-            if [ -z "$j" ]
+            local -a j
+            readarray -t j < <(git-hold-find | grep "$i")
+            if [ -z "${j[0]}" ]
             then
                 func-echo "Cannot find $i to unhold"
             else
-                unholdthese="$unholdthese $j"
+                unholdthese+=("${j[@]}")
             fi
         done
     fi
 
     local retstat=0
-    for hold in $unholdthese
+    for hold in "${unholdthese[@]}"
     do
-        local orig=$(echo $hold | sed "s|.githold/||")
-        local is_mod=$(git status --porcelain $orig)
+        local orig
+        orig=${hold//.githold/}
+        local is_mod
+        is_mod=$(git status --porcelain "$orig")
         if [ -n "$is_mod" ]
         then
             ((retstat+=1))
             func-echo "Cannot unhold $hold - current version is not clean: $is_mod"
         else
-            mv -v $hold $orig
-            if (($? != 0))
+            if ! mv -v "$hold" "$orig"
             then
                 ((retstat+=1))
                 func-echo "Cannot unhold $hold - move failed"
@@ -47,12 +51,12 @@ git-hold-restore ()
 
     ## Clean up
     local d f;
-    for d in $(find $holdroot -type d | sort -r)
+    for d in $(find "$holdroot" -type d | sort -r)
     do
-        f=$(find $d -type f)
+        f=$(find "$d" -type f)
         if [ -z "$f" ]
         then
-            rmdir $d
+            rmdir "$d"
         fi
     done
 
