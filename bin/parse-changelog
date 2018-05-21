@@ -15,7 +15,7 @@ $Text::Wrap::columns = 72;
 use constant NOFUNC => '!File Scope'; ## the ! will sort this before all function names.
 use constant NOCLENTRY => 'NOCLENTRY';
 
-## This script works best in the git-root, which is where the Changelog is anyway
+## This script works best in the git root, which is where the Changelog is anyway
 my $cwd = cwd();
 #my $gr = qx(git rev-parse --show-toplevel);
 #die "Current directory ($cwd) is not the git root ($gr)"
@@ -32,14 +32,19 @@ my %opt = (
     cl => undef,
     newcl => undef,
     diff => 0,
+    cached => 0,
     noclonly => 0,
     write => 0,
     withstatus => 0,
     missingok => 0,
     skipmissing => 0,
+    skipgcs => 0
 );
 my $exit = 0;
 my %deleted;
+my %format_seen;
+my $marker = join('', qw( < G C S > ));
+my $excl_marker = join('', qw( < G C S L I T E R A L > ));
 
 select((select(STDOUT), $| = 1)[0]);
 select((select(STDERR), $| = 1)[0]);
@@ -48,11 +53,13 @@ GetOptions(\%opt,
            'cl=s',
            'newcl|ncl=s',
            'diff',
+           'cached',
            'noclonly',
            'write',
            'withstatus',
            'missingok',
            'skipmissing',
+           'skipgcs',
            'relok',
        ) or die "Bad options";
 
@@ -62,10 +69,11 @@ $opt{cl} = rel2abs($opt{cl});
 my $cldir = dirname($opt{cl});
 
 if( $opt{write} ) {
-    die "Cannot set --write when one or more of --withstatus, --missingok, --diff are specified"
+    die "Cannot set --write when one or more of --withstatus, --missingok, --diff, --cached are specified"
         if ( $opt{withstatus}
              or $opt{missingok}
-             or $opt{diff});
+             or $opt{diff}
+             or $opt{cached});
 
     if( !$opt{newcl} ) {
         die "-newcl ChangeLog option required with --write";
@@ -90,7 +98,7 @@ for (@ARGV) {
         }
     }
     if ( ! -e $_ ) {
-        my @ok=qx(git st $_ | grep deleted:);
+        my @ok=qx(git status $_ | grep deleted:);
         if(scalar(@ok) != 1 ) {
             warn "parse-changelog: $_ not found." . ($opt{write} ? ' Fatal.' : '') . "\n";
             $exit++ if $opt{write};
@@ -125,11 +133,13 @@ if($opt{withstatus}) {
 ################################
 if($opt{diff}) {
     $opt{missingok}=1;
-    ## Remove any deleted files
+    $opt{cached} &&= '--cached';
+    ## Remove any deleted or moved files
     my @diff_list = ( map {chomp; substr($_,3)}
+                        grep { ! m/^RM/ }
                         grep { ! m/^[D ]{2,2}/ }
-                        qx(git st --porcelain @file_list));
-    my @diff = map {chomp; $_} qx(git -c color.diff=always diff @diff_list);
+                        qx(git status --porcelain @file_list));
+    my @diff = map {chomp; $_} qx(git -c color.diff=always diff $opt{cached} @diff_list);
     my $entry;
     for my $line (@diff) {
         if ($line =~ m/^....diff --git a/) {
@@ -180,7 +190,7 @@ LINE: while (<$clih>) {
         %current=();
     } else {
         ## Parsing assumptions:
-        ## 1) One ChangeLog in git-root for whole project.
+        ## 1) One ChangeLog in git root for whole project.
         ## 2) Emacs variable add-log-always-start-new-record is set to 't'.
         ## 3) With #2, we can use Esc-Q to wrap text.
 
@@ -380,8 +390,6 @@ if( $opt{write} ) {
     }
 }
 
-my %format_seen;
-
 sub set_indent_from_lead {
     return ' ' x length($_[0]);
 }
@@ -401,13 +409,24 @@ sub push_to_output {
     }
     ## We compose the markers this way so that the grep does not
     ## falsely find this code.
-    my $marker = join('', qw( < G C S > ));
-    my $excl_marker = join('', qw( < G C S L I T E R A L > ));
     my @gcs;
     @gcs = `grep -i '$marker' $file | grep -v '$excl_marker'`
       if not exists $deleted{$file};
     if (@gcs) {
-        push @output, map{"${format_over}$_"} ('GCS Entries:', map{chomp;$_} @gcs), '';
+        if ( $opt{write} ) {
+            if( $opt{skipgcs} ) {
+                print STDERR join('',
+                                  "Skipping $file, GCS Entries:\n",
+                                  @gcs);
+                return;
+            } else {
+                die join('',
+                         "Cannot process commit with $file, GCS Entries:\n",
+                         @gcs);
+            }
+        } else {
+            push @output, map{"${format_over}$_"} ('GCS Entries:', map{chomp;$_} @gcs), '';
+        }
     }
 
     my $space_files = 0;

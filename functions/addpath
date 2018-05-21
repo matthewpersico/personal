@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 ###############################################################################
 #
 # Name:        addpath
@@ -19,14 +20,16 @@ addpath ()
     # local variables
     ###########################################################################
 
-    typeset options_shift_val options_missing_arg options_unknown_opt
+    typeset options_shift_val options_missing_arg
+    # shellcheck disable=SC2034 # options_unknown_opt may be set in 'options'
+    typeset options_unknown_opt
     typeset options_num_args_left
     typeset opt_h opt_p opt_s
     typeset opt_x opt_v
     typeset opt_f opt_b opt_i
     typeset sep=:
 
-    typeset pathvar COMMAND dirname tmp element TEMP
+    typeset pathvar dirname tmp element TEMP
 
     pathfunc_usage_init
     typeset -a USAGE
@@ -52,7 +55,7 @@ addpath ()
     ###########################################################################
 
     options "hp:s:xvfbi:" "$@"
-    shift $options_shift_val
+    shift "$options_shift_val"
     if [ -n "$opt_h" ]
     then
         pathfunc_usage "${USAGE[@]}"
@@ -60,27 +63,35 @@ addpath ()
     fi
     if [ -n "$options_missing_arg" ]
     then
-        pathfunc_usage "$USAGE" "Missing argument for -$options_missing_arg"
+        pathfunc_usage "${USAGE[@]}" "Missing argument for -$options_missing_arg"
         return
     fi
-    if [ -n "$options_unknown_option" ]
+    # shellcheck disable=SC2154
+    if [ -n "$options_unknown_opt" ]
     then
-        pathfunc_usage "$USAGE" "Unknown option -$options_unknown_option"
+        pathfunc_usage "${USAGE[@]}" "Unknown option -$options_unknown_opt"
         return
     fi
-    if [ $options_num_args_left -eq 0 ]
+    if ((opt_f + opt_b > 1)) ||
+           ( ((opt_f + opt_b > 0)) && ((opt_i)) )
     then
-        pathfunc_usage "$USAGE" "No directory specified"
+        pathfunc_usage "${USAGE[@]}" "Only one of -f -b -i can be specified"
         return
-    elif [ $options_num_args_left -eq 1 ]
+    fi
+
+    if [ "$options_num_args_left" -eq 0 ]
+    then
+        pathfunc_usage "${USAGE[@]}" "No directory specified"
+        return
+    elif [ "$options_num_args_left" -eq 1 ]
     then
         dirname=$1
-    elif [ $options_num_args_left -eq 2 ]
+    elif [ "$options_num_args_left" -eq 2 ]
     then
         pathvar=$1
         dirname=$2
     else
-        pathfunc_usage "$USAGE" "Too many arguments"
+        pathfunc_usage "${USAGE[@]}" "Too many arguments"
         return
     fi
 
@@ -113,30 +124,30 @@ addpath ()
         fi
     fi
 
-    if ((!$assigned))
+    if ((!assigned))
     then
         ## Only add the new value if it DNE
         local element
-        local oldvalue=$(eval echo \$$pathvar)
-        element=$(echo $oldvalue | sep2line "${sep}" | grep -x "$dirname")
+        local oldvalue
+        oldvalue=$(eval echo \$$pathvar)
+        element=$(echo "$oldvalue" | sep2line "${sep}" | grep -x "$dirname")
         if [ "$element" = "" ]
         then
             # $dirname is not currently in pathvar so add it
             local newvalue
-            local oldvalue
             if [ -n "$opt_f" ]
             then
                 newvalue="${dirname}${sep}${oldvalue}"
             elif [ -n "$opt_i" ]
             then
                 TEMP=$(mktemp --suffix=.addpath)
-                listpath -s "${sep}" -p $pathvar | grep -v $MATCH "$delit" > $TEMP
+                listpath -s "${sep}" -p $pathvar | grep -v "$MATCH" > "$TEMP"
                 local newvalue
                 local line
                 local idx=0
                 local addin
                 ((opt_i-=1))
-                while read line
+                while read -r line
                 do
                     if ((idx != opt_i))
                     then
@@ -148,8 +159,8 @@ addpath ()
                         && newvalue="${newvalue}${sep}${addin}" \
                             || newvalue="${addin}"
                     ((idx+=1))
-                done < $TEMP
-                rm -rf $TEMP
+                done < "$TEMP"
+                rm -rf "$TEMP"
             else
                 newvalue="${oldvalue}${sep}${dirname}"
             fi
@@ -157,6 +168,7 @@ addpath ()
         fi
     fi
     [ -n "$opt_v" ] && listpath -s "${sep}" -p $pathvar
+    # shellcheck disable=SC2163 # yes, we are exporting the expansion
     [ -n "$opt_x" ] && export $pathvar
 }
 

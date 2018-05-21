@@ -1,7 +1,6 @@
 #!/opt/bb/bin/bash
 ## Control when cron jobs mail output
 
-CW_bin=$(realpath $(dirname $0))
 mailtype=''
 mailto=$MAILTO
 mailsubject=''
@@ -32,7 +31,7 @@ do
             setv=1
             ;;
         mailtype)
-            mailtype=$(echo "$1" | tr '[A-Z]' '[a-z]')
+            mailtype=$(echo "$1" | tr '[:upper:]' '[:lower:]')
             shift
             ;;
         to)
@@ -57,7 +56,7 @@ do
              ;;
         help )
             echo "No documentation yet. Look at the code:"
-            cat $0
+            cat "$0"
             exit 0
             ;;
         --)
@@ -74,7 +73,7 @@ done
 
 [ -z "$mailtype" ] && echo "Mail type required" && exit 1
 
-dayofweek=$(date +%a | tr '[A-Z]' '[a-z]')
+dayofweek=$(date +%a | tr '[:upper:]' '[:lower:]')
 args_ok=0
 while ((!args_ok))
 do
@@ -114,10 +113,11 @@ did_profile=0
 
 for p in ${TILDAE:-$HOME}/.bash_profile ${TILDAE:-$HOME}/.profile
 do
-    if [ -r $p ] && ((!did_profile))
+    if [ -r "$p" ] && ((!did_profile))
     then
         # Environment setup here.
-        . $p > $profilelog
+        # shellcheck disable=SC1090 ## cannot file sourced file at shellcheck time
+        . "$p" > "$profilelog"
         did_profile=1
     fi
 done
@@ -127,12 +127,13 @@ then
     echo 'ERROR - No profiles found before trying to run'
     echo "$@"
     echo
-    cat $profilelog
+    cat "$profilelog"
     exit 42
 fi
 
-source $BASH_INC_DIR/on_exit.binc
-rm_on_exit $temproot $alllog $profilelog
+# shellcheck disable=SC1090 ## cannot find sourced file at shellcheck time
+source "$BASH_INC_DIR/on_exit.binc"
+rm_on_exit "$temproot" "$alllog" "$profilelog"
 
 if((checkkinit))
 then
@@ -140,10 +141,10 @@ then
     status=$?
     if((status))
     then
-        backoff="$(dirname $(realpath $0))/../data/cron_wrapper.kinit.$(echo $mailsubject | sed 's/ /_/g')"
-        if [ -e $backoff ]
+        backoff="$(dirname "$(realpath "$0")")/../data/cron_wrapper.kinit.${mailsubject// /_})"
+        if [ -e "$backoff" ]
         then
-            was=$(cat $backoff)
+            was=$(cat "$backoff")
             now=$(date +%s)
             if ((now-was<86399))
             then
@@ -155,7 +156,7 @@ then
         echo
         echo 'Expiration(s):'
         klist | cut -d ' ' -f4,5 | sort -u | grep '/'
-        date +%s > $backoff
+        date +%s > "$backoff"
         echo 'Now:'
         date '+%m/%d/%y %H:%M:%S'
         echo
@@ -166,11 +167,11 @@ fi
 
 holdstdout=$(get-next-descriptor)
 eval "exec $holdstdout>&1"  # Link file descriptor with stdout, which saves stdout.
-exec 1>> $alllog  # Re-point stdout to the log.
+exec 1>> "$alllog"  # Re-point stdout to the log.
 
 holdstderr=$(get-next-descriptor)
 eval "exec $holdstderr>&2"  # Link file descriptor with stderr, which saves stderr.
-exec 2>> $alllog  # Re-point stderr to the log.
+exec 2>> "$alllog"  # Re-point stderr to the log.
 
 ##
 ## Here is where the command gets executed
@@ -179,6 +180,8 @@ status=0
 
 ## We set up a trap here to make sure that if the command dies so hard that the
 ## rest of this script does not run, we get something from the shunted output.
+# shellcheck disable=SC1078
+# shellcheck disable=SC1079
 trap "eval ""exec 1>&$holdstdout $holdstdout>&-""      # Restore stdout and close file descriptor.
       eval ""exec 2>&$holdstderr $holdstderr>&-""      # Restore stderr and close file descriptor.
       [ -f $profilelog ] && cat $profilelog
@@ -215,7 +218,7 @@ else
     subsubject="Success"
     if [ "$mailtype" = 'if-no-output' ]
     then
-        mailthelog=$(cat $alllog | wc -l)
+        mailthelog=$(wc -l < "$alllog")
         if ((mailthelog==0))
         then
             mailthelog=1
@@ -223,7 +226,7 @@ else
         fi
     elif [ "$mailtype" = 'if-output' ]
     then
-        mailthelog=$(cat $alllog | wc -l)
+        mailthelog=$(wc -l < "$alllog")
     elif [ "$mailtype" = 'today' ]
     then
         mailthelog=1
@@ -247,17 +250,17 @@ then
     if [ -n "$mailto" ]
     then
         mailx -s "$subsubject - $mailsubject" \
-              $mailto \
+              "$mailto" \
               <<EOM
 $subsubject
-$( ((status)) && cat $profilelog;cat $alllog)
+$( ((status)) && cat "$profilelog";cat "$alllog")
 EOM
         exitstatus=0 ## we mailed off the error, if any
         exit 0
     else
         cat <<EOM
 $subsubject
-$( ((status)) && cat $profilelog;cat $alllog)
+$( ((status)) && cat "$profilelog";cat "$alllog")
 EOM
         exitstatus=$status ## we need to force the mail of the log, to at least
                            ## the cron owner.
@@ -274,7 +277,7 @@ then
     echo "alllog - $alllog"
     echo "profilelog - $profilelog"
 else
-    \rm -f $temproot $alllog $profilelog
+    \rm -f "$temproot" "$alllog" "$profilelog"
 fi
 
 exit $exitstatus

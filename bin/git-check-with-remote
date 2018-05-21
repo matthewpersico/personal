@@ -2,8 +2,6 @@
 
 # git-check-with-remote
 
-##@@ 0001||group||git-check-with-remote||
-
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 script-echo -i
@@ -24,9 +22,9 @@ do
         --bail_on_dirty) opt_bail_on_dirty=1; shift;;
         -r|--remote) opt_remote="$2"; shift; shift ;;
         -b|--branch) opt_branch="$2"; shift; shift ;;
-        -h|--help) script-usage "$0"; exit "$OK" ;;
+        -h|--help) script-usage "$0"; exit 0 ;;
         --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) script-echo "Internal error!"; script-usage "$0"; exit "$NOT_OK" ;;
+        *) script-echo "Internal error!"; script-usage "$0"; exit 1 ;;
     esac
 done
 
@@ -34,29 +32,30 @@ if [ -z "$opt_branch" ]
 then
     script-echo -- "--branch required"
     script-usage "$0"
-    exit "$NOT_OK"
+    exit 1
 fi
 
 declare cb
 cb=$(git rev-parse --abbrev-ref HEAD)
 status=$?
-((status != 0 )) && exit "$NOT_OK"
+((status != 0 )) && exit 1
 
 if [ "$cb" == '' ]
 then
+    # shellcheck disable=SC2154
     cat <<EOF
 
 $iam is used to check your current git repo DEVELOPMENT branch in your declare
 clone against changes in
 
 branch "${opt_branch}"
-repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
+  repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
 
 However, you do not appear to even be in a repo. I'm exiting. Try again in a
 proper repo.
 
 EOF
-    exit "$NOT_OK"
+    exit 1
 fi
 
 if [ "$cb" == "$opt_branch" ]
@@ -75,7 +74,7 @@ branch Then rerun the command. Or just do a 'git pull' if you really need to
 refresh this branch.
 
 EOF
-    exit "$NOT_OK"
+    exit 1
 fi
 
 ## Check the declare branch against its origin
@@ -95,13 +94,13 @@ EOF
     if ((opt_bail_on_dirty))
     then
         script-echo Exiting.
-        exit "$NOT_OK"
+        exit 1
     else
         declare resp
         resp=$(func-yesno "Do you want to continue anyway" n)
         if [ "$resp" == 'n' ]
         then
-            exit "$NOT_OK"
+            exit 1
         fi
     fi
 fi
@@ -116,7 +115,7 @@ if ((rc))
 then
     cat "$gflog"
     rm -f "$gflog"
-    exit "$NOT_OK"
+    exit 1
 fi
 rm -f "$gflog"
 
@@ -153,4 +152,4 @@ then
     fi
 fi
 
-exit "$OK"
+exit 0

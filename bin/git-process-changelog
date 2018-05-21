@@ -5,13 +5,12 @@
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 script-echo -i
-
-## This function works best in the git-root, which is where the
+## This function works best in the git root, which is where the
 ## $GITFUNCS_CHANGELOG_NAME is anyway
 declare pwd
 pwd=$(pwd)
 declare gr
-gr=$(git-root)
+gr=$(git root)
 if [ ! "$pwd" = "$gr" ]
 then
     _git-cd-to "$gr" || exit $?
@@ -57,6 +56,9 @@ do
         diff)
             pcl_flags+=(--diff)
             ;;
+        cached)
+            pcl_flags+=(--cached)
+            ;;
         noclonly)
             pcl_flags+=(--noclonly)
             ;;
@@ -80,7 +82,7 @@ done
 if [ -z "$1" ]
 then
     script-echo "No files specified."
-    exit "$NOT_OK"
+    exit 1
 fi
 declare -a filelist
 for i in "$@"
@@ -90,7 +92,7 @@ done
 
 ## Find the changelog
 declare changelogdir
-changelogdir=$(git-root)
+changelogdir=$(git root)
 if ((status != 0))
 then
     script-usage
@@ -101,12 +103,12 @@ declare changelog="${changelogdir}/$GITFUNCS_CHANGELOG_NAME"
 if [ ! -r "$changelog" ]
 then
     script-echo -- "$changelog not readable"
-    exit "$NOT_OK"
+    exit 1
 fi
 if [ "$action" = 'commit' ] && [ ! -w "$changelog" ]
 then
     script-echo -- "$changelog not writable"
-    exit "$NOT_OK"
+    exit 1
 fi
 
 declare changelogbkp="${changelog}.bkp"
@@ -116,7 +118,7 @@ others=$(find "$changelogdir" -name "$GITFUNCS_CHANGELOG_NAME" | grep -v "$chang
 if [ -n "$others" ]
 then
     script-echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir."
-    exit "$NOT_OK"
+    exit 1
 fi
 
 ## Backup
@@ -125,6 +127,9 @@ $DEBUG_PROCESS_CHANGELOG "$pcl" --cl "$changelog" "${pcl_flags[@]}" "${filelist[
 status=$?
 if ((status!=0))
 then
+    ## Restore
+    script-echo "Rolling back $changelog"
+    cp -f "$changelogbkp" "$changelog"
     exit $status
 fi
 
