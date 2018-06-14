@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+
+# git-ping
+declare usage_cmd="script-usage"
+declare echo_cmd="script-echo"
+## If there's any chance that this will be in a script that will be dotted in,
+## remove the explicit out_cmd calls.
+declare out_cmd="exit"
+declare moreopts=1
+declare quiet=0
+declare silent=0
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    option=$(dashstripper "$original")
+    shift
+
+    case $option in
+        ## standard options
+        h | help )
+            $usage_cmd
+            $out_cmd 0
+            ;;
+        q | quiet )
+            quiet=1 ;;
+        s | silent )
+            silent=1;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            $echo_cmd "$original is an invalid option. See $0 --help"
+            $out_cmd 1
+            ;;
+    esac
+done
+
+if ((silent+quiet==2))
+then
+    echo "Error:git-ping:cannot set --quiet and --silent" >&2
+    exit 1
+fi
+
+if [ -z "$1" ]
+then
+    echo "Error:git-ping:missing repo" >&2
+    exit 1
+fi
+
+if ((quiet+silent==1))
+then
+    quiet='-q'
+else
+    quiet=''
+fi
+
+if ((silent))
+then
+    exec 2>/dev/null
+fi
+
+git ls-remote $quiet -h --exit-code "$1"
+
+$out_cmd $?
+
+## Go grab the usage template the file USAGE
