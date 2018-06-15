@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+# script-echo
+declare verbose=1
+declare moreopts=1
+declare -a cmd_echo_opts
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey
+    declare ovalue
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        i )
+            if [ -z "$CMD_ECHO_AS" ]
+            then
+                [ -z "$ovalue" ] && ovalue="$1"
+                if [ -z "$ovalue" ]
+                then
+                    echo "WARNING: script-echo: -i option has no argument"
+                else
+                    CMD_ECHO_AS=$ovalue
+                    export CMD_ECHO_AS
+                    shift
+                fi
+            fi
+            ;;
+        h | help )
+            script-usage script-echo
+            exit 0
+            ;;
+        v )
+            verbose=1
+            ;;
+        head | title | n | c | -- )
+            cmd_echo_args+=("$option");
+            ;;
+    esac
+done
+
+((verbose)) && echo "CMD_ECHO_AS=$CMD_ECHO_AS (script-echo)"
+cmd-echo -s "${CMD_ECHO_AS:-CMD_ECHO_AS is unset}" "${cmd_echo_opts[@]}" "$@"
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+  script-echo - label echos in scripts with the command name
+
+=head1 SYNOPSIS
+
+ ## Put the following two lines somewhere near the top of your program
+ ## bit only if you don't source in this program.
+ # shellcheck disable=SC1090
+ . "$(which script-echo)" -i myScriptName
+
+ ## To write:
+ script-echo [--head] [--title] [-n] [-c] -- "text" ["text"...]
+
+ ## This text:
+ script-echo -h|--help
+
+=head1 DESCRIPTION
+
+Call 'script-echo' to print the first "text" on a line with a reversed-color
+prefix containing the command name. Print subsequent lines indented with
+reversed color spaces, indicating continuation.
+
+The name to print is determined as either the envar CMD_ECHO_AS or $0.
+
+You should call 'script-echo' in only in scripts. Calling 'script-echo' in a
+function could pollute the environment.
+
+Furthermore, if you are calling functions in your scripts that themselves call
+'func-echo', you need to stop 'func-echo' from trying to set CMD_ECHO_AS
+itself. Putting this command
+
+  . "$(which script-echo)" -i myScriptName
+
+in your script before any function calls will immediately set the CMD_ECHO_AS
+envvar if it has not already been set.
+
+=head1 OPTIONS
+
+=item --
+
+Indicates end of options to 'script-echo', so that all subsequent arguments are
+taken as text to print. Technically not necessary UNLESS your first argument to
+print happens to match one of the options to 'script-echo'.
+
+=item --head
+
+Print a blank line for spacing before printing any text.
+
+=item --title
+
+Print a blank line for spacing before printing any text and then print the
+entire first text line as reversed, not just the command name.
+
+=item -n
+
+Do not print a new line at the end of each line.
+
+=item -c
+
+Print the first "text" element as a continuation line.
+
+=item -h|--help
+
+This text.
+
+=back
+
+=head1 Environment Variable
+
+__PODUSAGE__
+
+#  LocalWords:  funcname shellcheck util func

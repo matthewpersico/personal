@@ -6,7 +6,7 @@
 # Take args, treat as a command + args and run all output to a file.
 
 # shellcheck disable=SC1090
-source "$BASH_INC_DIR/on_exit.bin"
+source "$BASH_INC_DIR/on_exit.binc"
 
 # Inits
 declare logfile=''
@@ -99,20 +99,20 @@ fi
 
 before_command=1
 after_command=0
-envs=''
+declare -a envs
 command=''
-cmdargs=''
+declare -a cmdargs
 
 for arg in "$@"
 do
-    if (($(expr index "$arg" =))) && ((before_command))
+    if [[ "$arg" =~ x ]] && ((before_command))
     then
-        envs="$envs $arg"
+        envs+=("$arg")
     else
         before_command=0
         if ((after_command))
         then
-            cmdargs="$cmdargs $arg"
+            cmdargs+=("$arg")
         else
             command="$arg"
             after_command=1
@@ -120,12 +120,12 @@ do
     fi
 done
 
-if [ ! -x $command ]
+if [ ! -x "$command" ]
 then
-    fullcommand=$(which $command 2>/dev/null)
+    fullcommand=$(which "$command" 2>/dev/null)
     if [ -z "$fullcommand" ]
     then
-        isafunc=$(type $command | head -1)
+        isafunc=$(type "$command" | head -1)
         if [ "$isafunc" != "$command is a function" ]
         then
             echo "'$command' is not a function or not found or not executable."
@@ -135,7 +135,7 @@ then
 fi
 
 # Log file setup
-[ -z "$logfile" ] && logfile=$(basename $command)
+[ -z "$logfile" ] && logfile=$(basename "$command")
 logfileroot="${logfile}.logit"
 now=$(date +%Y_%m_%dT%H_%M_%S)
 logfile="${logfile}.logit"
@@ -149,8 +149,8 @@ if [ -z "$logdir" ]
 then
     if [[ $logfile =~ / ]]
     then
-        logdir=$(dirname $logfile)
-        logfile=$(basename $logfile)
+        logdir=$(dirname "$logfile")
+        logfile=$(basename "$logfile")
     else
         logdir=$(pwd)
         [ -d ./logit ] && logdir=$(pwd)/logit
@@ -164,18 +164,20 @@ then
     if [ "$purge" = 'all' ]
     then
         echo "Purging ${logspecroot}*"
-        rm -f ${logspecroot}*
+        rm -f "${logspecroot}"*
     else
         ## prior day
         echo "Purging ${logspecroot}*, keeping $today"
-        local rmlist=$(ls ${logspecroot}* 2>/dev/null | grep -v logit.${today})
-        [ -n "$rmlist" ] && rm -f $rmlist
+        declare rmlist
+        # shellcheck disable=SC2010 ## Yeah, yeah ls|grep is bad. It's also simple.
+        rmlist=$(ls "${logspecroot}"* 2>/dev/null | grep -v "logit.${today}")
+        [ -n "$rmlist" ] && rm -f "$rmlist"
     fi
 fi
 
-touch $logspec ## Critical for tee below
+touch "$logspec" ## Critical for tee below
 logmsg="Logfile is: $logspec"
-echo $logmsg
+echo "$logmsg"
 
 # And off we go...
 echo "Working..."
@@ -192,17 +194,16 @@ then
 
     if [[ $termer =~ xterm ]]
     then
-         type xterm_Xground 2>/dev/null 1>/dev/null
-         if(($?==0))
+         if type xterm_Xground 2>/dev/null 1>/dev/null
          then
              colors="-fg $(xterm_foreground) -bg $(xterm_background)"
          fi
     fi
 
-    $termer -g 132x${termheight}+100+100 $colors -title "logit tee on $(hostname)" -e tail -f $logspec &
+    $termer -g 132x${termheight}+100+100 "$colors" -title "logit tee on $(hostname)" -e tail -f "$logspec" &
     sleep 2 ## Give the terminal a chance to come up and start tailing so we
     ## see the whole log in the tail
-    tailpid=$(pstree | grep $logspec | grep 'tail -f' | grep -v xterm | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+    tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v xterm | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
 fi
 
 (
@@ -226,21 +227,21 @@ fi
         echo
 
         tmpf=$(mktemp  --suffix=.logit)
-        rm_on_exit $tmpf
-        git stash list >$tmpf 2>&1
-        if [ -s $tmpf ]
+        rm_on_exit "$tmpf"
+        git stash list >"$tmpf" 2>&1
+        if [ -s "$tmpf" ]
         then
             echo "Stashes:"
-            cat $tmpf
+            cat "$tmpf"
             echo
         fi
         if [[ ! "$(type git-hold-list 2>&1)" =~ 'not found' ]]
         then
-            git-hold-list >$tmpf 2>&1
-            if [ -s $tmpf ]
+            git-hold-list >"$tmpf" 2>&1
+            if [ -s "$tmpf" ]
             then
                 echo "Holds:"
-                cat $tmpf
+                cat "$tmpf"
                 echo
             fi
         fi
@@ -249,41 +250,41 @@ fi
     echo "********************"
     echo "        cwd"
     echo "********************"
-    echo $(pwd)
+    pwd
     echo
 
     echo "********************"
     echo "      command"
     echo "********************"
-    echo $envs $command $cmdargs
+    echo "${envs[*]} $command ${cmdargs[*]}"
     echo
 
     echo "********************"
     echo "     execution"
     echo "********************"
     echo "start time: $(date)"
-    eval $envs
+    eval "${envs[@]}"
     if((tsit))
     then
-        $command $cmdargs | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
+        $command "${cmdargs[@]}" | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
                     $|=1;
                     select((select(STDERR), $| = 1)[0]);
                     ($s,$ms)=gettimeofday();
                     $ms=substr(q(000000) . $ms,-6);
                     print strftime "[%Y-%m-%d %H:%M:%S.$ms]", localtime($s)'
     else
-        $command $cmdargs
+        $command "${cmdargs[@]}"
     fi
     status=${PIPESTATUS[0]}
     echo
 
     echo "********************"
-    echo $logmsg
+    echo "$logmsg"
     echo "exit status: $status"
     echo "end time: $(date)"
     echo "********************"
-    exit $status
-) >> $logspec 2>&1
+    exit "$status"
+) >> "$logspec" 2>&1
 status=$?
 echo "$logmsg"
 echo "Exit status: $status"
@@ -298,9 +299,9 @@ fi
 
 if [[ "$editcmd" =~ emacs\  ]]
 then
-    width=$(perl -n -e 'length($_)>$x and $x=length($_);END{print $x}' $logspec);
+    width=$(perl -n -e 'length($_)>$x and $x=length($_);END{print $x}' "$logspec");
     lineheight=$(( ($(x-current-root-height)-100) / 30 ))
-    logheight=$(wcstrip -l $logspec)
+    logheight=$(wcstrip -l "$logspec")
     if (( lineheight <= logheight ))
     then
         height=$lineheight
@@ -313,10 +314,10 @@ if [ -n "$editcmd" ]
 then
     if [ -n "$edit_echo" ]
     then
-        echo $editcmd $logspec &
+        echo "$editcmd" "$logspec"
     else
-        $editcmd $logspec &
-        [ -n "$tailpid" ] && kill $tailpid
+        "$editcmd" "$logspec" &
+        [ -n "$tailpid" ] && kill "$tailpid"
     fi
 fi
 exit $status

@@ -7,25 +7,27 @@ git-merge-find ()
 {
     local opt_silent=0
     local opt_all=0
+    local branch
     local OPTSARGS
-    OPTSARGS=$(getoptp -o sha --long silent,help,all -n "${FUNCNAME[@]}" -- "$@")
+    OPTSARGS=$(getoptp -o shab: --long silent,help,all,branch: -n "${FUNCNAME[@]}" -- "$@")
     local status=$?
-    ((status != 0)) && func-usage && return $status
+    ((status != 0)) && func-usage && set +x && return $status
 
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
             -s|--silent) opt_silent=1; shift ;;
-            -h|--help) func-usage; return 0 ;;
+            -h|--help) func-usage; set +x ; return 0 ;;
             -a|--all) opt_all=1; shift ;;
+            -b|--branch) branch=$2; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; func-usage; return 1 ;;
+            *) echo "Internal error!"; func-usage; set +x ; return 1 ;;
         esac
     done
 
     local r
-    local b
+    local b=$branch
     local search
     local searchid
     if [ -n "$1" ]
@@ -38,7 +40,7 @@ git-merge-find ()
             if git-in-a-repo
             then
                 r=$(git remote -v | grep origin | grep '(fetch)' | perl -an -e '$F[1] =~ s/[\/:]/--/g; print $F[1]')
-                b=$(git-get-current-branch)
+                [ -z "$branch" ] && b=$(git branch get-current)
             else
                 echo "Not in a repo"
                 return 1
@@ -52,8 +54,10 @@ git-merge-find ()
     if [ -z "$merged" ]
     then
         ((opt_silent)) || echo "No record of merging $searchid to anywhere."
+        set +x
         return 1
     else
+        set +x
         echo "$merged" | perl -n -e '
  BEGIN { $me = getlogin };
  chomp;
