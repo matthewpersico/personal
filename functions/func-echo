@@ -5,8 +5,17 @@
 
 func-echo ()
 {
-    [ "$1" = "-i" ] && echo "${CMD_ECHO_AS:-${FUNCNAME[-1]}}" && return 0
-    cmd-echo -f "${CMD_ECHO_AS:-${FUNCNAME[-1]}}" "$@"
+    if [ "$1" = "-i" ]
+    then
+        defaultname=${2:-${FUNCNAME[-1]}}
+        [ -z "$CMD_ECHO_AS" ] && CMD_ECHO_AS=${CMD_ECHO_AS:-${defaultname}}
+    elif [[ "$1" =~ -h ]] && [[ ! "$1" =~ -head ]]
+    then
+        func-usage func-echo
+    else
+        echo "CMD_ECHO_AS=$CMD_ECHO_AS (func-echo)"
+        cmd-echo -f "${CMD_ECHO_AS:-${FUNCNAME[-1]}}" "$@"
+    fi
 }
 
 return 0 ## USAGE guard during sourcing this file.
@@ -14,14 +23,15 @@ return 0 ## USAGE guard during sourcing this file.
 :<<'__PODUSAGE__'
 =head1 NAME
 
-  func-echo - label echos in functions with the command name
+func-echo - label echos in functions with the command name
 
 =head1 SYNOPSIS
 
+ func-echo -i [functionname] ## somewhere near the top of your function.
+
  func-echo [--head] [--title] [-n] [-c] -- "text" ["text"...]
 
- local cea=$(func-echo -i)
- CMD_ECHO_NAME=cea SomeNonFunction arg arg...
+ CMD_ECHO_NAME="$CMD_ECHO_NAME" SomeNonFunction arg arg...
 
 =head1 DESCRIPTION
 
@@ -29,7 +39,8 @@ Call 'func-echo' to print the first "text" on a line with a reversed-color
 prefix containing the command name. Print subsequent lines indented with
 reversed color spaces, indicating continuation.
 
-The name to print is determined as either the envar CMD_ECHO_AS or ${FUNCNAME[-1]}
+The name to print is determined as either the envar CMD_ECHO_AS or
+${FUNCNAME[-1]} or the value passed to the -i option, if any.
 
 You should call 'func-echo' only in functions. Calling 'func-echo' in a script
 may result in either the wrong command or no command being printed.
@@ -38,16 +49,18 @@ Furthermore, if you call scripts inside your function that themselves use
 'script-echo', you must pass the current value of the command name used for
 printing down to the command. The command sequence is
 
-  local cea="$(func-echo -i)"
+  local cea="$CMD_ECHO_AS"
+
   CMD_ECHO_AS=$cea command args...
   ...
   CMD_ECHO_AS=$cea anotherCommand args...
 
-And yes, you have to type that. Any attempt to set CMD_ECHO_AS with a function
-will set the value in the current process space and if that process space is
-your command line, subsequent commands will all print the first command you
-typed that was a function.
-
+And yes, you have to type that. CMD_ECHO_AS is set in the current environment
+but not exported; scripts called by the function will run in a subprocess and
+won't see the variable. And we don't want to export it because that will set
+the value in the current process space and if that process space is your
+command line, subsequent commands will all use the value set in first command
+you typed that was a function.
 
 =head1 OPTIONS
 
@@ -57,7 +70,13 @@ Indicates end of options to 'func-echo' so that all subsequent arguments are
 taken as text to print. Technically not necessary UNLESS your first argument to
 print happens to match one of the options to 'func-echo'.
 
-=item --head
+=item -i
+
+Initialize the name to be used as the command name to the optional argument, or
+the current function name, but only if CMD_ECHO_AS is not already set.
+
+=item
+--head
 
 Print a blank line for spacing before printing any text.
 

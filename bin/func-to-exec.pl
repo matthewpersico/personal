@@ -81,7 +81,12 @@ LINE: while (<>) {
     ## Function information confirmed for replacement with current filename.
     ##
     m/# <(?:Function )?Class:/i && do {
-        push @funclines, qq(# $current_file\n\nscript-echo -i\n);
+        push @funclines, join(qq(\n),
+                              qq(# $current_file),
+                              '',
+                              q(# shellcheck disable=SC1090),
+                              q(. "$(which script-echo)" -i ) . $current_file,
+                              '');
         next LINE;
     };
     m/# <Function Justification:\s+(.*)>/i && do {
@@ -165,6 +170,9 @@ LINE: while (<>) {
         ##    but not '_', so that _git_cd_return would never even gotten in
         ##    here, but we have to exception check for _git-cd-return.
     };
+
+    ## func-echo -i gets removed
+    $_ =~ m/func-echo\s+-i\s/ && next LINE;
 
     ## func-X becomes script-X
     $_ =~ s/func-(echo|yesno|pick)/script-$1/g;

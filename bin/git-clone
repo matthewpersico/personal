@@ -1,0 +1,258 @@
+#!/usr/bin/env bash
+
+# git-clone
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+# shellcheck disable=SC1090
+. "$(which script-echo)" -i git-clone
+
+declare opt_y=0
+declare opt_t=0
+declare opt_triangle_namespace=''
+declare opt_worktree=1
+declare opt_use_proto_dir=1
+declare protocol
+declare moreopts
+declare namespace
+declare repo
+declare -a orig_args=("$@")
+declare dispatch_to_real_git=1
+declare -a git_clone_opts
+moreopts=1
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift ## That way you avoid endless loops on invalid options.
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey
+    declare ovalue
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        ##
+        ## Our options
+        ##
+        p | proto | protocol )
+            dispatch_to_real_git=0; protocol=$1; shift;;
+        y | yes )
+            dispatch_to_real_git=0; opt_y=1;;
+        t | timestamp )
+            dispatch_to_real_git=0; opt_t=1;;
+        tri | triangle )
+            dispatch_to_real_git=0
+            declare tmp_otn=$ovalue
+            if [ -z "$tmp_otn" ]
+            then
+                tmp_otn=$1
+                shift
+            fi
+            opt_triangle_namespace=${tmp_otn%/*}
+            if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
+            then
+                script-echo \
+                    "WARNING: --triangle takes an upstream namespace specification," \
+                    "         not a full upstream repo specification." \
+                    "         We will use" \
+                    "             $opt_triangle_namespace" \
+                    "         not" \
+                    "             $tmp_otn"
+            fi
+            ;;
+        noworktree )
+            dispatch_to_real_git=0; opt_worktree=0;;
+        noprotodir | here )
+            ## noprotodir and not no-protodir because --protodir is not valid
+            dispatch_to_real_git=0; opt_use_proto_dir=0;;
+        h | help )
+            script-usage; exit 0 ;;
+        debug | x )
+            dispatch_to_real_git=0; set -x; add_on_exit set +x;;
+        --)
+            moreopts=0 ;;
+        ##
+        ## Options to pass onto real git clone
+        ##
+        l | s | q | n \
+            | no-hardlinks \
+            | bare \
+            | mirror \
+            | no-tags \
+            | dissociate \
+            | *single-branch \
+            | *shallow-submodules )
+            ## Options that do not take args
+            git_clone_opts+=("$original")
+            ;;
+
+        template \
+            | o \
+            | b \
+            | u \
+            | reference \
+            | separate-git-dir \
+            | depth \
+            | jobs )
+            ## Options taking mandatory args. If we don't have one with
+            ## --foo=bar syntax, then we just take the next arg and let real
+            ## clone sort it out
+            if [ -n "$ovalue" ]
+            then
+                ovalue="$1"
+                shift
+            fi
+            git_clone_opts+=("$original" "$ovalue")
+            ;;
+
+        recurse-submodules )
+            ## Options taking mandatory args. If we don't have one with
+            ## --foo=bar syntax, then we just take the next arg IFF it does not
+            ## look like an option.
+            git_clone_opts+=("$original")
+            if [ -z "$ovalue" ]
+            then
+                if [[ ! "$1" =~ ^- ]]
+                then
+                    ovalue="$1"
+                    shift
+                fi
+            fi
+            [ -n "$ovalue" ] && git_clone_opts+=("$ovalue")
+            ;;
+        * )
+            script-echo -- "$original is an invalid option. See $0 --help"
+            exit 1
+    esac
+done
+
+if ((dispatch_to_real_git))
+then
+    ## There are no options specified that make us think we want to run our
+    ## clone code; go run system git clone.
+    "$REALGIT" clone "${orig_args[@]}"
+    exit $?
+fi
+
+[ -z "$1" ] && script-usage && exit 1
+
+namespace=$1;shift
+if [[ "$namespace" == */* ]]
+then
+    declare -a tmpa
+    asplit tmpa / "$namespace"
+    namespace=${tmpa[0]}
+    repo=${tmpa[1]}
+else
+    repo=$1;shift
+fi
+
+declare cwpath
+cwpath="$(realpath "$(pwd)")"
+declare local_protocol
+local_protocol="$(basename "$cwpath")"
+if [ "$local_protocol" != "$protocol" ]
+then
+    if ((opt_use_proto_dir == 1))
+    then
+        script-echo "You must be in a directory path ending in"\
+                    "   $protocol" \
+                    "You are in $cwpath"
+        # gitfuncs_root set externally
+        # shellcheck disable=SC2154
+        declare shouldbein="$gitfuncs_gitroot/$protocol"
+        if [ ! -d "$shouldbein" ]
+        then
+            script-echo "Cannot find '$shouldbein'." "Correct and re-execute."
+            exit 1
+        else
+            declare resp
+            if ((opt_y))
+            then
+                script-echo "Going to $shouldbein"
+                resp='y'
+            else
+                resp=$(script-yesno "cd to $shouldbein")
+            fi
+            if [ "$resp" = 'n' ]
+            then
+                script-echo "Correct and re-execute."
+                exit 1
+            else
+                _git-cd-to "$shouldbein"
+            fi
+        fi
+    else
+        script-echo "--noprotodir specifed. Cloning right here ($(pwd)/$repo)"
+    fi
+fi
+
+declare protocol_url
+protocol_url="$(kvstore get gitfuncs_gitsvcs "$protocol")"
+if [ -z "$protocol_url" ]
+then
+    script-echo "$protocol is unknown. Valid protocols are:$(kvstore vals gitfuncs_gitsvcs)"
+    exit 1
+fi
+
+declare tgt="$namespace/$repo"
+if [ -e "$tgt" ]
+then
+    declare resp
+    if ((opt_y))
+    then
+        resp='y'
+    else
+        resp=$(script-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
+    fi
+    [ "$resp" = 'n' ] && exit 1
+    rm -rf "$tgt"
+fi
+
+script-echo "$REALGIT clone ${git_clone_opts[*]} ${protocol_url}$namespace/$repo $namespace/$repo ..."
+if ! $REALGIT clone "${git_clone_opts[@]}" "${protocol_url}$namespace/$repo" "$namespace/$repo"
+then
+    exit $?
+fi
+if ((opt_t))
+then
+    script-echo 'Setting timestamps...'
+    (builtin cd "$namespace/$repo"; git-retimestamp)
+    script-echo 'Done'
+fi
+
+## dirlist, not builtin cd, to take advantage this cd enhancement
+dirlist "$namespace/$repo"
+if [ -n "$opt_triangle_namespace" ]
+then
+    script-echo "Setting up triangle workflow with ${protocol_url}$opt_triangle_namespace/${repo}..."
+    git-set-triangle "${protocol_url}" "$opt_triangle_namespace" "$namespace" "$repo"
+    git pull # To refresh from the upstream
+fi
+git remote -v
+
+if ((opt_worktree))
+then
+    script-echo "Setting up for worktrees..."
+    mkdir wt
+    ls -ld "$(pwd)/wt"
+fi
+
+## Add this repo to the list
+git-go-set
+
+script-echo "Done. Execute" "gitgo $namespace/$repo" "to use."
+exit 0
+
+:<<'__USAGE__'
+    NAME
+   git-clone - wraps 'git clone'
+TBD
+__USAGE__

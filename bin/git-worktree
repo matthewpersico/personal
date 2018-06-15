@@ -1,0 +1,583 @@
+#!/usr/bin/env bash
+
+# git-worktree
+
+# shellcheck disable=SC1090
+. "$(which script-echo)" -i "git worktree"
+
+## Functions that encapsulate the enhanced functionality. main() is defined
+## last and called last.
+git-worktree-create ()
+{
+    #local setag="create"
+    local fetch_existing=0
+    local status=0
+    local opt_m=''
+    local message=''
+    local asmaster='master'
+    local remote=origin
+    local localbranchname
+    declare moreopts
+    moreopts=1
+    declare verbose
+    verbose=1
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        ## Strip all leading dashes here so that -foo and --foo can both
+        ## be processed as 'foo'.
+        declare original="$1"
+        declare option
+
+        option=$(dashstripper "$original")
+        shift ## That way you avoid endless loops on invalid options.
+
+        case $option in
+            f|fetch) fetch_existing=1 ;;
+            m|message) opt_m=$1; message="$1"; shift ;;
+            asmaster) asmaster=$1; shift ;;
+            h|help) func-usage; return 0 ;;
+            r|remote) remote=$1; shift ;;
+            orphan) echo "Sorry, cannot create orphans this way."
+                    echo "First create the orphan, then create a"
+                    echo "worktree for it using --fetch."
+                    return "$NOOK"
+                    ;;
+            l|local) localbranchname=$1; shift;;
+            --) moreopts=0 ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Error getting options!"; func-usage; return 1 ;;
+        esac
+    done
+
+    ## Make sure pwd ends in wt
+    if [[ ! "$(pwd)" =~ /wt$ ]]
+    then
+        if [ -d ./wt ]
+        then
+            builtin cd ./wt
+        else
+            script-echo "$setag: Current directory is $(pwd)." \
+                      'No wt subdir.' \
+                      'Will not manipulate worktrees outside of wt dir. Aborting.'
+            return 1
+        fi
+    fi
+
+    declare repo
+    repo="$(basename "$(dirname "$(pwd)")")" ## we are in /wt by now.
+    if [ -z "$1" ]
+    then
+        script-echo "Need a branch name to use for the worktree spec."
+        func-usage
+        return 1
+    fi
+    local wt="$1"
+    shift
+    [ -z "$localbranchname" ] && localbranchname="$wt"
+
+    ## Check remote. Must be fetchable and pushable.
+    local exists
+    exists=$(git remote -v | \
+                 sort -u | \
+                 perl -ane \
+                      'BEGIN{$tgt=shift}print $F[2] if $F[0] eq $tgt' "$remote"
+          )
+    if [ ! "$exists" = '(fetch)(push)' ]
+    then
+        script-echo "$setag: Can't find remote '$remote' for fetch and push"
+        git remote -v | while read -r line; do script-echo -c -- "$line"; done
+        return 1
+    fi
+    script-echo "$setag: Using '$remote' as remote."
+
+    ## Check worktree dir
+    ((verbose)) && script-echo "Check for existing worktrees with same name."
+    wtdir="$(pwd)/$localbranchname"
+    if [ -e "$wtdir" ]
+    then
+        script-echo -- "$wtdir already exists. Aborting."
+        return 1
+    fi
+
+    ## Check for branch
+    local wtsubdir=$localbranchname
+    local wtbranch=$localbranchname
+
+    ((verbose)) && script-echo "Check for existing branch."
+    local create_branch="-b"
+
+    ## Make sure we do not have a local branch with the same name
+    exists=$(git branch --list --format='%(refname)' | sed 's|.*/||' | \
+                 while read -r line
+                 do
+                     if [ "$line" = "$localbranchname" ]
+                     then
+                         echo "$localbranchname"
+                         break
+                     fi
+                 done
+          )
+    if [ -n "$exists" ]
+    then
+        script-echo "$setag: Branch $localbranchname already exists locally. Cannot create it."
+        return 1
+    fi
+
+    ## Now see if branch exists remotely
+    exists=$(git branch -r --list --format='%(refname)' | sed 's|.*/||' | \
+                 while read -r line
+                 do
+                     if [ "$line" == "$remote/$wt" ]
+                     then
+                         echo "$remote/$wt"
+                         break
+                     fi
+                 done
+          )
+
+    if ((fetch_existing==1)) && [ -n "$exists" ]
+    then
+        ## Fetch it, Dear Henry...
+        ##                          branch             path
+        git worktree add --track -b "$localbranchname" "$localbranchname" "$remote/$wt"
+        ((verbose)) && script-echo "$setag: cd $wtsubdir"
+        ## dirlist, not builtin cd, to take advantage this cd enhancement
+        dirlist "$localbranchname"
+    elif ((fetch_existing==1)) && [ -z "$exists" ]
+    then
+        script-echo "$setag: Cannot find '$remote/$wt' to fetch"
+        return 1
+    elif ((fetch_existing==0)) && [ -n "$exists" ]
+    then
+        script-echo "$setag: Branch '$wt' already exists in remote '$remote'"
+        return 1
+    else ## ((fetch_existing==0)) && [ -z "$exists" ]
+        ## Since this worktree is going to create a branch of the local
+        ## $asmaster, make sure the local $asmaster (where we should be right
+        ## now) it is up to date.
+        if [ "$(git branch get-current)" != "$asmaster" ]
+        then
+            script-echo "$setag: Cannot create branch and worktree because the current branch '$(git branch get-current)' is not the master branch '$asmaster'."
+            return 1
+        fi
+        script-echo "$setag: Checking local '$asmaster', starting point for branch."
+        git pull
+        status=$?
+        ## We can return here with no other notice, assuming the error message
+        ## from the pull would have been printed to stderr.
+        ((status)) && return 1
+
+        ## Let's practice a little hygiene here and keep the origin master up
+        ## to date with the upstream master.
+        #### - WARNING - This should only be used if the repo is YOUR FORK of a
+        #### - canonical repo. If you are working in a CLONE of the CANONICAL,
+        #### - you do NOT want to do this. Until we can tell the difference,
+        #### - we won't automajically do this.
+        #### git push origin master
+
+        ## Now create the worktree and the branch.
+        ((verbose)) && script-echo "$setag: git worktree add -b $wtsubdir $wtbranch"
+        git worktree add $create_branch "$wtsubdir" "$wtbranch"
+        status=$?
+        if ((status))
+        then
+            script-echo "$setag: Aborting."
+            return 1
+        fi
+
+        ((verbose)) && script-echo "$setag: cd $wtsubdir"
+        ## dirlist, not builtin cd, to take advantage this cd enhancement
+        dirlist "$wtsubdir"
+
+        ## Finally push the branch upstream as a tracking branch
+        ((verbose)) && script-echo "$setag: git push --set-upstream $remote $wtbranch"
+        git push --set-upstream "$remote" "$wtbranch"
+        git branch info created "$(date +%Y%m%d.%H%M%S%z)"
+     fi
+
+    ## Convert the worktree's .git file to use a relative path to the master
+    ## .git location. In that way, we can use the repo on machines where it may
+    ## be mounted in a different place, so that the absolute path is different
+    ## in those places.
+    sed -i 's|\(gitdir: \).*/\(.git/worktrees\)|\1../../\2|' .git
+
+    git-post-new
+
+    if [ -n "$opt_m" ]
+    then
+        git-st-ext "$message"
+    fi
+
+    ## Add this repo to the list
+    git-go-set
+
+    script-echo "$setag: Done. Execute" "    gitgo $repo/wt/$wtsubdir" "to use."
+
+    return 0
+}
+
+git-worktree-delete ()
+{
+    local setag="delete"
+    local opt_yes=0
+    local opt_yes_string
+    local opt_force=0
+    OPTSARGS=$(getoptp -o yfs:h --long yes,force,help -n "${FUNCNAME[0]}" -- "$@")
+    local status=$?
+    ((status != 0)) && func-usage && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -y|--yes) opt_yes=1; opt_yes_string='--yes'; shift ;;
+            -f|--force) opt_force=1; shift ;;
+            -h|--help) func-usage; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; func_usage; return 1 ;;
+        esac
+    done
+
+    script-echo --head 'Working...'
+    local opwd
+    opwd=$(pwd)
+    local worktree="$1"; shift;
+    if [ -z "$worktree" ]
+    then
+        script-echo "$setag: Worktree not specified"
+        return 1
+    fi
+    if [ ! -d "$worktree" ]
+    then
+        script-echo "$setag: Cannot find worktree $worktree
+$(ls -la)"
+        return 1
+    fi
+    local worktreefull
+    worktreefull=$(realpath "$worktree");
+
+    builtin cd "$worktreefull"
+
+    if [ "$opwd" = "$worktreefull" ]
+    then
+        script-echo "$setag: cannot delete worktree when it is the current directory"
+        return 1
+    fi
+
+    ## Make sure we are in a proper worktree.
+    if [ ! -f .git ] || [[ ! "$(pwd)" =~ /wt/ ]]
+    then
+        script-echo "$worktree is not a proper worktree for deletion"
+        return 1
+    fi
+
+    ## Check for cleanliness.
+    if [ "$(git status --porcelain | wc -l)" != '0' ] || \
+           [ "$(git status | grep 'Your branch is' | grep -c -v 'up.to.date')" != '0' ]
+    then
+        if((!opt_force))
+        then
+            git status
+            echo
+            script-echo "$setag: Will not delete current worktree. Clean worktree or re-run command with --force."
+            return 1
+        fi
+    fi
+
+    ## Current branch
+    local current_branch
+    current_branch=$(git branch get-current)
+
+    ## Checking cleanliness and consistency
+    local current_dir
+    current_dir=$(basename "$(pwd)")
+    if [ "$current_branch" != "$current_dir" ]
+    then
+        script-echo "$setag: Branch name '$current_branch' does not match current subdir name '$current_dir'." \
+                    "I'm bailing; you fix this mess."
+        return 1
+    fi
+    git status
+    local rc=$?
+    if ((rc))
+    then
+        script-echo "$setag: git status returned non-success value $rc." \
+                    "I'm bailing; you fix this mess."
+        return 1
+    fi
+
+    ## Check for being merged
+    local gmfout
+    gmfout=$(git-merge-find)
+    local status=$?
+    if ((status)) && ((!opt_force)) && ((!opt_yes))
+    then
+        echo "$gmfout"
+        local resp
+        resp=$(func-yesno 'Continue anyway')
+        if [ "$resp" = 'n' ]
+        then
+            return 1
+        fi
+    fi
+
+    ## Whack it. Start with the current dir.
+    local delit
+    delit=$(basename "$(pwd)")
+    builtin cd ..
+    if ! rm -rf "$delit"
+    then
+        script-echo "$setag: Bad rm of ./$delit (from $(pwd)). Aborting."
+        return 1;
+    fi
+
+    ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
+    ## get to first, and stop deleting.
+    while [ "$(basename "$(pwd)")" != 'wt' ]
+    do
+        if [ -z "$(ls -A "$(pwd)")" ]
+        then
+            #it's empty
+            delit=$(basename "$(pwd)")
+            builtin cd ..
+            \rm -rf "$delit" || script-echo "$setag: Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
+        fi
+    done
+
+    script-echo "Local repo deleted."
+    ## Now fix the administrative files.
+    git worktree prune
+    script-echo "Local admin files updated."
+
+    ## Now the take care of the branch.
+    if ((opt_yes))
+    then
+        resp='y'
+    else
+        resp=$(func-yesno "Delete associated branch $current_branch" 'n')
+    fi
+    if [ "$resp" = 'n' ]
+    then
+        script-echo "$setag: If you change your mind: git-branch delete $current_branch"
+    else
+        ## Have to be in a git repo to do this.
+        while [ "$(basename "$(pwd)")" != 'wt' ]
+        do
+            builtin cd ..
+        done
+        builtin cd ..
+        if [ "$resp" = 'y' ]
+        then
+            git-branch delete --no-go-set $opt_yes_string "$current_branch"
+        fi
+    fi
+
+    [ -d "$opwd" ] && builtin cd ## If $opwd was the worktree directory, it won't
+                               ## be there anymore. Stay where we are.
+
+    script-echo "$setag: Resetting git list..."
+    git-go-set
+
+    script-echo "$setag: Done."
+
+    return 0
+}
+
+git-worktree-rename ()
+{
+    if (($#!=2))
+    then
+        script-usage
+        return 1
+    fi
+
+    local setag="rename"
+    local status
+
+    local old_worktree_path
+    old_worktree_path=$(realpath "$1")
+    local old_worktree
+    old_worktree="$(basename "$1")"
+    shift
+
+    local new_worktree_path
+    new_worktree_path="$(realpath "$1")"
+    local new_worktree
+    new_worktree="$(basename "$1")"
+    shift
+
+    if [ "$old_worktree_path" = "$(pwd)" ]
+    then
+        script-echo "$setag: rename: Cannot rename out of current directory"
+        script-usage
+        return 1
+    fi
+
+    if [ "$new_worktree_path" = "$(pwd)" ]
+    then
+        script-echo "$setag: rename: Cannot rename into current directory"
+        script-usage
+        return 1
+    fi
+
+    if (($#))
+    then
+        script-echo "$setag: rename: argument(s) '$*' are illegal"
+        script-usage
+        return 1
+    fi
+
+    local new_worktree_path
+    new_worktree_path="$(dirname "$old_worktree_path")/$new_worktree"
+    builtin cd "$old_worktree_path"
+    local cb
+    cb="$(git branch get-current)"
+    if [ "$cb" = "$old_worktree" ]
+    then
+        script-echo "$setag: Renaming branch first..."
+        git-branch rename "$old_worktree" "$new_worktree"
+        status=$?
+        if ((status != OK))
+        then
+            return 1
+        fi
+    fi
+
+    ## Get the metadata directory for this worktree
+    local metadatadir
+    metadatadir="$(grep -E '^gitdir:' .git | sed 's/.* //')"
+
+    ## Get the metadata files for this worktree
+    local heregit
+    heregit=$(pwd)/.git
+    local theregit
+    theregit=${metadatadir}/gitdir
+
+    ## Change the metadata files
+    perl -pi -e "s/$old_worktree/$new_worktree/g" "$heregit" "$theregit" \
+        || return 1
+
+    ## Move the metadata dir
+    local newmetadatadir
+    newmetadatadir="$(dirname "$metadatadir")/$new_worktree"
+    mv "$metadatadir" "$newmetadatadir" || return 1
+
+    ## Move us
+    builtin cd ..
+    mv "$old_worktree_path" "$new_worktree_path" || return 1
+
+    ## Clean up stuff
+    git-go-set
+
+    return $?
+}
+
+main ()
+{
+    declare action=$1
+    shift;
+
+    if [[ "$action" =~ -h ]]
+    then
+        (
+            echo "** Standard actions **"
+            "${REALGIT}" worktree -h
+            echo
+            echo "** Extended actions **"
+            script-usage
+        ) 2>&1 | ${PAGER:-less}
+        return  0
+    fi
+
+    action_func_name="git-worktree-${action}"
+    if declare -F "$action_func_name" >/dev/null
+    then
+        "$action_func_name" "$@"
+    else
+        case $action in
+            add | list | lock | move | prune | remove | unlock )
+                ## Dispatch to real git worktree
+                "${REALGIT}" worktree "$action" "$@"
+                ;;
+            * )
+                echo "Error: unknown git worktree action '$action'"
+                (
+                    echo "** Standard actions **"
+                    "${REALGIT}" worktree -h
+                    echo
+                    echo "** Extended actions **"
+                    script-usage
+                ) 2>&1 | ${PAGER:-less}
+                return 1
+                ;;
+        esac
+    fi
+    return $?
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-worktree - git extention of git worktree
+
+=head1 SYNOPSIS
+
+ git-worktree create
+ git-worktree delete
+ git-worktree rename
+
+=head1 DESCRIPTION
+
+Extensions to the 'git worktree' command the enforce or understand our worktree conventions. To wit:
+
+o When we create a worktree, we first create a branch with the same name as the worktree.
+
+o Worktrees are created in the 'wt' subdir of the repo.
+
+o We then check out that branch into that subdir.
+
+Any action not described here will be passed onto the actual 'git worktree' command.
+
+All extentions take a -h or --help option to display this manpage.
+
+=head1 EXTENSIONS
+
+=over 4
+
+=item create
+
+A synonymn for 'add' but one that respects our conventions.
+
+ git worktree create [-f] [-r remote] [-m 'message'] [--asmaster somebranch] [-l localbranchname] worktree-name
+       default remote is 'origin'
+       -f|--fetch   - Do not create the branch, but fetch an existing branch.
+       -r|--remote  - Use 'remote' as the source, not 'origin'.
+       -m|--message - Record a short description readable with git-st-ext.
+       --asmaster   - use 'somebranch' as the worktree basis.
+                      The default is 'master'.
+       -l           - When fetching an existing remote branch 'X', use
+                      'localbranchname' as the tracking branch name
+                      instead of 'X'. Most useful if you are fetching
+                      someone else's 'master' branch
+
+=item delete
+
+A synonymn 'remove' but one that respects our conventions.
+
+ git worktree delete [-y] [-f] worktree-name
+       -y|--yes     - Assume 'yes' to all prompts
+       -f|--force   - Delete even if the repo is not 'clean'
+
+=back
+
+=item rename
+
+Changes the worktree name and the corresponding directory and branch.
+
+ git worktree rename current-worktree-name new-worktree-name
+
+=cut
+
+__PODUSAGE__

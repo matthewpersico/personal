@@ -8,8 +8,16 @@ git-delete-repo ()
     local pwdmode=0
     local dirmode=''
     [ -z "$1" ] && func-usage && return 1
-    [ "$1" = '--pwdmode' ] && pwdmode=1 && shift
-    [ "$1" = '--dirmode' ] && dirmode=$2 && shift && shift
+    if [ "$1" = '--pwdmode' ] || [ "$1" = '--current' ]
+    then
+        pwdmode=1
+        shift
+    elif [ "$1" = '--dirmode' ]
+    then
+        dirmode=$2
+        shift
+        shift
+    fi
 
     local repo
     local returnpath
@@ -17,6 +25,7 @@ git-delete-repo ()
 
     if [ -n "$dirmode" ]
     then
+        ## We were given the directory containing the repo
         builtin cd "$dirmode"
         local root_or_err
         root_or_err="$(git root 2>&1)"
@@ -32,6 +41,7 @@ git-delete-repo ()
         fi
     elif ((!pwdmode))
     then
+        ## Then we were given a local repo URL; find it and go there
         local protocol=$1;shift
         local namespace=$1;shift
         repo=$1;shift
@@ -50,6 +60,7 @@ git-delete-repo ()
         ((status != 0)) && return 1; ## If the git-go fails, we should
         ## see error messages, no need to
         ## add more.
+    ## else - we were told to delete the directory/repo we are currently in
     fi
 
     (
@@ -89,7 +100,11 @@ git-delete-repo ()
     )
 
     status=$?
-    if [ -d "$returnpath" ]
+    while [ ! -d "$returnpath" ] && [ ! "$returnpath" = '/' ]
+    do
+        returnpath="$(dirname "$returnpath")"
+    done
+    if [ ! "$returnpath" = '/' ]
     then
         builtin cd "$returnpath"
     else
