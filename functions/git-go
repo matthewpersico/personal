@@ -5,14 +5,20 @@
 
 git-go ()
 {
+    # shellcheck disable=SC1090
+    source "$BASH_INC_DIR/on_exit.binc"
+
+    func-echo -i "${FUNCNAME[0]}"
+
     local PS3="Choose by number, /string to rematch, q to quit: "
     local -a git_get_opts
     local opt_list=0
     local opt_wt='-w'
     local opt_subwt_only=''
-    local opt_gse=0
+    local opt_stat=0
     local opt_mod=0
     local opt_exact=''
+    local opt_size=0
     local moreopts
     moreopts=1
     while [[ "$1" =~ ^- ]] && ((moreopts))
@@ -31,14 +37,16 @@ git-go ()
             eh | exact-head ) opt_exact='--exact-head';;
             l | list ) opt_list=1 ;;
             listfull ) opt_list=2 ;;
+            size ) opt_size=1; opt_list=1 ;;
             m | mbig ) git_get_opts+=('-m') ;;
             r | roots ) git_get_opts+=('-r') ;;
             u | update ) git_get_opts+=('-u') ;;
             wt ) opt_wt='-w' ;;
             nowt ) opt_wt='' ;;
             subwt ) opt_subwt_only='-o' ;;
-            wtonly ) opt_subwt_only='-o' ;;
-            stat ) opt_gse=1; opt_list=1 ;;
+            wto* ) opt_subwt_only='-o' ;;
+            stat ) opt_stat=1; opt_list=1 ;;
+            dirty ) opt_stat=2; opt_list=1 ;;
             mod ) opt_mod=1;;
             h | help ) func-usage git-go; return 0 ;;
             -- ) moreopts=0; break ;; ## end of opts, remaining $*, if any, are args
@@ -100,29 +108,39 @@ git-go ()
         elif ((opt_list))
         then
             local r
-            local gse
-            local sched
-            local rr
+            if ((opt_size))
+            then
+                ## Re-sort the list of repos by size descending using
+                ## byte-level counts.
+                repos_size=$(mktemp --suffix=.git-go.size)
+                rm_on_exit "$repos_size"
+                for r in "${REPOS[@]}"
+                do
+                    du -s --exclude wt "${TILDAE:-$HOME}/${r}"
+                done > "$repos_size"
+                readarray -t REPOS < <(sort -nr "$repos_size" | sed -E 's/^[0-9]+\s+//')
+            fi
+
             for r in "${REPOS[@]}"
             do
                 # shellcheck disable=SC2088
-                ((opt_list==1)) && rr="~/${r}"
-                ((opt_list==2)) && rr="${TILDAE:-$HOME}/${r}"
-                if ((!opt_gse))
+                if((opt_size))
                 then
-                    echo "$rr"
+                    du -hs --exclude wt "${r}"
                 else
-                    gse=$(cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
-                          git branch info local-status)
-                    sched=$(cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
-                            git branch info delete-worktree)
-                    [ -n "$sched" ] && sched=$(date --date "@${sched}")
-                    if [ -n "$gse" ] || [ -n "$sched" ]
+                    local rexp
+                    ((opt_list==1)) && rexp="~/${r}" || rexp="${TILDAE:-$HOME}/${r}"
+                    if ((opt_stat==1))
                     then
-                        echo "$rr:"
-                        [ -n "$gse" ]   && echo "    $gse"
-                        [ -n "$sched" ] && echo "    Scheduled for removal on or after $sched"
+                        echo "$rexp"
+                        (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
+                         git status --porcelain)
                         echo
+                    fi
+                    if ((opt_stat==2))
+                    then
+                        (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
+                         (( $(git status --porcelain | wc -l) )) && (echo "$rexp" && git status --porcelain && echo))
                     fi
                 fi
             done
@@ -197,7 +215,8 @@ git-go ()
 
 return 0 ## USAGE guard when sourcing
 :<<'__USAGE__'
-Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] \
+Usage: git-go [--list[full] [--size] [--stat|--dirty] [--update|-u] \
+              [--roots|-r] [--mbig|-m] \
               [--wt|--nowt|--wtonly ] [--mod] [dirmatch] [item]
 
        git-go [-h|--help]
@@ -206,16 +225,26 @@ Usage: git-go [--list[full] [--stat]] [--update|-u] [--roots|-r] [--mbig|-m] \
        choose and then cd to.
 
        --list
-           Skip the choosing part and just exit, printing each repo dir with a
-           litteral '~'.
+           Skip the choosing part and just exit, printing each repo            '~' expanded.
+dir with a
+           literal '~'.
 
        --listfull
            Skip the choosing part and just exit, printing each repo dir with
            '~' expanded.
 
+       --size
+           Skip the choosing part and just exit, printing each repo dir with
+           '~' expanded, and its size, sorted by descending size order. Worktree
+           sizes are not included in the size of their parent repos.
+
        --stat
-           Invoke as if --list was specified but only for repos with extended
-           status information.
+           Invoke as if --list was specified and for each repo, call 'git
+           status --porcelain'.
+
+       --dirty
+           Invoke as if --stat was specified, but only print repos and status
+           where there is a non-blank status.
 
        --update
            Rescan to pick up new and deleted repos and worktrees.

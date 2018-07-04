@@ -10,6 +10,7 @@
 ## last and called last.
 git-branch-delete ()
 {
+    func-echo -i "${FUNCNAME[0]}"
     declare no_remote
     no_remote=0
     declare opt_yes
@@ -30,7 +31,7 @@ git-branch-delete ()
             --no-go-set) do_go_set=0; shift ;;
             -h|--help) script-usage; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) script-echo "Internal error!"; script-usage; return 1 ;;
+            *) func-echo "Internal error!"; script-usage; return 1 ;;
         esac
     done
 
@@ -44,7 +45,7 @@ git-branch-delete ()
         readarray -t branchesa < <(git-branch-list --strip)
         if [ ${#branchesa[@]} == '0' ]
         then
-            script-echo "No branches found. Are you in a git repo?"
+            func-echo "No branches found. Are you in a git repo?"
             return 1
         fi
         declare PS3
@@ -57,7 +58,7 @@ git-branch-delete ()
             then
                 if [ "$selected" == "$current_branch" ]
                 then
-                    script-echo -- "$selected is current. Cannot delete current."
+                    func-echo -- "$selected is current. Cannot delete current."
                 else
                     branch=$selected
                     break
@@ -66,7 +67,7 @@ git-branch-delete ()
             then
                 return 0
             else
-                script-echo "'$REPLY' is an invalid choice"
+                func-echo "'$REPLY' is an invalid choice"
             fi
         done
     fi
@@ -76,7 +77,7 @@ git-branch-delete ()
         ## $branch was either $1 or we did not ctrl-c out of the select.
         if [ "$branch" = "$current_branch" ]
         then
-            script-echo "Nope, you can't delete the current branch."
+            func-echo "Nope, you can't delete the current branch."
             return 1
         fi
 
@@ -85,10 +86,10 @@ git-branch-delete ()
         brdelstat=$?
         if ((brdelstat))
         then
-            script-echo "ERROR: git branch -d $branch failed. Returning $brdelstat."
+            func-echo "ERROR: git branch -d $branch failed. Returning $brdelstat."
             return $brdelstat
         fi
-        script-echo "Branch deleted locally."
+        func-echo "Branch deleted locally."
 
         if [ "$no_remote" = '1' ]
         then
@@ -118,10 +119,10 @@ git-branch-delete ()
                     brdelstat=$?
                     if ((brdelstat))
                     then
-                        script-echo "ERROR: git push --delete $remote $branch failed. Returning $brdelstat."
+                        func-echo "ERROR: git push --delete $remote $branch failed. Returning $brdelstat."
                         return $brdelstat
                     fi
-                    script-echo "Branch deleted remotely."
+                    func-echo "Branch deleted remotely."
                 fi
             fi
         done
@@ -134,9 +135,10 @@ git-branch-delete ()
 
 git-branch-rename ()
 {
+    func-echo -i "${FUNCNAME[0]}"
     if (($#!=2))
     then
-        script-echo "Need current and new branch names"
+        func-echo "Need current and new branch names"
         script-usage
         return 1
     fi
@@ -166,6 +168,7 @@ git-branch-rename ()
 
 git-branch-info ()
 {
+    func-echo -i "${FUNCNAME[0]}"
     local branch
     branch=$(git rev-parse --abbrev-ref HEAD)
     local timestamp=''
@@ -224,6 +227,7 @@ git-branch-info ()
 
 git-branch-get-current ()
 {
+    func-echo -i "${FUNCNAME[0]}"
     ( if [ -n "$1" ]
       then
           ## dirlist, not builtin cd, to take advantage this cd enhancement
@@ -236,6 +240,7 @@ git-branch-get-current ()
 
 git-branch-orphan()
 {
+    func-echo -i "${FUNCNAME[0]}"
     ##Create an empty branch, for tools you want to keep, but not publish
     declare remote=origin
     declare branch=$1; shift
@@ -261,47 +266,50 @@ git-branch-orphan()
 
 git-branch-track-remote ()
 {
-     declare remote=$1
-     declare branch=$2
-     declare local_branch=$3
-     if [ -z "$remote" ] || [ -z "$branch" ]
-     then
-         echo "Usage: git-track-remote-branch remote branch [localbranch]"
-         echo "       Missing one or both arguments (remote, branch)"
-         return 1
-     fi
-     [ -z "$local_branch" ] && local_branch=$branch
+    func-echo -i "${FUNCNAME[0]}"
+    declare remote=$1
+    declare branch=$2
+    declare local_branch=$3
+    if [ -z "$remote" ] || [ -z "$branch" ]
+    then
+        echo "Usage: git-track-remote-branch remote branch [localbranch]"
+        echo "       Missing one or both arguments (remote, branch)"
+        return 1
+    fi
+    [ -z "$local_branch" ] && local_branch=$branch
 
-     declare local_branch_exists
-     local-branch_exists="$(git branch --list "$local_branch")"
-     if [ -z "$local_branch_exists" ]
-     then
-         ## Does not exists, create and track
-         git checkout -b "$local_branch" --track "$remote/$branch"
-     else
-         declare already_tracking_remote
-         already_tracking_remote="$(git config branch."$local_branch".remote)"
-         if [ -z "$already_tracking_remote" ]
-         then
-             ## Exists, not tracking, track
-             git branch --set-upstream-to "$remote/$branch" "$local_branch"
-         else
-             declare already_tracking_branch
-             already_tracking_branch=$(git config branch."$local_branch".merge | sed 's|refs/heads/||')
-             echo "Branch $local_branch is already tracking $already_tracking_branch in $already_tracking_remote"
-             return 1
-         fi
-     fi
-     return $?
+    declare local_branch_exists
+    local-branch_exists="$(git branch --list "$local_branch")"
+    if [ -z "$local_branch_exists" ]
+    then
+        ## Does not exists, create and track
+        git checkout -b "$local_branch" --track "$remote/$branch"
+    else
+        declare already_tracking_remote
+        already_tracking_remote="$(git config branch."$local_branch".remote)"
+        if [ -z "$already_tracking_remote" ]
+        then
+            ## Exists, not tracking, track
+            git branch --set-upstream-to "$remote/$branch" "$local_branch"
+        else
+            declare already_tracking_branch
+            already_tracking_branch=$(git config branch."$local_branch".merge | sed 's|refs/heads/||')
+            echo "Branch $local_branch is already tracking $already_tracking_branch in $already_tracking_remote"
+            return 1
+        fi
+    fi
+    return $?
 }
 
 git-branch-fetch-remote ()
 {
+    func-echo -i "${FUNCNAME[0]}"
     git-branch-track-remote "$@"
 }
 
 git-branch-list ()
 {
+    func-echo -i "${FUNCNAME[0]}"
     local strip=0
     local remote=''
     local OPTSARGS
@@ -374,7 +382,15 @@ git-branch - git extention of git branch
 
 =head1 SYNOPSIS
 
+ git branch delete oldBranch
  git branch rename currentBranch newbranch
+ git branch info
+ git branch get current
+ git branch orphan
+ git branch track remote
+ git branch fetch remote
+ git branch list
+
 
 =head1 DESCRIPTION
 

@@ -85,7 +85,7 @@ LINE: while (<>) {
                               qq(# $current_file),
                               '',
                               q(# shellcheck disable=SC1090),
-                              q(. "$(which script-echo)" -i ) . $current_file,
+                              q(. "$(which script-echo)" -i "$(basename "$0")"),
                               '');
         next LINE;
     };

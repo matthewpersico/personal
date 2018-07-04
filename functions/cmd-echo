@@ -14,17 +14,12 @@ function cmd-echo() {
     declare continueline=0
     declare title=0
     declare callname=''
-
+    declare override
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
         declare original="$1"
         declare option="$1"
-        declare new=''
-        while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
-        do
-            new=$option
-            option=${option##-}
-        done
+        option=$(dashstripper "$original")
         shift
 
         case $option in
@@ -38,13 +33,21 @@ function cmd-echo() {
             n ) nonl='-n' ;;
             c ) continueline=1 ;;
             h | help ) func-usage cmd-echo && return 0;;
-            f ) callname=$1; shift ;;
+            f ) callname=$1; shift
+                if [ -z "$CMD_ECHO_AS" ]
+                then
+                    CMD_ECHO_AS="$callname"
+                fi
+                ;;
             s ) callname="$(basename "$1")"; shift
                 if [ -z "$CMD_ECHO_AS" ]
                 then
                     CMD_ECHO_AS="$callname"
                     export CMD_ECHO_AS
                 fi
+                ;;
+            o )
+                override=$1; shift
                 ;;
             --)
                 moreopts=0 ;;
@@ -55,14 +58,7 @@ function cmd-echo() {
         esac
     done
 
-    declare printit='?'
-    if [ -z "$callname" ]
-    then
-        echo "cmd-echo ASSERT WARN: no -f or -s specified"
-    else
-        printit=$callname
-    fi
-
+    declare printit=${override:-$CMD_ECHO_AS}
     declare p
     for p in "$@"
     do
