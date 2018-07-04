@@ -5,27 +5,28 @@
 
 git-merge-find ()
 {
+    func-echo -i "${FUNCNAME[0]}"
     local opt_silent=0
     local opt_all=0
     local branch
+    branch=$(git rev-parse --abbrev-ref HEAD)
     local OPTSARGS
-    OPTSARGS=$(getoptp -o shab: --long silent,help,all,branch: -n "${FUNCNAME[@]}" -- "$@")
+    OPTSARGS=$(getoptp -o shab: --long silent,help,all,branch: -n "${FUNCNAME[0]}" -- "$@")
     local status=$?
-    ((status != 0)) && func-usage && set +x && return $status
+    ((status != 0)) && func-usage && return $status
 
     eval set -- "$OPTSARGS"
     while true
     do
         case "$1" in
             -s|--silent) opt_silent=1; shift ;;
-            -h|--help) func-usage; set +x ; return 0 ;;
+            -h|--help) func-usage; return 0 ;;
             -a|--all) opt_all=1; shift ;;
             -b|--branch) branch=$2; shift; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; func-usage; set +x ; return 1 ;;
+            *) func-echo "Internal error!"; func-usage; return 1 ;;
         esac
     done
-
     local r
     local b=$branch
     local search
@@ -42,7 +43,7 @@ git-merge-find ()
                 r=$(git remote -v | grep origin | grep '(fetch)' | perl -an -e '$F[1] =~ s/[\/:]/--/g; print $F[1]')
                 [ -z "$branch" ] && b=$(git branch get-current)
             else
-                echo "Not in a repo"
+                func-echo "Not in a repo"
                 return 1
             fi
         fi
@@ -53,11 +54,9 @@ git-merge-find ()
     merged=$(git config -f "${TILDAE:-$HOME}/.gitconfig.merge_audit" --list | grep -E -- "${search}" 2>/dev/null)
     if [ -z "$merged" ]
     then
-        ((opt_silent)) || echo "No record of merging $searchid to anywhere."
-        set +x
+        ((opt_silent)) || func-echo "No record of merging $searchid to anywhere."
         return 1
     else
-        set +x
         echo "$merged" | perl -n -e '
  BEGIN { $me = getlogin };
  chomp;

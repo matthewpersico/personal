@@ -52,18 +52,17 @@ while true ; do
         --tee)
             teeit=1
             shift ;;
+        --edit-echo)
+            edit_echo=1
+            ;& ## unconditional dropthrough
         --edit)
             edit="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit="$EDITOR"
-            shift ;;
-        --edit-echo)
-            edit_echo=1
-            edit="$LOGIT_EDITOR"
-            [ -z "$edit" ] && edit="$EDITOR"
-            shift ;;
+            shift
+            ;;
         --edit-on-fail)
             edit_on_fail="$LOGIT_EDITOR"
-            [ -z "$edit" ] && edit_on_fail="$EDITOR"
+            [ -z "$edit_on_fail" ] && edit_on_fail="$EDITOR"
             shift ;;
         --purge)
             purge=all
@@ -76,9 +75,15 @@ while true ; do
             shift ;;
         --tpe)
             teeit=1
+            purge=all
             edit="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit="$EDITOR"
+            shift ;;
+        --tpef)
+            teeit=1
             purge=all
+            edit_on_fail="$LOGIT_EDITOR"
+            [ -z "$edit_on_fail" ] && edit_on_fail="$EDITOR"
             shift ;;
         --ts)
             tsit=1
@@ -192,15 +197,16 @@ then
     termheight=$(x-current-root-height)
     if ((termheight >1024)); then termheight=40; else termheight=20; fi
 
+    declare -a colors
     if [[ $termer =~ xterm ]]
     then
          if type xterm_Xground 2>/dev/null 1>/dev/null
          then
-             colors="-fg $(xterm_foreground) -bg $(xterm_background)"
+             colors=('-fg' "$(xterm_foreground)" '-bg' "$(xterm_background)")
          fi
     fi
 
-    $termer -g 132x${termheight}+100+100 "$colors" -title "logit tee on $(hostname)" -e tail -f "$logspec" &
+    $termer -g 132x${termheight}+100+100 "${colors[@]}" -title "logit tee on $(hostname)" -e tail -f "$logspec" &
     sleep 2 ## Give the terminal a chance to come up and start tailing so we
     ## see the whole log in the tail
     tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v xterm | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
@@ -289,15 +295,16 @@ status=$?
 echo "$logmsg"
 echo "Exit status: $status"
 
+declare -a editcmd
 if [ -n "$edit" ]
 then
-    editcmd=$edit;
+    read -r -a editcmd < <(echo "$edit")
 elif [ ! "$status" = '0' ] && [ -n "$edit_on_fail" ]
 then
-    editcmd=$edit_on_fail
+    read -r -a editcmd < <(echo "$edit_on_fail")
 fi
 
-if [[ "$editcmd" =~ emacs\  ]]
+if [[ "${editcmd[0]}" =~ emacs\  ]]
 then
     width=$(perl -n -e 'length($_)>$x and $x=length($_);END{print $x}' "$logspec");
     lineheight=$(( ($(x-current-root-height)-100) / 30 ))
@@ -308,15 +315,15 @@ then
     else
         height=$logheight
     fi
-    editcmd="$editcmd -g ${width}x${height}+100+100"
+    editcmd+=('-g' "${width}x${height}+100+100")
 fi
-if [ -n "$editcmd" ]
+if [ -n "${editcmd[0]}" ]
 then
     if [ -n "$edit_echo" ]
     then
-        echo "$editcmd" "$logspec"
+        echo "${editcmd[@]}" "$logspec"
     else
-        "$editcmd" "$logspec" &
+        "${editcmd[@]}" "$logspec" &
         [ -n "$tailpid" ] && kill "$tailpid"
     fi
 fi
@@ -330,7 +337,7 @@ logit [ --tee ] \\
       [ --dir log_directory ] \\
       [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
       [ --purge | --purgeprior ] \\
-      [ --tpe ] \\
+      [ --tpe[f] ] \\
       [ --ts ] \\
       [ -- ] \\
       command [arg ..]
@@ -377,8 +384,9 @@ logit [ --help | -h ]
                  running the command, but keep those with
                  today's date in the log name.
 
-      --tpe    - A shortcut for --tee --purge --edit, the three most
-                 commonly used switches.
+      --tpe[f]   - A shortcut for --tee --purge --edit, the three most
+                 commonly used switches. Adding the 'f' makes it
+                 behave as if --edit-on-fail was set instead of --edit.
 
       --ts     - Use the 'ts' command to prepend a time stamp to each
                  output line.

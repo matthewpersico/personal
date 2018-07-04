@@ -5,16 +5,54 @@
 
 func-echo ()
 {
-    if [ "$1" = "-i" ]
+    declare moreopts=1
+    declare -a cmd_echo_opts
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        declare original="$1"
+        declare option
+        option=$(dashstripper "$original")
+        shift
+
+        case $option in
+            i )
+                if [ -z "$1" ]
+                then
+                    echo "WARNING: func-echo: -i option has no argument"
+                else
+                    if [ -z "$CMD_ECHO_AS" ]
+                    then
+                        CMD_ECHO_AS=$1;
+                    fi
+                    shift
+                    ## No export needed for function
+                fi
+                ;;
+            o )
+                override=$1; shift
+                ;;
+            h | help )
+                func-usage func-echo
+                exit 0
+                ;;
+            -- )
+                moreopts=0
+                ;&
+            head | title | n | c )
+                cmd_echo_opts+=("--$option");
+                ;;
+        esac
+    done
+
+    if [ -n "$*" ]
     then
-        defaultname=${2:-${FUNCNAME[-1]}}
-        [ -z "$CMD_ECHO_AS" ] && CMD_ECHO_AS=${CMD_ECHO_AS:-${defaultname}}
-    elif [[ "$1" =~ -h ]] && [[ ! "$1" =~ -head ]]
-    then
-        func-usage func-echo
-    else
-        echo "CMD_ECHO_AS=$CMD_ECHO_AS (func-echo)"
-        cmd-echo -f "${CMD_ECHO_AS:-${FUNCNAME[-1]}}" "$@"
+        if [ -n "$override" ]
+        then
+            cmd-echo -o "$override" "${cmd_echo_opts[@]}" "$@"
+        else
+            [ -z "$CMD_ECHO_AS" ] && echo "CMD_ECHO_AS is unset (func-echo)" >&2
+            cmd-echo -f "${CMD_ECHO_AS:-CMD_ECHO_AS is unset}" "${cmd_echo_opts[@]}" "$@"
+        fi
     fi
 }
 
@@ -27,7 +65,7 @@ func-echo - label echos in functions with the command name
 
 =head1 SYNOPSIS
 
- func-echo -i [functionname] ## somewhere near the top of your function.
+ func-echo -i [myFunctName] ## somewhere near the top of your function.
 
  func-echo [--head] [--title] [-n] [-c] -- "text" ["text"...]
 

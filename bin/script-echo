@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 
 # script-echo
-declare verbose=1
 declare moreopts=1
 declare -a cmd_echo_opts
 while [[ "$1" =~ ^- ]] && ((moreopts))
@@ -10,46 +9,47 @@ do
     declare option
     option=$(dashstripper "$original")
     shift
-    ## This bit deals with --foo=bar instead of --foo bar
-    declare okey
-    declare ovalue
-    if [[ "$option" =~ = ]]
-    then
-        okey=${option%%=*}
-        ovalue=${option#*=}
-        option="$okey"
-    fi
 
     case $option in
         i )
-            if [ -z "$CMD_ECHO_AS" ]
+            if [ -z "$1" ]
             then
-                [ -z "$ovalue" ] && ovalue="$1"
-                if [ -z "$ovalue" ]
+                echo "WARNING: script-echo: -i option has no argument"
+            else
+                if [ -z "$CMD_ECHO_AS" ]
                 then
-                    echo "WARNING: script-echo: -i option has no argument"
-                else
-                    CMD_ECHO_AS=$ovalue
+                    CMD_ECHO_AS=$1;
                     export CMD_ECHO_AS
-                    shift
                 fi
+                shift
             fi
+            ;;
+        o )
+            override=$1; shift
             ;;
         h | help )
             script-usage script-echo
             exit 0
             ;;
-        v )
-            verbose=1
-            ;;
-        head | title | n | c | -- )
-            cmd_echo_args+=("$option");
+        -- )
+            moreopts=0
+            ;&
+        head | title | n | c )
+            cmd_echo_opts+=("--$option");
             ;;
     esac
 done
 
-((verbose)) && echo "CMD_ECHO_AS=$CMD_ECHO_AS (script-echo)"
-cmd-echo -s "${CMD_ECHO_AS:-CMD_ECHO_AS is unset}" "${cmd_echo_opts[@]}" "$@"
+if [ -n "$*" ]
+then
+    if [ -n "$override" ]
+    then
+        cmd-echo -o "$override" "${cmd_echo_opts[@]}" "$@"
+    else
+        [ -z "$CMD_ECHO_AS" ] && echo "CMD_ECHO_AS is unset (script-echo)" >&2
+        cmd-echo -s "${CMD_ECHO_AS:-CMD_ECHO_AS is unset}" "${cmd_echo_opts[@]}" "$@"
+    fi
+fi
 
 :<<'__PODUSAGE__'
 =head1 NAME
