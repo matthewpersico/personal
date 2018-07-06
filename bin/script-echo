@@ -11,21 +11,8 @@ do
     shift
 
     case $option in
-        i )
-            if [ -z "$1" ]
-            then
-                echo "WARNING: script-echo: -i option has no argument"
-            else
-                if [ -z "$CMD_ECHO_AS" ]
-                then
-                    CMD_ECHO_AS=$1;
-                    export CMD_ECHO_AS
-                fi
-                shift
-            fi
-            ;;
-        o )
-            override=$1; shift
+        i | o )
+            echo "-i and -o are no longer used. Ignored..."
             ;;
         h | help )
             script-usage script-echo
@@ -42,26 +29,15 @@ done
 
 if [ -n "$*" ]
 then
-    if [ -n "$override" ]
-    then
-        cmd-echo -o "$override" "${cmd_echo_opts[@]}" "$@"
-    else
-        [ -z "$CMD_ECHO_AS" ] && echo "CMD_ECHO_AS is unset (script-echo)" >&2
-        cmd-echo -s "${CMD_ECHO_AS:-CMD_ECHO_AS is unset}" "${cmd_echo_opts[@]}" "$@"
-    fi
+        cmd-echo "${cmd_echo_opts[@]}" "$@"
 fi
 
 :<<'__PODUSAGE__'
 =head1 NAME
 
-  script-echo - label echos in scripts with the command name
+  script-echo - label echos in scripts with some extra adornments
 
 =head1 SYNOPSIS
-
- ## Put the following two lines somewhere near the top of your program
- ## bit only if you don't source in this program.
- # shellcheck disable=SC1090
- . "$(which script-echo)" -i myScriptName
 
  ## To write:
  script-echo [--head] [--title] [-n] [-c] -- "text" ["text"...]
@@ -72,22 +48,11 @@ fi
 =head1 DESCRIPTION
 
 Call 'script-echo' to print the first "text" on a line with a reversed-color
-prefix containing the command name. Print subsequent lines indented with
-reversed color spaces, indicating continuation.
-
-The name to print is determined as either the envar CMD_ECHO_AS or $0.
-
-You should call 'script-echo' in only in scripts. Calling 'script-echo' in a
-function could pollute the environment.
-
-Furthermore, if you are calling functions in your scripts that themselves call
-'func-echo', you need to stop 'func-echo' from trying to set CMD_ECHO_AS
-itself. Putting this command
-
-  . "$(which script-echo)" -i myScriptName
-
-in your script before any function calls will immediately set the CMD_ECHO_AS
-envvar if it has not already been set.
+prefix. Print subsequent lines indented with reversed color spaces, indicating
+continuation. The name of the calling script is no longer printed. Too
+difficult get it right with a mixture of functions and scripts at different
+nesting levels. It is sufficient just to be able to pick out our messages vs
+those printed by the utilities we call.
 
 =head1 OPTIONS
 
@@ -104,7 +69,7 @@ Print a blank line for spacing before printing any text.
 =item --title
 
 Print a blank line for spacing before printing any text and then print the
-entire first text line as reversed, not just the command name.
+entire first text line as reversed, not just the prefix.
 
 =item -n
 
@@ -120,7 +85,7 @@ This text.
 
 =back
 
-=head1 Environment Variable
+=cut
 
 __PODUSAGE__
 

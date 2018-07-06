@@ -13,8 +13,6 @@ function cmd-echo() {
     declare nonl=''
     declare continueline=0
     declare title=0
-    declare callname=''
-    declare override
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
         declare original="$1"
@@ -33,21 +31,8 @@ function cmd-echo() {
             n ) nonl='-n' ;;
             c ) continueline=1 ;;
             h | help ) func-usage cmd-echo && return 0;;
-            f ) callname=$1; shift
-                if [ -z "$CMD_ECHO_AS" ]
-                then
-                    CMD_ECHO_AS="$callname"
-                fi
-                ;;
-            s ) callname="$(basename "$1")"; shift
-                if [ -z "$CMD_ECHO_AS" ]
-                then
-                    CMD_ECHO_AS="$callname"
-                    export CMD_ECHO_AS
-                fi
-                ;;
-            o )
-                override=$1; shift
+            f | s | o )
+                echo "-f, -s and -o are no longer used. Ignored..."
                 ;;
             --)
                 moreopts=0 ;;
@@ -58,23 +43,21 @@ function cmd-echo() {
         esac
     done
 
-    declare printit=${override:-$CMD_ECHO_AS}
-    declare p
+    declare prefix='>>> '
     for p in "$@"
     do
         if ((continueline))
         then
             ## Substitutes all characters for spaces, giving us a properly
-            ## spaced indent, sans func name, which indicates a continuation of
-            ## the prior line.
+            ## spaced indent, which indicates a continuation of the prior line.
             # shellcheck disable=SC2001
-            printit=$(echo "$printit" | sed 's/./ /g')
+            prefix=$(echo "$prefix" | sed 's/./ /g')
         fi
 
         ## ANSI_reverse is in the env, variable is not all caps, so shellcheck
         ## complains.
         # shellcheck disable=SC2154
-        echo $nonl -e "${ANSI_reverse}>>> ${printit}${reset_normal}: $p${reset_title}"
+        echo $nonl -e "${ANSI_reverse}${prefix}${reset_normal}: $p${reset_title}"
 
         ## If there is a next line, it should be a continue line
         ((continueline)) || continueline=1
@@ -95,21 +78,20 @@ return 0 ## USAGE guard during sourcing this file.
 :<<'__PODUSAGE__'
 =head1 NAME
 
-  cmd-echo - label echo with passed in function or script name
+  cmd-echo - label echo with some prefix and highlighting
 
 =head1 SYNOPSIS
 
- cmd-echo [ -f funcname | -s scriptname ] \
-             [--head] [--title] [-n] [-c] -- "text" ["text"...]
+ cmd-echo [--head] [--title] [-n] [-c] -- "text" ["text"...]
 
 =head1 DESCRIPTION
 
 Call 'cmd-echo' to print the first "text" on a line with a reversed-color
-prefix containing the script or function name. Print subsequent lines indented
-with reversed color spaces, indicating continuation.
-
-'cmd-echo' is probably not what you want to call. See 'func-echo' and
-'script-echo' instead.
+prefix. Print subsequent lines indented with reversed color spaces, indicating
+continuation. The name of the calling script is no longer printed. Too
+difficult get it right with a mixture of functions and scripts at different
+nesting levels. It is sufficient just to be able to pick out our messages vs
+those printed by the utilities we call.
 
 =head1 OPTIONS
 
@@ -117,20 +99,9 @@ with reversed color spaces, indicating continuation.
 
 =item --
 
-Indicates end of options to 'func-echo' so that all subsequent arguments are
+Indicates end of options to 'cmd-echo' so that all subsequent arguments are
 taken as text to print. Technically not necessary UNLESS your first argument to
-print happens to match one of the options to 'func-echo'.
-
-=item -f
-
-Called from a function, use the value as the name. See func-echo for an
-explanation of how value is determined.
-
-=item -s
-
-Called from a script, use the value as the name. Also set CMD_ECHO_AS to this
-value if CMD_ECHO_AS is not set and export CMD_ECHO_AS. See script-echo for an
-explanation of how value is determined.
+print happens to match one of the options to 'cmd-echo'.
 
 =item --head
 
@@ -139,7 +110,7 @@ Print a blank line for spacing before printing any text.
 =item --title
 
 Print a blank line for spacing before printing any text and then print the
-entire first text line as reversed, not just the command name.
+entire first text line as reversed, not just the prefix.
 
 =item -n
 
@@ -150,24 +121,6 @@ Do not print a new line at the end of each line.
 Print the first "text" element as a continuation line.
 
 =back
-
-=head1 Environment Variable
-
-=over 4
-
-=item CMD_ECHO_NAME
-
-With no other actions, each call to func/script/cmd-echo in a set of nested
-function calls and script executions would print each individual function or
-script name as invoked. This is ususally not what you want; you want all output
-to look like it came from the same initial command.
-
-We accomplish this with the CMD_ECHO_NAME environment variable. The first
-function or script that calls func/script/cmd-echo will set CMD_ECHO_NAME as
-appropriate. All subsequent nested script calls will use this
-name.
-
-The value of CMD_ECHO_NAME will take precedence over any --cmd-name setting.
 
 =cut
 
