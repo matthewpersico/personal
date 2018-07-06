@@ -83,9 +83,6 @@ LINE: while (<>) {
     m/# <(?:Function )?Class:/i && do {
         push @funclines, join(qq(\n),
                               qq(# $current_file),
-                              '',
-                              q(# shellcheck disable=SC1090),
-                              q(. "$(which script-echo)" -i "$(basename "$0")"),
                               '');
         next LINE;
     };
@@ -171,7 +168,7 @@ LINE: while (<>) {
         ##    here, but we have to exception check for _git-cd-return.
     };
 
-    ## func-echo -i gets removed
+    ## *echo -i gets removed
     $_ =~ m/func-echo\s+-i\s/ && next LINE;
 
     ## func-X becomes script-X
