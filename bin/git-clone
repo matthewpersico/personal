@@ -8,14 +8,14 @@ source "$BASH_INC_DIR/on_exit.binc"
 declare opt_y=0
 declare opt_t=0
 declare opt_triangle_namespace=''
-declare opt_worktree=1
-declare opt_use_proto_dir=1
+declare opt_worktree=0
+declare opt_use_proto_dir=0
+declare dispatch_to_real_git=1
 declare protocol
 declare moreopts
 declare namespace
 declare repo
 declare -a orig_args=("$@")
-declare dispatch_to_real_git=1
 declare -a git_clone_opts
 moreopts=1
 while [[ "$1" =~ ^- ]] && ((moreopts))
@@ -38,13 +38,18 @@ do
         ##
         ## Our options
         ##
-        p | proto | protocol )
-            dispatch_to_real_git=0; protocol=$1; shift;;
+        tree )
+            ## Use our gitgo tree. This allows us to say
+            ## git clone --tree bbgithub:/org/repo (use the gitgo tree)
+            ## instead of
+            ## git clone --proto bbgithub org/repo (oh, you have one of our options, you probably want to use the gitgo tree)
+            dispatch_to_real_git=0
+            opt_use_proto_dir=1;;
         y | yes )
             dispatch_to_real_git=0; opt_y=1;;
         t | timestamp )
             dispatch_to_real_git=0; opt_t=1;;
-        tri | triangle )
+        f | forkof | tri | triangle )
             dispatch_to_real_git=0
             declare tmp_otn=$ovalue
             if [ -z "$tmp_otn" ]
@@ -56,7 +61,7 @@ do
             if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
             then
                 script-echo \
-                    "WARNING: --triangle takes an upstream namespace specification," \
+                    "WARNING: --$option takes an upstream namespace specification," \
                     "         not a full upstream repo specification." \
                     "         We will use" \
                     "             $opt_triangle_namespace" \
@@ -64,11 +69,8 @@ do
                     "             $tmp_otn"
             fi
             ;;
-        noworktree )
-            dispatch_to_real_git=0; opt_worktree=0;;
-        noprotodir | here )
-            ## noprotodir and not no-protodir because --protodir is not valid
-            dispatch_to_real_git=0; opt_use_proto_dir=0;;
+        wt | worktree )
+            opt_worktree=1;;
         h | help )
             script-usage; exit 0 ;;
         debug | x )
@@ -138,9 +140,34 @@ then
     exit $?
 fi
 
+script-echo "Extended git clone functionality..."
+
 [ -z "$1" ] && script-usage && exit 1
 
-namespace=$1;shift
+if [ -z "${protocol}" ]
+then
+    declare -a tmpa
+    asplit tmpa : "$1"
+    if [ "${tmpa[0]}" = "$1" ]
+    then
+        script-echo "Error: --protocol specified and no 'protocol:' found in '$1'"
+        exit 1
+    fi
+    protocol="${tmpa[0]}"
+    namespace="${tmpa[1]}"
+else
+    namespace=$1
+fi
+shift
+
+declare protocol_url
+protocol_url="$(kvstore get gitfuncs_gitsvcs "$protocol")"
+if [ -z "$protocol_url" ]
+then
+    script-echo "$protocol is unknown. Valid protocols are:$(kvstore vals gitfuncs_gitsvcs)"
+    exit 1
+fi
+
 if [[ "$namespace" == */* ]]
 then
     declare -a tmpa
@@ -187,16 +214,8 @@ then
             fi
         fi
     else
-        script-echo "--noprotodir specifed. Cloning right here ($(pwd)/$repo)"
+        script-echo "--protocol nor --tree were not specified. Cloning right here ($(pwd)/$repo)"
     fi
-fi
-
-declare protocol_url
-protocol_url="$(kvstore get gitfuncs_gitsvcs "$protocol")"
-if [ -z "$protocol_url" ]
-then
-    script-echo "$protocol is unknown. Valid protocols are:$(kvstore vals gitfuncs_gitsvcs)"
-    exit 1
 fi
 
 declare tgt="$namespace/$repo"
@@ -242,14 +261,68 @@ then
     ls -ld "$(pwd)/wt"
 fi
 
-## Add this repo to the list
-git-go-set
-
-script-echo "Done. Execute" "gitgo $namespace/$repo" "to use."
+script-echo "Done."
+if ((opt_use_proto_dir))
+then
+    ## Add this repo to the list
+    git-go-set
+    script-echo "Execute 'gitgo $namespace/$repo' to use."
+fi
 exit 0
 
-:<<'__USAGE__'
-    NAME
-   git-clone - wraps 'git clone'
-TBD
-__USAGE__
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-clone - extenstion to git clone
+
+=head1 SYNOPSIS
+
+ git-clone [--tree] [--yes|y] [--timestamp|-t] [[--forkof|--tri[angle]] upstream-org] [--wt|--worktree] repoURL
+
+=head1 DESCRIPTION
+
+Adds a few options to git clone. Without any of these options, just calls the real git clone. Otherwise, calls git clone with some additional actions.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item repoURL
+
+The URL of the repo to clone in protocol:org/repo format.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --tree
+
+Use the protocol of the repoURL to determine where in the ~/gits tree to place this clone.
+
+=item --yes
+
+Ansswer yes to all prompts.
+
+=item --timestamp
+
+Read the git log of the repo and reset the timestamps on all the files to the date of the last commit of the file. Otherwise all files have the timestamp of when the repo is cloned.
+
+=item --forkof
+
+If this repo is a fork, provide the organization of the fork and we'll establish it as the remote 'upstream'.
+
+=item --worktree
+
+Create a wt subdir, for use by the git-worktree extenstions.
+
+=back
+
+=cut
+
+__PODUSAGE__
