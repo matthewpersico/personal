@@ -2,7 +2,8 @@
 
 # git-retimestamp
 
-source $BASH_INC_DIR/on_exit.binc
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
 
 ##@@ 0001||group||git-retimestsamp||Adjust all non-modified, tracked files to have the date of their last commit, not the pull date.
 declare verbose=0
@@ -32,43 +33,46 @@ do
             echo Will not consider the following modified files:
         fi
     fi
-    ((verbose)) && echo $i
-    unset gitfiles[$i]
+    ((verbose)) && echo "$i"
+    unset "gitfiles[$i]"
     [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
 done
 
 ## Parse the log to get the date and modify accordingly.
 declare gitdate
-declare tmpfile=$(mktemp --suffix=.git-retimestamp)
-rm_on_exit $tmpfile
-date > $tmpfile
+declare tmpfile
+tmpfile=$(mktemp -t git-retimestamp.XXXXXXXXXX)
+rm_on_exit "$tmpfile"
+date > "$tmpfile"
 git log  --date=iso --name-only | \
     while read -r i;
     do
         if [ -z "$i" ]
         then
+            # shellcheck disable=SC2034
             noop=1
         elif [[ $i =~ Date: ]]
         then
-            gitdate=$(echo $i | sed -E 's/Date:\s+//')
+            gitdate=$(echo "$i" | sed -E 's/Date:\s+//')
         elif [ -n "${gitfiles[$i]}" ]
         then
-            echo "gitfiles[$i] => ${gitfiles[$i]}" >> $tmpfile
-            unset gitfiles[$i]
+            echo "gitfiles[$i] => ${gitfiles[$i]}" >> "$tmpfile"
+            unset "gitfiles[$i]"
             [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
-            declare filedate=$(stat -c %y $i | sed 's/\.[0-9]+//')
+            declare filedate
+            filedate=$(stat -c %y "$i" | sed 's/\.[0-9]+//')
             if [ ! "$filedate" = "$gitdate" ]
             then
                 if ((verbose))
                 then
                     echo
-                    echo $i...
-                    ls -la $i
+                    echo "${i}..."
+                    ls -la "$i"
                 fi
-                touch -d "$gitdate" $i
+                touch -d "$gitdate" "$i"
                 if ((verbose))
                 then
-                    ls -la $i
+                    ls -la "$i"
                 fi
             fi
         fi
