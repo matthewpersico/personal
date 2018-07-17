@@ -2,32 +2,34 @@
 
 # controlfuncs_build
 
-source $BASH_INC_DIR/on_exit.binc
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
 
 # Build control functions for *funcs files
 if [ -n "$1" ]
 then
     spec=$1
-    file=$(basename $1)
+    file=$(basename "$1")
     shift
 else
     spec=${BASH_SOURCE[1]}
-    file=$(basename ${BASH_SOURCE[1]})
+    file=$(basename "${BASH_SOURCE[1]}")
 fi
 
 alias=${spec}.alias
 if (($#))
 then
-    extra_edit="$@"
-    extra_load="local f; for f in $@; do . $f; done"
+    extra_edit="$*"
+    # shellcheck disable=SC2154
+    extra_load="local f; for f in $*; do . $f; done"
 else
     extra_edit=''
     extra_load=''
 fi
-tmp=$(mktemp --suffix=.controlfuncs_build)
-rm_on_exit $tmp
+tmp=$(mktemp -t controlfuncs_build.XXXXXXXXXX)
+rm_on_exit "$tmp"
 
-cat <<EOF >$tmp
+cat <<EOF >"$tmp"
 ${file}-edit ()
 {
     ${file}_audit "\$@"
@@ -56,6 +58,6 @@ ${file}-help () {
 
 safe_func_export ${file}-edit ${file}-reload ${file}-load ${file}-help
 EOF
-. $tmp
+. "$tmp"
 
-\rm $tmp
+\rm "$tmp"
