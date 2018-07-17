@@ -17,9 +17,12 @@ bash_history_index ()
         end=$(tail -2 "$i" | head -1)
 
         local index_lock=${index_file}.lock
-        exec 201>"$index_lock"
-        flock -x -w5 201 || (echo "Cannot lock $index_lock. Aborting" && return 1)
-
+        if type flock &>/dev/null; then
+            exec 201>"$index_lock"
+            flock -x -w5 201 || (echo "Cannot lock $index_lock. Aborting" && return 1)
+        elif type shlock &>/dev/null; then
+            shlock -f "$index_lock" -p $$
+        fi
         local my_index_file
         my_index_file=${index_file}.$(date +%s.%N).$$
         perl -MData::Dumper -e 'do $ARGV[0] if (-r $ARGV[0]);
@@ -29,6 +32,10 @@ bash_history_index ()
  print Data::Dumper->Dump([\%index],[qw(*index)])' \
              "$index_file" "$i" "$start" "$end" > "$my_index_file"
         \mv -f "$my_index_file" "$index_file"
-        flock -u 201
+        if type flock &>/dev/null; then
+            flock -u 201
+        elif type shlock &>/dev/null; then
+           rm -f "$index_lock"
+        fi
     done
 }
