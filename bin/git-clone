@@ -9,9 +9,9 @@ declare opt_y=0
 declare opt_t=0
 declare opt_triangle_namespace=''
 declare opt_worktree=0
-declare opt_use_proto_dir=0
+declare opt_use_githost_dir=0
 declare dispatch_to_real_git=1
-declare protocol
+declare githost
 declare moreopts
 declare namespace
 declare repo
@@ -42,9 +42,9 @@ do
             ## Use our gitgo tree. This allows us to say
             ## git clone --tree bbgithub:/org/repo (use the gitgo tree)
             ## instead of
-            ## git clone --proto bbgithub org/repo (oh, you have one of our options, you probably want to use the gitgo tree)
+            ## git clone --githost bbgithub org/repo (oh, you have one of our options, you probably want to use the gitgo tree)
             dispatch_to_real_git=0
-            opt_use_proto_dir=1;;
+            opt_use_githost_dir=1;;
         y | yes )
             dispatch_to_real_git=0; opt_y=1;;
         t | timestamp )
@@ -144,27 +144,27 @@ script-echo "Extended git clone functionality..."
 
 [ -z "$1" ] && script-usage && exit 1
 
-if [ -z "${protocol}" ]
+if [ -z "${githost}" ]
 then
     declare -a tmpa
     asplit tmpa : "$1"
     if [ "${tmpa[0]}" = "$1" ]
     then
-        script-echo "Error: --protocol specified and no 'protocol:' found in '$1'"
+        script-echo "Error: --githost specified and no 'githost:' found in '$1'"
         exit 1
     fi
-    protocol="${tmpa[0]}"
+    githost="${tmpa[0]}"
     namespace="${tmpa[1]}"
 else
     namespace=$1
 fi
 shift
 
-declare protocol_url
-protocol_url="$(kvstore get gitfuncs_gitsvcs "$protocol")"
-if [ -z "$protocol_url" ]
+declare githost_url
+githost_url="$(kvstore get gitfuncs_gitsvcs "$githost")"
+if [ -z "$githost_url" ]
 then
-    script-echo "$protocol is unknown. Valid protocols are:$(kvstore vals gitfuncs_gitsvcs)"
+    script-echo "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
     exit 1
 fi
 
@@ -180,18 +180,18 @@ fi
 
 declare cwpath
 cwpath="$(realpath "$(pwd)")"
-declare local_protocol
-local_protocol="$(basename "$cwpath")"
-if [ "$local_protocol" != "$protocol" ]
+declare local_githost
+local_githost="$(basename "$cwpath")"
+if [ "$local_githost" != "$githost" ]
 then
-    if ((opt_use_proto_dir == 1))
+    if ((opt_use_githost_dir == 1))
     then
         script-echo "You must be in a directory path ending in"\
-                    "   $protocol" \
+                    "   $githost" \
                     "You are in $cwpath"
         # gitfuncs_root set externally
         # shellcheck disable=SC2154
-        declare shouldbein="$gitfuncs_gitroot/$protocol"
+        declare shouldbein="$gitfuncs_gitroot/$githost"
         if [ ! -d "$shouldbein" ]
         then
             script-echo "Cannot find '$shouldbein'." "Correct and re-execute."
@@ -214,7 +214,7 @@ then
             fi
         fi
     else
-        script-echo "--protocol nor --tree were not specified. Cloning right here ($(pwd)/$repo)"
+        script-echo "--githost nor --tree were not specified. Cloning right here ($(pwd)/$repo)"
     fi
 fi
 
@@ -232,8 +232,8 @@ then
     rm -rf "$tgt"
 fi
 
-script-echo "$REALGIT clone ${git_clone_opts[*]} ${protocol_url}$namespace/$repo $namespace/$repo ..."
-if ! $REALGIT clone "${git_clone_opts[@]}" "${protocol_url}$namespace/$repo" "$namespace/$repo"
+script-echo "$REALGIT clone ${git_clone_opts[*]} ${githost_url}$namespace/$repo $namespace/$repo ..."
+if ! $REALGIT clone "${git_clone_opts[@]}" "${githost_url}$namespace/$repo" "$namespace/$repo"
 then
     exit $?
 fi
@@ -248,8 +248,8 @@ fi
 dirlist "$namespace/$repo"
 if [ -n "$opt_triangle_namespace" ]
 then
-    script-echo "Setting up triangle workflow with ${protocol_url}$opt_triangle_namespace/${repo}..."
-    git-set-triangle "${protocol_url}" "$opt_triangle_namespace" "$namespace" "$repo"
+    script-echo "Setting up triangle workflow with ${githost_url}$opt_triangle_namespace/${repo}..."
+    git-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo"
     git pull # To refresh from the upstream
 fi
 git remote -v
@@ -262,7 +262,7 @@ then
 fi
 
 script-echo "Done."
-if ((opt_use_proto_dir))
+if ((opt_use_githost_dir))
 then
     ## Add this repo to the list
     git-go-set
@@ -293,7 +293,7 @@ Adds a few options to git clone. Without any of these options, just calls the re
 
 =item repoURL
 
-The URL of the repo to clone in protocol:org/repo format.
+The URL of the repo to clone in githost:org/repo format.
 
 =back
 
@@ -303,7 +303,7 @@ The URL of the repo to clone in protocol:org/repo format.
 
 =item --tree
 
-Use the protocol of the repoURL to determine where in the ~/gits tree to place this clone.
+Use the githost of the repoURL to determine where in the ~/gits tree to place this clone.
 
 =item --yes
 
