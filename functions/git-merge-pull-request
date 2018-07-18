@@ -8,12 +8,12 @@ git-merge-pull-request ()
     script-echo "MAYDAY - git-merge-pull-request must be checked before being used - bit rot wrt git clone and git-clone and use of tree"
     return 1
 
-    local protocol=$1;shift
-    local protocol_url
-    protocol_url=$(kvstore get gitfuncs_gitsvcs "$protocol")
-    if [ -z "$protocol_url" ]
+    local githost=$1;shift
+    local githost_url
+    githost_url=$(kvstore get gitfuncs_gitsvcs "$githost")
+    if [ -z "$githost_url" ]
     then
-        echo "$protocol is unknown. Valid protocols are:$(kvstore vals gitfuncs_gitsvcs)"
+        echo "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
         return 1
     fi
 
@@ -88,7 +88,7 @@ git-merge-pull-request ()
     ([ "${src[$ibranch]}"    = '-' ] || [ -z "${src[$ibranch]}"    ] ) && src[$ibranch]=master
     ([ "${tgt[$ibranch]}"    = '-' ] || [ -z "${tgt[$ibranch]}"    ] ) && tgt[$ibranch]=master
 
-    local srcurl="$protocol:${src[$inamespace]}/${src[$irepo]}"
+    local srcurl="$githost:${src[$inamespace]}/${src[$irepo]}"
     local remote_ref
     remote_ref=$(ajoin _ "$(asplit - / "$(ajoin '_' "${src[@]}")")")
 
@@ -100,14 +100,14 @@ git-merge-pull-request ()
     if ((confirm_args))
     then
         local resp
-        resp=$(func-yesno "Merging to $protocol:${tgt[$inamespace]}/${tgt[$irepo]}/${tgt[$ibranch]} from $protocol:${src[$inamespace]}/${src[$irepo]}/${src[$ibranch]}")
+        resp=$(func-yesno "Merging to $githost:${tgt[$inamespace]}/${tgt[$irepo]}/${tgt[$ibranch]} from $githost:${src[$inamespace]}/${src[$irepo]}/${src[$ibranch]}")
         if [ "$resp" = 'n' ]
         then
             return 1
         fi
     fi
-    ((opt_verbose)) && func-echo --head "Clone $protocol:${tgt[$inamespace]}/${tgt[$irepo]}..."
-    git clone --tree "${protocol}:${tgt[$inamespace]}/${tgt[$irepo]}"
+    ((opt_verbose)) && func-echo --head "Clone $githost:${tgt[$inamespace]}/${tgt[$irepo]}..."
+    git clone --tree "${githost}:${tgt[$inamespace]}/${tgt[$irepo]}"
     local status=$?
     ((status)) && _git-cd-unwind && return $status
     local tgt_repo_dir
@@ -185,7 +185,7 @@ git-merge-pull-request ()
 
     local pushback="git push origin HEAD:${tgt[$ibranch]}"
     local resp
-    resp=$(func-yesno "Push back to ${protocol} via '$pushback'")
+    resp=$(func-yesno "Push back to ${githost} via '$pushback'")
     local retval
     if [ "$resp" = 'y' ]
     then
@@ -202,7 +202,7 @@ git-merge-pull-request ()
             ## the value.
             local sha
             sha=$(git-log-grab-sha -1)
-            git-merge-write "$sha" "$protocol" "${tgt[@]}" "${src[@]}"
+            git-merge-write "$sha" "$githost" "${tgt[@]}" "${src[@]}"
             ## Read what we just wrote
             git-merge-find "$sha"
 
