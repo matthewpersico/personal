@@ -1,79 +1,85 @@
 #!/usr/bin/env bash
 
-# <Function Class: util>
-# <Function Justification: none>
+# cmd-echo
 
-function cmd-echo() {
-    ## ANSI_reset is in the env, variable is not all caps, so shellcheck
+## ANSI_reset is in the env, variable is not all caps, so shellcheck
+## complains.
+# shellcheck disable=SC2154
+declare reset_normal
+reset_normal="${ANSI_reset}"
+declare reset_title
+reset_title=''
+declare moreopts
+moreopts=1
+declare nonl
+nonl=''
+declare continueline
+continueline=0
+declare title
+title=0
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original
+    original="$1"
+    declare option
+    option="$1"
+    option=$(dashstripper "$original")
+    shift
+
+    case $option in
+        head ) echo ;;
+        title )
+            echo
+            title=1
+            reset_title="${reset_normal}"
+            reset_normal=''
+            ;;
+        n ) nonl='-n' ;;
+        c ) continueline=1 ;;
+        h | help ) func-usage cmd-echo && exit 0;;
+        f | s | o )
+            echo "-f, -s and -o are no longer used. Ignored..."
+            ;;
+        --)
+            moreopts=0 ;;
+        -* )
+            echo "cmd-echo: '$original' is an invalid option."
+            exit 1
+            ;;
+    esac
+done
+
+declare prefix
+prefix='>>> '
+for p in "$@"
+do
+    if ((continueline))
+    then
+        ## Substitutes all characters for spaces, giving us a properly
+        ## spaced indent, which indicates a continuation of the prior line.
+        # shellcheck disable=SC2001
+        prefix=$(echo "$prefix" | sed 's/./ /g')
+    fi
+
+    ## ANSI_reverse is in the env, variable is not all caps, so shellcheck
     ## complains.
     # shellcheck disable=SC2154
-    declare reset_normal="${ANSI_reset}"
-    declare reset_title=''
-    declare moreopts=1
-    declare nonl=''
-    declare continueline=0
-    declare title=0
-    while [[ "$1" =~ ^- ]] && ((moreopts))
-    do
-        declare original="$1"
-        declare option="$1"
-        option=$(dashstripper "$original")
-        shift
+    echo $nonl -e "${ANSI_reverse}${prefix}$p${reset_title}${reset_normal}"
 
-        case $option in
-            head ) echo ;;
-            title )
-                echo
-                title=1
-                reset_title="${reset_normal}"
-                reset_normal=''
-                ;;
-            n ) nonl='-n' ;;
-            c ) continueline=1 ;;
-            h | help ) func-usage cmd-echo && return 0;;
-            f | s | o )
-                echo "-f, -s and -o are no longer used. Ignored..."
-                ;;
-            --)
-                moreopts=0 ;;
-            -* )
-                echo "cmd-echo: '$original' is an invalid option."
-                return 1
-                ;;
-        esac
-    done
+    ## If there is a next line, it should be a continue line
+    ((continueline)) || continueline=1
 
-    declare prefix='>>> '
-    for p in "$@"
-    do
-        if ((continueline))
-        then
-            ## Substitutes all characters for spaces, giving us a properly
-            ## spaced indent, which indicates a continuation of the prior line.
-            # shellcheck disable=SC2001
-            prefix=$(echo "$prefix" | sed 's/./ /g')
-        fi
+    ## Reset out of title
+    if ((title))
+    then
+        title=0 ## no need to reset for ever
+        reset_normal="${ANSI_reset}"
+        reset_title=''
+    fi
+done
 
-        ## ANSI_reverse is in the env, variable is not all caps, so shellcheck
-        ## complains.
-        # shellcheck disable=SC2154
-        echo $nonl -e "${ANSI_reverse}${prefix}$p${reset_title}${reset_normal}"
 
-        ## If there is a next line, it should be a continue line
-        ((continueline)) || continueline=1
-
-        ## Reset out of title
-        if ((title))
-        then
-            title=0 ## no need to reset for ever
-            reset_normal="${ANSI_reset}"
-            reset_title=''
-        fi
-    done
-
-}
-
-return 0 ## USAGE guard during sourcing this file.
+exit 0 ## USAGE guard during sourcing this file.
 
 :<<'__PODUSAGE__'
 =head1 NAME
