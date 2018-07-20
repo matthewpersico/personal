@@ -5,7 +5,7 @@
 
 git-merge-pull-request ()
 {
-    script-echo "MAYDAY - git-merge-pull-request must be checked before being used - bit rot wrt git clone and git-clone and use of tree"
+    cmd-echo "MAYDAY - git-merge-pull-request must be checked before being used - bit rot wrt git clone and git-clone and use of tree"
     return 1
 
     local githost=$1;shift
@@ -83,10 +83,10 @@ git-merge-pull-request ()
     tgt=("${tmp[@]}")
 
     ## Here, we set defaults for missing data...
-    ([ "${src[$inamespace]}" = '-' ] || [ -z "${src[$inamespace]}" ] ) && src[$inamespace]=${USER}
-    ([ "${src[$irepo]}"      = '-' ] || [ -z "${src[$irepo]}"      ] ) && src[$irepo]=${tgt[$irepo]}
-    ([ "${src[$ibranch]}"    = '-' ] || [ -z "${src[$ibranch]}"    ] ) && src[$ibranch]=master
-    ([ "${tgt[$ibranch]}"    = '-' ] || [ -z "${tgt[$ibranch]}"    ] ) && tgt[$ibranch]=master
+    { [ "${src[$inamespace]}" = '-' ] || [ -z "${src[$inamespace]}" ]; } && src[$inamespace]=${USER}
+    { [ "${src[$irepo]}"      = '-' ] || [ -z "${src[$irepo]}"      ]; } && src[$irepo]=${tgt[$irepo]}
+    { [ "${src[$ibranch]}"    = '-' ] || [ -z "${src[$ibranch]}"    ]; } && src[$ibranch]=master
+    { [ "${tgt[$ibranch]}"    = '-' ] || [ -z "${tgt[$ibranch]}"    ]; } && tgt[$ibranch]=master
 
     local srcurl="$githost:${src[$inamespace]}/${src[$irepo]}"
     local remote_ref
@@ -106,14 +106,14 @@ git-merge-pull-request ()
             return 1
         fi
     fi
-    ((opt_verbose)) && func-echo --head "Clone $githost:${tgt[$inamespace]}/${tgt[$irepo]}..."
+    ((opt_verbose)) && cmd-echo --head "Clone $githost:${tgt[$inamespace]}/${tgt[$irepo]}..."
     git clone --tree "${githost}:${tgt[$inamespace]}/${tgt[$irepo]}"
     local status=$?
     ((status)) && _git-cd-unwind && return $status
     local tgt_repo_dir
     tgt_repo_dir=$(pwd)
 
-    ((opt_verbose)) && func-echo --head "Switch to branch ${tgt[$ibranch]}..."
+    ((opt_verbose)) && cmd-echo --head "Switch to branch ${tgt[$ibranch]}..."
     git checkout ${tgt[$ibranch]}
     local status=$?
     ((status)) && _git-cd-unwind && return $status
@@ -123,53 +123,53 @@ git-merge-pull-request ()
     local newcommitsha
     newcommitsha=$(git rev-parse HEAD)
     local currentlogmsg="Current last commit on target branch ${tgt[$ibranch]}"
-    func-echo --head "****** $currentlogmsg"
+    cmd-echo --head "****** $currentlogmsg"
     git-log-shas-range "${origcommitsha}" "${newcommitsha}"
     status=$?
     ((status)) && _git-cd-unwind && return $status
-    func-echo "******"
+    cmd-echo "******"
 
     if [ "$merge_src" = 'remote' ]
     then
-        ((opt_verbose)) && func-echo --head "Add $srcurl... as a remote"
-        ((opt_verbose)) && func-echo -c     "git remote add $remote_ref $srcurl"
+        ((opt_verbose)) && cmd-echo --head "Add $srcurl... as a remote"
+        ((opt_verbose)) && cmd-echo -c     "git remote add $remote_ref $srcurl"
         git remote add "$remote_ref" "$srcurl"
         status=$?
         ((status)) && _git-cd-unwind && return $status
 
-        ((opt_verbose)) && func-echo --head "Fetch only the pull request branch (${src[$ibranch]}) from $srcurl (as remote ref $remote_ref)"
-        ((opt_verbose)) && func-echo -c     "git fetch $remote_ref ${src[$ibranch]}"
+        ((opt_verbose)) && cmd-echo --head "Fetch only the pull request branch (${src[$ibranch]}) from $srcurl (as remote ref $remote_ref)"
+        ((opt_verbose)) && cmd-echo -c     "git fetch $remote_ref ${src[$ibranch]}"
         git fetch "$remote_ref" "${src[$ibranch]}"
         status=$?
         ((status)) && _git-cd-unwind && return $status
 
-        ((opt_verbose)) && func-echo --head "Do the merge"
-        ((opt_verbose)) && func-echo -c     "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
+        ((opt_verbose)) && cmd-echo --head "Do the merge"
+        ((opt_verbose)) && cmd-echo -c     "git rebase ${tgt[$ibranch]} ${remote_ref}/${src[$ibranch]}"
         git rebase ${tgt[$ibranch]} "${remote_ref}/${src[$ibranch]}"
         status=$?
         ((status)) && _git-cd-unwind && return $status
 
         newcommitsha=$(git rev-parse HEAD)
         local lasttwologmsg="Last commits on target branch ${tgt[$ibranch]}"
-        func-echo --head "****** $lasttwologmsg"
+        cmd-echo --head "****** $lasttwologmsg"
         git-log-shas-range "${origcommitsha}" "${newcommitsha}"
         status=$?
         ((status)) && _git-cd-unwind && return $status
-        func-echo "****** **************************"
+        cmd-echo "****** **************************"
 
-        func-echo -c "Success is defined as"
-        func-echo -c "1) You are reading this message."
-        func-echo -c "2) The log entries from '$lasttwologmsg'"
-        func-echo -c "   are consistent with entry from '$currentlogmsg'."
+        cmd-echo -c "Success is defined as"
+        cmd-echo -c "1) You are reading this message."
+        cmd-echo -c "2) The log entries from '$lasttwologmsg'"
+        cmd-echo -c "   are consistent with entry from '$currentlogmsg'."
         echo
     else
-        func-echo --head "Fetch only the pull request branch (${src[$irbranch]}) from $srcurl"
+        cmd-echo --head "Fetch only the pull request branch (${src[$irbranch]}) from $srcurl"
         git fetch "$srcurl" "${src[$ibranch]}"
         status=$?
         ((status)) && _git-cd-unwind && return $status
         [ "$(func-yesno cont)" = 'n' ] && echo return
 
-        func-echo --head "Do the merge"
+        cmd-echo --head "Do the merge"
         git rebase "${tgt[$ibranch]}" "origin/${src[$ibranch]}"
         status=$?
         ((status)) && _git-cd-unwind && return $status
@@ -190,7 +190,7 @@ git-merge-pull-request ()
     if [ "$resp" = 'y' ]
     then
         pwd
-        ((opt_verbose)) && func-echo --head "Push back"
+        ((opt_verbose)) && cmd-echo --head "Push back"
         $pushback
         retval=$?
         if [ "$retval" = '0' ]
@@ -250,8 +250,8 @@ git-merge-pull-request ()
     else
         local fmpr
         fmpr=$(pwd)/FINISH-merge-pull-request
-        func-echo    "Ok. Remember to '$pushback' soon before the master head advances."
-        func-echo -c "We will write the local file $fmpr with this command for your future convenience."
+        cmd-echo    "Ok. Remember to '$pushback' soon before the master head advances."
+        cmd-echo -c "We will write the local file $fmpr with this command for your future convenience."
         echo "$pushback" > "$fmpr"
         echo "git-delete-current-repo" >> "$fmpr"
         git-log-shas-range "${origcommitsha}" "${newcommitsha}" | comment-stream "## " >> "$fmpr"

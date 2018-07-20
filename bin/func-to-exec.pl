@@ -172,7 +172,7 @@ LINE: while (<>) {
     $_ =~ m/func-echo\s+-i\s/ && next LINE;
 
     ## func-X becomes script-X
-    $_ =~ s/func-(echo|yesno|pick)/script-$1/g;
+    $_ =~ s/func-(echo|yesno|pick|usage)/script-$1/g;
 
     ## usage_func transform
     $_ =~ s/\$usage_func/script-usage/;

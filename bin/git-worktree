@@ -50,9 +50,9 @@ git-worktree-create ()
     then
         if [ -d ./wt ]
         then
-            builtin cd ./wt
+            builtin cd ./wt || ( cmd-echo "Cannot cd ./wt" && return 1)
         else
-            func-echo "$setag: Current directory is $(pwd)." \
+            cmd-echo "$setag: Current directory is $(pwd)." \
                       'No wt subdir.' \
                       'Will not manipulate worktrees outside of wt dir. Aborting.'
             return 1
@@ -63,7 +63,7 @@ git-worktree-create ()
     repo="$(basename "$(dirname "$(pwd)")")" ## we are in /wt by now.
     if [ -z "$1" ]
     then
-        func-echo "Need a branch name to use for the worktree spec."
+        cmd-echo "Need a branch name to use for the worktree spec."
         func-usage
         return 1
     fi
@@ -80,18 +80,18 @@ git-worktree-create ()
           )
     if [ ! "$exists" = '(fetch)(push)' ]
     then
-        func-echo "$setag: Can't find remote '$remote' for fetch and push"
-        git remote -v | while read -r line; do func-echo -c -- "$line"; done
+        cmd-echo "$setag: Can't find remote '$remote' for fetch and push"
+        git remote -v | while read -r line; do cmd-echo -c -- "$line"; done
         return 1
     fi
-    func-echo "$setag: Using '$remote' as remote."
+    cmd-echo "$setag: Using '$remote' as remote."
 
     ## Check worktree dir
-    ((verbose)) && func-echo "Check for existing worktrees with same name."
+    ((verbose)) && cmd-echo "Check for existing worktrees with same name."
     wtdir="$(pwd)/$localbranchname"
     if [ -e "$wtdir" ]
     then
-        func-echo -- "$wtdir already exists. Aborting."
+        cmd-echo -- "$wtdir already exists. Aborting."
         return 1
     fi
 
@@ -99,7 +99,7 @@ git-worktree-create ()
     local wtsubdir=$localbranchname
     local wtbranch=$localbranchname
 
-    ((verbose)) && func-echo "Check for existing branch."
+    ((verbose)) && cmd-echo "Check for existing branch."
     local create_branch="-b"
 
     ## Make sure we do not have a local branch with the same name
@@ -115,7 +115,7 @@ git-worktree-create ()
           )
     if [ -n "$exists" ]
     then
-        func-echo "$setag: Branch $localbranchname already exists locally. Cannot create it."
+        cmd-echo "$setag: Branch $localbranchname already exists locally. Cannot create it."
         return 1
     fi
 
@@ -136,16 +136,16 @@ git-worktree-create ()
         ## Fetch it, Dear Henry...
         ##                          branch             path
         git worktree add --track -b "$localbranchname" "$localbranchname" "$remote/$wt"
-        ((verbose)) && func-echo "$setag: cd $wtsubdir"
+        ((verbose)) && cmd-echo "$setag: cd $wtsubdir"
         ## dirlist, not builtin cd, to take advantage this cd enhancement
         dirlist "$localbranchname"
     elif ((fetch_existing==1)) && [ -z "$exists" ]
     then
-        func-echo "$setag: Cannot find '$remote/$wt' to fetch"
+        cmd-echo "$setag: Cannot find '$remote/$wt' to fetch"
         return 1
     elif ((fetch_existing==0)) && [ -n "$exists" ]
     then
-        func-echo "$setag: Branch '$wt' already exists in remote '$remote'"
+        cmd-echo "$setag: Branch '$wt' already exists in remote '$remote'"
         return 1
     else ## ((fetch_existing==0)) && [ -z "$exists" ]
         ## Since this worktree is going to create a branch of the local
@@ -153,10 +153,10 @@ git-worktree-create ()
         ## now) it is up to date.
         if [ "$(git branch get-current)" != "$asmaster" ]
         then
-            func-echo "$setag: Cannot create branch and worktree because the current branch '$(git branch get-current)' is not the master branch '$asmaster'."
+            cmd-echo "$setag: Cannot create branch and worktree because the current branch '$(git branch get-current)' is not the master branch '$asmaster'."
             return 1
         fi
-        func-echo "$setag: Checking local '$asmaster', starting point for branch."
+        cmd-echo "$setag: Checking local '$asmaster', starting point for branch."
         git pull
         status=$?
         ## We can return here with no other notice, assuming the error message
@@ -172,21 +172,21 @@ git-worktree-create ()
         #### git push origin master
 
         ## Now create the worktree and the branch.
-        ((verbose)) && func-echo "$setag: git worktree add -b $wtsubdir $wtbranch"
+        ((verbose)) && cmd-echo "$setag: git worktree add -b $wtsubdir $wtbranch"
         git worktree add $create_branch "$wtsubdir" "$wtbranch"
         status=$?
         if ((status))
         then
-            func-echo "$setag: Aborting."
+            cmd-echo "$setag: Aborting."
             return 1
         fi
 
-        ((verbose)) && func-echo "$setag: cd $wtsubdir"
+        ((verbose)) && cmd-echo "$setag: cd $wtsubdir"
         ## dirlist, not builtin cd, to take advantage this cd enhancement
         dirlist "$wtsubdir"
 
         ## Finally push the branch upstream as a tracking branch
-        ((verbose)) && func-echo "$setag: git push --set-upstream $remote $wtbranch"
+        ((verbose)) && cmd-echo "$setag: git push --set-upstream $remote $wtbranch"
         git push --set-upstream "$remote" "$wtbranch"
         git branch info created "$(date +%Y%m%d.%H%M%S%z)"
      fi
@@ -207,7 +207,7 @@ git-worktree-create ()
     ## Add this repo to the list
     git-go-set
 
-    func-echo "$setag: Done. Execute" "    gitgo $repo/wt/$wtsubdir" "to use."
+    cmd-echo "$setag: Done. Execute" "    gitgo $repo/wt/$wtsubdir" "to use."
 
     return 0
 }
@@ -234,42 +234,42 @@ git-worktree-delete ()
         esac
     done
 
-    func-echo --head 'Working...'
+    cmd-echo --head 'Working...'
     local opwd
     opwd=$(pwd)
     local worktree="$1"; shift;
 
     if [ -z "$worktree" ]
     then
-        func-echo "$setag: Worktree not specified"
+        cmd-echo "$setag: Worktree not specified"
         return 1
     fi
     if [ "$(basename "$opwd")" = "$worktree" ]
     then
-        func-echo "$setag: cannot delete worktree when it is the current directory"
+        cmd-echo "$setag: cannot delete worktree when it is the current directory"
         return 1
     fi
     if [ ! -d "$worktree" ]
     then
-        func-echo "$setag: Cannot find worktree $worktree
+        cmd-echo "$setag: Cannot find worktree $worktree
 $(ls -la)"
         return 1
     fi
     local worktreefull
     worktreefull=$(realpath "$worktree");
 
-    builtin cd "$worktreefull"
+    builtin cd "$worktreefull" || ( cmd-echo "Cannot cd $worktreefull" && return 1)
 
     if [ "$opwd" = "$worktreefull" ]
     then
-        func-echo "$setag: cannot delete worktree when it is the current directory"
+        cmd-echo "$setag: cannot delete worktree when it is the current directory"
         return 1
     fi
 
     ## Make sure we are in a proper worktree.
     if [ ! -f .git ] || [[ ! "$(pwd)" =~ /wt/ ]]
     then
-        func-echo "$worktree is not a proper worktree for deletion"
+        cmd-echo "$worktree is not a proper worktree for deletion"
         return 1
     fi
 
@@ -281,7 +281,7 @@ $(ls -la)"
         then
             git status
             echo
-            func-echo "$setag: Will not delete current worktree. Clean worktree or re-run command with --force."
+            cmd-echo "$setag: Will not delete current worktree. Clean worktree or re-run command with --force."
             return 1
         fi
     fi
@@ -295,7 +295,7 @@ $(ls -la)"
     current_dir=$(basename "$(pwd)")
     if [ "$current_branch" != "$current_dir" ]
     then
-        func-echo "$setag: Branch name '$current_branch' does not match current subdir name '$current_dir'." \
+        cmd-echo "$setag: Branch name '$current_branch' does not match current subdir name '$current_dir'." \
                     "I'm bailing; you fix this mess."
         return 1
     fi
@@ -303,7 +303,7 @@ $(ls -la)"
     local rc=$?
     if ((rc))
     then
-        func-echo "$setag: git status returned non-success value $rc." \
+        cmd-echo "$setag: git status returned non-success value $rc." \
                     "I'm bailing; you fix this mess."
         return 1
     fi
@@ -326,10 +326,10 @@ $(ls -la)"
     ## Whack it. Start with the current dir.
     local delit
     delit=$(basename "$(pwd)")
-    builtin cd ..
+    builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
     if ! rm -rf "$delit"
     then
-        func-echo "$setag: Bad rm of ./$delit (from $(pwd)). Aborting."
+        cmd-echo "$setag: Bad rm of ./$delit (from $(pwd)). Aborting."
         return 1;
     fi
 
@@ -341,15 +341,15 @@ $(ls -la)"
         then
             #it's empty
             delit=$(basename "$(pwd)")
-            builtin cd ..
-            \rm -rf "$delit" || func-echo "$setag: Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
+            builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
+            \rm -rf "$delit" || cmd-echo "$setag: Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
         fi
     done
 
-    func-echo "Local repo deleted."
+    cmd-echo "Local repo deleted."
     ## Now fix the administrative files.
     git worktree prune
-    func-echo "Local admin files updated."
+    cmd-echo "Local admin files updated."
 
     ## Now the take care of the branch.
     if ((opt_yes))
@@ -360,27 +360,28 @@ $(ls -la)"
     fi
     if [ "$resp" = 'n' ]
     then
-        func-echo "$setag: If you change your mind: git-branch delete $current_branch"
+        cmd-echo "$setag: If you change your mind: git-branch delete $current_branch"
     else
         ## Have to be in a git repo to do this.
         while [ "$(basename "$(pwd)")" != 'wt' ]
         do
-            builtin cd ..
+            builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
         done
-        builtin cd ..
+        builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
         if [ "$resp" = 'y' ]
         then
             git-branch delete --no-go-set $opt_yes_string "$current_branch"
         fi
     fi
 
-    [ -d "$opwd" ] && builtin cd ## If $opwd was the worktree directory, it won't
-                               ## be there anymore. Stay where we are.
+    ## If $opwd was the worktree directory, it won't be there anymore. Stay
+    ## where we are.
+    [ -d "$opwd" ] && ( builtin cd ~ || ( cmd-echo "Cannot cd ~" && return 1 ) )
 
-    func-echo "$setag: Resetting git list..."
+    cmd-echo "$setag: Resetting git list..."
     git-go-set
 
-    func-echo "$setag: Done."
+    cmd-echo "$setag: Done."
 
     return 0
 }
@@ -410,33 +411,33 @@ git-worktree-rename ()
 
     if [ "$old_worktree_path" = "$(pwd)" ]
     then
-        func-echo "$setag: rename: Cannot rename out of current directory"
+        cmd-echo "$setag: rename: Cannot rename out of current directory"
         script-usage
         return 1
     fi
 
     if [ "$new_worktree_path" = "$(pwd)" ]
     then
-        func-echo "$setag: rename: Cannot rename into current directory"
+        cmd-echo "$setag: rename: Cannot rename into current directory"
         script-usage
         return 1
     fi
 
     if (($#))
     then
-        func-echo "$setag: rename: argument(s) '$*' are illegal"
+        cmd-echo "$setag: rename: argument(s) '$*' are illegal"
         script-usage
         return 1
     fi
 
     local new_worktree_path
     new_worktree_path="$(dirname "$old_worktree_path")/$new_worktree"
-    builtin cd "$old_worktree_path"
+    builtin cd "$old_worktree_path" || ( cmd-echo "Cannot cd $old_worktree_path" && return 1)
     local cb
     cb="$(git branch get-current)"
     if [ "$cb" = "$old_worktree" ]
     then
-        func-echo "$setag: Renaming branch first..."
+        cmd-echo "$setag: Renaming branch first..."
         git-branch rename "$old_worktree" "$new_worktree"
         status=$?
         if ((status != OK))
@@ -465,7 +466,7 @@ git-worktree-rename ()
     mv "$metadatadir" "$newmetadatadir" || return 1
 
     ## Move us
-    builtin cd ..
+    builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
     mv "$old_worktree_path" "$new_worktree_path" || return 1
 
     ## Clean up stuff

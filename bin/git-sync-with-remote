@@ -26,13 +26,13 @@ do
         -b|--branch) opt_branch="$2"; shift; shift ;;
         -h|--help) script-usage; exit 0 ;;
         --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) script-echo "Internal error!"; script-usage; exit 1 ;;
+        *) cmd-echo "Internal error!"; script-usage; exit 1 ;;
     esac
 done
 
 if [ -z "$opt_branch" ]
 then
-    script-echo "--branch required"
+    cmd-echo "--branch required"
     script-usage
     exit 1
 fi
@@ -44,7 +44,7 @@ status=$?
 
 if [ "$cb" == '' ]
 then
-    script-echo
+    cmd-echo
     # shellcheck disable=SC2154
     cat <<EOF
 
@@ -63,7 +63,7 @@ fi
 
 if [ "$cb" == "$opt_branch" ]
 then
-    script-echo
+    cmd-echo
     declare msgoverride
     msgoverride=$(find "$(git root)" -name .git-sync-with-remote.txt)
     if [ -n "$msgoverride" ] && [ -r "$msgoverride" ]
@@ -101,7 +101,7 @@ then
         resp=$(func-yesno "Stash" n)
         if [ "$resp" = 'n' ]
         then
-            script-echo "Will not proceed without a stash"
+            cmd-echo "Will not proceed without a stash"
             exit 1
         else
             do_stash=1
@@ -110,7 +110,7 @@ then
 else
     if ((opt_stash))
     then
-        script-echo "stash not needed"
+        cmd-echo "stash not needed"
     fi
 fi
 if ((do_stash))
@@ -126,7 +126,7 @@ fi
 ## Grab head of log
 declare oldsha
 oldsha=$(git-log-grab-sha -1)
-script-echo --head 'Log before pull:'
+cmd-echo --head 'Log before pull:'
 git-log-shas-range "$oldsha" "$oldsha"
 
 ## Check the declare branch against its origin
@@ -138,7 +138,7 @@ grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null
 status=$?
 if [ "$status" != '0' ]
 then
-    script-echo
+    cmd-echo
     cat "$stcheck"
     cat <<EOF
 Your branch should be up to date with its origin in order to simplify the
@@ -149,14 +149,14 @@ EOF
     then
         if ((do_stash))
         then
-            script-echo 'Stash pop...'
+            cmd-echo 'Stash pop...'
             git stash pop
         fi
         exit 0
     fi
 fi
 
-script-echo 'Fetching to check...'
+cmd-echo 'Fetching to check...'
 git fetch "${opt_remote}" "${opt_branch}"
 
 declare diffoutput
@@ -167,7 +167,7 @@ declare diffc
 diffc=$(wc -l < "$diffoutput")
 if ((diffc)) && ((opt_confirm))
 then
-    script-echo --head "===== diffs ====="
+    cmd-echo --head "===== diffs ====="
     cat "$diffoutput"
     \rm "$diffoutput"
 fi
@@ -182,8 +182,8 @@ logc=$(wc -l < "$logoutput")
 
 if ((logc)) && ((opt_confirm))
 then
-    ((diffc)) && script-echo
-    script-echo "=====  log  ====="
+    ((diffc)) && cmd-echo
+    cmd-echo "=====  log  ====="
     cat "$logoutput"
     \rm "$logoutput"
 fi
@@ -197,28 +197,28 @@ then
         then
             if ((do_stash))
             then
-                script-echo 'Stash pop...'
+                cmd-echo 'Stash pop...'
                 git stash pop
                 exit 0
             fi
         fi
     fi
 else
-    script-echo "No difference with remote."
+    cmd-echo "No difference with remote."
     if ((do_stash))
     then
-        script-echo 'Stash pop...'
+        cmd-echo 'Stash pop...'
         git stash pop
     fi
     exit 0
 fi
 
-script-echo 'Pulling to sync...'
+cmd-echo 'Pulling to sync...'
 git pull --rebase "${opt_remote}" "${opt_branch}"
 status=$?
 if [ ! "$status" = '0' ]
 then
-    script-echo
+    cmd-echo
     cat <<EOF
 
 It appears the pull --rebase was not successful. Assuming the issue was not a
@@ -245,7 +245,7 @@ Then push the branch up to your fork so you can submit a pull request.
 EOF
     if ((do_stash))
     then
-        script-echo "Leaving stash stashed so a not to further complicate the issue"
+        cmd-echo "Leaving stash stashed so a not to further complicate the issue"
     fi
     exit 1
 fi
@@ -255,11 +255,11 @@ declare newsha
 newsha=$(git-log-grab-sha -1)
 
 ## Show log
-script-echo --head 'Log after pull:'
+cmd-echo --head 'Log after pull:'
 git-log-shas-range "$oldsha" "$newsha"
 
 ## Push the merged branch back
-script-echo --head "pull --rebase successful. Pushing..."
+cmd-echo --head "pull --rebase successful. Pushing..."
 git push
 status=$?
 if [ "$status" != '0' ]
@@ -273,20 +273,20 @@ then
 fi
 
 ## Show log
-script-echo --head 'Log after push:'
+cmd-echo --head 'Log after push:'
 git-log-shas-range "$oldsha" "$newsha"
 
 declare ask_pop=0
 if [ ! "$status" = '0' ]
 then
-    script-echo
+    cmd-echo
     cat <<EOF
 It appears that the git push was not successful and you declined to use --force,
 or the --force was also unsuccessful.
 EOF
     if ((do_stash))
     then
-        script-echo
+        cmd-echo
         cat <<EOF
 It may be that you decided not to force the push since you still have work to do,
 in which case you will want to pop the latest stash.
@@ -304,12 +304,12 @@ then
     fi
     if [ "$resp" = 'y' ]
     then
-        script-echo 'Stash pop...'
+        cmd-echo 'Stash pop...'
         git stash pop
         status=$?
         if ((status != 0))
         then
-            script-echo
+            cmd-echo
             cat <<EOF
 It appears that the stash pop failed. There may be conflicts. Once you fix the
 conflicts, you can drop the stash, as all of the non-conflicted files were

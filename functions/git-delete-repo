@@ -26,17 +26,17 @@ git-delete-repo ()
     if [ -n "$dirmode" ]
     then
         ## We were given the directory containing the repo
-        builtin cd "$dirmode"
+        builtin cd "$dirmode" || ( cmd-echo "Cannot cd $dirmode" && return 1 )
         local root_or_err
         root_or_err="$(git root 2>&1)"
         local status=$?
         if ((status))
         then
-            func-echo -- "$root_or_err"
-            builtin cd "$returnpath"
+            cmd-echo -- "$root_or_err"
+            builtin cd "$returnpath" || ( cmd-echo "Cannot cd $returnpath" && return 1)
             return $status
         else
-            builtin cd "$root_or_err"
+            builtin cd "$root_or_err" || ( cmd-echo "Cannot cd $root_or_err" && return 1)
         fi
     elif ((!pwdmode))
     then
@@ -49,7 +49,7 @@ git-delete-repo ()
         githost_url=$(kvstore get gitfuncs_gitsvcs "$githost")
         if [ -z "$githost_url" ]
         then
-            func-echo -- "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
+            cmd-echo -- "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
             return 1
         fi
 
@@ -72,10 +72,10 @@ git-delete-repo ()
         ## Make sure it's clean
         if [ -d wt ] && (($(find wt | wc -l) > 1))
         then
-            func-echo "worktrees found:"
+            cmd-echo "worktrees found:"
             ls -la wt
-            func-echo
-            func-echo "Will not delete repo"
+            cmd-echo
+            cmd-echo "Will not delete repo"
             return 1
         fi
 
@@ -83,19 +83,19 @@ git-delete-repo ()
         if [ -n "$dirty" ]
         then
             git status
-            func-echo
-            func-echo "Will not delete current repo"
+            cmd-echo
+            cmd-echo "Will not delete current repo"
             return 1
         fi
 
-        builtin cd ..
+        builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
         \rm -rf "$repo"
         status=$?
         ((status != 0)) && return 1; ## If the rm fails, we should see
                                            ## error messages, no need to add
                                            ## more.
 
-        func-echo "Done. Not touching remote repo. Resetting git list..."
+        cmd-echo "Done. Not touching remote repo. Resetting git list..."
         ## Remove the just-deleted repo from the list of local git repos.
         git-go-set
 
@@ -109,9 +109,9 @@ git-delete-repo ()
     done
     if [ ! "$returnpath" = '/' ]
     then
-        builtin cd "$returnpath"
+        builtin cd "$returnpath" || ( cmd-echo "Cannot cd $returnpath" && return 1)
     else
-        builtin cd
+        builtin cd ~ || ( cmd-echo "Cannot cd ~" && return 1)
     fi
     return $status
 }

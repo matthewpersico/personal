@@ -26,7 +26,7 @@ do
         --)
             shift; break ;; ## end of opts, remaining $*, if any, are args
         *)
-            script-echo "Internal error!"; script-usage ; exit 1 ;;
+            cmd-echo "Internal error!"; script-usage ; exit 1 ;;
     esac
 done
 
@@ -40,13 +40,13 @@ then
     repo[this]=$(pwd)
     repo[other]=$(realpath "$1")
 else
-    script-echo "Need at least one directory"
+    cmd-echo "Need at least one directory"
     script-usage; exit 1 ;
 fi
 
 if [ "${repo[this]}" = "${repo[other]}" ]
 then
-    script-echo Other dir is this dir. Whoops! Bye.
+    cmd-echo Other dir is this dir. Whoops! Bye.
     exit 1
 fi
 
@@ -87,17 +87,18 @@ do
             output=$(diff -q "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line" 2>&1 | grep -v 'Common subdirectories')
             if [[ "$output" =~ 'No such file or directory' ]]
             then
-                script-echo "Copying ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
+                cmd-echo "Copying ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
                 cp -vf "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
             elif [ -n "$output" ]
             then
-                script-echo -- '-----'
+                cmd-echo -- '-----'
                 declare diffcmd
+                # shellcheck disable=SC2230
                 diffcmd=$(which colordiff 2>/dev/null)
                 # shellcheck disable=SC2209 # We don't want to run diff, just
                 # prepare the command
                 ( [ -z "$diffcmd" ] || ((nocolor)) ) && diffcmd=diff
-                script-echo -- "$diffcmd $side_by_side ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
+                cmd-echo -- "$diffcmd $side_by_side ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
                 $diffcmd "$side_by_side" "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
                 echo
             fi
