@@ -60,7 +60,7 @@ do
             opt_triangle_namespace=${tmp_otn%/*}
             if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
             then
-                script-echo \
+                cmd-echo \
                     "WARNING: --$option takes an upstream namespace specification," \
                     "         not a full upstream repo specification." \
                     "         We will use" \
@@ -127,7 +127,7 @@ do
             [ -n "$ovalue" ] && git_clone_opts+=("$ovalue")
             ;;
         * )
-            script-echo -- "$original is an invalid option. See $0 --help"
+            cmd-echo -- "$original is an invalid option. See $0 --help"
             exit 1
     esac
 done
@@ -140,7 +140,7 @@ then
     exit $?
 fi
 
-script-echo "Extended git clone functionality..."
+cmd-echo "Extended git clone functionality..."
 
 [ -z "$1" ] && script-usage && exit 1
 
@@ -150,7 +150,7 @@ then
     asplit tmpa : "$1"
     if [ "${tmpa[0]}" = "$1" ]
     then
-        script-echo "Error: --githost specified and no 'githost:' found in '$1'"
+        cmd-echo "Error: --githost specified and no 'githost:' found in '$1'"
         exit 1
     fi
     githost="${tmpa[0]}"
@@ -164,7 +164,7 @@ declare githost_url
 githost_url="$(kvstore get gitfuncs_gitsvcs "$githost")"
 if [ -z "$githost_url" ]
 then
-    script-echo "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
+    cmd-echo "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
     exit 1
 fi
 
@@ -186,7 +186,7 @@ if [ "$local_githost" != "$githost" ]
 then
     if ((opt_use_githost_dir == 1))
     then
-        script-echo "You must be in a directory path ending in"\
+        cmd-echo "You must be in a directory path ending in"\
                     "   $githost" \
                     "You are in $cwpath"
         # gitfuncs_root set externally
@@ -194,27 +194,27 @@ then
         declare shouldbein="$gitfuncs_gitroot/$githost"
         if [ ! -d "$shouldbein" ]
         then
-            script-echo "Cannot find '$shouldbein'." "Correct and re-execute."
+            cmd-echo "Cannot find '$shouldbein'." "Correct and re-execute."
             exit 1
         else
             declare resp
             if ((opt_y))
             then
-                script-echo "Going to $shouldbein"
+                cmd-echo "Going to $shouldbein"
                 resp='y'
             else
                 resp=$(script-yesno "cd to $shouldbein")
             fi
             if [ "$resp" = 'n' ]
             then
-                script-echo "Correct and re-execute."
+                cmd-echo "Correct and re-execute."
                 exit 1
             else
                 _git-cd-to "$shouldbein"
             fi
         fi
     else
-        script-echo "--githost nor --tree were not specified. Cloning right here ($(pwd)/$repo)"
+        cmd-echo "--githost nor --tree were not specified. Cloning right here ($(pwd)/$repo)"
     fi
 fi
 
@@ -232,23 +232,30 @@ then
     rm -rf "$tgt"
 fi
 
-script-echo "$REALGIT clone ${git_clone_opts[*]} ${githost_url}$namespace/$repo $namespace/$repo ..."
+cmd-echo "$REALGIT clone ${git_clone_opts[*]} ${githost_url}$namespace/$repo $namespace/$repo ..."
 if ! $REALGIT clone "${git_clone_opts[@]}" "${githost_url}$namespace/$repo" "$namespace/$repo"
 then
     exit $?
 fi
 if ((opt_t))
 then
-    script-echo 'Setting timestamps...'
-    (builtin cd "$namespace/$repo"; git-retimestamp)
-    script-echo 'Done'
+    cmd-echo 'Setting timestamps...'
+    (
+        if builtin cd "$namespace/$repo"
+        then
+            git-retimestamp
+        else
+            cmd-echo "Cannot cd $namespace/$repo" && return 1
+        fi
+    )
+    cmd-echo 'Done'
 fi
 
 ## dirlist, not builtin cd, to take advantage this cd enhancement
 dirlist "$namespace/$repo"
 if [ -n "$opt_triangle_namespace" ]
 then
-    script-echo "Setting up triangle workflow with ${githost_url}$opt_triangle_namespace/${repo}..."
+    cmd-echo "Setting up triangle workflow with ${githost_url}$opt_triangle_namespace/${repo}..."
     git-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo"
     git pull # To refresh from the upstream
 fi
@@ -256,17 +263,17 @@ git remote -v
 
 if ((opt_worktree))
 then
-    script-echo "Setting up for worktrees..."
+    cmd-echo "Setting up for worktrees..."
     mkdir wt
     ls -ld "$(pwd)/wt"
 fi
 
-script-echo "Done."
+cmd-echo "Done."
 if ((opt_use_githost_dir))
 then
     ## Add this repo to the list
     git-go-set
-    script-echo "Execute 'gitgo $namespace/$repo' to use."
+    cmd-echo "Execute 'gitgo $namespace/$repo' to use."
 fi
 exit 0
 

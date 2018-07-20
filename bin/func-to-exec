@@ -5,14 +5,14 @@
 if [[ "$(pwd)" =~ functions ]] || \
        [[ "$(pwd)" =~ bin ]]
 then
-    script-echo 'Cannot be in functions or bin subdir for conversion.' \
+    cmd-echo 'Cannot be in functions or bin subdir for conversion.' \
                 'cd .. and re-exec.'
     exit 1
 fi
 
 if [ -z "$1" ]
 then
-    script-echo "usage: $0 func [func...]" \
+    cmd-echo "usage: $0 func [func...]" \
                 "       You can use or not use the 'function/'" \
                 "       prefix;we will adjust."
     exit 1;
@@ -40,14 +40,14 @@ do
     src_path="functions/$funcname"
     if [ ! -r "$src_path" ]
     then
-        script-echo -- "$src_path not found"
+        cmd-echo -- "$src_path not found"
         ((bad+=1))
     else
         justified=$(grep 'Function Justification' "$src_path" | \
                         grep -i -v none)
         if [ -n "$justified" ]
         then
-            script-echo "Not converting $src_path: $(grep 'Function Justification' "$src_path")"
+            cmd-echo "Not converting $src_path: $(grep 'Function Justification' "$src_path")"
             ((bad+=1))
         else
             funcnames+=("$funcname")
@@ -57,18 +57,18 @@ do
         fi
     fi
 done
-((${#src_paths[@]}==0)) && script-echo "No sources found to convert. Bailing." && exit 1
-((bad)) && script-echo "Some sources bad. Bailing" && exit 1
+((${#src_paths[@]}==0)) && cmd-echo "No sources found to convert. Bailing." && exit 1
+((bad)) && cmd-echo "Some sources bad. Bailing" && exit 1
 
 ## Copy function files to bin
-script-echo "Copying function files..."
+cmd-echo "Copying function files..."
 for funcname in "${funcnames[@]}"
 do
     cp "${src_paths[$funcname]}" "${tgt_paths[$funcname]}"
 done
 
 ## Do the conversions
-script-echo "Converting to scripts..."
+cmd-echo "Converting to scripts..."
 if ! func-to-exec.pl "${tgt_paths[@]}" ## Each conversion of bin/foo will be in bin/foo.new
 then
     exit $?
@@ -83,7 +83,7 @@ declare tgt_path
 declare resp
 for funcname in "${funcnames[@]}"
 do
-    script-echo --head --title "$funcname"
+    cmd-echo --head --title "$funcname"
 
     tmp_path="${tmp_paths[$funcname]}"
     src_path="${src_paths[$funcname]}"
@@ -121,7 +121,7 @@ done
 ## Unwind rejects
 for funcname in "${revert_list[@]}"
 do
-    script-echo "Reverting $funcname..."
+    cmd-echo "Reverting $funcname..."
     tgt_path="${tgt_paths[$funcname]}"
     tmp_path="${tmp_paths[$funcname]}"
     \rm -f "$tgt_path" "$tmp_path"
@@ -132,7 +132,7 @@ done
 
 if ((!${#commit_list[@]}))
 then
-    script-echo 'Nothing to commit.'
+    cmd-echo 'Nothing to commit.'
     exit 0
 fi
 
@@ -140,15 +140,15 @@ fi
 \rm -f "${tgt_paths[@]}"
 
 ## Do the git move
-script-echo "git mv ${src_paths[*]} bin"
+cmd-echo "git mv ${src_paths[*]} bin"
 git mv "${src_paths[@]}" bin
 
 ## Commit the move
-script-echo "git commit ${src_paths[*]} ${tgt_paths[*]} -m 'func to exec, move phase'"
+cmd-echo "git commit ${src_paths[*]} ${tgt_paths[*]} -m 'func to exec, move phase'"
 GPCHA='--skip shellcheck' git commit "${src_paths[@]}" "${tgt_paths[@]}" -m 'func to exec, move phase'
 
 ## Overlay the moves with the converted temps
-script-echo "Overlay with converted files..."
+cmd-echo "Overlay with converted files..."
 declare -a unset_contents
 for funcname in "${commit_list[@]}"
 do
@@ -160,8 +160,8 @@ do
 done
 
 ## Commit the conversions
-script-echo "git commit ${tgt_paths[*]} -m 'func to exec, convert phase'"
+cmd-echo "git commit ${tgt_paths[*]} -m 'func to exec, convert phase'"
 git commit "${tgt_paths[@]}" -m 'func to exec, convert phase'
 
 ## Reminder
-script-echo 'Remember to' "unset -f ${unset_contents[*]}"
+cmd-echo 'Remember to' "unset -f ${unset_contents[*]}"
