@@ -46,7 +46,7 @@ if ( $uic == 0 ) {
 } else {
     die "--trunc, --wrap, --raw are mutex\n";
 }
-$opt{$ui} = `tput cols`;
+$opt{$ui} = `tput cols` + 0;
 if ($opt{me} ){
     $opt{user} = $ENV{USER};
 }
@@ -80,44 +80,92 @@ if (@ARGV) {
 }
 
 my $ih;
+my %map =
+  (
+      TIME => {
+          idx => 0, justify => q(right)
+      },
+      UID => {
+          idx => 2, justify => q(right)
+      },
+      PID => {
+          idx => 4, justify => q(right)
+      },
+      PPID => {
+          idx => 6, justify => q(right)
+      },
+      TTY => {
+          idx => 8, justify => q(left)
+      },
+      COMMAND => {
+          idx => 10, justify => q(left)
+      },
+  );
+
+my @headcols =
+  map { $_->[1] }
+  sort { $a->[0] <=> $b->[0] }
+  map { [ $map{$_}{idx}, $_ ] }
+  keys %map;
+
+my $fmtcols = join( ',' , map { lc } @headcols );
+
 for ($ENV{OS_O} || '') {
     /Cygwin/ && do {
         open(IH, '-|', "ps $opt{user}");
         last;
     };
-    open(IH, '-|', "ps lf $opt{user}");
+    /Darwin/ && do {
+        open(IH, '-|', "ps -o $fmtcols $opt{user}");
+        last;
+    };
+    open(IH, '-|', "ps -o $fmtcols $opt{user}");
     last;
 }
+
 my $striplead=-1;
 my $header;
 my $printed;
-my $pidcol=2;
-my $ppidcol=3;
+my $pidcol=$map{PID}{idx};
+my $ppidcol=$map{PPID}{idx};
+my $packfmt;
 
-#          1         2         3         4         5         6
-#0123456789012345678901234567890123456789012345678901234567890123456789
-#F   UID   PID  PPID PRI  NI    VSZ   RSS WCHAN  STAT TTY        TIME COMMAND
-#5 17245 29116 29107  20   0 145984  2640 poll_s S    ?          0:17 sshd: mpersico5@pts/0
-
+LINE:
 while(<IH>) {
     my $l = $_;
-    if ($opt{short}) {
-        $l = ( substr($l,0,20) .
-                 substr($l,69) );
-    }
-    my @f = split(/\s+/,$l);
-    if ($f[$pidcol] eq q(PID)) {
-        $header = $l if not $opt{nohead};
+    if (not defined $header) {
+        my $start = 0;
+        my $end = 0;
+        my $headfield;
+        for my $colname (@headcols) {
+            if ( $map{$colname}{justify} eq 'right' ) {
+                $l =~ m/(\s*$colname)/;
+                $headfield = $1;
+            } else {
+                $l =~ m/($colname\s*)/;
+                $headfield = $1;
+            }
+            if ($colname eq $headcols[0] ) {
+                $map{$colname}{fmt} = 'A' . length($headfield) . 'A1';
+            } elsif ($colname eq $headcols[-1] ) {
+                $map{$colname}{fmt} = 'A*';
+            } else {
+                $map{$colname}{fmt} = 'A' . (length($headfield)-1) . 'A1';
+            }
+            $packfmt .= $map{$colname}{fmt};
+        }
+        $header = $l;
         $wrap_min = index($l, q(COMMAND));
         $striplead = 0;
-        next;
+        next LINE;
     }
 
-    my $pid = $f[$pidcol];
-    my $ppid = $f[$pidcol];
+    my @f = unpack($packfmt, $l);
+    my $pid = $f[$pidcol] + 0;
+    my $ppid = $f[$ppidcol] + 0;
     if ( !$opt{pid} && $opt{this} ) {
         ## No matching. Print every line.
-        $print{$f[$pidcol]} = 1;
+        $print{$pid} = 1;
     } elsif ( ( !$opt{this} && $$ == $pid )
                 or
                 ( $opt{exclude} && $opt{exclude} == $pid )
@@ -133,18 +181,17 @@ while(<IH>) {
             my $stripped = $1;
             $stripped ||= q();
             $striplead = length($stripped);
-            $print{$f[$pidcol]} = 1;
+            $print{$pid} = 1;
         } else {
             ## We didn't match it. See if we printed its parent. If so then print this one.
-            my $parent = $f[$ppidcol];
-            if (defined $print{$parent}) {
-                $print{$f[$pidcol]} = 1;
+            if (defined $print{$ppid}) {
+                $print{$pid} = 1;
             }
         }
     }
 
-    if(defined $print{$f[$pidcol]}) {
-        if($header) {
+    if(defined $print{$pid}) {
+        if($header && not $opt{nohead}) {
             print $header;
             $printed++;
             $header = '';
@@ -152,8 +199,8 @@ while(<IH>) {
         if ($opt{trunc} ) {
             chomp $l;
             print substr($l,0,$wrap_min),
-                  substr($l,$wrap_min + $striplead,
-                         $opt{trunc} - $wrap_min),"\n";
+              substr($l,$wrap_min + $striplead,
+                     $opt{trunc} - $wrap_min),"\n";
             $printed++;
         } elsif ($opt{wrap} ) {
             my $ll = substr($l,0,$wrap_min) . substr($l,$wrap_min + $striplead);
