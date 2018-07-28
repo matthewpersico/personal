@@ -46,7 +46,7 @@ do
             shift
             ;;
         gim )
-            mapfile -t gim < <(git-is-mod)
+            mapfile -t gim < <(git-what-is-mod)
             ;;
         nf )
             new_frame=1
@@ -72,10 +72,13 @@ rm_on_exit "$procs"
 OS=$(uname -s)
 case $OS in
     Linux | \
-    GNU/Linux | \
-    Darwin )
-        pscmd="ps lx -U ${USER}"
+    GNU/Linux )
+        pscmd="ps -o pid,ppid,command -U ${USER}"
         grepargs='emacs'
+        ;;
+    Darwin )
+        pscmd="ps -o pid,ppid,command -U ${USER}"
+        grepargs='Applications/Emacs.app'
         ;;
     Cygwin )
         pscmd="ps -l -u ${USER}"
@@ -130,9 +133,13 @@ fi
 ## Count how many
 if((hasX))
 then
-    serverup=$(cut -c "$cutrange" "$procs" | grep -c '    1')
+    serverup=$(cut -c "$cutrange" "$procs" | sed 's/ //g' | grep -c -E '^1$')
 else
     serverup=$(grep -c "$emacs_exe -nw" "$procs")
+fi
+if ((debug))
+then
+    echo "serverup = $serverup"
 fi
 
 ## If we are being used as the git editor or EDITOR, we don't want to start up
