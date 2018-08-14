@@ -1,0 +1,215 @@
+#!/usr/bin/env bash
+
+declare usage_cmd="script-usage"
+## If there's any chance that this will be in a script that will be dotted in,
+## remove the explicit out_cmd calls.
+declare out_cmd="exit"
+declare moreopts=1
+declare server='github'
+declare token_file="$HOME/.github"
+
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    shift
+    declare option
+    option=$(dashstripper "$original")
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey=''
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        server )
+            server=${ovalue:-$1}
+            [ -z "$ovalue" ] && shift
+            ;;
+
+        ## standard options
+        h | help )
+            $usage_cmd
+            $out_cmd 0
+            ;;
+
+        --)
+            moreopts=0
+            ;;
+
+        * )
+            cmd-echo "$original is an invalid option. See $0 --help"
+            $out_cmd 1
+            ;;
+    esac
+done
+
+declare server_url
+server_url="$(kvstore get gitfuncs_git_api_urls "$server")/"
+if [ -z "$server_url" ]
+then
+    cmd-echo "'$server' is an in valid --server option"
+    exit 1
+fi
+
+declare token_file
+token_file=$(kvstore get gitfuncs_git_token_file "$server")
+
+declare action=$1
+shift
+
+case $action in
+    fork | list-forks )
+        ## Requires a repo
+        if [ -z "$1" ]
+        then
+            cmd-echo "No org/repo specified"
+            exit 1;
+        fi
+        if [[ "$1" =~ / ]]
+        then
+            org=${1%/*}
+            repo=${1#*/}
+        else
+            org=$1; shift
+            repo=$1; shift
+        fi
+        [ -z "$org" ] && cmd-echo "No org specified" && bail=1
+        [ -z "$repo" ] && cmd-echo "No repo specified" && bail=1
+        ((bail)) && exit 1
+        ;;
+    org | repos )
+        ## Requires an org
+        if [ -z "$1" ]
+        then
+            cmd-echo "No org specified"
+            exit 1;
+        fi
+        if [[ "$1" =~ / ]]
+        then
+            org=${1%/*}
+            repo=${1#*/}
+            cmd-echo "org only, repo $repo ignored"
+        else
+            org=$1; shift
+            if [ -n "$1" ]
+            then
+                repo=$1; shift
+                cmd-echo "org only, repo $repo ignored"
+            fi
+        fi
+        ;;
+
+    raw )
+        raw="$1"; shift
+        ;;
+
+    filename )
+        filename="$1"; shift
+        ;;
+
+    * )
+        if [ -n "$1" ]
+        then
+            script-echo "$1 is not supported"
+        else
+            cmd-echo "No action provided"
+        fi
+        exit 1;
+esac
+
+case $action in
+    fork )
+        url="repos/$org/$repo/forks"
+        cmd=('-X' 'POST')
+        ;;
+
+    list-forks )
+        url="repos/$org/$repo/forks"
+        ;;
+
+    org)
+        url="orgs/$org"
+        ;;
+
+    repos)
+        url="orgs/$org/repos"
+        ;;
+
+    raw)
+        server_url=''
+        url="$raw"
+        ;;
+
+    filename)
+        url="search/code?q=$filename+in:path"
+        ;;
+esac
+
+curl \
+    --header "Authorization: token$(grep token "$HOME/$token_file" | cut -d= -f2)" \
+    "${cmd[@]}" \
+    "${server_url}${url}" -s
+
+exit $?
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+bbgithub-do - Wrapper around curl calls to the github api
+
+=head1 SYNOPSIS
+
+ foo [--option1] [ --option2 optionarg ] arg1 [arg2 ...] \
+     [fee] [dfsdfs] [sfsdfsf]
+
+=head1 DESCRIPTION
+
+Describe in general terms what foo does.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item arg
+
+Describe what arg does, should be, etc. Add a new =item for each distinct arg.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --option1
+
+Describe what --option1 does.
+
+=item --option2
+
+Describe what --option2 does. Describe what optionarg does.
+
+=over 2
+
+=item *
+
+A choice for optionarg
+
+=item *
+
+Another choice for optionarg
+
+=back
+
+=back
+
+=cut
+
+__PODUSAGE__
