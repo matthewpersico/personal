@@ -58,10 +58,10 @@ git-go ()
     [ -n "$opt_subwt_only" ] && git_get_opts+=("$opt_subwt_only");
     [ -n "$opt_exact" ] && git_get_opts+=("$opt_exact")
 
-    local tgt
+    local -a tgts
     if [ -n "$1" ]
     then
-        tgt="$1"
+        tgts+=("$1")
         shift;
     fi
     local opt_repo_no=0
@@ -71,26 +71,41 @@ git-go ()
         if is-int "$1"
         then
             opt_repo_no=$1
+            shift
         else
-            opt_repo_sel=$1
+            tgts+=("$@")
         fi
-        shift
     fi
 
-    if [[ "$tgt" =~ /$ ]]
-    then
-        tgt="$(dirname "$tgt")/$(basename "$tgt")"
-    fi
+    declare tgtilast
+    tgtilast=$((${#tgts[@]}-1 ))
+    for i in $(seq 0 $tgtilast )
+    do
+        if [[ "${tgts[$i]}" =~ /$ ]]
+        then
+            tgts[$i]="$(dirname "${tgts[$i]}")/$(basename "${tgts[$i]}")"
+        fi
+    done
+    local -a origtgts
+    origtgts=("${tgts[@]}")
+
     local -a REPOS
     if ((${#limited[@]}))
     then
         git_get_opts=()
     fi
-    readarray -t REPOS < <(_git-go-get "${git_get_opts[@]}" "${limited[@]}" "$tgt")
+    readarray -t REPOS < <(_git-go-get "${git_get_opts[@]}" "${limited[@]}" "${tgts[0]}")
+    tgts=("${tgts[@]:1}")
+    while((${#tgts[@]}))
+    do
+        # shellcheck disable=SC2046
+        readarray -t REPOS < <(_git-go-get --limited $(ajoin , $(tail_number_strip "${REPOS[@]}")) "${tgts[0]}")
+    tgts=("${tgts[@]:1}")
+    done
 
     if ((${#REPOS[@]}==0))
     then
-        echo "$tgt" does not match any repo
+        echo Filter "${origtgts[@]}" does not match any repo
         return 1
     elif ((${#REPOS[@]}==1))
     then
