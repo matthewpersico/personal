@@ -18,6 +18,7 @@ git-go ()
     local opt_exact=''
     local opt_size=0
     local moreopts
+    local -a limited
     moreopts=1
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
@@ -46,6 +47,7 @@ git-go ()
             stat ) opt_stat=1; opt_list=1 ;;
             dirty ) opt_stat=2; opt_list=1 ;;
             mod ) opt_mod=1;;
+            limited ) limited=('--limited' "$1"); shift ;;
             h | help ) func-usage git-go; return 0 ;;
             -- ) moreopts=0; break ;; ## end of opts, remaining $*, if any, are args
             * ) echo "$original is an invalid option."; func-usage git-go; return 1 ;;
@@ -80,7 +82,11 @@ git-go ()
         tgt="$(dirname "$tgt")/$(basename "$tgt")"
     fi
     local -a REPOS
-    readarray -t REPOS < <(_git-go-get "${git_get_opts[@]}" "$tgt")
+    if ((${#limited[@]}))
+    then
+        git_get_opts=()
+    fi
+    readarray -t REPOS < <(_git-go-get "${git_get_opts[@]}" "${limited[@]}" "$tgt")
 
     if ((${#REPOS[@]}==0))
     then
@@ -128,7 +134,10 @@ git-go ()
                 else
                     local rexp
                     ((opt_list==1)) && rexp="~/${r}" || rexp="${TILDAE:-$HOME}/${r}"
-                    if ((opt_stat==1))
+                    if ((opt_stat==0))
+                    then
+                        echo "$rexp"
+                    elif ((opt_stat==1))
                     then
                         echo "$rexp"
                         (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
@@ -195,7 +204,8 @@ git-go ()
                         return
                     elif [[ "$REPLY" =~ ^/ ]]
                     then
-                        git-go "${REPLY#/}"
+                        # shellcheck disable=SC2046
+                        git-go --limited $(ajoin , $(tail_number_strip "${REPOS[@]}")) "${REPLY#/}"
                         return $?
                     else
                         echo "'$REPLY' is an invalid choice"
