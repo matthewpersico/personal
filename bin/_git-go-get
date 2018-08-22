@@ -16,6 +16,7 @@ declare fields
 declare filter
 declare exact
 declare moreopts
+declare limited
 moreopts=1
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
@@ -37,6 +38,7 @@ do
         w | wt) wt=1 ;;
         o | only_wt) only_wt=1 ;;
         f | fields) fields=1 ;;
+        limited) limited="$1" ; shift ;;
         h | help )
             func-usage
             ## (return if a func, exit if a script) 0
@@ -55,40 +57,48 @@ do
 # shellcheck disable=SC2124
 filter="$@"
 
-declare gitfuncs_git_go_file
-gitfuncs_git_go_file=$(git-go-set-filename)
-if [ ! -e "$gitfuncs_git_go_file" ] || ((update))
-then
-    git-go-set $mbig
-fi
-
 declare tmpfile
 tmpfile=$(mktemp -t _git-go-get.XXXXXXXXXX)
-rm_on_exit "$tmpfile"
-cp "$gitfuncs_git_go_file" "$tmpfile"
+#rm_on_exit "$tmpfile"
+#rm_on_exit "${tmpfile}.001"
 
-if ((roots==0))
+declare gitfuncs_git_go_file
+if [ -n "$limited" ]
 then
-    grep '(repo)' "$tmpfile" | sed 's/(repo)//' > "${tmpfile}.001"
-    mv "${tmpfile}.001" "$tmpfile"
-fi
+    for i in $(asplit - , "$limited")
+    do
+        echo "$i" >> "$tmpfile"
+    done
+else
+    gitfuncs_git_go_file=$(git-go-set-filename)
+    if [ ! -e "$gitfuncs_git_go_file" ] || ((update))
+    then
+        git-go-set $mbig
+    fi
+    cp "$gitfuncs_git_go_file" "$tmpfile"
+    if ((roots==0))
+    then
+        grep '(repo)' "$tmpfile" | sed 's/(repo)//' > "${tmpfile}.001"
+        mv "${tmpfile}.001" "$tmpfile"
+    fi
 
-if ((mbig==0))
-then
-    grep -v 'MBIG' "$tmpfile" > "${tmpfile}.001"
-    mv "${tmpfile}.001" "$tmpfile"
-fi
+    if ((mbig==0))
+    then
+        grep -v 'MBIG' "$tmpfile" > "${tmpfile}.001"
+        mv "${tmpfile}.001" "$tmpfile"
+    fi
 
-if ((wt==0))
-then
-    grep -v '/wt/' "$tmpfile" > "${tmpfile}.001"
-    mv "${tmpfile}.001" "$tmpfile"
-fi
+    if ((wt==0))
+    then
+        grep -v '/wt/' "$tmpfile" > "${tmpfile}.001"
+        mv "${tmpfile}.001" "$tmpfile"
+    fi
 
-if ((only_wt==1))
-then
-    grep '/wt/' "$tmpfile" > "${tmpfile}.001"
-    mv "${tmpfile}.001" "$tmpfile"
+    if ((only_wt==1))
+    then
+        grep '/wt/' "$tmpfile" > "${tmpfile}.001"
+        mv "${tmpfile}.001" "$tmpfile"
+    fi
 fi
 
 if [ -n "$filter" ]
@@ -108,4 +118,3 @@ then
 else
     cat "$tmpfile"
 fi
-\rm -f "$tmpfile"

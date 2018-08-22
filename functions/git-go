@@ -18,6 +18,7 @@ git-go ()
     local opt_exact=''
     local opt_size=0
     local moreopts
+    local -a limited
     moreopts=1
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
@@ -46,6 +47,7 @@ git-go ()
             stat ) opt_stat=1; opt_list=1 ;;
             dirty ) opt_stat=2; opt_list=1 ;;
             mod ) opt_mod=1;;
+            limited ) limited=('--limited' "$1"); shift ;;
             h | help ) func-usage git-go; return 0 ;;
             -- ) moreopts=0; break ;; ## end of opts, remaining $*, if any, are args
             * ) echo "$original is an invalid option."; func-usage git-go; return 1 ;;
@@ -56,10 +58,10 @@ git-go ()
     [ -n "$opt_subwt_only" ] && git_get_opts+=("$opt_subwt_only");
     [ -n "$opt_exact" ] && git_get_opts+=("$opt_exact")
 
-    local tgt
+    local -a tgts
     if [ -n "$1" ]
     then
-        tgt="$1"
+        tgts+=("$1")
         shift;
     fi
     local opt_repo_no=0
@@ -69,22 +71,41 @@ git-go ()
         if is-int "$1"
         then
             opt_repo_no=$1
+            shift
         else
-            opt_repo_sel=$1
+            tgts+=("$@")
         fi
-        shift
     fi
 
-    if [[ "$tgt" =~ /$ ]]
-    then
-        tgt="$(dirname "$tgt")/$(basename "$tgt")"
-    fi
+    declare tgtilast
+    tgtilast=$((${#tgts[@]}-1 ))
+    for i in $(seq 0 $tgtilast )
+    do
+        if [[ "${tgts[$i]}" =~ /$ ]]
+        then
+            tgts[$i]="$(dirname "${tgts[$i]}")/$(basename "${tgts[$i]}")"
+        fi
+    done
+    local -a origtgts
+    origtgts=("${tgts[@]}")
+
     local -a REPOS
-    readarray -t REPOS < <(_git-go-get "${git_get_opts[@]}" "$tgt")
+    if ((${#limited[@]}))
+    then
+        git_get_opts=()
+    fi
+    readarray -t REPOS < <(_git-go-get "${git_get_opts[@]}" "${limited[@]}" "${tgts[0]}")
+    tgts=("${tgts[@]:1}")
+    while((${#tgts[@]}))
+    do
+        # shellcheck disable=SC2046
+        readarray -t REPOS < <(_git-go-get --limited $(ajoin , $(tail_number_strip "${REPOS[@]}")) "${tgts[0]}")
+    tgts=("${tgts[@]:1}")
+    done
 
     if ((${#REPOS[@]}==0))
     then
-        echo "$tgt" does not match any repo
+        echo Filter "${origtgts[@]}" does not match any repo
         return 1
     elif ((${#REPOS[@]}==1))
     then
@@ -128,7 +149,10 @@ git-go ()
                 else
                     local rexp
                     ((opt_list==1)) && rexp="~/${r}" || rexp="${TILDAE:-$HOME}/${r}"
-                    if ((opt_stat==1))
+                    if ((opt_stat==0))
+                    then
+                        echo "$rexp"
+                    elif ((opt_stat==1))
                     then
                         echo "$rexp"
                         (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
@@ -195,7 +219,8 @@ git-go ()
                         return
                     elif [[ "$REPLY" =~ ^/ ]]
                     then
-                        git-go "${REPLY#/}"
+                        # shellcheck disable=SC2046
+                        git-go --limited $(ajoin , $(tail_number_strip "${REPOS[@]}")) "${REPLY#/}"
                         return $?
                     else
                         echo "'$REPLY' is an invalid choice"

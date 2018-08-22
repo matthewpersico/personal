@@ -25,7 +25,7 @@ if (@ARGV==0) {
   do
     diff -w $i ${i}.new
     resp=$(yesno "mv ${i}.new $i")
-    [ "$resp" = 'y' ] && mv ${i}.new $i") && echo $i >> committem
+    [ "$resp" = 'y' ] && mv ${i}.new $i" && echo $i >> committem
   done
   git commit $(cat committem) -m 'func to exec, convert phase'
 
@@ -171,8 +171,11 @@ LINE: while (<>) {
     ## *echo -i gets removed
     $_ =~ m/func-echo\s+-i\s/ && next LINE;
 
-    ## func-X becomes script-X
-    $_ =~ s/func-(echo|yesno|pick|usage)/script-$1/g;
+    ## func-X becomes script-X...
+    $_ =~ s/func-(yesno|pick|usage)/script-$1/g;
+
+    ## ...except that func-echo becomes cmd-echo
+    $_ =~ s/func-echo/cmd-echo/g;
 
     ## usage_func transform
     $_ =~ s/\$usage_func/script-usage/;
