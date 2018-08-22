@@ -18,6 +18,7 @@ git-worktree-create ()
     moreopts=1
     declare verbose
     verbose=1
+    local opt_reset=1
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
         ## Strip all leading dashes here so that -foo and --foo can both
@@ -29,6 +30,7 @@ git-worktree-create ()
         shift ## That way you avoid endless loops on invalid options.
 
         case $option in
+            no-reset | skip-reset) opt_reset=0 ;;
             f|fetch) fetch_existing=1 ;;
             m|message) opt_m=$1; message="$1"; shift ;;
             asmaster) asmaster=$1; shift ;;
@@ -205,7 +207,13 @@ git-worktree-create ()
     fi
 
     ## Add this repo to the list
-    git-go-set
+    if ((opt_reset))
+    then
+        cmd-echo "${sctag}Resetting git list..."
+        git-go-set
+    else
+        cmd-echo -- "--skip-reset. Run 'git-go-set' at some point."
+    fi
 
     cmd-echo "${sctag}Done. Execute" "    gitgo $repo/wt/$wtsubdir" "to use."
 
@@ -218,7 +226,8 @@ git-worktree-delete ()
     local opt_yes=0
     local opt_yes_string
     local opt_force=0
-    OPTSARGS=$(getoptp -o yfs:h --long yes,force,help -n "${FUNCNAME[0]}" -- "$@")
+    local opt_reset=1
+    OPTSARGS=$(getoptp -o yfs:h --long yes,force,help,no-reset,skip-reset -n "${FUNCNAME[0]}" -- "$@")
     local status=$?
     ((status != 0)) && func-usage && return $status
 
@@ -226,6 +235,7 @@ git-worktree-delete ()
     while true
     do
         case "$1" in
+            --no-reset | --skip-reset) opt_reset=0; shift ;;
             -y|--yes) opt_yes=1; opt_yes_string='--yes'; shift ;;
             -f|--force) opt_force=1; shift ;;
             -h|--help) func-usage; return 0 ;;
@@ -316,7 +326,7 @@ $(ls -la)"
     then
         echo "$gmfout"
         local resp
-        resp=$(func-yesno 'Continue anyway')
+        resp=$(cmd-yesno 'Continue anyway')
         if [ "$resp" = 'n' ]
         then
             return 1
@@ -356,7 +366,7 @@ $(ls -la)"
     then
         resp='y'
     else
-        resp=$(func-yesno "Delete associated branch $current_branch" 'n')
+        resp=$(cmd-yesno "Delete associated branch $current_branch" 'n')
     fi
     if [ "$resp" = 'n' ]
     then
@@ -378,8 +388,13 @@ $(ls -la)"
     ## where we are.
     [ -d "$opwd" ] && ( builtin cd ~ || ( cmd-echo "Cannot cd ~" && return 1 ) )
 
-    cmd-echo "${sctag}Resetting git list..."
-    git-go-set
+    if ((opt_reset))
+    then
+        cmd-echo "${sctag}Resetting git list..."
+        git-go-set
+    else
+        cmd-echo -- "--skip-reset. Run 'git-go-set' at some point."
+    fi
 
     cmd-echo "${sctag}Done."
 
@@ -388,7 +403,27 @@ $(ls -la)"
 
 git-worktree-rename ()
 {
-    if (($#!=2))
+    declare moreopts
+    moreopts=1
+    local opt_reset=1
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        ## Strip all leading dashes here so that -foo and --foo can both
+        ## be processed as 'foo'.
+        declare original="$1"
+        declare option
+
+        option=$(dashstripper "$original")
+        shift ## That way you avoid endless loops on invalid options.
+
+        case $option in
+            no-reset | skip-reset) opt_reset=0;;
+            --) moreopts=0 ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Error getting options!"; func-usage; return 1 ;;
+        esac
+    done
+
+    if (($#<2))
     then
         script-usage
         return 1
@@ -469,8 +504,16 @@ git-worktree-rename ()
     builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
     mv "$old_worktree_path" "$new_worktree_path" || return 1
 
-    ## Clean up stuff
-    git-go-set
+    ## Register the rename
+    if ((opt_reset))
+    then
+        cmd-echo "${sctag}Resetting git list..."
+        git-go-set
+    else
+        cmd-echo -- "--skip-reset. Run 'git-go-set' at some point."
+    fi
+
+    cmd-echo "${sctag}Done."
 
     return $?
 }
