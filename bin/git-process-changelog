@@ -27,6 +27,7 @@ declare pcl
 pcl=$(which parse-changelog)
 declare -a pcl_flags
 declare git_editor
+declare opt_confirm=0
 declare moreopts
 moreopts=1
 while [[ "$1" =~ ^- ]] && ((moreopts))
@@ -65,6 +66,9 @@ do
             ;;
         skip-no-changelog)
             pcl_flags+=(--skipmissing)
+            ;;
+        confirm)
+            opt_confirm=1
             ;;
         editor)
             git_editor=$2
@@ -143,20 +147,31 @@ then
     ## changelog entry.
     declare -a filelist_refreshed
     mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY LINE HERE|o | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$parsed_cl")
-    echo about to commit "${filelist_refreshed[@]}"
-    if [ -z "$git_editor" ]
+    cmd-echo "About to commit" "${filelist_refreshed[@]}"
+    declare resp='y'
+    if ((opt_confirm))
     then
-        git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
-    else
-        GIT_EDITOR=$git_editor git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
+        resp=''
+        resp=$(cmd-yesno 'Ok' n)
     fi
-    status=$?
-    if((status!=0))
+    if [ "$resp" = 'y' ]
     then
-        ## Restore
-        cmd-echo "Rolling back $changelog"
-        cp -f "$changelogbkp" "$changelog"
-        exit $status
+         if [ -z "$git_editor" ]
+         then
+             git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
+         else
+             GIT_EDITOR=$git_editor git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
+         fi
+         status=$?
+         if((status!=0))
+         then
+             ## Restore
+             cmd-echo "Rolling back $changelog"
+             cp -f "$changelogbkp" "$changelog"
+             exit $status
+         fi
+    else
+        cmd-echo "Commit aborted"
     fi
 fi
 [ -f "$changelogbkp" ] && \rm -f "$changelogbkp"
