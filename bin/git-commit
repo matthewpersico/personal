@@ -1,0 +1,74 @@
+#!/usr/bin/env bash
+
+# git-commit
+
+# shellcheck disable=SC1090
+# Don't know if we really need this yet:
+# . "$REALGIT_EXEC_PATH/git-sh-setup"
+
+## Functions that encapsulate the enhanced functionality. main() is defined
+## last and called last.
+git-commit-with-changelog()
+{
+    git-commit-with-changelog-guts "$@"
+    return $?
+}
+
+main ()
+{
+    declare action=$1
+
+    if [[ "$action" =~ -h ]]
+    then
+        (
+            echo "** Standard actions **"
+            "${REALGIT}" commit -h
+            echo
+            echo "** Extended actions **"
+            script-usage
+        ) 2>&1 | ${PAGER:-less}
+        return  0
+    fi
+
+    action_func_name="git-commit-${action}"
+    if declare -F "$action_func_name" >/dev/null
+    then
+        shift ## the $action
+        "$action_func_name" "$@"
+    else
+        ## Dispatch to real git commit
+        "${REALGIT}" commit "$@"
+    fi
+
+    return $?
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-commit - git extention of git commit
+
+=head1 SYNOPSIS
+
+ git commit with-changelog
+
+=head1 DESCRIPTION
+
+Extensions to the 'git commit' command. Any action not described here will be passed onto the actual 'git branch' command.
+
+=head1 EXTENSIONS
+
+=over 4
+
+=item with-changelog
+
+Use the local $GITFUNCS_CHANGELOG_NAME file for commit messages.
+
+=back
+
+=cut
+
+__PODUSAGE__
