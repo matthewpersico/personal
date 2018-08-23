@@ -1,7 +1,7 @@
 # README
 All my UNIX goodies including dotfiles so I can put them on any machine.
 
-* cd ~
+* cd $HOME
 * git clone <THIS REPO> personal
 * cd personal
 * Make a machine-specific branch. If the hostname is unique, ```branchname=$(hostname)```. If not,
