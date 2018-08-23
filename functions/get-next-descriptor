@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+# <Function Class: util>
+# <Function Justification: io channel access?>
+
+get-next-descriptor ()
+{
+    ##@@ none||none||get-next-descriptor||print the next free shell io descriptor number.
+    local found=none
+    local fd
+    local rco
+    local rci
+    for fd in {0..255}
+    do
+        rco="$(true 2>/dev/null >&${fd}; echo $?)";
+        rci="$(true 2>/dev/null <&${fd}; echo $?)";
+        [[ "${rco}${rci}" = "11" ]] && found=${fd} && break
+    done
+    if [ -z "$found" ]
+    then
+        return 1
+    else
+        echo $found
+        return 0
+    fi
+
+    ## Note: If you need more than one descriptor, then you must open the
+    ## descriptor you get from a call to this function before making the next
+    ## call to this function; otherwise you will keep getting the
+    ## same one. In other words:
+
+    ## holdstdout=$(get-next-descriptor) # If this is 3...
+    ## eval "exec $holdstdout>&1"        # now that it's open...
+    ## holdstderr=$(get-next-descriptor) # this is 4.
+    ## eval "exec $holdstderr>&2"
+
+    ## not
+
+    ## holdstdout=$(get-next-descriptor) # If this is 3...
+    ## holdstderr=$(get-next-descriptor) # this is also 3.
+    ## eval "exec $holdstdout>&1"
+    ## eval "exec $holdstderr>&2"
+}

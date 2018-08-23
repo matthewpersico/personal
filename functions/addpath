@@ -1,0 +1,178 @@
+#!/usr/bin/env bash
+###############################################################################
+#
+# Name:        addpath
+#
+# Author:      Matthew Persico (matthew.persico@gmail.com)
+#
+# Copyright:   Matthew Persico (matthew.persico@gmail.com)
+#
+# Derived from work by Stephen Collyer (scollyer@netspinner.co.uk),
+#                      Copyright: Netspinner Ltd 2000-2003
+#
+# <Function Class: path functions>
+# <Function Justification: env mod>
+###############################################################################
+
+addpath ()
+{
+    ###########################################################################
+    # local variables
+    ###########################################################################
+
+    typeset options_shift_val options_missing_arg
+    # shellcheck disable=SC2034 # options_unknown_opt may be set in 'options'
+    typeset options_unknown_opt
+    typeset options_num_args_left
+    typeset opt_h opt_p opt_s
+    typeset opt_x opt_v
+    typeset opt_f opt_b opt_i
+    typeset sep=:
+
+    typeset pathvar dirname tmp element TEMP
+
+    pathfunc_usage_init
+    typeset -a USAGE
+    i=0; USAGE[i]="addpath [-h] [-s separator] [-f|-b|-i n] [-x] [-v] [[-p] pathvar] dirname"
+    ((i+=1)); USAGE[i]="Idempotently adds 'dirname' to 'pathvar'."
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P1"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P2"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P3"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P4"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_P5"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_S"
+    ((i+=1)); USAGE[i]="-f - Add to front of 'pathvar'."
+    ((i+=1)); USAGE[i]="-b - Add to back of 'pathvar' (default behavior)."
+    ((i+=1)); USAGE[i]="-i n - Add to 'pathvar' in position 'n'. Indexing starts"
+    ((i+=1)); USAGE[i]="   at 1. Elements are moved down to make room for the"
+    ((i+=1)); USAGE[i]="   added 'dirname'."
+    ((i+=1)); USAGE[i]="$USAGE_OPT_X"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_V"
+    ((i+=1)); USAGE[i]="$USAGE_OPT_H"
+
+    ###########################################################################
+    # handle options
+    ###########################################################################
+
+    options "hp:s:xvfbi:" "$@"
+    shift "$options_shift_val"
+    if [ -n "$opt_h" ]
+    then
+        pathfunc_usage "${USAGE[@]}"
+        return
+    fi
+    if [ -n "$options_missing_arg" ]
+    then
+        pathfunc_usage "${USAGE[@]}" "Missing argument for -$options_missing_arg"
+        return
+    fi
+    # shellcheck disable=SC2154
+    if [ -n "$options_unknown_opt" ]
+    then
+        pathfunc_usage "${USAGE[@]}" "Unknown option -$options_unknown_opt"
+        return
+    fi
+    if ((opt_f + opt_b > 1)) ||
+           ( ((opt_f + opt_b > 0)) && ((opt_i)) )
+    then
+        pathfunc_usage "${USAGE[@]}" "Only one of -f -b -i can be specified"
+        return
+    fi
+
+    if [ "$options_num_args_left" -eq 0 ]
+    then
+        pathfunc_usage "${USAGE[@]}" "No directory specified"
+        return
+    elif [ "$options_num_args_left" -eq 1 ]
+    then
+        dirname=$1
+    elif [ "$options_num_args_left" -eq 2 ]
+    then
+        pathvar=$1
+        dirname=$2
+    else
+        pathfunc_usage "${USAGE[@]}" "Too many arguments"
+        return
+    fi
+
+    [ -n "$opt_s" ] && sep=$opt_s;
+    [ -n "$opt_p" ] && pathvar=$opt_p
+    [ -z "$pathvar" ] && pathvar=PATH
+
+    # Check to see if we're adding to an empty pathvar. If so we just set the
+    # ennvar and move on. But first, we special case MANPATH because if it is
+    # not currently set and we set it, we have to include the system manpage
+    # paths, or we lose them.
+    eval tmp=\$$pathvar
+    local assigned=0
+    if [ "$tmp" = "" ]
+    then
+        if [ "$pathvar" = 'MANPATH' ]
+        then
+            MANPATH=$(manpath);
+            [ -n "$opt_x" ] && export MANPATH
+        fi
+        ## We re-eval just in case the manpath function returns nothing; i.e.;
+        ## not present or misconfigured.
+        eval tmp=\$$pathvar
+        if [ "$tmp" = "" ]
+        then
+            ## Single quotes in case dirname contains spaces, (), or other
+            ## "weird" characters.
+            eval $pathvar="'$dirname'"
+            assigned=1
+        fi
+    fi
+
+    if ((!assigned))
+    then
+        ## Only add the new value if it DNE
+        local element
+        local oldvalue
+        oldvalue=$(eval echo \$$pathvar)
+        element=$(echo "$oldvalue" | sep2line "${sep}" | grep -x "$dirname")
+        if [ "$element" = "" ]
+        then
+            # $dirname is not currently in pathvar so add it
+            local newvalue
+            if [ -n "$opt_f" ]
+            then
+                newvalue="${dirname}${sep}${oldvalue}"
+            elif [ -n "$opt_i" ]
+            then
+                TEMP=$(mktemp -t tmp.addpath.XXXXXXXXXX)
+                listpath -s "${sep}" -p $pathvar | grep -v "$MATCH" > "$TEMP"
+                local newvalue
+                local line
+                local idx=0
+                local addin
+                ((opt_i-=1))
+                while read -r line
+                do
+                    if ((idx != opt_i))
+                    then
+                        addin="${line}"
+                    else
+                        addin="${dirname}${sep}${line}";
+                    fi
+                    [ -n "$newvalue" ] \
+                        && newvalue="${newvalue}${sep}${addin}" \
+                            || newvalue="${addin}"
+                    ((idx+=1))
+                done < "$TEMP"
+                rm -rf "$TEMP"
+            else
+                newvalue="${oldvalue}${sep}${dirname}"
+            fi
+            eval $pathvar="'$newvalue'"
+        fi
+    fi
+    [ -n "$opt_v" ] && listpath -s "${sep}" -p $pathvar
+    # shellcheck disable=SC2163 # yes, we are exporting the expansion
+    [ -n "$opt_x" ] && export $pathvar
+}
+
+# emacs
+# Local Variables:
+# mode: sh
+# End:

@@ -1,0 +1,20 @@
+#!/usr/bin/env bash
+if [ "$1" = '' ]
+then
+    echo Need files or --all
+    exit 1
+fi
+
+if [ "$1" = '--all' ] || [ "$1" = '-all' ]
+then
+    ## Get only files where the -wT is on the first line and hope that there
+    ## are no other switches following the T.
+    files=$(git grep -n -- ' -wT' | grep ':1:#' | sed 's/:1:#.*//' | sort -u)
+else
+    ## You name 'em, you're responsible for ensuring the conditions above.
+    files="$@"
+fi
+
+## Make the change on line 1 only. Set the pattern to something that won't
+## match if we try and untaint multiple times.
+sedinplace -v $files '1s/-wT/\n##<GCS> -w -T git-untaint/' ## <GCSLITERAL>

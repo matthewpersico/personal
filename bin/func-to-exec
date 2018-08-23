@@ -1,0 +1,167 @@
+#!/usr/bin/env bash
+
+## func-to-exec
+
+if [[ "$(pwd)" =~ functions ]] || \
+       [[ "$(pwd)" =~ bin ]]
+then
+    cmd-echo 'Cannot be in functions or bin subdir for conversion.' \
+                'cd .. and re-exec.'
+    exit 1
+fi
+
+if [ -z "$1" ]
+then
+    cmd-echo "usage: $0 func [func...]" \
+                "       You can use or not use the 'function/'" \
+                "       prefix;we will adjust."
+    exit 1;
+fi
+
+## Find sources, set targets
+declare -a funcnames ## the keys for the *_paths hashes
+declare -A src_paths ## key is name (x), value is source (function/x)
+declare src_path
+declare -A tgt_paths ## key is name (x), value is target (bin/x)
+declare tgt_path
+declare -A tmp_paths ## key is name (x), value is temp (bin/x.tmp)
+declare tmp_path
+
+declare -a raw_src_paths
+raw_src_paths=("$@")
+declare raw_src_path
+declare bad=0
+declare justified=''
+for raw_src_path in "${raw_src_paths[@]}"
+do
+    declare funcname
+    funcname="$(basename "$raw_src_path")"
+
+    src_path="functions/$funcname"
+    if [ ! -r "$src_path" ]
+    then
+        cmd-echo -- "$src_path not found"
+        ((bad+=1))
+    else
+        justified=$(grep 'Function Justification' "$src_path" | \
+                        grep -i -v none)
+        if [ -n "$justified" ]
+        then
+            cmd-echo "Not converting $src_path: $(grep 'Function Justification' "$src_path")"
+            ((bad+=1))
+        else
+            funcnames+=("$funcname")
+            src_paths["$funcname"]="$src_path"
+            tgt_paths["$funcname"]="bin/$funcname"
+            tmp_paths["$funcname"]="bin/${funcname}.tmp"
+        fi
+    fi
+done
+((${#src_paths[@]}==0)) && cmd-echo "No sources found to convert. Bailing." && exit 1
+((bad)) && cmd-echo "Some sources bad. Bailing" && exit 1
+
+## Copy function files to bin
+cmd-echo "Copying function files..."
+for funcname in "${funcnames[@]}"
+do
+    cp "${src_paths[$funcname]}" "${tgt_paths[$funcname]}"
+done
+
+## Do the conversions
+cmd-echo "Converting to scripts..."
+if ! func-to-exec.pl "${tgt_paths[@]}" ## Each conversion of bin/foo will be in bin/foo.new
+then
+    exit $?
+fi
+
+## Review the conversions
+declare -a commit_list ## the list of function files we chose to commit after
+                       ## conversion
+declare -a revert_list ## the list of function files we chose NOT to commit
+                       ## after conversion
+declare tgt_path
+declare resp
+for funcname in "${funcnames[@]}"
+do
+    cmd-echo --head --title "$funcname"
+
+    tmp_path="${tmp_paths[$funcname]}"
+    src_path="${src_paths[$funcname]}"
+    resp='e' ## Assume we want to edit
+    while [ "$resp" = 'e' ]
+    do
+        declare scstatus=1
+        while((scstatus>0))
+        do
+            shellcheck "$tmp_path" > /tmp/func-to-exec.$$
+            scstatus=$?
+            if((scstatus))
+            then
+                $EDITOR "${tmp_path}" /tmp/func-to-exec.$$
+            fi
+            \rm /tmp/func-to-exec.$$
+        done
+
+        diff -w "${src_path}" "${tmp_path}" && true ## so that a diff does not
+                                                    ## trigger an exit due to
+                                                    ## the -e setting
+        resp=$(pick "$funcname - Keep conversion" "y/n/e" )
+        if [ "$resp" = 'y' ]
+        then
+            commit_list+=("$funcname")
+        elif [ "$resp" = 'e' ]
+        then
+            $EDITOR "${tmp_path}"
+        else
+            revert_list+=("$funcname")
+        fi
+    done
+done
+
+## Unwind rejects
+for funcname in "${revert_list[@]}"
+do
+    cmd-echo "Reverting $funcname..."
+    tgt_path="${tgt_paths[$funcname]}"
+    tmp_path="${tmp_paths[$funcname]}"
+    \rm -f "$tgt_path" "$tmp_path"
+    unset src_paths["$funcname"]
+    unset tgt_paths["$funcname"]
+    unset tmp_paths["$funcname"]
+done
+
+if ((!${#commit_list[@]}))
+then
+    cmd-echo 'Nothing to commit.'
+    exit 0
+fi
+
+## Get rid of the new files we used as input to the Perl conversion script.
+\rm -f "${tgt_paths[@]}"
+
+## Do the git move
+cmd-echo "git mv ${src_paths[*]} bin"
+git mv "${src_paths[@]}" bin
+
+## Commit the move
+cmd-echo "git commit ${src_paths[*]} ${tgt_paths[*]} -m 'func to exec, move phase'"
+GPCHA='--skip shellcheck' git commit "${src_paths[@]}" "${tgt_paths[@]}" -m 'func to exec, move phase'
+
+## Overlay the moves with the converted temps
+cmd-echo "Overlay with converted files..."
+declare -a unset_contents
+for funcname in "${commit_list[@]}"
+do
+    tgt_path="${tgt_paths[$funcname]}"
+    tmp_path="${tmp_paths[$funcname]}"
+    \mv "${tmp_path}" "${tgt_path}"
+    chmod 755 "${tgt_path}"
+    unset_contents+=("$funcname")
+done
+
+## Commit the conversions
+cmd-echo "git commit ${tgt_paths[*]} -m 'func to exec, convert phase'"
+git commit "${tgt_paths[@]}" -m 'func to exec, convert phase'
+
+## Reminder
+cmd-echo 'Remember to' "unset -f ${unset_contents[*]}"

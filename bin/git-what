@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+
+# git-what
+
+# shellcheck disable=SC1090
+# Don't know if we really need this yet:
+# . "$REALGIT_EXEC_PATH/git-sh-setup"
+
+## Functions that encapsulate the enhanced functionality. main() is defined
+## last and called last.
+
+main ()
+{
+    declare action=$1
+
+    if [[ "$action" =~ -h ]]
+    then
+        (
+            script-usage
+        ) 2>&1 | ${PAGER:-less}
+        return  0
+    fi
+
+    [ "$action" = 'is' ] && shift && action=$1 && shift ## syntactic sugar
+
+    declare -a actions
+    declare modified_only=0
+    case $action in
+        modified-only )
+            modified_only=1
+            ;;
+        committable | staged )
+            actions+=('--staged') ;;
+        modified )
+            actions+=('--staged' '--unstaged') ;;
+        edited )
+            actions+=('--all-mod') ;;
+        untracked | unstaged | \
+            unmodified | deleted | \
+            new | ignored )
+            actions+=("--$action") ;;
+        * )
+            cmd-echo -- "'$action' is an invalid request"
+            script-usage 2>&1 | ${PAGER:-less}
+            exit 1
+            ;;
+    esac
+
+    declare moreopts=1
+    declare -a fmt_options
+    declare absolute=0
+    declare rooted=0
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        declare original="$1"
+        shift
+        declare option
+        option=$(dashstripper "$original")
+
+        case $option in
+            absolute )
+                if ((rooted))
+                then
+                    cmd-echo -- 'Cannot specify --absolute and --rooted'
+                    script-usage 2>&1 | ${PAGER:less}
+                    exit 1
+                else
+                   fmt_options+=("--$option")
+                fi
+                ;;
+            rooted )
+                if ((absolute))
+                then
+                    cmd-echo -- 'Cannot specify --rooted and --absolute'
+                    script-usage 2>&1 | ${PAGER:less}
+                    exit 1
+                else
+                    fmt_options+=("--$option")
+                fi
+                ;;
+            * )
+                cmd-echo -- "--$action is an invalid option"
+                script-usage 2>&1 | ${PAGER:less}
+                exit 1
+        esac
+    done
+
+    if ((modified_only))
+    then
+        declare deleted
+        deleted=$(ajoin '|' "$(git what is deleted "${fmt_options[@]}" )")
+        declare mod
+        for mod in $(git what is modified "${fmt_options[@]}")
+        do
+            echo "$mod" | grep -v -E "$deleted"
+        done
+    else
+        $DEBUG_GIT_STATUS_PARSE git-status-parse "${fmt_options[@]}" "${actions[@]}"
+    fi
+
+    exit $?
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-what
+
+=head1 SYNOPSIS
+
+ git what [is] [committable | untracked | unstaged | unmodified |
+                staged | deleted | modified-only | modified |
+                ignored | edited | deleted ] [--rooted|--absolute]
+
+=head1 DESCRIPTION
+
+status --porcelain, parsed for certain statuses.
+
+export DEBUG_GIT_STATUS_PARSE='perl -S -d' to debug.
+
+__PODUSAGE__

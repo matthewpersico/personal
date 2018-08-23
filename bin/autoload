@@ -1,172 +1,220 @@
-## -*- sh -*-
+#!/usr/bin/env bash
 
-## From http://git.savannah.gnu.org/cgit/bash.git/tree/examples/functions/autoload.v3
-## with the addition of -x option to autoload by MOP.
+# The psuedo-ksh autoloader.
 
-## How to use:
-## o One function per file.
-## o File and function name match exactly.
-## o File is located in a directory that is in FPATH.
-## o This script (autoload) must be sourced in as early as possible.
-## o autoload must be called for each function before the it can be used. If
-##   autoloads are in directories where there are nothing but autoloads, then
-##   'autoload /path/to/files/*' suffices.
-## o The call must be made in the current environment, not a subshell.
-## o The command line suffices as "current environment". If you have autoload
-##   calls in a script, that script must be dotted into the process.
-
-#From: Mark Kennedy <mark.t.kennedy@gmail.com> (<mtk@ny.ubs.com>)
-#Message-ID: <35E2B899.63A02DF5@ny.ubs.com>
-#Date: Tue, 25 Aug 1998 09:14:01 -0400
-#To: chet@nike.ins.cwru.edu
-#Subject: a newer version of the ksh-style 'autoload'
-
-#enclosed you'll find 'autoload.v3',  a version of the autoloader
-#that emulates the ksh semantics of delaying the resolution (and loading) of the function
-#until its first use.  i took the liberty of simplifying the code a bit although it still uses the
-#same functional breakdown.  i recently went through the exercise of converting
-#my ksh-based environment to bash (a very, very pleasant experience)
-#and this popped out.
-
-# the psuedo-ksh autoloader.
+# How to use:
+# o One function per file.
+# o File and function name match exactly.
+# o File is located in a directory that is in FPATH.
+# o This script (autoload) must be sourced in as early as possible. This
+#   implies that any code in this script should NOT rely on any library of local
+#   or self-defined functions having already been loaded.
+# o autoload must be called for each function before the function can be used. If
+#   autoloads are in directories where there are nothing but autoloads, then
+#   'autoload /path/to/files/*' suffices (but see options -a and -f).
+# o The call must be made in the current environment, not a subshell.
+# o The command line suffices as "current environment". If you have autoload
+#   calls in a script, that script must be dotted into the process.
 
 # The first cut of this was by Bill Trost, trost@reed.bitnet.
 # The second cut came from Chet Ramey, chet@ins.CWRU.Edu
 # The third cut came from Mark Kennedy, mtk@ny.ubs.com.  1998/08/25
+# The fourth cut came from Matthew Persico, matthew.persico@gmail.com 2017/August
 
-unset _AUTOLOADS        ## Array of the code for functions to autoload.
-unset _AUTOLOADS_EXECD  ## Array of 0/1 tracking if the function at the
-                        ## corresponding index position in _AUTOLOADS has (1)
-                        ## or has not (0) yet been executed.
+autoload_calc_shimsize ()
+{
+    echo $((AUTOLOAD_SHIM_OVERHEAD + 3 * ${#1}))
+}
+
+_autoload_split_fpath ()
+{
+    # shellcheck disable=SC2086 ## Quoting ${FPATH} breaks the split
+    (IFS=':'; set -- ${FPATH}; echo "$@")
+}
 
 _aload()
 {
     local opt OPTIND
     local doexport=0
-    while getopts xr opt
-    do
+    local doreload=0
+    local doverbose=0
+    local doevalshim=0
+    declare -a loadthese
+    local optimize=0
+    local loaded=0
+    local exported=0
+    local optimized=0
+    local summary=0
+    while getopts xrvla:oyf opt; do
         case $opt in
             x) doexport=1;;
             r) doreload=1;;
-            *) echo "_aload: usage: _aload [-xr] [function ...]" >&2; return;;
+            v) doverbose=1;;
+            l) doevalshim=1;;
+            a) mapfile -t loadthese < <(find "$OPTARG" -maxdepth 1 -type f | sort );;
+            o) optimize=1;;
+            y) summary=1;;
+            f) # shellcheck disable=SC2046 # We want the splitting on _autoload_split_fpath
+                mapfile -t loadthese < <(find $(_autoload_split_fpath) -maxdepth 1 -type f | sort );;
+            *) echo "_aload: usage: _aload [-xrvlyf] [-a dir] [function ...]" >&2; return;;
         esac
     done
 
-    shift $(($OPTIND-1))
+    shift $((OPTIND-1))
 
-    local func
-    for func; do
-        if [ -n "$(declare -F $func)" ] && ((doreload==0))
+    [ -z "${loadthese[0]}" ] && loadthese=("$@")
+    local loadthis
+    for loadthis in "${loadthese[@]}"; do
+        if [[ "$loadthis" =~ \# ]]
         then
-            ## bail if the function exists and we are not realoading
-            return
+            ## It's an emacs temp file; skip it
+            continue
         fi
-        local export
-        ((doexport)) && export="export -f $func;"
-        ## Saving environmenet space with the outdenting.
-        eval $func '()
-        {
-        local f=$(_autoload_resolve '$func')
-        if [[ $f ]]; then
-        . $f
-        '$export'
-        _autoload_set_exec '$func'
-        '$func' "$@"
-        return $?
+
+        local func
+        ## If -a or -f, 'loadthis' is a full path to the function definition
+        ## file. Otherwise, 'loadthis' is just a function name. This statement
+        ## ensures that either way, we have the function name isolated, and
+        ## further down in the code...
+        func=$(basename "$loadthis")
+        local exists_fn
+        exists_fn=$(declare -F "$func")
+        if [ -n "$exists_fn" ] && ((doreload==0)) && ((doevalshim==0))
+        then
+            if ((doverbose))
+            then
+                echo "autoload: function '$func' already exists"
+            fi
         else
-        return 1
+            local andevaled=''
+            local andexported=''
+            local evalstat=0
+            local doshim=1
+            local funcfile
+            ### ...right about here, we ensure that either way, we have the
+            ### full path to the function definition file.
+            if [ -f "$loadthis" ]
+            then
+                funcfile=$loadthis
+            else
+                funcfile=$(_autoload_resolve "$func")
+            fi
+
+            if [[ $funcfile ]] ; then
+                ## The file was found for $func. Process it.
+
+                if ((optimize)); then
+                    ## For the first function loaded, we will not know
+                    ## AUTOLOAD_SHIM_OVERHEAD. We can only calculate it after
+                    ## we have loaded one function.
+                    if [[ $AUTOLOAD_SHIM_OVERHEAD ]]; then
+                        local size
+                        size=$(wc -c < "$funcfile")
+                        local shimsize
+                        shimsize=$(autoload_calc_shimsize "$func")
+                        if (( size <= shimsize)); then
+                            doshim=0
+                            andevaled=', optimized'
+                            ((optimized+=1))
+                        fi
+                    fi
+                fi
+
+                if ((doevalshim)); then
+                    doshim=0
+                    andevaled=', evaled'
+                fi
+
+                ## 'brand' as in branding a cow with a mark. We add a local
+                ## variable to each function we autoload so that we can tell
+                ## later on it is an autoloaded function without having to
+                ## maintain some bash array or hash that cannot be passed to
+                ## and used by subshells.
+                local brandtext
+                brandtext="eval \"\$(type $func | sed -e 1d -e 4ilocal\\ AUTOLOADED=\\'$func\\')\""
+                if ((doshim)); then
+                    ## Don't bother trying to save space by shoving all the
+                    ## eval text below onto one unreadable line; new lines will
+                    ## be added at your semicolons and any indentation below
+                    ## seems to be ignored anyway if you export the function;
+                    ## look at its BASH_FUNCTION representation.
+                    eval "$func" '()
+                    {
+                    local IS_SHIM="$func"
+                    local file=$(_autoload_resolve '"$func"')
+                    if [[ $file ]]
+                    then
+                        . $file
+                        '"$brandtext"'
+                        '"$func"' "$@"
+                        return $?
+                    else
+                        return 1;
+                    fi
+                    }'
+                else
+                    # shellcheck disable=SC1090
+                    . "$funcfile"
+                    eval "$brandtext"
+                fi
+                evalstat=$?
+                if((evalstat==0))
+                then
+                    ((loaded+=1))
+                    # shellcheck disable=SC2163 ## exporting $func, we want that behavior
+                    ((doexport)) && export -f "$func" && andexported=', exported' && ((exported+=1))
+                    ((doverbose)) && echo "$func autoloaded${andexported}${andevaled}"
+                    if [[ ! $AUTOLOAD_SHIM_OVERHEAD ]] && ((doshim)); then
+                        ## ...we have just loaded the first function shim into
+                        ## memory. Let's calc the AUTOLOAD_SHIM_OVERHEAD size
+                        ## to use going forward. In theory, we could check
+                        ## again here to see if we should optimize and source
+                        ## in this function, now that we now the
+                        ## AUTOLOAD_SHIM_OVERHEAD. In practice, it's not worth
+                        ## duping that code or creating a function to do so for
+                        ## one function.
+                        AUTOLOAD_SHIM_OVERHEAD=$(type "$func" | grep -v -E "^$1 is a function" | sed "s/$func//g"| wc -c)
+                        export AUTOLOAD_SHIM_OVERHEAD
+                    fi
+                else
+                    echo "$func failed to load" >&2
+                fi
+            fi
         fi
-        }'
-        _autoload_addlist $func
-        ((doexport)) && export -f $func
     done
-}
-
-_autoload_addlist()
-{
-    local func
-
-    for func in ${_AUTOLOADS[@]}; do
-        [[ $func = "$1" ]] && return
-    done
-
-    _AUTOLOADS[${#_AUTOLOADS[@]}]=$1
-    _AUTOLOADS_EXECD[((${#_AUTOLOADS[@]}-1))]=0
-}
-
-_autoload_set_exec()
-{
-    ## The function is about the be executed. Mark it as being executed.
-    local i
-    local almaxi=${#_AUTOLOADS[@]};((almaxi-=1))
-    for i in $(seq 0 $almaxi); do
-        [[ "${_AUTOLOADS[$i]}" = "$1" ]] && _AUTOLOADS_EXECD[$i]=1 && return
-    done
+    ((summary)) && echo "autoload: loaded:$loaded exported:$exported optimized:$optimized overhead:$AUTOLOAD_SHIM_OVERHEAD bytes"
 }
 
 _autoload_dump()
 {
-    local opt_p
-    local opt_s
+    local opt OPTIND
+    local opt_p=''
+    local opt_s=''
     while getopts ps opt
     do
         case $opt in
-            p) opt_p=1;;
-            s) opt_s=1;;
+            p ) opt_p=1;;
+            s ) opt_s=1;;
+            * ) echo "Invalid flag"; return 1;;
         esac
     done
 
-    shift $(($OPTIND-1))
+    shift $((OPTIND-1))
 
     local exported=''
     local executed=''
-    local almaxi=${#_AUTOLOADS[@]};((almaxi-=1))
-    local i
-    for i in $(seq 0 $almaxi); do
-        local func=${_AUTOLOADS[$i]}
-        ((opt_p)) && echo -n "autoload "
-        if ((opt_s))
-        then
-            exported=$(declare -F | grep $func | sed 's/declare -f\(x\{0,1\}\).*/\1/' | wc -c)
-            ((exported==2)) && exported='exported' || exported=''
-            ((${_AUTOLOADS_EXECD[$i]}==1)) && executed='executed' || executed=''
-        fi
-        echo $func $exported $executed
-    done
-}
-
-_autoload_remove_one()
-{
     local func
-    local unsetit
-    local -a NEW_AUTOLOADS
-    local -a NEW_AUTOLOADS_EXECD
-
-    [ "$1" = "-U" ] && unsetit=1 && shift
-
-    for func in ${_AUTOLOADS[@]}; do
-        [[ $func != "$1" ]] && NEW_AUTOLOADS[${#NEW_AUTOLOADS[@]}]=$func && NEW_AUTOLOADS_EXECD[${#NEW_AUTOLOADS_EXECD[@]}]=$func
-        ((unsetit)) && unset $func
-    done
-
-    _AUTOLOADS=( ${NEW_AUTOLOADS[@]} )
-    _AUTOLOADS_EXECD=( ${NEW_AUTOLOADS[@]} )
-}
-
-_autoload_remove()
-{
-    local victim func unsetit
-    [ "$1" = "-U" ] && unsetit='-U' && shift
-
-    for victim; do
-        for func in ${_AUTOLOADS[@]}; do
-            [[ $victim = "$func" ]] && unset -f $func && continue 2
-        done
-        echo "autoload: $func: not an autoloaded function" >&2
-    done
-
-    for func; do
-        _autoload_remove_one $unsetit $func
+    for func in $(declare | grep -E 'local\\{0,1} AUTOLOADED' | sed -e "s/.*AUTOLOADED=//" -e 's/\\//g' -e 's/[");]//g' -e "s/'//g")
+    do
+        if [ -n "$opt_p" ]; then echo -n "autoload "; fi
+        if [ -n "$opt_s" ]
+        then
+            exported=$(declare -F | grep -E "${func}$" | sed 's/declare -f\(x\{0,1\}\).*/\1/')
+            [ "$exported" = 'x' ] && exported=' exported' || exported=' not exported'
+            executed=$(type "$func" | grep 'local IS_SHIM')
+            [ -z "$executed" ] && executed=' executed' || executed=' not executed'
+        fi
+        echo "${func}${exported}${executed}"
     done
 }
 
@@ -177,17 +225,83 @@ _autoload_resolve()
         return
     fi
 
-    local p
+    local p # for 'path'. The $() commands in the for loop split the FPATH
+            # string into its constituents so that each one may be processed.
 
-    for p in $( (IFS=':'; set -- ${FPATH}; echo "$@") ); do
+    for p in $(_autoload_split_fpath ); do
         p=${p:-.}
-        if [ -f $p/$1 ]; then echo $p/$1; return; fi
+        if [ -f "$p"/"$1" ]; then echo "$p"/"$1"; return; fi
     done
 
     echo "autoload: $1: function source file not found" >&2
 }
 
-autoload_help()
+_autoload_edit()
+{
+    [ -z "$EDITOR" ] && echo "Error: no EDITOR defined" && return 1
+    declare -a toedit
+    local func
+    for func in "$@"
+    do
+        local file
+        file=$(_autoload_resolve "$func")
+        if [[ $file ]]
+        then
+            toedit+=("$file")
+        else
+            echo "$func not found in FPATH funcfile. Skipping."
+        fi
+    done
+
+    [ -z "${toedit[0]}" ] && return 1
+
+    local timemarker
+    timemarker=$(mktemp -t tmp."${FUNCNAME[0]}".XXXXXXXXXX)
+
+    $EDITOR "${toedit[@]}"
+
+    local i
+    for i in "${toedit[@]}"
+    do
+        if [ "$i" -nt "$timemarker" ]
+        then
+            local f
+            f=$(basename "$i")
+            echo Reloading "$f"
+            autoload -r "$f"
+        fi
+    done
+    \rm -f "$timemarker"
+}
+
+_autoload_page()
+{
+    [ -z "$PAGER" ] && echo "Error: no PAGER defined" && return 1
+    local topage
+    local func
+    for func in "$@"
+    do
+        local file
+        file=$(_autoload_resolve "$func")
+        if [[ $file ]]
+        then
+            topage="$topage $file"
+        else
+            echo "$func not found in FPATH funcfile. Skipping."
+        fi
+    done
+
+    [ -z "$topage" ] && return 1
+
+    $PAGER "$topage"
+}
+
+_autoload_remove()
+{
+    unset -f "$@"
+}
+
+_autoload_help()
 {
     cat <<EOH
 NAME
@@ -195,8 +309,12 @@ NAME
 
 SYNOPSIS
         autoload [-ps]
-        autoload [-uUxr] [function ...]
+        autoload [-xuremloyv] [function ...]
+        autoload -a directory [-oyv]
+        autoload -f [-oyv]
         autoload [-h]
+
+        autoreload [function ...]
 
 DESCRIPTION
 
@@ -207,60 +325,218 @@ DESCRIPTION
         function and run it. Subsequent calls to the function just run the
         function.
 
-        Although the number of functions in the environment does not change by
-        using autoload, the amount of memory they take up can be greatly
-        reduced, depending on the size of your functions. If you have a lot of
-        small functions, then it is possible that the shim text will be larger
-        than your actual functions, rendering the memory savings moot.
-
-        'small' in this case is 182 charcters plus three times the length of
-        the function name. If your function is smaller than that, you use more
-        space with the shim than without it.
+        'autoreload' is a synonym for 'autoload -r'. See below.
 
 USAGE
 
         o Each function to be autoloaded should be defined in a single file,
-        named exactly the same as the function.
+          named exactly the same as the function.
 
-        o These files should be placed in a directory that is in the FPATH
-        environment variable.
+        o In order to avoid side effects, do NOT put code other than the
+          function definition in the file. Unless of course you want to do some
+          one-time initialization. But beware that if you reload the function
+          for any reason, you will rerun the initialization code. Make sure
+          your initialization is re-entrant. Or, better yet,
+
+          *** do NOT put code other than the function definition in the file ***
+
+        o These function definition files should be placed in a directory that
+          is in the FPATH environment variable. Subdirectories are NOT scanned.
 
         o The autoload script should be sourced into the current process as
-        early as possible in process start up.
+          early as possible in process start up. See NOTES below for
+          suggestions.
 
         o The calls to the autoload function must be made in the current
-        process. If your calls are in their own script, that script must be
-        sourced in. Command line invocation are also sufficient.
+          process. If your calls are in their own script, that script must be
+          sourced in. Command line invocations are also sufficient. (But see
+          '-l' below.)
 
-        o The first time the function is called, the shim function that is
-        created by the autoload call is called. This function then goes and
-        finds the appropriate file in FPATH, sources it in and then calls the
-        function with any arguments you passed in to the function
-        call. Subsequent calls just run the function.
+        o The first time the function is called, the shim function that was
+          created by the 'autoload' call is what is executed. This function
+          then goes and finds the appropriate file in FPATH, sources it in and
+          then calls the actual function with any arguments you just passed in
+          to the shim function. Subsequent calls just run the function.
 
 OPTIONS
 
-        With no arguments:
+        -a Autoload (a)ll the functions found in the given directory.
 
-        -p        Print all the autoloaded functions.
-        -s        Print all the autoloaded functions, with status as to
-                  whether they were exported and they have been executed yet.
+        -f Autoload all the functions found in all the directories on the
+           FPATH.
 
-        With function name arguments:
+        -p Print all the autoloaded functions.
 
-        -x        Export the function name to environment for use in
-                  subshells.
-        -u        Remove from autoload list so it can be reloaded. Does
-                  not unset the function.
-        -U        Remove from autoload list so it can be reloaded, and
-                  unset the function.
-        -r        Reload the shim, even if the function has been executed.
+        -s Print all the autoloaded functions and add their export status.
+
+        -x Export the specified functions to the environment for use in
+           subshells.
+
+        -u Unset the function, so it can be reloaded.
+
+        -r Reload the shims of the specified functions, even if the functions
+           have been already been executed.  This will allow you to modify the
+           functions' source and have the new version executed next time the
+           function is called.
+
+           It would be very easy to modify a function's script, run the
+           function and scratch your head for a long time trying to figure out
+           why your changes are not being executed. That's why we provide the
+           '-e' flag described below for modifications.
+
+           Reloads, of course, only apply in the context of the current session
+           and any future subshell you start from the current session. Existing
+           sessions will need to have the same 'autoload -r' command run in
+           them.
+
+        -e Find the scripts in which the specified functions are defined and
+           start up \$EDITOR on those scripts. Reload the ones that were
+           modified when you exit \$EDITOR. (Note: If you use 'autoload -e foo'
+           to edit function 'foo', and then in your editor you separately load
+           up function 'bar', 'autoload' has no way of knowing that you edited
+           'bar' and will NOT reload 'bar' for you.)
+
+           Reloads, of course, only apply in the context of the current session
+           and any future subshell you start from the current session. Existing
+           sessions will need to have the same 'autoload -r' command run in
+           them.
+
+        -m Find the scripts in which the specified functions are defined and
+           run \$PAGER on them ('m' is for 'more', because 'p' (page) and 'l'
+           (load) are already used as options in 'autoload').
+
+        -l When autoloading a function, eval the shim immediately in order to
+           load the true function code. See "Using '-l'" in the NOTES below for
+           details.
+
+        -o Optimize. When autoloading, take the time to execute
+
+               'theCharCount=\$(wc -c \$theFuncFile)'
+
+           for each funcion and
+
+                if \$theCharCount < \$AUTOLOAD_SHIM_OVERHEAD
+
+           don't shim it, just eval directly.
+
+        -w Print the full path to the single script containing the specified
+           function. 'w' stands for 'where' because 'f' (find) and 'l' (locate)
+           are already used as options. Note that with this option, only one
+           function name is processed.
+
+        -y Summar(y). Print the number of loaded, exported and optimized
+           functions.
+
+        -v Turns up the chattiness.
 
 NOTES
 
-        Calling autoload() on a function already autoloaded silently refuses to
-        reload the shim unless it has been removed (u- or -U) or you force the
-        reload (-r).
+        o Calling 'autoload' on a function that already exists (either shimmed
+          or expanded) silently ignores the request to load the shim unless it
+          has been previously removed (-u) or you force the reload (-r).
+
+        o Changing and reloading a function that has been exported does not
+          require it be re-exported; the modifications will appear in
+          subsequent subshells.
+
+        o Using '-1'
+
+          If you are running under set -x and/or set -v, you may see that the
+          shim does not appear to "work"; instead of seeing the shim first and
+          the real code subsequently, you may see the shim evaluated multiple
+          times.
+
+          This may not be an error; review your code. What is most likely
+          happening is that you are calling the function in subshells via
+          backticks or $(), or in a script that is not being sourced into the
+          current environment. If you have not previously called the function
+          in question at your command line or in a script that was sourced into
+          the current envirnoment, then the various subshells are going to
+          encounter the shim and replace with the real code before executing.
+
+          Remember, however, that environment modifications that occur in a
+          subshell are NOT propagated back to the calling shell or over to any
+          sibling shells. So, if you call an autoloaded function in a very
+          tight loop of very many subshells, you may want to make an 'autoload
+          -l' call before you start your loop. '-l' will instruct 'autoload' to
+          bypass the shim creation and just source in the function's file
+          directly. For a few calls, the overhead of repeatedly running the
+          shim is not expensive, but in a tight loop, it might be. Caveat
+          Programer.
+
+        o Although the number of functions in the environment does not change
+          by using 'autoload', the amount of memory they take up can be greatly
+          reduced, depending on the size of your functions. If you have a lot
+          of small functions, then it is possible that the shim text will be
+          larger than your actual functions, rendering the memory savings moot.
+
+          'small' in this case can be determined by calling the function
+          'autoload_calc_shimsize' with the name of the function to determine
+          its shim size.
+
+        o In order to support the -p and -s options, we need a way to determine
+          if a function 'func' has been autoloaded or if it was loaded
+          diredctly. In order to do that, we modify the function's code by
+          adding the text
+
+              local  AUTOLOADED='func';
+
+          to the shim and to the actual function text, just after the opening
+          brace. Then supporting -p and -s is just a matter of grepping through
+          all the function text in memory. Even though grepping through the
+          environment may not be the most efficient way to support this, it is
+          the simplest to implement for -p and -s operations that are not
+          heavily used.
+
+          As a consquence of this (and other reasons), the AUTOLOAD* namespace
+          is reserved for autoloading. Make sure you check any functions that
+          you bring under autoload for use of variables or functions that start
+          with AUTOLOAD and change them.
+
+        o The easiest way to load shims for all functions on the FPATH is to run
+
+               autoload -f -x
+
+          in the profile that gets run for login shells.
+
+          When called in the profile of a login shell where no definitions
+          exist, -f will load all functions it can find on FPATH and -x will
+          export all of those functions to be available in subshells when this
+          is called in a login shell. Using this option will relieve you of the
+          need to call 'autoload' after Every Single Function Definition, nor
+          will you need to call it in subshells.
+
+          The only thing left to do is to load up the autoload function itself
+          and its helper functions. That needs to happen in your profile:
+
+            export FPATH=~/functions       # or wherever you stash them
+            if [ -z $(declare -F autoload) ]
+            then
+              . ~/bin/autoload             # or wherever you've put it
+            fi
+
+          The 'if' statement is used to make sure we don't reload autoload
+          needlessly. Sourcing in the autoload script loads the 'autoload'
+          function and all of its support functions. Additionally, we export
+          all of these functions so that they are available in subshells; you
+          do not have to re-source the autoload file in '.bashrc'.
+
+        o Even with all of these shenanigans, you will find cases where no
+          matter how hard you try, your autoloaded functions will be
+          unavailable to you, even if you run 'autoload -x -f'. The typical
+          condition for this is starting up not a subshell, but a brand new
+          DIFFERENT shell. And the typical example of this is git extentions.
+
+          At the time of this writing, git extentions work by taking a command
+          'git foo' and looking for a file 'git-foo' on the path. 'git' then
+          executes 'git-foo' in a new shell - it executes your command in
+          /bin/sh. That's not a subshell of your process. It will not get your
+          exported shell functions. Ballgame over.
+
+          If you find that you want your functions to be available in such
+          circumstances, convert them back to plain old scripts, make sure they
+          are 'sh' compliant and take the read/parse hit every time they are
+          run.
 
 EOH
 }
@@ -269,22 +545,60 @@ autoload()
 {
     if (( $# == 0 )) ; then _autoload_dump; return; fi
 
-    local opt OPTIND
-    local passthru
-
-    while getopts psuUxrh opt
+    local opt OPTIND OPTARG
+    declare -a passthru
+    declare -a dumpopt
+    while getopts psuema:yxrvlohfw opt
     do
         case $opt in
-            p|s) _autoload_dump -$opt; return;;
+            p|s) dumpopt+=("-${opt}");;
             u) shift $((OPTIND-1)); _autoload_remove "$@"; return;;
-            U) shift $((OPTIND-1)); _autoload_remove -U "$@"; return;;
-            x|r) passthru="$passthru -$opt";;
-            h) autoload_help; return;;
-            *) echo "autoload: usage: autoload [-puUx] [function ...]" >&2; return;;
+            e) shift $((OPTIND-1)); _autoload_edit "$@"; return;;
+            w) shift $((OPTIND-1))
+               local wfuncname=$1
+               shift;
+               if (($#))
+               then
+                   echo "-w processes only one function name" >&2
+                   echo "'$*' will all be ignored" >&2
+               fi
+               _autoload_resolve "$wfuncname"; return;;
+            m) shift $((OPTIND-1)); _autoload_page "$@"; return;;
+            x|r|v|l|y|f|o) passthru+=("-$opt");;
+            a) passthru+=("-$opt" "$OPTARG");;
+            h) _autoload_help; return;;
+            *) echo "autoload: invalid option" >&2
+               echo
+               _autoload_help
+               return;;
         esac
     done
 
-    shift $(($OPTIND-1))
-
-    _aload $passthru "$@"
+    shift $((OPTIND-1))
+    if ((${#dumpopt[@]}))
+    then
+        _autoload_dump "${dumpopt[@]}"
+    else
+        _aload "${passthru[@]}" "$@"
+    fi
 }
+
+autoreload ()
+{
+    autoload -r "$@"
+}
+
+## When we source in autoload, we export (but NOT autoload) the autoload
+## functions so that they are available in subshells and you don't have to
+## source in the autoload file in subshells.
+export -f _aload \
+       _autoload_dump \
+       _autoload_edit \
+       _autoload_help \
+       _autoload_page \
+       _autoload_resolve \
+       _autoload_remove \
+       _autoload_split_fpath \
+       autoload \
+       autoload_calc_shimsize \
+       autoreload

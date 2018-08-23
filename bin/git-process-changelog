@@ -1,0 +1,190 @@
+#!/usr/bin/env bash
+
+# git-process-changelog
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+## This function works best in the git root, which is where the
+## $GITFUNCS_CHANGELOG_NAME is anyway
+declare pwd
+pwd=$(pwd)
+declare gr
+gr=$(git root)
+if [ ! "$pwd" = "$gr" ]
+then
+    _git-cd-to "$gr" || exit $?
+fi
+
+declare action='read'
+declare opt_v='' ## passed to commit
+declare status=0
+declare parsed_cl
+parsed_cl=$(mktemp -t tmp.git-process-changelog.XXXXXXXXXX)
+rm_on_exit "$parsed_cl"
+declare pcl
+# shellcheck disable=SC2230
+pcl=$(which parse-changelog)
+declare -a pcl_flags
+declare git_editor
+declare opt_confirm=0
+declare moreopts
+moreopts=1
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift ## That way you avoid endless loops on invalid options.
+
+    case $option in
+        ## standard options
+        h | help )
+            script-usage
+            ## (return if a func, exit if a script) 0
+            ;;
+        debug | x ) set -x; trap 'set +x' EXIT;;
+        verbose | v )
+            opt_v='-v'
+            ;;
+        commit)
+            action=commit;
+            pcl_flags+=(--write --ncl "$parsed_cl")
+            ;;
+        withstatus)
+            action=withstatus;
+            pcl_flags+=(--withstatus)
+            ;;
+        diff)
+            pcl_flags+=(--diff)
+            ;;
+        cached)
+            pcl_flags+=(--cached)
+            ;;
+        noclonly)
+            pcl_flags+=(--noclonly)
+            ;;
+        skip-no-changelog)
+            pcl_flags+=(--skipmissing)
+            ;;
+        confirm)
+            opt_confirm=1
+            ;;
+        editor)
+            git_editor=$2
+            shift;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            cmd-echo -- "$original is an invalid option. See $0 --help";
+            ## (return if a func, exit if a script) 1
+            ;;
+    esac
+done
+
+## Everything else is a file
+if [ -z "$1" ]
+then
+    cmd-echo "No files specified."
+    exit 1
+fi
+declare -a filelist
+for i in "$@"
+do
+    ## -s is 'do not expand sysmlinks' so that we can treat the symlink as a
+    ## -first-class object. Thank you, git!
+    filelist+=("$(realpath -s "$i")")
+done
+
+## Find the changelog
+declare changelogdir
+changelogdir=$(git root)
+if ((status != 0))
+then
+    script-usage
+    exit $status
+fi
+
+declare changelog="${changelogdir}/$GITFUNCS_CHANGELOG_NAME"
+if [ ! -r "$changelog" ]
+then
+    cmd-echo -- "$changelog not readable"
+    exit 1
+fi
+if [ "$action" = 'commit' ] && [ ! -w "$changelog" ]
+then
+    cmd-echo -- "$changelog not writable"
+    exit 1
+fi
+
+declare changelogbkp="${changelog}.bkp"
+
+declare others
+others=$(find "$changelogdir" -name "$GITFUNCS_CHANGELOG_NAME" | grep -v "$changelog")
+if [ -n "$others" ]
+then
+    cmd-echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir."
+    exit 1
+fi
+
+## Backup
+cp -f "$changelog" "$changelogbkp"
+$DEBUG_PROCESS_CHANGELOG "$pcl" --cl "$changelog" "${pcl_flags[@]}" "${filelist[@]}"
+status=$?
+if ((status!=0))
+then
+    ## Restore
+    cmd-echo "Rolling back $changelog"
+    cp -f "$changelogbkp" "$changelog"
+    exit $status
+fi
+
+if [ "$action" = 'commit' ]
+then
+    ## We rebuild the filelist from the commit message file so that we can
+    ## account for having skipped files because they do not have a
+    ## changelog entry.
+    declare -a filelist_refreshed
+    mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY LINE HERE|o | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$parsed_cl")
+    cmd-echo "About to commit" "${filelist_refreshed[@]}"
+    declare resp='y'
+    if ((opt_confirm))
+    then
+        resp=''
+        resp=$(cmd-yesno 'Ok' n)
+    fi
+    if [ "$resp" = 'y' ]
+    then
+         if [ -z "$git_editor" ]
+         then
+             git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
+         else
+             GIT_EDITOR=$git_editor git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
+         fi
+         status=$?
+         if((status!=0))
+         then
+             ## Restore
+             cmd-echo "Rolling back $changelog"
+             cp -f "$changelogbkp" "$changelog"
+             exit $status
+         fi
+    else
+        cmd-echo "Commit aborted"
+    fi
+fi
+[ -f "$changelogbkp" ] && \rm -f "$changelogbkp"
+
+exit 0
+
+:<< __EOUSAGE__
+__USAGE__
+NAME
+    git-process-changelog
+
+SYNOPSYS
+
+DESCRIPTION
+    TBD
+__EOUSAGE__

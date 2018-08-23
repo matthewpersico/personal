@@ -1,0 +1,103 @@
+#!/usr/bin/env bash
+
+## from-ext
+
+declare moreopts=1
+declare opt_dirty=0
+declare opt_sparse=0
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    ## Strip all leading dashes here so that -foo and --foo can both
+    ## be processed as 'foo'.
+    declare original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift
+
+    case $option in
+        d | dirty )
+            opt_dirty=1
+            ;;
+        s | sparse )
+            opt_sparse=1
+            ;;
+        help )
+            cmd-echo "No help yet - read the code:"
+            cat "$0"
+            exit 0
+            ;;
+        debug | x ) set -x ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            cmd-echo -- "$original is an invalid option. See $0 --help"; exit 1;;
+    esac
+done
+
+sharfile=$1; shift
+
+## Make sure we are not going to blow away any local work.
+if ((opt_dirty==0))
+then
+    if (($(git status --porcelain 2>&1 | grep -c -v "$sharfile")))
+    then
+        cmd-echo "Will not unpack shar. Repo not clean. Clean it up."
+        cmd-echo -c "Use --dirty if you've already unpacked,"
+        cmd-echo -c "the shar, but you need to rerun for some reason."
+        git status
+        exit 1
+    fi
+fi
+
+## Establish a point in time.
+oldermarker=/tmp/from-ext.$$.oldermarker
+date > $oldermarker
+
+## Touch the shar to make sure it does not end up 'older' than the point in time.
+touch "$sharfile"
+
+## -c gives all extracted files a current time...
+unshar -c "$sharfile"
+
+## ...so that we can find all the files that were NOT extracted; these are the
+## ones we need to git rm.
+if ((opt_sparse==1))
+then
+    cmd-echo "Not git rm'ing 'old' files because --sparse was indicated."
+else
+    if [ -r git-rms ]
+    then
+        rms=$(cat git-rms)
+        cmd-echo "Using 'git-rms' to remove files."
+        yesno "git rm $rms" n git rm "$rms"
+    else
+        cmd-echo "Comparing files to $(ls -la $oldermarker) to remove files."
+        for i in $(git ls-files)
+        do
+            if [ "$i" -ot "$oldermarker" ]
+            then
+                ls -lart "$i" "$oldermarker"
+                yesno "git rm $i" n git rm "$i"
+            fi
+        done
+    fi
+fi
+
+## These should be new files to add
+for i in $(git status --porcelain | grep '??' | sed 's/??//')
+do
+    yesno "git add $i" n git add "$i"
+done
+
+## Grab the current commit sha...
+comp_to_this_sha=$(git log -1 | grep '^commit' | sed 's/commit //')
+
+## ...to make a useful commit message.
+commitmessage=/tmp/from-ext.$$.commitmessage
+cmd-echo "External sync. Run 'git diff $comp_to_this_sha' for details." > $commitmessage
+
+## Go for it. -a gets the modified files we didn't bother to run git -add against.
+## The message is in -F.
+## --edit forces an editor on the message with list of files for last chance check.
+git commit -a -F $commitmessage --edit

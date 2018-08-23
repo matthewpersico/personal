@@ -1,0 +1,174 @@
+#!/usr/bin/env bash
+
+# <Function Class: cd>
+# <Function Justification: env mod>
+
+dirlist ()
+{
+    ## The major input handling points are noted with ## ------
+
+    ## The nosave* options are in support of the dirlist -5 foo/bar case. We
+    ## call dirlist on the -5 to go up and on foo./bar to go down. In the first
+    ## call, we do not want the setdirlist at the END of this call to save the
+    ## current directory (the result of the up) on the stack, so we specify
+    ## nosavetarget.  When we make the second call we don't want the current
+    ## directory added to the list in the call to setdirlist at the START of
+    ## the call - that's nosavecurrent.
+
+    local target
+    local current
+
+    ## Have to pull off any negative numbers or ^ args, both of which signify
+    ## 'up', first so as not to confuse getoptp
+    local -a negs
+    local -a args
+    local neg_carr #ot
+    while [ -n "$1" ]
+    do
+        neg_carr=${1//\^/-}
+        if is-neg "$neg_carr"
+        then
+            negs+=("$neg_carr")
+        else
+            args+=("$1")
+        fi
+        shift
+    done
+
+    ## Put back args
+    eval set -- "${args[@]}"
+
+    local OPTSARGS
+    OPTSARGS=$(getoptp -o h --long nosavetarget,nosavecurrent -n 'dirlist' -- "$@")
+    status=$?
+    ((status != 0)) && echo "Exiting." && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -h|--help) dirlist_usage; return 0 ;;
+            --nosavetarget) target='--nopwd'; shift;;
+            --nosavecurrent) current='--nopwd'; shift ;;
+
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; dirlist_usage; return 1 ;;
+        esac
+    done
+
+    if ((${#negs[@]}))
+    then
+        eval set -- "${negs[@]}" "$@"
+    fi
+
+    setdirlist $current
+
+    if [ -z "$1" ]
+    then
+        ## ----
+        ## Menu
+        ## ----
+        ## No args given; present the menu and read choice.
+        ## Note: If you
+        ##    alias cd=dirlist
+        ## you lose cd == cd ~. Oh well. As a consolation, we always make '~'
+        ## the 1) entry in the menu so 'cd 1' has the same effect.
+        # shellcheck disable=SC2086 ## $DIRLIST is space separated.
+        _dirlist_select $DIRLIST
+    else
+        ## --------------
+        ## Parse the args
+        ## --------------
+        if (($#==2))
+        then
+            if is-neg "$1"
+            then
+                ## We're doing cd -4 a/c, i.e; cd up then down.  The oldpwd
+                ## save and the --nosave* args prevent saving the intermediate
+                ## dir in the list.
+                local oldpwd
+                oldpwd=$(pwd)
+                dirlist --nosavetarget "$1"
+                dirlist --nosavecurrent "$2"
+
+                ## This will undo the effect of the intermediate builtin cd call.
+                export OLDPWD=$oldpwd
+            else
+                ## ---------
+                ## Text swap
+                ## ---------
+                ## 'dirlist x y' changes /a/b/x/f to /a/b/y/f and cd's to the later.
+                ## Some 'cd' commands support this intrinsically (cd x y). However,
+                ## we're not going to bother trying to figure out if this
+                ## version does or not.
+                # shellcheck disable=SC2046 # We want separation
+                builtin cd $(pwdswap "$1" "$2")
+            fi
+        else
+            local tgt=$1;shift
+            ## Simplest case - the arg is a directory we can reach or prior
+            ## directory syntax.
+            if [ -d "$tgt" ] || [ "$tgt" = '-' ]
+            then
+                builtin cd "$tgt"
+            else
+                if is-int "$tgt"
+	            then
+	                if is-neg "$tgt"
+	                then
+                        ## --------------------
+                        ## Negative integer arg
+                        ## --------------------
+                        ## Argument was a negative number. If you are in /a/b/c/d/e and
+                        ## you cd -2, you end up in /a/b/c.
+		                local i="$tgt"
+                        local tgtdir
+                        tgtdir="$(pwd)"
+		                while (( i < 0 ))
+		                do
+		                    tgtdir="$(dirname "$tgtdir")"
+		                    (( i=i+1 ))
+		                done
+		                builtin cd "$tgtdir"
+                    else
+                        ## --------------------
+                        ## Positive integer arg
+                        ## --------------------
+                        ## Argument was a positive number. If you haven't changed your
+                        ## stack and you remember your number from the select menu,
+                        ## just go there.
+	                    local -a dirlista
+                        IFS=" " read -r -a dirlista <<< "$DIRLIST"
+                        if ((tgt>${#dirlista[@]})) || ((tgt==0))
+                        then
+                            stderrcho "$tgt" is not a valid choice
+                        else
+                            local d
+                            d=$(echo "${dirlista[(tgt-1)]}" |
+                                             sed "s|$DIRLIST_PWD_INDIC||" |
+                                             sed "s|~|${TILDAE:-$HOME}|")
+                            builtin cd "$d"
+	                    fi
+	                fi
+                else
+                    ## Arg is a partial completion. Filter the list. If your
+                    ## filter matches a reachable directory, it will be handled
+                    ## above. If that's not what you want, too bad; you'll have
+                    ## to use a plain dirlist call and hunt.
+                    local FILTERED_DIRLIST
+                    # shellcheck disable=SC2086 # we want to split DIRLIST
+                    FILTERED_DIRLIST="$(echo $DIRLIST | tr ' ' '\n' | grep "$tgt" )"
+                    if [ -n "$FILTERED_DIRLIST" ]
+                    then
+                        # shellcheck disable=SC2086 # we want to split $FILTERED_DIRLIST
+                        _dirlist_select $FILTERED_DIRLIST
+                    else
+                        echo "$tgt not found"
+                    fi
+                fi
+            fi
+        fi
+    fi
+
+    setdirlist $target
+}

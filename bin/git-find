@@ -1,0 +1,111 @@
+#!/usr/bin/env bash
+
+# git-find
+
+declare opt_untracked_only=0
+declare opt_all=0
+declare -a opt_grep_opts=("-E")
+declare moreopts=1
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    option=$(dashstripper "$original")
+    shift
+
+    case $option in
+        i) opt_grep_opts+=("$1");;
+        untracked_only|u) opt_untracked_only=1;;
+        all|a) opt_all=1;;
+        h|help) script-usage; exit 0 ;;
+        --) moreopts=0;;
+        *) cmd-echo -- "$original is an invalid option. See $0 --help"
+           exit 1 ;;
+    esac
+done
+
+if [ "$opt_untracked_only" = 1 ] && [ "$opt_all" = 1 ]
+then
+    echo "--untracked_only and --all are mutually exclusive"
+    script-usage
+    exit 1
+fi
+
+declare -a ls_files_opts=('-c')
+if [ "$opt_untracked_only" = 1 ]
+then
+    ls_files_opts=('-o')
+elif [ "$opt_all" = 1 ]
+then
+    ls_files_opts+=('-o')
+fi
+
+declare -a to_find
+if (($# == 0))
+then
+    ## No args, find everything
+    to_find=('.')
+else
+    to_find=("$@")
+fi
+
+for f in "${to_find[@]}"
+do
+    git ls-files "${ls_files_opts[@]}" "$(git rev-parse --show-toplevel)" | grep "${opt_grep_opts[@]}" "$f" | sort
+done
+
+exit 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-find - run a 'find'-like command on the current repo
+
+=head1 SYNOPSIS
+
+ git-find [-i] [--untracked_only|-u] [--all|-a] pattern [pattern...]
+ git-find [--help|-h]
+
+=head1 DESCRIPTION
+
+Tries hard to find files (or directories) in the current repo that are members
+of the repo with names matching the patterns presented. By default, we ignore
+untracked files.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item pattern
+
+A regular expression to match against paths. Unlike the 'find' provided with
+*N*X systems, we match against the full directory+file and we match
+'.*pattern.*' by default, so that /a/booboo/far will match 'boo' - a partial
+match and matched the directory.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -i
+
+Case insensitive matching.
+
+=item --untracked-only
+
+Consider only those files that are NOT objects in the repo.
+
+=item --all
+
+Look at all files; those that are repo objects and those that are not (untracked).
+
+=item --help
+
+This help page.
+
+=back
+
+=cut
+
+__PODUSAGE__

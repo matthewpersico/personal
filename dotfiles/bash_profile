@@ -1,17 +1,27 @@
-## -*- sh -*-
+#!/usr/bin/env bash
 
 # .bash_profile
-
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-! ~/personal/bin/running_under_cron && [ -n "$ALLFUNCS_PROFILE" ] && \
-    ( [ -n "$ALLFUNCS_PROFILE_LEVELS" ] && \
-          printf '=%.0s' $(eval "echo {1.."$((${#BASH_SOURCE[@]}))"}") || true ) && \
-        echo "$(date): ~/.bash_profile is running..."
+## How to plug in (monkeypatch) set -x, ALLFUNCS_PROFILE, etc, if needed
+# shellcheck disable=SC1090
+[ -e "/tmp/bash_profile.${USER}" ] && . "/tmp/bash_profile.${USER}"
+[ -e "$HOME/bash_profile.${USER}.monkeypatch" ] && . "$HOME/bash_profile.${USER}.monkeypatch"
 
-# Get the aliases and functions
-if [ -f ~/.bashrc ]; then
-    . ~/.bashrc
+bash_profile_echo=0
+if ! ~/personal/bin/running_under_cron && [ -n "$ALLFUNCS_PROFILE" ]
+then
+    echo "$(date): ~/.bash_profile is running..."
+    bash_profile_echo=1
 fi
+
+# Under cron, it looks like the /opt/bb stuff is not getting set. Sooooo...
+for path in /opt/bb/bin /opt/bb/sbin
+do
+    case ":${PATH}:" in
+        *:"$path":* ) ;;
+        * ) PATH="${path}:${PATH}" ;;
+    esac
+done
 
 # User specific environment and startup programs. The main one is the personal
 # one, which is '~/.profile.${USER}'. All the rest ( ~/.profile.${USER}*) will
@@ -19,18 +29,28 @@ fi
 # them to.
 for p in ~/.profile.${USER}*
 do
-    if [ -e $p ]
+    if [ -e "${p}.skip" ]
     then
-        if [ -e ${p}.skip ]
+        echo "Skipping $p because ${p}.skip found" >&2
+    else
+        var=PROFILE_SKIP$(basename "$p" | tr '[:lower:]' '[:upper:]' | sed 's/\./_/g')
+        val="$(eval echo \$"$var")"
+        if [ -n "$val" ]
         then
-            echo "Skipping $p because ${p}.skip found" >&2
+            echo "Skipping $p because $var exists (value $val)" >&2
         else
-            .  $p
+            . "$p"
         fi
     fi
 done
 
-! ~/personal/bin/running_under_cron  && [ -n "$ALLFUNCS_PROFILE" ] && \
-    ( [ -n "$ALLFUNCS_PROFILE_LEVELS" ] && \
-          printf '=%.0s' $(eval "echo {1.."$((${#BASH_SOURCE[@]}))"}") || true ) && \
+# Get the aliases and functions. We don't run other bashrcs here; we do that in
+# .bashrc so that under a subshell they all get read.
+if ! $CRON && [ -f ~/.bashrc ]; then
+    . ~/.bashrc
+fi
+
+if ((bash_profile_echo == 1))
+then
     echo "$(date): ~/.bash_profile has run"
+fi

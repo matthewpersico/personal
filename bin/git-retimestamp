@@ -1,0 +1,79 @@
+#!/usr/bin/env bash
+
+# git-retimestamp
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+##@@ 0001||group||git-retimestsamp||Adjust all non-modified, tracked files to have the date of their last commit, not the pull date.
+declare verbose=0
+if [[ "$1" =~ -v ]]
+then
+    verbose=1
+fi
+
+## Get the list of files.
+declare -A gitfiles
+for i in $(git ls-files)
+do
+    gitfiles[$i]=1
+done
+
+## Remove from the list any that are currently modified.
+declare msgd=''
+for i in $(git what is mod)
+do
+    if [ -z "$msgd" ]
+    then
+        msgd=1
+        if ((verbose==0))
+        then
+            echo Will not consider modified files
+        else
+            echo Will not consider the following modified files:
+        fi
+    fi
+    ((verbose)) && echo "$i"
+    unset "gitfiles[$i]"
+    [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
+done
+
+## Parse the log to get the date and modify accordingly.
+declare gitdate
+declare tmpfile
+tmpfile=$(mktemp -t tmp.git-retimestamp.XXXXXXXXXX)
+rm_on_exit "$tmpfile"
+date > "$tmpfile"
+git log  --date=iso --name-only | \
+    while read -r i;
+    do
+        if [ -z "$i" ]
+        then
+            # shellcheck disable=SC2034
+            noop=1
+        elif [[ $i =~ Date: ]]
+        then
+            gitdate=$(echo "$i" | sed -E 's/Date:\s+//')
+        elif [ -n "${gitfiles[$i]}" ]
+        then
+            echo "gitfiles[$i] => ${gitfiles[$i]}" >> "$tmpfile"
+            unset "gitfiles[$i]"
+            [ -n "${gitfiles[$i]}" ] && echo "WOAH DIDNT DELETE gitfiles[$i] - '${gitfiles[$i]}'"
+            declare filedate
+            filedate=$(stat -c %y "$i" | sed 's/\.[0-9]+//')
+            if [ ! "$filedate" = "$gitdate" ]
+            then
+                if ((verbose))
+                then
+                    echo
+                    echo "${i}..."
+                    ls -la "$i"
+                fi
+                touch -d "$gitdate" "$i"
+                if ((verbose))
+                then
+                    ls -la "$i"
+                fi
+            fi
+        fi
+    done

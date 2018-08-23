@@ -1,0 +1,78 @@
+#!/usr/bin/env bash
+
+# git-status-ext
+
+git root >/dev/null || exit 1
+echo
+echo "=== Latest log entry:"
+git log -1
+echo
+echo "=== Status:"
+git branch info local-status
+declare gmdw
+gmdw=$(git branch info delete-worktree)
+# shellcheck disable=SC2086 # Don't want quotes around the date with @
+[ -n "$gmdw" ] && \
+    echo "Worktree scheduled for removal on or after $( date --date=@$gmdw)"
+git-merge-find
+git branch info pull-request
+declare outcmd=cat
+if [[ "$1" =~ -dif ]]
+then
+    outcmd='less -RE'
+fi
+git-status-with-changelog --cdok "$@" | grep -v "No files specified" | $outcmd
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-status-ext - extended git status
+
+=head1 SYNOPSIS
+
+ git status-ext [--diff] [pathspec...]
+
+=head1 DESCRIPTION
+
+A git status command enhanced as follows:
+
+=over 4
+
+=item Latest log entry
+
+The log entry for the latest commit in the repo (git log -1) is shown.
+
+=item Local information
+
+If the branch was annotated with a git branch info call when created, this note
+is displayed.
+
+=item Deletion information
+
+If the branch is scheduled to be deleted, that time is shown.
+
+=item Merge information
+
+If the branch was merged using the git-merge* commands, that information is
+displayed.
+
+=item Pull request
+
+If the branch was merged using the git-merge* commands, related pull request
+information is displayed.
+
+=item Status with changelog entries.
+
+If SourceCtrlLog is found in the repo or worktree root, its contents are mixed
+in with the regular git status display. If --diff is specfied, the git diff
+output is also mixed in.
+
+=back 4
+
+=cut
+
+__PODUSAGE__

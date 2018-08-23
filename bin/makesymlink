@@ -1,0 +1,42 @@
+#!/usr/bin/env bash
+
+# makesymlink
+
+# Symlink $2 to $1, but do so relatively if they share a common root directory
+
+## TODO: --backup=backup_dir
+## TODO: --relink - remove link, relink.
+
+set -e
+
+declare backup_dir
+declare relink=0
+declare fullsrc=$1
+declare fulllink=$2
+
+if [ ! -e $fullsrc ]
+then
+    echo "'$fullsrc' not found. Skipping processing of '$fulllink'."
+elif [ -h $fulllink ]
+then
+    echo -n "'$fulllink' is already a link."
+    if ((relink))
+    then
+        echo " --relink specified; relinking."
+    else
+        echo " Skipping processing of '$fulllink'."
+    fi
+else
+    if [ -f $fulllink ] || [ -d $fulllink ]
+    then
+        srctype='directory'; if [ -f $fulllink ]; then srctype='file'; fi
+        echo "Moving existing $srctype '$fulllink' to $backup_dir so we can link it to '$fullsrc'."
+        mv $fulllink $backup_dir/$(basename $fulllink).$(date '+%Y%m%d%H%M%S')
+    fi
+    echo "Relativizing src and link"
+    declare paths
+    asplit paths ':' $(relativize_two_paths $fullsrc $fulllink)
+    echo "Creating symlink '${paths[2]}' to '${paths[1]}' in '${paths[0]}'."
+    (builtin cd ${paths[0]}
+     ln -s ${paths[1]} ${paths[2]})
+fi

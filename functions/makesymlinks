@@ -1,0 +1,62 @@
+#!/usr/bin/env bash
+
+# <Function Class: dotfiles>
+# <Function Justification: none>
+
+makesymlinks ()
+{
+    # creates symlinks from any target file to the git-controlled source in
+    # ~/personal/dotfiles. Use this when initing a new vm.
+
+    local opwd
+    opwd=$(pwd)
+
+    # create DOTFILES_OLDDIR
+    if [ ! -d "$DOTFILES_OLDDIR" ]
+    then
+        echo -n "Creating $DOTFILES_OLDDIR for backup of any existing dotfiles in ~..."
+        mkdir -p "$DOTFILES_OLDDIR"
+        echo "done"
+    fi
+
+    # shellcheck disable=SC1090
+    . "$DOTFILES_MANIFEST"
+
+    # change to the dotfiles directory
+    echo -n "Changing to the $DOTFILES_DIR directory ..."
+    builtin cd "$DOTFILES_DIR"
+    echo "done"
+
+    # Move any existing dotfiles in to dotfiles_old directory, then create
+    # symlinks from the original location to the corresponding files in the
+    # ~/dotfiles directory.
+    # shellcheck disable=SC2154 #dotfiles assigned in DOTFILES_MANIFEST source above
+    for src in "${!dotfiles[@]}"
+    do
+        local fullsrc=$DOTFILES_DIR/$src
+        local fulllink=${dotfiles[$src]}
+        ## TODO: Replace to end marker
+        if [ ! -e "$fullsrc" ]
+        then
+            echo "'$fullsrc' not found. Skipping processing of '$fulllink'."
+        elif [ -h "$fulllink" ]
+        then
+            echo "'$fulllink' is already a link. Skipping processing of '$fulllink'."
+        else
+            if [ -f "$fulllink" ] || [ -d "$fulllink" ]
+            then
+                srctype='directory'; if [ -f "$fulllink" ]; then srctype='file'; fi
+                echo "Moving existing $srctype '$fulllink' to $DOTFILES_OLDDIR so we can link it to '$fullsrc'."
+                mv "$fulllink" "$DOTFILES_OLDDIR/$(basename "$fulllink").$(date '+%Y%m%d%H%M%S')"
+            fi
+            echo "Relativizing src and link"
+            declare paths
+            asplit paths ':' "$(relativize_two_paths "$fullsrc" "$fulllink")"
+            echo "Creating symlink '${paths[2]}' to '${paths[1]}' in '${paths[0]}'."
+            (builtin cd "${paths[0]}"
+             ln -s "${paths[1]}" "${paths[2]}")
+        fi
+        ## TODO: End marker, replace with makesymlink --backup=$DOTFILES_OLDDIR $fullsrc $fulllink
+    done
+    buildin cd "$opwd"
+}

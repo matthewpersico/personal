@@ -1,0 +1,39 @@
+#!/usr/bin/env bash
+
+# <Function Class: git>
+# <Function Justification: none>
+
+git-log-shas-range ()
+{
+    ##@@ 0001||group||git-log-shas||Given two shas (older newer), call git log on the range, inclusively
+
+    local opt_hf=''
+    local opt_inclusive=1
+    local opt_add_names=''
+    local OPTSARGS
+    OPTSARGS=$(getoptp -o f:ienh --long highlightfirst:,inclusive,exclusive,name-only,help -n "${FUNCNAME[0]}" -- "$@")
+    local status=$?
+    ((status != 0)) && func-usage && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -f|--higlightfirst)  opt_inclusive=1; opt_hf="$2"; shift; shift ;;
+            -i|--inclusive) opt_inclusive=1; shift ;;
+            -e|--exclusive) opt_inclusive=0; shift ;;
+            -n|--name-only) opt_add_names='--name-only'; shift ;;
+            -h|--help) func-usage; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; func-usage; return 1 ;;
+        esac
+    done
+
+    [ -z "$2" ] && echo "Usage: git-log-sha-range oldersha newersha" && return 1;
+    git --no-pager log $opt_add_names "${1}..${2}" ## Does not print the first one
+    if((opt_inclusive))
+    then
+        [ ! "$1" = "$2" ] && echo "$opt_hf"
+        git --no-pager log $opt_add_names -1 "${1}"    ## Always prints the first one
+    fi
+}

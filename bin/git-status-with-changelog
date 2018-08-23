@@ -1,0 +1,83 @@
+#!/usr/bin/env bash
+# git-status-with-changelog
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+declare diff
+declare cached
+declare cdok=0
+declare noclonly
+declare moreopts=1
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift ## That way you avoid endless loops on invalid options.
+
+    case $option in
+        noclonly) noclonly='--noclonly';;
+        cdok) cdok=1;;
+        diff) diff='--diff';;
+        cached) cached='--cached';;
+        h|help) script-usage; exit 0 ;;
+        debug | x ) set -x; trap 'set +x' EXIT;;
+        --) moreopts=0;;
+        * )
+            cmd-echo -- "$original is an invalid option. See $0 --help";
+            exit 1
+            ;;
+    esac
+done
+
+## All of the *-changelog functions work best in the git root, which is
+## where the $GITFUNCS_CHANGELOG_NAME is anyway
+declare pwd
+pwd=$(pwd)
+declare gr
+gr=$(git root)
+if [ ! "$pwd" = "$gr" ]
+then
+    if ((!cdok))
+    then
+        cmd-echo "Current directory ($pwd) is not the git root ($gr)"
+        declare resp
+        resp=$(cmd-yesno "Go there")
+        if [ "$resp" = 'n' ]
+        then
+            exit 1
+        fi
+    fi
+    _git-cd-to "$gr" || exit $?
+else
+    gr=''
+fi
+
+declare -a filenames
+filenames=("$@")
+if ((${#filenames[@]}==0))
+then
+    # shellcheck disable=SC2230
+    mapfile -t filenames < <($DEBUG_GIT_STATUS_PARSE "$(which git-status-parse)" --all) ## matches default git status setting
+fi
+git-process-changelog --withstatus $diff $cached $noclonly "${filenames[@]}"
+
+[ -n "$gr" ] && _git-cd-return
+
+exit 0
+
+:<< __USAGE__
+NAME
+    git-status-with-changelog
+
+SYNOPSIS
+    git-status-with-changelog TBD
+
+DESCRIPTION
+    TBD
+
+OPTIONS
+    TBD
+
+__USAGE__

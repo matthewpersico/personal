@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+
+# _git-go-get
+
+#shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+## no, we don't need getopt processing here. This is an internal func so we
+## just have to GET IT RIGHT when we call it.
+declare update
+declare roots
+declare mbig
+declare wt
+declare only_wt
+declare fields
+declare filter
+declare exact
+declare moreopts
+declare limited
+moreopts=1
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    ## Strip all leading dashes here so that -foo and --foo can both
+    ## be processed as 'foo'.
+    declare original="$1"
+    declare option
+
+    option=$(dashstripper "$original")
+    shift
+
+    case $option in
+        e | exact) exact='headtail' ;;
+        et | exact-tail) exact='tail' ;;
+        eh | exact-head) exact='head' ;;
+        u | update) update=1 ;;
+        r | roots) roots=1 ;;
+        m | mbig) mbig=1 ;;
+        w | wt) wt=1 ;;
+        o | only_wt) only_wt=1 ;;
+        f | fields) fields=1 ;;
+        limited) limited="$1" ; shift ;;
+        h | help )
+            func-usage
+            ## (return if a func, exit if a script) 0
+            ;;
+        debug | x ) set -x ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            echo "$original is an invalid option. See $0 --help";
+            ## (return if a func, exit if a script) 1
+            ;;
+        esac
+    done
+
+# shellcheck disable=SC2124
+filter="$@"
+
+declare tmpfile
+tmpfile=$(mktemp -t tmp._git-go-get.XXXXXXXXXX)
+#rm_on_exit "$tmpfile"
+#rm_on_exit "${tmpfile}.001"
+
+declare gitfuncs_git_go_file
+if [ -n "$limited" ]
+then
+    for i in $(asplit - , "$limited")
+    do
+        echo "$i" >> "$tmpfile"
+    done
+else
+    gitfuncs_git_go_file=$(git-go-set-filename)
+    if [ ! -e "$gitfuncs_git_go_file" ] || ((update))
+    then
+        git-go-set $mbig
+    fi
+    cp "$gitfuncs_git_go_file" "$tmpfile"
+    if ((roots==0))
+    then
+        grep '(repo)' "$tmpfile" | sed 's/(repo)//' > "${tmpfile}.001"
+        mv "${tmpfile}.001" "$tmpfile"
+    fi
+
+    if ((mbig==0))
+    then
+        grep -v 'MBIG' "$tmpfile" > "${tmpfile}.001"
+        mv "${tmpfile}.001" "$tmpfile"
+    fi
+
+    if ((wt==0))
+    then
+        grep -v '/wt/' "$tmpfile" > "${tmpfile}.001"
+        mv "${tmpfile}.001" "$tmpfile"
+    fi
+
+    if ((only_wt==1))
+    then
+        grep '/wt/' "$tmpfile" > "${tmpfile}.001"
+        mv "${tmpfile}.001" "$tmpfile"
+    fi
+fi
+
+if [ -n "$filter" ]
+then
+    case $exact in
+        headtail ) grep -E -- "^$filter\$" "$tmpfile" > "${tmpfile}.001" ;;
+        head     ) grep -E -- "^$filter"   "$tmpfile" > "${tmpfile}.001" ;;
+        tail     ) grep -E -- "$filter\$"  "$tmpfile" > "${tmpfile}.001" ;;
+        *        ) grep -i -- "$filter"    "$tmpfile" > "${tmpfile}.001" ;;
+    esac
+    mv "${tmpfile}.001" "$tmpfile"
+fi
+
+if((fields))
+then
+    tr '\n' ' ' < "$tmpfile"
+else
+    cat "$tmpfile"
+fi

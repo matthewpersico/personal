@@ -1,0 +1,109 @@
+#!/usr/bin/env bash
+
+# <Function Class: git>
+# <Function Justification: change cwd>
+
+git-checkout ()
+{
+    local opt_m=''
+    local message=''
+    local OPTSARGS
+    OPTSARGS=$(getoptp -o m: --long message: -n "${FUNCNAME[0]}" -- "$@")
+    local status=$?
+    ((status != 0)) && func_usage && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
+            -h|--help) func_usage; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; func_usage; return 1 ;;
+        esac
+    done
+
+    local newbranch=$1
+    local createbranch=''
+    if [ -z "$newbranch" ]
+    then
+        local branchesa
+        readarray -t branchesa < <(git branch --list --format='%(refname)' | sed 's|.*/||' )
+        if [ ${#branchesa[@]} == '0' ]
+        then
+            echo "No branches found. Are you in a git repo?"
+            return 1
+        fi
+        local current_branch
+        current_branch=$(git branch get-current)
+        local PS3="Choose by number, q to quit: "
+        local newonemsg="Create a new one from $current_branch"
+        local selected
+        COLUMNS=1 ## One character wide terminal, forces list to be one column
+        select selected in "$newonemsg" "${branchesa[@]}"
+        do
+            if [ -n "$selected" ]
+            then
+                if [ "$selected" == "$current_branch" ]
+                then
+                    echo "$selected is current. Cannot checkout current."
+                elif [ "$selected" == "'$newonemsg'" ]
+                then
+                    while [ -z "$newbranch" ]
+                    do
+                        read -r -p "Enter a new branch name: " newbranch
+                    done
+                    if [ -d './wt' ]
+                    then
+                        local resp
+                        resp=$(cmd-yesno "As a worktree" y)
+                        if [ "$resp" == 'y' ]
+                        then
+                            builtin cd ./wt || return $?
+                            git-worktree-create "$opt_m" "$message" "$newbranch"
+                            return $?
+                        fi
+                    fi
+                    createbranch='-b'
+                else
+                    newbranch=${selected/\*/}
+                fi
+                break
+            elif [ "$(echo "$REPLY" | tr '[:upper:]' '[:lower:]')" = 'q' ]
+            then
+                return 0
+            else
+                echo "'$REPLY' is an invalid choice"
+            fi
+        done
+    fi
+    if [ -n "$newbranch" ]
+    then
+        if [ "$newbranch" = 'help' ]
+        then
+            echo "Use -help or --help"
+            return
+        fi
+        if [ "$newbranch" = 'info' ]
+        then
+            git branch -vv
+            return
+        fi
+        git checkout $createbranch "$newbranch"
+        status=$?
+        if [ "$status" = '0' ] && [ "$createbranch" = '-b' ]
+        then
+            echo "Setting upstream..."
+            git push --set-upstream origin "$newbranch"
+        fi
+
+        if [ -n "$opt_m" ]
+        then
+            git-branch-ingo --timestamp local-status "$message"
+        fi
+        ## Update with changed branches
+        git-go-set
+        return $?
+    fi
+    return 0
+}

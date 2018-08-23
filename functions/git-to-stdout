@@ -1,0 +1,113 @@
+#!/usr/bin/env bash
+
+# <Function Class: git>
+# <Function Justification: none>
+
+git-to-stdout ()
+{
+    declare moreopts=1
+    declare file=0
+
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        declare original="$1"
+        declare option
+        option=$(dashstripper "$original")
+        shift
+        case $option in
+            ## standard options
+            h | help )
+                func-usage
+                return 0
+                ;;
+            f | file)
+                file=1;;
+            --)
+                moreopts=0
+                ;;
+            * )
+                cmd-echo -- "$original is an invalid option. See $0 --help";
+                return 1
+                ;;
+        esac
+    done
+
+    if (($# < 2 ))
+    then
+        func-usage
+        return 1
+    fi
+
+    local uuid=$1;shift
+    for i in "$@"
+    do
+        if ((file))
+        then
+            echo "${i}.${uuid}"
+            git show "${uuid}:${i}" > "$(git root)/${i}.${uuid}"
+        else
+            git show "${uuid}:${i}"
+        fi
+    done
+}
+
+## The End, to make sure we never eval the usage statement
+return 0
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+foo - script/command/function that does something
+
+=head1 SYNOPSIS
+
+ foo [--option1] [ --option2 optionarg ] arg1 [arg2 ...] \
+     [fee] [dfsdfs] [sfsdfsf]
+
+=head1 DESCRIPTION
+
+Describe in general terms what foo does.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item arg
+
+Describe what arg does, should be, etc. Add a new =item for each distinct arg.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --option1
+
+Describe what --option1 does.
+
+=item --option2
+
+Describe what --option2 does. Describe what optionarg does.
+
+=over 2
+
+=item *
+
+A choice for optionarg
+
+=item *
+
+Another choice for optionarg
+
+=back
+
+=back
+
+=cut
+
+__PODUSAGE__

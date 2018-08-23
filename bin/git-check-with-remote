@@ -1,0 +1,155 @@
+#!/usr/bin/env bash
+
+# git-check-with-remote
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+declare iam
+iam=$(func-name-spoof)
+
+declare opt_branch=''
+declare opt_remote='origin'
+declare opt_bail_on_dirty='0'
+declare OPTSARGS
+OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,bail_on_dirty -n "$iam" -- "$@")
+status=$?
+((status != 0)) && exit $status
+eval set -- "$OPTSARGS"
+while true
+do
+    case "$1" in
+        --bail_on_dirty) opt_bail_on_dirty=1; shift;;
+        -r|--remote) opt_remote="$2"; shift; shift ;;
+        -b|--branch) opt_branch="$2"; shift; shift ;;
+        -h|--help) script-usage "$0"; exit 0 ;;
+        --) shift; break ;; ## end of opts, remaining $*, if any, are args
+        *) cmd-echo "Internal error!"; script-usage "$0"; exit 1 ;;
+    esac
+done
+
+if [ -z "$opt_branch" ]
+then
+    cmd-echo -- "--branch required"
+    script-usage "$0"
+    exit 1
+fi
+
+declare cb
+cb=$(git rev-parse --abbrev-ref HEAD)
+status=$?
+((status != 0 )) && exit 1
+
+if [ "$cb" == '' ]
+then
+    # shellcheck disable=SC2154
+    cat <<EOF
+
+$iam is used to check your current git repo DEVELOPMENT branch in your declare
+clone against changes in
+
+branch "${opt_branch}"
+  repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
+
+However, you do not appear to even be in a repo. I'm exiting. Try again in a
+proper repo.
+
+EOF
+    exit 1
+fi
+
+if [ "$cb" == "$opt_branch" ]
+then
+    cat <<EOF
+
+$iam is used to check your current git repo DEVELOPMENT branch in your declare
+clone against changes in
+
+branch "${opt_branch}"
+repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
+
+However, you appear to be on branch "${opt_branch}", the branch you want to
+sync with. I'm exiting. Get off the branch "${opt_branch}" and onto another
+branch Then rerun the command. Or just do a 'git pull' if you really need to
+refresh this branch.
+
+EOF
+    exit 1
+fi
+
+## Check the declare branch against its origin
+declare stcheck
+stcheck=$(mktemp -t tmp.git-check-with-remote.check.XXXXXXXXXX)
+rm_on_exit "$stcheck"
+git status 1>"$stcheck" 2>&1
+grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null
+status=$?
+if [ "$status" != '0' ]
+then
+    cat "$stcheck"
+    cat <<EOF
+Your branch should be up to date with its origin in order to simplify the
+check.
+EOF
+    if ((opt_bail_on_dirty))
+    then
+        cmd-echo Exiting.
+        exit 1
+    else
+        declare resp
+        resp=$(cmd-yesno "Do you want to continue anyway" n)
+        if [ "$resp" == 'n' ]
+        then
+            exit 1
+        fi
+    fi
+fi
+
+## Now grab the remote branch
+declare gflog
+gflog=$(mktemp -t tmp.git-check-with-remote.gflog.XXXXXXXXXX)
+rm_on_exit "$gflog"
+git fetch "${opt_remote}" "${opt_branch}" 2>"$gflog"
+declare rc=$?
+if ((rc))
+then
+    cat "$gflog"
+    rm -f "$gflog"
+    exit 1
+fi
+rm -f "$gflog"
+
+## Log the declare branch
+declare locallog
+locallog=$(mktemp -t tmp.git-check-with-remote.locallog.XXXXXXXXXX)
+rm_on_exit "$locallog"
+git log > "$locallog"
+
+## Log the declare copy of the remote branch
+declare remotelog
+remotelog=$(mktemp -t tmp.git-check-with-remote.remotelog.XXXXXXXXXX)
+rm_on_exit "$remotelog"
+git log "${opt_remote}/${opt_branch}" > "$remotelog"
+
+## Diff 'em
+declare difflog
+difflog=$(mktemp -t tmp.git-check-with-remote.difflog.XXXXXXXXXX)
+rm_on_exit "$difflog"
+diff "$locallog" "$remotelog" 1> "$difflog" 2>&1
+
+if [ -s "$difflog" ]
+then
+    # shellcheck disable=SC2002 # Using the cat instead of wc -l file prevents
+    # the filename from being printed out,
+    if [ "$(cat "$difflog" | wc -l)" = '10' ] \
+           && [ ! "$(grep -E "Merge pull request.*$(git-branch get-current)" "$difflog")" = '' ]
+    then
+        cmd-echo "Only diff to ${opt_remote} is merge pull request."
+    else
+        cmd-echo -head "*** git repo: $(pwd)"
+        cmd-echo -c "*** Current branch $(git branch get-current) and ${opt_remote}/${opt_branch} are not synced:"
+        cat "$difflog"
+    fi
+fi
+
+exit 0

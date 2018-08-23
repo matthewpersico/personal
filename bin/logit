@@ -1,14 +1,337 @@
-# -*- sh -*-
-
+#!/usr/bin/env bash
 #
 # logit
 #
 
 # Take args, treat as a command + args and run all output to a file.
 
-usage ()
-{
-    cat <<EOUSAGE
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+# Inits
+declare logfile=''
+declare logdir=''
+declare teeit=0
+declare tsit=0
+declare edit=''
+declare edit_echo=''
+declare edit_on_fail=''
+declare purge=''
+declare notimestamp=''
+declare -a original_argv
+original_argv+=("$0" "$@")
+
+# Read the options and args from command line.
+OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
+status=$?
+if ((status != 0))
+then
+    echo "If the error was 'unrecognized option...'"
+    echo "then logit read an option to your program"
+    echo "as its own. Add -- as the last logit option"
+    echo "right before your command."
+    echo "Exiting."
+    exit $status
+fi
+
+# Reset the command line.
+eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+while true ; do
+    case "$1" in
+        -h|--help)
+            script-usage; exit 0 ;;
+        --log)
+            logfile="$2"
+            shift 2 ;;
+        --dir)
+            logdir="$2"
+            shift 2 ;;
+        --tee)
+            teeit=1
+            shift ;;
+        --edit-echo)
+            edit_echo=1
+            ;& ## unconditional dropthrough
+        --edit)
+            edit="$LOGIT_EDITOR"
+            [ -z "$edit" ] && edit="$EDITOR"
+            shift
+            ;;
+        --edit-on-fail)
+            edit_on_fail="$LOGIT_EDITOR"
+            [ -z "$edit_on_fail" ] && edit_on_fail="$EDITOR"
+            shift ;;
+        --purge)
+            purge=all
+            shift ;;
+        --purgeprior)
+            purge=prior
+            shift ;;
+        --notimestamp)
+            notimestamp=1
+            shift ;;
+        --tpe)
+            teeit=1
+            purge=all
+            edit="$LOGIT_EDITOR"
+            [ -z "$edit" ] && edit="$EDITOR"
+            shift ;;
+        --tpef)
+            teeit=1
+            purge=all
+            edit_on_fail="$LOGIT_EDITOR"
+            [ -z "$edit_on_fail" ] && edit_on_fail="$EDITOR"
+            shift ;;
+        --ts)
+            tsit=1
+            shift ;;
+        --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
+        *) echo "Internal error! You probably forgot to add a -- option between the logit options and the command to run."
+           script-usage
+           exi 1 ;;
+    esac
+done
+
+# Arg checking
+if [ -z "$1" ]
+then
+    echo "Command required."
+    script-usage; exit 1
+fi
+
+before_command=1
+after_command=0
+declare -a envs
+command=''
+declare -a cmdargs
+
+for arg in "$@"
+do
+    if [[ "$arg" =~ x ]] && ((before_command))
+    then
+        envs+=("$arg")
+    else
+        before_command=0
+        if ((after_command))
+        then
+            cmdargs+=("$arg")
+        else
+            command="$arg"
+            after_command=1
+        fi
+    fi
+done
+
+if [ ! -x "$command" ]
+then
+    # shellcheck disable=SC2230
+    fullcommand=$(which "$command" 2>/dev/null)
+    if [ -z "$fullcommand" ]
+    then
+        isafunc=$(type "$command" | head -1)
+        if [ "$isafunc" != "$command is a function" ]
+        then
+            echo "'$command' is not a function or not found or not executable."
+            script-usage; exit 1
+        fi
+    fi
+fi
+
+# Log file setup
+[ -z "$logfile" ] && logfile=$(basename "$command")
+logfileroot="${logfile}.logit"
+now=$(date +%Y_%m_%dT%H_%M_%S)
+logfile="${logfile}.logit"
+if [ "$notimestamp" = '' ]
+then
+    logfile="${logfile}.${now}"
+fi
+today=${now%%T*}
+
+if [ -z "$logdir" ]
+then
+    if [[ $logfile =~ / ]]
+    then
+        logdir=$(dirname "$logfile")
+        logfile=$(basename "$logfile")
+    else
+        logdir=$(pwd)
+        [ -d ./logit ] && logdir=$(pwd)/logit
+    fi
+fi
+
+logspec="$logdir/$logfile"
+logspecroot="$logdir/$logfileroot"
+if [ -n "$purge" ]
+then
+    if [ "$purge" = 'all' ]
+    then
+        echo "Purging ${logspecroot}*"
+        rm -f "${logspecroot}"*
+    else
+        ## prior day
+        echo "Purging ${logspecroot}*, keeping $today"
+        declare rmlist
+        # shellcheck disable=SC2010 ## Yeah, yeah ls|grep is bad. It's also simple.
+        rmlist=$(ls "${logspecroot}"* 2>/dev/null | grep -v "logit.${today}")
+        [ -n "$rmlist" ] && rm -f "$rmlist"
+    fi
+fi
+
+touch "$logspec" ## Critical for tee below
+logmsg="Logfile is: $logspec"
+echo "$logmsg"
+
+# And off we go...
+echo "Working..."
+
+if ((teeit))
+then
+    termer=''
+    for i in xterm rxvt mrxvt
+    do
+        # shellcheck disable=SC2230
+        [ -z "$termer" ] && [ -n "$(which $i 2>/dev/null)" ] && termer=$(which $i)
+    done
+    termheight=$(x-current-root-height)
+    if ((termheight >1024)); then termheight=40; else termheight=20; fi
+
+    declare -a colors
+    if [[ $termer =~ xterm ]]
+    then
+         if type xterm_Xground 2>/dev/null 1>/dev/null
+         then
+             colors=('-fg' "$(xterm_foreground)" '-bg' "$(xterm_background)")
+         fi
+    fi
+
+    $termer -g 132x${termheight}+100+100 "${colors[@]}" -title "logit tee on $(hostname)" -e tail -f "$logspec" &
+    sleep 2 ## Give the terminal a chance to come up and start tailing so we
+    ## see the whole log in the tail
+    tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v xterm | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+fi
+
+(
+    echo "********************"
+    echo "  logit invocation"
+    echo "********************"
+    echo "${original_argv[@]}"
+    echo
+
+    if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]
+    then
+        echo "********************"
+        echo "      git info"
+        echo "********************"
+        echo
+        echo "Latest log entry:"
+        git log -1
+        echo
+        echo "Status:"
+        git status
+        echo
+
+        tmpf=$(mktemp -t tmp.logit.XXXXXXXXXX)
+        rm_on_exit "$tmpf"
+        git stash list >"$tmpf" 2>&1
+        if [ -s "$tmpf" ]
+        then
+            echo "Stashes:"
+            cat "$tmpf"
+            echo
+        fi
+        if [[ ! "$(type git-hold-list 2>&1)" =~ 'not found' ]]
+        then
+            git-hold-list >"$tmpf" 2>&1
+            if [ -s "$tmpf" ]
+            then
+                echo "Holds:"
+                cat "$tmpf"
+                echo
+            fi
+        fi
+    fi
+
+    echo "********************"
+    echo "        cwd"
+    echo "********************"
+    pwd
+    echo
+
+    echo "********************"
+    echo "      command"
+    echo "********************"
+    echo "${envs[*]} $command ${cmdargs[*]}"
+    echo
+
+    echo "********************"
+    echo "     execution"
+    echo "********************"
+    echo "start time: $(date)"
+    eval "${envs[@]}"
+    if((tsit))
+    then
+        $command "${cmdargs[@]}" | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
+                    $|=1;
+                    select((select(STDERR), $| = 1)[0]);
+                    ($s,$ms)=gettimeofday();
+                    $ms=substr(q(000000) . $ms,-6);
+                    print strftime "[%Y-%m-%d %H:%M:%S.$ms]", localtime($s)'
+    else
+        $command "${cmdargs[@]}"
+    fi
+    status=${PIPESTATUS[0]}
+    echo
+
+    echo "********************"
+    echo "$logmsg"
+    echo "exit status: $status"
+    echo "end time: $(date)"
+    echo "********************"
+    exit "$status"
+) >> "$logspec" 2>&1
+status=$?
+echo "$logmsg"
+echo "Exit status: $status"
+
+declare -a editcmd
+if [ -n "$edit" ]
+then
+    read -r -a editcmd < <(echo "$edit")
+elif [ ! "$status" = '0' ] && [ -n "$edit_on_fail" ]
+then
+    read -r -a editcmd < <(echo "$edit_on_fail")
+fi
+
+if [[ "${editcmd[0]}" =~ emacs\  ]]
+then
+    width=$(perl -n -e 'length($_)>$x and $x=length($_);END{print $x}' "$logspec");
+    lineheight=$(( ($(x-current-root-height)-100) / 30 ))
+    logheight=$(wcstrip -l "$logspec")
+    if (( lineheight <= logheight ))
+    then
+        height=$lineheight
+    else
+        height=$logheight
+    fi
+    editcmd+=('-g' "${width}x${height}+100+100")
+fi
+if [ -n "${editcmd[0]}" ]
+then
+    if [ -n "$edit_echo" ]
+    then
+        echo "${editcmd[@]}" "$logspec"
+    else
+        "${editcmd[@]}" "$logspec" &
+        [ -n "$tailpid" ] && kill "$tailpid"
+    fi
+fi
+exit $status
+
+:<<'__USAGE__'
 [FOO=BAR [ FOO2=BAR2... ] ] \\
 logit [ --tee ] \\
       [ --log log_basename ] \\
@@ -16,6 +339,8 @@ logit [ --tee ] \\
       [ --dir log_directory ] \\
       [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
       [ --purge | --purgeprior ] \\
+      [ --tpe[f] ] \\
+      [ --ts ] \\
       [ -- ] \\
       command [arg ..]
 
@@ -61,6 +386,13 @@ logit [ --help | -h ]
                  running the command, but keep those with
                  today's date in the log name.
 
+      --tpe[f]   - A shortcut for --tee --purge --edit, the three most
+                 commonly used switches. Adding the 'f' makes it
+                 behave as if --edit-on-fail was set instead of --edit.
+
+      --ts     - Use the 'ts' command to prepend a time stamp to each
+                 output line.
+
       --       - Ends options to logit. Command and its options
                  follow. Only needed if one or more logit options
                  are specified.
@@ -71,280 +403,4 @@ logit [ --help | -h ]
                  running your command should be set before calling
                  logit.
 
-EOUSAGE
-    exit $1
-}
-
-# Inits
-logfile=''
-logdir=''
-teeit=0
-edit=''
-edit_echo=''
-edit_on_fail=''
-purge=''
-notimestamp=''
-original_argv="$0 $@"
-
-# Read the options and args from command line.
-OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,help, -n 'logit' -- "$@")
-status=$?
-if ((status != 0))
-then
-    echo "If the error was 'unrecognized option...'"
-    echo "then logit read an option to your program"
-    echo "as its own. Add -- as the last logit option"
-    echo "right before your command."
-    echo "Exiting."
-    exit $status
-fi
-
-# Reset the command line.
-eval set -- "$OPTSARGS"
-
-# Reprocess the command line, extracting options and their arguments into
-# variables.
-while true ; do
-    case "$1" in
-        -h|--help)
-            usage 0 ;;
-        --log)
-            logfile="$2"
-            shift 2 ;;
-        --dir)
-            logdir="$2"
-            shift 2 ;;
-        --tee)
-            teeit=1
-            shift ;;
-        --edit)
-            edit="$LOGIT_EDITOR"
-            [ -z "$edit" ] && edit="$EDITOR"
-            shift ;;
-        --edit-echo)
-            edit_echo=1
-            edit="$LOGIT_EDITOR"
-            [ -z "$edit" ] && edit="$EDITOR"
-            shift ;;
-        --edit-on-fail)
-            edit_on_fail="$LOGIT_EDITOR"
-            [ -z "$edit" ] && edit_on_fail="$EDITOR"
-            shift ;;
-        --purge)
-            purge=all
-            shift ;;
-        --purgeprior)
-            purge=prior
-            shift ;;
-        --notimestamp)
-            notimestamp=1
-            shift ;;
-        --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
-        *) echo "Internal error! You probably forgot to add a -- option between the logit options and the command to run." ; usage 1 ;;
-    esac
-done
-
-# Arg checking
-if [ -z "$1" ]
-then
-    echo "Command required."
-    usage 1
-fi
-
-before_command=1
-after_command=0
-envs=''
-command=''
-cmdargs=''
-
-for arg in "$@"
-do
-    if (($(expr index "$arg" =))) && ((before_command))
-    then
-        envs="$envs $arg"
-    else
-        before_command=0
-        if ((after_command))
-        then
-            cmdargs="$cmdargs $arg"
-        else
-            command="$arg"
-            after_command=1
-        fi
-    fi
-done
-
-if [ ! -x $command ]
-then
-    fullcommand=$(which $command 2>/dev/null)
-    if [ -z "$fullcommand" ]
-    then
-        isafunc=$(type $command | head -1)
-        if [ "$isafunc" != "$command is a function" ]
-        then
-            echo "'$command' is not a function or not found or not executable."
-            usage 1
-        fi
-    fi
-fi
-
-# Log file setup
-[ -z "$logfile" ] && logfile=$(basename $command)
-logfileroot="${logfile}.logit"
-now=$(date +%Y_%m_%dT%H_%M_%S)
-logfile="${logfile}.logit"
-if [ "$notimestamp" = '' ]
-then
-    logfile="${logfile}.${now}"
-fi
-today=${now%%T*}
-
-if [ -z "$logdir" ]
-then
-    logdir=$(pwd)
-    [ -d ./logit ] && logdir=$(pwd)/logit
-fi
-
-logspec="$logdir/$logfile"
-logspecroot="$logdir/$logfileroot"
-if [ -n "$purge" ]
-then
-    if [ "$purge" = 'all' ]
-    then
-        echo "Purging ${logspecroot}*"
-        rm -f ${logspecroot}*
-    else
-        ## prior day
-        echo "Purging ${logspecroot}*, keeping $today"
-        local rmlist=$(ls ${logspecroot}* 2>/dev/null | grep -v logit.${today})
-        [ -n "$rmlist" ] && rm -f $rmlist
-    fi
-fi
-
-touch $logspec ## Critical for tee below
-logmsg="Logfile is: $logspec"
-echo $logmsg
-
-# And off we go...
-echo "Working..."
-
-if ((teeit))
-then
-    termer=''
-    for i in xterm rxvt mrxvt
-    do
-        [ -z "$termer" ] && [ -n "$(which $i 2>/dev/null)" ] && termer=$(which $i)
-    done
-    termheight=$(x-current-root-height)
-    if ((termheight >1024)); then termheight=40; else termheight=20; fi
-
-    $termer -g 132x${termheight}+100+100 -title "logit tee on $(hostname)" -e tail -f $logspec &
-    sleep 2 ## Give the terminal a chance to come up and start tailing so we
-    ## see the whole log in the tail
-    tailpid=$(pstree | grep $logspec | grep 'tail -f' | grep -v xterm | perl -ane 'for(@F){/[0-9]+/ && do {print $_; exit}}')
-fi
-
-(
-    echo "********************"
-    echo "  logit invocation"
-    echo "********************"
-    echo $original_argv
-    echo
-
-    if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]
-    then
-        echo "********************"
-        echo "      git info"
-        echo "********************"
-        echo
-        echo "Latest log entry:"
-        git log -1
-        echo
-        echo "Status:"
-        git status
-        echo
-
-        tmpf=$(mktemp  --suffix=.logit)
-        git stash list >$tmpf 2>&1
-        if [ -s $tmpf ]
-        then
-            echo "Stashes:"
-            cat $tmpf
-            echo
-        fi
-        if [[ ! "$(type git-hold-list 2>&1)" =~ 'not found' ]]
-        then
-            git-hold-list >$tmpf 2>&1
-            if [ -s $tmpf ]
-            then
-                echo "Holds:"
-                cat $tmpf
-                echo
-            fi
-        fi
-    fi
-
-    echo "********************"
-    echo "        cwd"
-    echo "********************"
-    echo $(pwd)
-    echo
-
-    echo "********************"
-    echo "      command"
-    echo "********************"
-    echo $envs $command $cmdargs
-    echo
-
-    echo "********************"
-    echo "     execution"
-    echo "********************"
-    echo "start time: $(date)"
-    eval $envs
-    $command $cmdargs
-    status=$?
-    echo
-
-    echo "********************"
-    echo $logmsg
-    echo "exit status: $status"
-    echo "end time: $(date)"
-    echo "********************"
-    exit $status
-) >> $logspec 2>&1
-status=$?
-echo "$logmsg"
-echo "Exit status: $status"
-
-if [ -n "$edit" ]
-then
-    editcmd=$edit;
-elif [ ! "$status" = '0' ] && [ -n "$edit_on_fail" ]
-then
-    editcmd=$edit_on_fail
-fi
-
-if [[ "$editcmd" =~ emacs\  ]]
-then
-    width=$(perl -ne 'length($_)>$x and $x=length($_);END{print $x}' $logspec);
-    lineheight=$(( ($(x-current-root-height)-100) / 30 ))
-    logheight=$(wcstrip -l $logspec)
-    if (( lineheight <= logheight ))
-    then
-        height=$lineheight
-    else
-        height=$logheight
-    fi
-    editcmd="$editcmd -g ${width}x${height}+100+100"
-fi
-if [ -n "$editcmd" ]
-then
-    if [ -n "$edit_echo" ]
-    then
-        echo $editcmd $logspec &
-    else
-        $editcmd $logspec &
-        [ -n "$tailpid" ] && kill $tailpid
-    fi
-fi
-exit $status
+__USAGE__

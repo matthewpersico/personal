@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+# <Function Class: git>
+# <Function Justification: none>
+
+git-hold-remove ()
+{
+    local holdroot
+    holdroot=$(git root)/.githold
+    local -a unholdthese
+    unholdthese=("$@")
+    if [ -z "${unholdthese[0]}" ]
+    then
+        readarray -t unholdthese < <(git-hold-find)
+    else
+        unholdthese=()
+        local i
+        for i in "$@"
+        do
+            local -a j
+            readarray -t j < <(git-hold-find | grep "$i")
+            if [ -z "${j[0]}" ]
+            then
+                cmd-echo "Cannot find $i to unhold"
+            else
+                unholdthese+=("${j[@]}")
+            fi
+        done
+    fi
+
+    local retstat=0
+    for hold in "${unholdthese[@]}"
+    do
+        rm -v "$hold"
+    done
+
+    ## Clean up
+    local d f;
+    for d in $(find "$holdroot" -type d | sort -r)
+    do
+        f=$(find "$d" -type f)
+        if [ -z "$f" ]
+        then
+            rmdir "$d"
+        fi
+    done
+
+    return $retstat
+}

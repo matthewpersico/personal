@@ -1,43 +1,63 @@
-# -*- sh -*-
+#!/usr/bin/env bash
 
 # controlfuncs_build
 
-# Build control functions for *funcs files
-spec=${BASH_SOURCE[1]}
-file=$(basename ${BASH_SOURCE[1]})
-[ -n "$1" ] && spec=$1 && file=$(basename $1)
-tmp=$(mktemp --suffix=.controlfuncs_build)
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
 
-cat <<EOF >$tmp
+# Build control functions for *funcs files
+if [ -n "$1" ]
+then
+    spec=$1
+    file=$(basename "$1")
+    shift
+else
+    spec=${BASH_SOURCE[1]}
+    file=$(basename "${BASH_SOURCE[1]}")
+fi
+
+alias=${spec}.alias
+if (($#))
+then
+    extra_edit="$*"
+    # shellcheck disable=SC2154
+    extra_load="local f; for f in $*; do . $f; done"
+else
+    extra_edit=''
+    extra_load=''
+fi
+tmp=$(mktemp -t tmp.controlfuncs_build.XXXXXXXXXX)
+rm_on_exit "$tmp"
+
+cat <<EOF >"$tmp"
 ${file}-edit ()
 {
     ${file}_audit "\$@"
     local editor; editor=\$(editor_opt xo "\$@"); shift \$?
-    \$editor $spec
+    [ ! -f $alias ] && alias=''
+    \$editor $spec $alias $extra_edit
 }
-safe_func_export ${file}-edit
-EOF
-. $tmp
 
-cat <<EOF >$tmp
-${file}-reload  ()
+${file}-reload ()
 {
     ${file}_audit "\$@"
     . $spec
+    [ -f $alias ] && . $alias
+    $extra_load
 }
-safe_func_export ${file}-reload
-EOF
-. $tmp
 
-a="${file}-load"
-alias $a="${file}-reload "
+${file}-load ()
+{
+    ${file}-audit "\$@"
+    ${file}-reload "\$@"
+}
 
-cat <<EOF > $tmp
 ${file}-help () {
     help_strings $spec "\$@"
 }
-safe_func_export ${file}-help
-EOF
-. $tmp
 
-\rm $tmp
+safe_func_export ${file}-edit ${file}-reload ${file}-load ${file}-help
+EOF
+. "$tmp"
+
+\rm "$tmp"

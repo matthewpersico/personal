@@ -1,22 +1,33 @@
-# .bashrc
+#!/usr/bin/env bash
+
+## .bashrc
 # ~/.bashrc runs ONLY on non-login subshells! (different from ksh)
 # add lines here very carefully as this may execute when you don't i
 # expect them to
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-! ~/personal/bin/running_under_cron && [ -n "$ALLFUNCS_PROFILE" ] && \
-    ( [ -n "$ALLFUNCS_PROFILE_LEVELS" ] && \
-          printf '=%.0s' $(eval "echo {1.."$((${#BASH_SOURCE[@]}))"}") || true ) && \
-        echo "$(date): ~/.bashrc is running..."
+## How to plug in (monkeypatch) set -x, ALLFUNCS_PROFILE, etc, if needed
+[ -e "/tmp/bashrc.${USER}" ] && ". /tmp/bashrc.${USER}"
+# shellcheck disable=SC1090
+[ -e "$HOME/bashrc.${USER}.monkeypatch" ] && . "$HOME/bashrc.${USER}.monkeypatch"
+
+[ -z "$CRON" ] && \
+    CRON=$(~/personal/bin/running_under_cron && echo true || echo false) && \
+    export CRON
+
+[ "$CRON" = 'false' ] && [ -n "$ALLFUNCS_PROFILE" ] && \
+    echo "$(date): ~/.bashrc is running..."
 
 # =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
 # if chimera generated aliases exist, pull them into the current ENV
 if [ -f ~/.bbalias ]
 then
+    # shellcheck disable=SC1090
     . ~/.bbalias
 else
-    ## Probably not on a BB chimera machine; follow normal bash protocols.
+    ## Probably not on a BB chimera machine; follow normal bash githosts.
     # Source global definitions
     if [ -f /etc/bashrc ]; then
+        # shellcheck disable=SC1091
 	    . /etc/bashrc
     fi
 
@@ -26,7 +37,81 @@ else
     # User specific aliases and functions
 fi
 
-! ~/personal/bin/running_under_cron && [ -n "$ALLFUNCS_PROFILE" ] && \
-    ( [ -n "$ALLFUNCS_PROFILE_LEVELS" ] && \
-          printf '=%.0s' $(eval "echo {1.."$((${#BASH_SOURCE[@]}))"}") || true ) && \
+#####
+##### Not sure about commenting this in or out. It's been out for a while
+##### at Bloomberg so we will leave it that way.
+## .bashrc is either called in a profile or a subshell of a process that
+## already called a profile. Don't bother calling autoload if the profile just
+## did. But do call it if we are a subshell (not in a profile).
+##### [ -z "RUNNING_PROFILE" ] && autoload -a  $PERSONALROOT/functions -x
+#####
+#####
+#####
+_bashrc_env_init_list='hist.alias perl.alias misc.alias yum.alias apt.alias'
+for _bashrc_env in ${_bashrc_env_init_list}
+do
+    ! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && \
+        echo "$(date): Loading $_bashrc_env"
+    # shellcheck disable=SC1090
+    . "$PERSONALBIN/$_bashrc_env"
+done
+
+##
+## Prompt
+##
+
+PROMPT_COMMAND=$(declare -F | grep bash_history_sync| sed 's/.* //' )
+_bashrc_since=$(date +'%a %b %d %H:%M:%S')
+_bashrc_ps1_xterm_title_cmds=''
+if [ ! "$EMACS" = 't' ]
+then
+    _bashrc_ps1_xterm_title_cmds='\[\e]0;\u@\h:\w\a\]'
+fi
+#safe_func_export --file $PERSONALROOT/dotfiles/git-prompt
+
+## Override prompt (assuming git stuff is loaded, either in chimera or locally)
+##     status of
+##     prior command
+##     |           |
+##     |        +--+
+##     |        |
+##     v--------v
+# shellcheck disable=SC2089
+PS1='\n[\$? = $?]\n\n'${_bashrc_ps1_xterm_title_cmds}'what    : \u@\h\nsince   : $_bashrc_since\nas-of   : \d \t$(__git_ps1 "\nbranch  : %s")$(git-get-stash-count -no0 "\nstashes : ")$(git-get-default-remote "\nremote  : ")\npwd     : \w\n[$$] \$ '
+# shellcheck disable=SC2090
+export PS1
+
+for b in ~/.bashrc.${USER}*
+do
+    if [ -e "${b}" ]
+    then
+        if [ -e "${b}.skip" ]
+        then
+            echo "Skipping $b because ${b}.skip found" >&2
+        else
+            # shellcheck disable=SC1090
+            . "$b"
+        fi
+    fi
+done
+
+# Conveniences
+alias cvs='echo cvs? Are you nuts? - Try again!'
+alias dir='ls -la '
+alias envg='env | grep '
+alias setg='set | grep '
+alias allg='(env && set) | grep '
+alias rm='rm -i '
+alias mydiff='diff -U3 '
+alias sidediff='diff -w --side-by-side --suppress-common-lines '
+alias mopquota='df -h '
+alias showfunc='type '
+alias grepnc='grep --color=never'
+alias gitgo='git-go '
+
+# Fat finger protection
+alias vf='echo cd, you moron; cd '
+alias fit='echo dir, you moron; dir '
+
+[ "$CRON" = 'false' ] && [ -n "$ALLFUNCS_PROFILE" ] && \
         echo "$(date): ~/.bashrc has run"

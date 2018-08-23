@@ -1,4 +1,6 @@
-# -*- sh -*-
+#!/usr/bin/env bash
+# shellcheck shell=ksh
+# shellcheck disable=SC1090
 
 # xterminit
 
@@ -12,19 +14,6 @@
 ## controlfunc build calls. We call those in the caller of this in the *funcs
 ## tree again after chimera.
 
-## Cygwin use only
-startxserver() {
-    if [ -z "$(ps -a | grep XWin)" ]
-    then
-        if [ "$1" = '--verbose' ]
-        then
-            echo "Starting Cygwin XServer..."
-        fi
-        startxwin 2>/dev/null 2>/dev/null &
-        XSERVER='XWin'
-    fi
-}
-
 ## init
 hasx=0
 if [ -z "$DISPLAY" ]
@@ -35,20 +24,35 @@ else
 fi
 
 XSERVER=''
-if [ "$(uname -o)" = 'Cygwin' ]
+if [ "$(uname -s)" = 'Cygwin' ]
 then
+    # shellcheck disable=SC2009
     hasXming=$(ps -aW | grep Xming.exe)
     if [ -n "$hasXming" ]
     then
         echo "Using Xming XServer"
         XSERVER='Xming'
+        export XSERVER
     else
-        startxserver --verbose
+        ## Cygwin use only
+        # shellcheck disable=SC2143
+        # shellcheck disable=SC2009
+        if [ -z "$(ps -a | grep XWin)" ]
+        then
+            if [ "$1" = '--verbose' ]
+            then
+                echo "Starting Cygwin XServer..."
+            fi
+            startxwin 2>/dev/null 2>/dev/null &
+            XSERVER='XWin'
+            export XSERVER
+        fi
     fi
 elif [ "$hasx" = '0' ]
 then
     ## X server ping...
-    xmodmap 1>/dev/null 2>/dev/null
+    perl -e 'alarm shift @ARGV; exec @ARGV' xmodmap 1>/dev/null 2>/dev/null
+    # shellcheck disable=SC2181
     if (($?))
     then
         ## There is no xserver. Do not set any of this up.
@@ -58,11 +62,11 @@ fi
 
 if [ -z "$XTERM" ]
 then
-    for i in /bin /usr/bin /usr/bin/X11
+    for i in /usr/bin/X11 /usr/bin /bin
     do
         if [ -z "$XTERM" ] && [ -e "$i/xterm" ]
         then
-            XTERM="$i/xterm -ls -sb -sl 40000"
+            XTERM="$i/xterm -sb -sl 40000"
         fi
     done
 fi
@@ -75,33 +79,38 @@ fi
 
 if [ -z "${HOSTNAME}" ]
 then
-    HOSTNAME=`hostname`
+    HOSTNAME=$(hostname)
 fi
 export XTERM HOSTNAME
 
-XTERMGEOW=132
-XTERMGEOH=40
-XTERMGEOX=200
-XTERMGEOY=200
-XTERMGEO="-geometry ${XTERMGEOW}x${XTERMGEOH}+${XTERMGEOX}+${XTERMGEOY}"
+XTERMGEO_W=132
+export XTERMGEO_W
+XTERMGEO_H=40
+export XTERMGEO_H
+XTERMGEO_X=200
+export XTERMGEO_X
+XTERMGEO_Y=200
+export XTERMGEO_Y
+XTERMGEO="${XTERMGEO_W}x${XTERMGEO_H}+${XTERMGEO_X}+${XTERMGEO_Y}"
+export XTERMGEO
 case ${HOSTNAME} in
     *bldo* )
-        export NEWXCOLOR=red
+        NEWXCOLOR=red
         XTERMFONTS="-fa 'Monospace' -fs 10"
         ;;
 
     *bcpc* )
-        export NEWXCOLOR=wheat
+        NEWXCOLOR=wheat
         XTERMFONTS="-fa 'Monospace' -fs 10"
         ;;
 
     nylxdev* )
-        export NEWXCOLOR=darkblue
+        NEWXCOLOR=darkblue
         XTERMFONTS=''
         ;;
 
     monolith* )
-        export NEWXCOLOR=black
+        NEWXCOLOR=black
         if [ "$XSERVER" = 'XWin' ]
         then
             XTERMFONTS="-fa 'Monospace' -fs 10"
@@ -112,78 +121,12 @@ case ${HOSTNAME} in
         ;;
 
     * )
-        export NEWXCOLOR=brightred
+        NEWXCOLOR=brightred
         XTERMFONTS=''
 esac
 
-## Set these up here because they use values set above
-RXCmd ()
-{
-    local HOST="${1}"
-	if [ -z ${HOST} ]
-	then
-		echo "Error: hostname not specified."
-	else
-		shift 1
-		local XARGS="${*}"
-		if [ -z "${XARGS}" ]
-		then
-			XARGS="$XTERMGEO"
-		fi
-		if [ "${HOST}" = "${HOSTNAME}" ]
-		then
-			${XTERM} -display ${DISPLAY} -name ${HOST} ${XARGS} &
-		else
-			local XCOOKIE=`/usr/bin/X11/xauth list ${DISPLAY}`
-            #					${XARGS} >/dev/null 2>&1 &
-            ssh ${HOST} "(
-                                  PATH=$PATH:/usr/bin/X11
-                                  DISPLAY=$DISPLAY
-                                  export PATH DISPLAY
-                                  xauth add ${XCOOKIE} >> ~/inlog 2>&1
-                                  /usr/bin/nohup ${XTERM} -name ${HOST} \
-                                                 ${XARGS} >> ~/inlog 2>&1 &
-                                 )" &
-		fi
-	fi
-}
-
-newxguts ()
-{
-    local count=1
-    local xtermgeow=$XTERMGEOW
-    local checkargs=1
-    while ((checkargs))
-    do
-        case $1 in
-            -w )
-                ## wide
-                ((xtermgeow*=2)) ; shift ;;
-            -n )
-                ## narrow
-                ((xtermgeow/=2)) ; shift ;;
-            -s )
-                ## std
-                ((xtermgeow+-0)) ; shift ;;
-            -[0-9]* )
-                ## number of xterms to spawn
-                ((count=$1*-1)) ; shift ;;
-            * )
-                ## We're done
-                checkargs=0 ;;
-        esac
-    done
-    local i=0
-    while ((i<count))
-    do
-        local xtermgeo="-geometry ${xtermgeow}x${XTERMGEOH}+$((XTERMGEOX+(i*72)))+$((XTERMGEOY+(i*72)))"
-        RXCmd ${HOSTNAME} $XTERMGEO $XTERMFONTS $@ $xtermgeo
-        ((i+=1))
-        sleep .05 ## Just enough to space out the &-ed invocations so that they
-                  ## do not randomly appear, but rather appear in a nice
-                  ## cascade.
-    done
-}
+export NEWXCOLOR
+export XTERMFONTS
 
 ## If we want to change git colors, then define the color assignments
 ## with a series of -c name=value assignments in an ennvar GIT_COLORS
@@ -191,66 +134,21 @@ newxguts ()
 ## $GIT_COLORS "$@"'.
 
 ## See below, the section marked "Query the colors" to see how to maintain that
-## for each new pair added here.
-forebackmap_grey='black,darkgrey'
-forebackmap_darkblue='wheat,darkblue'
-forebackmap_brightred='wheat,red'
-forebackmap_red='wheat,darkred'
-forebackmap_white='black,white'
-forebackmap_black='white,black'
-forebackmap_blue='white,steelblue'
-forebackmap_green='white,seagreen'
-forebackmap_wheat='black,wheat'
-forebackmap_orange='black,orange'
-forebackmap_yellow='black,yellow'
-forebackmap_pink='black,pink'
-forebackmap_brown='white,brown'
-forebackmap_choc='white,chocolate'
-
-forebackmapvars=$(set | grep -E '^forebackmap_.*=' | sed 's/=.*//')
-
-for var in ${forebackmapvars}
-do
-    key=$(echo $var | sed 's/.*_//')
-    values=$(eval echo \$$var)
-
-    fg=$(echo $values | sed 's/,.*//')
-    bg=$(echo $values | sed 's/.*,//')
-
-    eval newx${key} '()
-    {
-        newxguts ${1:--1} ${2:--s} -fg '$fg' -bg '$bg'
-    }'
-done
-
-newx ()
-{
-    local bg=$(xterm_background)
-    newx${bg} $@
-}
-
-perlx ()
-{
-    ## For starting up windows for forked Perl programs in debugger to
-    ## attach to.
-    local countem=$1; ## Specify as -x, like an option or x, like an arg
-    ((countem)) || countem=1
-    ((countem<0)) && ((countem=countem*-1)) ## if -x, make it positive
-    while ((countem>0))
-    do
-        xterm -e sh -c 'echo This terminal was started to receive a forked perl debugger process.;
-echo Set;
-echo \$DB::fork_TTY=q\($(tty)\);
-echo in the debugger before you reach the fork.;
-echo Consider examining the value of the TERM variable;
-echo to make sure it is something that perl5db.pl;
-echo understands.;
-echo Sleeping 99999999 starting at $(date);echo -e "\e]0;$(tty)\a
-     ";sleep 99999999' &
-        ((countem-=1))
-    done
-}
-alias perldbx='perlx '
+## for each new pair added here. These colors are decoded in 'newx'.
+export forebackmap_grey='black,darkgrey'
+export forebackmap_darkblue='wheat,darkblue'
+export forebackmap_brightred='wheat,red'
+export forebackmap_red='wheat,darkred'
+export forebackmap_white='black,white'
+export forebackmap_black='white,black'
+export forebackmap_blue='white,steelblue'
+export forebackmap_green='white,seagreen'
+export forebackmap_wheat='black,wheat'
+export forebackmap_orange='black,orange'
+export forebackmap_yellow='black,yellow'
+export forebackmap_pink='black,pink'
+export forebackmap_brown='white,brown'
+export forebackmap_choc='white,chocolate'
 
 ##
 ## Colors!
@@ -258,144 +156,65 @@ alias perldbx='perlx '
 
 ## Printable ANSI sequences
 
-export ANSI_reset="\e[0m"
-export ANSI_bold="\e[1m"
-export ANSI_underscore="\e[4m"
-export ANSI_blink="\e[5m"
-export ANSI_reverse="\e[7m"
-export ANSI_concealed="\e[8m"
+export ANSI_reset="\\e[0m"
+export ANSI_bold="\\e[1m"
+export ANSI_underscore="\\e[4m"
+export ANSI_blink="\\e[5m"
+export ANSI_reverse="\\e[7m"
+export ANSI_concealed="\\e[8m"
 
-export ANSI_FG_black="\e[30m"
-export ANSI_FG_red="\e[31m"
-export ANSI_FG_green="\e[32m"
-export ANSI_FG_yellow="\e[33m"
-export ANSI_FG_blue="\e[34m"
-export ANSI_FG_magenta="\e[35m"
-export ANSI_FG_cyan="\e[36m"
-export ANSI_FG_white="\e[37m"
+export ANSI_FG_black="\\e[30m"
+export ANSI_FG_red="\\e[31m"
+export ANSI_FG_green="\\e[32m"
+export ANSI_FG_yellow="\\e[33m"
+export ANSI_FG_blue="\\e[34m"
+export ANSI_FG_magenta="\\e[35m"
+export ANSI_FG_cyan="\\e[36m"
+export ANSI_FG_white="\\e[37m"
 
-export ANSI_BG_black="\e[40m"
-export ANSI_BG_red="\e[41m"
-export ANSI_BG_green="\e[42m"
-export ANSI_BG_yellow="\e[43m"
-export ANSI_BG_blue="\e[44m"
-export ANSI_BG_magenta="\e[45m"
-export ANSI_BG_cyan="\e[46m"
-export ANSI_BG_white="\e[47m"
+export ANSI_BG_black="\\e[40m"
+export ANSI_BG_red="\\e[41m"
+export ANSI_BG_green="\\e[42m"
+export ANSI_BG_yellow="\\e[43m"
+export ANSI_BG_blue="\\e[44m"
+export ANSI_BG_magenta="\\e[45m"
+export ANSI_BG_cyan="\\e[46m"
+export ANSI_BG_white="\\e[47m"
 
 ##
 ## Query the colors.
 ##
 
 ## Make sure that the value of each entry below matches a color in one of the
-## 'forebackmap_' variables above. In order to figure out a bg color, first add
-## the fg, bg combo to the forebackmap_ variables above. Then call
-## newx<name>. Then in the new terminal, just call newx. The rgb of the color
-## will be spit out in an error message.
-xterm_Xground_map_rgba9a9a9a9a9a9='grey'
-xterm_Xground_map_rgb000000008b8b='darkblue'
-xterm_Xground_map_rgbffff00000000='brightred'
-xterm_Xground_map_rgb8b8b00000000='red'
-xterm_Xground_map_rgbffffffffffff='white'
-xterm_Xground_map_rgb000000000000='black'
-xterm_Xground_map_rgb46468282b4b4='blue'
-xterm_Xground_map_rgb2e2e8b8b5757='green'
-xterm_Xground_map_rgbf5f5dedeb3b3='wheat'
-xterm_Xground_map_rgbffffa5a50000='orange'
-xterm_Xground_map_rgbffffffff0000='yellow'
-xterm_Xground_map_rgbffffc0c0cbcb='pink'
-xterm_Xground_map_rgba5a52a2a2a2a='brown'
-xterm_Xground_map_rgbd2d269691e1e='choc'
+## 'forebackmap_' variables above. In order to figure out a bg color:
+##
+## o add the fg, bg combo to a new forebackmap_<name> variable above.
+## o reload this file.
+## o call newx<name>.
+## o in the new terminal, call newx. The rgb of the new bg color will be
+##   spit out in an error message and then you can add it here.
+export xterm_Xground_map_rgba9a9a9a9a9a9='grey'
+export xterm_Xground_map_rgb000000008b8b='darkblue'
+export xterm_Xground_map_rgbffff00000000='brightred'
+export xterm_Xground_map_rgb8b8b00000000='red'
+export xterm_Xground_map_rgbffffffffffff='white'
+export xterm_Xground_map_rgb000000000000='black'
+export xterm_Xground_map_rgb46468282b4b4='blue'
+export xterm_Xground_map_rgb2e2e8b8b5757='green'
+export xterm_Xground_map_rgbf5f5dedeb3b3='wheat'
+export xterm_Xground_map_rgbffffa5a50000='orange'
+export xterm_Xground_map_rgbffffffff0000='yellow'
+export xterm_Xground_map_rgbffffc0c0cbcb='pink'
+export xterm_Xground_map_rgba5a52a2a2a2a='brown'
+export xterm_Xground_map_rgbd2d269691e1e='choc'
 
-xterm_background ()
-{
-    xterm_Xground 11
-}
+. ~/personal/functions/xterm_background
+. ~/personal/functions/xterm_foreground
+. ~/personal/functions/xterm_Xground
+. ~/personal/functions/settitle
+. ~/personal/functions/tickercfg
+. ~/personal/functions/ticker
+. ~/personal/functions/tickerkill
 
-xterm_foreground ()
-{
-    xterm_Xground 10
-}
-
-xterm_Xground ()
-{
-    [ -z "$1" ] && echo "Missing arg: 11 for foreground, 10 for background" && return 1
-    local col=$1
-    local iam=$(func-name-spoof)
-    if [ -n "$XTERM_SHELL" ]
-    then
-        ## from http://superuser.com/questions/157563/programmatic-access-to-current-xterm-background-color
-        exec < /dev/tty
-        oldstty=$(stty -g)
-        stty raw -echo min 0
-        #          OSC   Ps  ;Pt ST
-        echo -en "\033]${col};?\033\\" >/dev/tty  # echo opts differ w/ OSes
-        result=
-        if IFS=';' read -r -d '\' color ; then
-            result=$(echo $color | sed 's/^.*\;//;s/[^rgb:0-9a-f/]//g')
-            idxresult=$(echo $result | sed 's/[:/]//g')
-        fi
-        stty $oldstty
-        local var=xterm_Xground_map_${idxresult}
-        local color=$(eval echo "\$$var")
-        if [ -n "${color}" ]
-        then
-            echo ${color}
-            return
-        else
-            echo "## WARNING:$iam - no mapped color found for $result" >&2
-        fi
-    else
-        echo "## WARNING:$iam - XTERM_SHELL not defined, probably not an xterm" >&2
-    fi
-
-    if [ -n "$NEWXCOLOR" ]
-    then
-        echo $NEWXCOLOR
-        return
-    else
-        echo "## WARNING:$iam - NEWXCOLOR not defined" >&2
-    fi
-
-    echo "## WARNING:$iam - default color is grey" >&2
-    echo grey
-}
-
-settitle ()
-{
-    echo -e "\033]0;$@\007\c"
-}
-
-tickerfg ()
-{
-    local i=0;
-    local M="::: $@ :::"
-    local T="$M$M$M$M"
-    local S ## First time around clears the prompt
-    echo "$M" > /tmp/ticker.$(hostname).$$
-    while sleep .2s && [ -r /tmp/ticker.$(hostname).$$ ]
-    do
-        settitle "$S"
-        (( ++i>${#M} )) && i=1
-        S=${T:i:40}
-    done
-}
-
-ticker ()
-{
-    if [ -r /tmp/ticker.$(hostname).$$ ]
-    then
-        echo Found /tmp/ticker.$(hostname).$$
-        echo Looks like there is already a ticker running
-        echo with the banner:
-        echo
-        cat /tmp/ticker.$(hostname).$$
-    else
-        tickerfg "$@" &
-    fi
-}
-
-tickerkill ()
-{
-    rm -f /tmp/ticker.$(hostname).$$
-}
+XTERMINIT_LOADED=1
+export XTERMINIT_LOADED

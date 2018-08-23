@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+
+# <Function Class: git>
+# <Function Justification: change cwd>
+
+git-delete-repo ()
+{
+    local pwdmode=0
+    local dirmode=''
+    [ -z "$1" ] && func-usage && return 1
+    if [ "$1" = '--pwdmode' ] || [ "$1" = '--current' ]
+    then
+        pwdmode=1
+        shift
+    elif [ "$1" = '--dirmode' ]
+    then
+        dirmode=$2
+        shift
+        shift
+    fi
+
+    local repo
+    local returnpath
+    returnpath=$(realpath "$(pwd)")
+
+    if [ -n "$dirmode" ]
+    then
+        ## We were given the directory containing the repo
+        builtin cd "$dirmode" || ( cmd-echo "Cannot cd $dirmode" && return 1 )
+        local root_or_err
+        root_or_err="$(git root 2>&1)"
+        local status=$?
+        if ((status))
+        then
+            cmd-echo -- "$root_or_err"
+            builtin cd "$returnpath" || ( cmd-echo "Cannot cd $returnpath" && return 1)
+            return $status
+        else
+            builtin cd "$root_or_err" || ( cmd-echo "Cannot cd $root_or_err" && return 1)
+        fi
+    elif ((!pwdmode))
+    then
+        ## Then we were given a local repo URL; find it and go there
+        local githost=$1;shift
+        local namespace=$1;shift
+        repo=$1;shift
+
+        local githost_url
+        githost_url=$(kvstore get gitfuncs_gitsvcs "$githost")
+        if [ -z "$githost_url" ]
+        then
+            cmd-echo -- "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
+            return 1
+        fi
+
+        ## Go to what we want to whack, to make sure it's there.
+        git-go "$githost/$namespace/$repo"
+        status=$?
+        ((status != 0)) && return 1; ## If the git-go fails, we should
+        ## see error messages, no need to
+        ## add more.
+    ## else - we were told to delete the directory/repo we are currently in
+    fi
+
+    ## At this point, we are in the directory we are going to delete. We can
+    ## determine the repo.
+    repo=$(basename "$(realpath "$(pwd)")")
+
+    (
+        ## Subshell to allow cding around to be handled gracefully at the end
+
+        ## Make sure it's clean
+        if [ -d wt ] && (($(find wt | wc -l) > 1))
+        then
+            cmd-echo "worktrees found:"
+            ls -la wt
+            cmd-echo
+            cmd-echo "Will not delete repo"
+            return 1
+        fi
+
+        dirty=$(git status --porcelain)
+        if [ -n "$dirty" ]
+        then
+            git status
+            cmd-echo
+            cmd-echo "Will not delete current repo"
+            return 1
+        fi
+
+        builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
+        \rm -rf "$repo"
+        status=$?
+        ((status != 0)) && return 1; ## If the rm fails, we should see
+                                           ## error messages, no need to add
+                                           ## more.
+
+        cmd-echo "Done. Not touching remote repo. Resetting git list..."
+        ## Remove the just-deleted repo from the list of local git repos.
+        git-go-set
+
+        return 0
+    )
+
+    status=$?
+    while [ ! -d "$returnpath" ] && [ ! "$returnpath" = '/' ]
+    do
+        returnpath="$(dirname "$returnpath")"
+    done
+    if [ ! "$returnpath" = '/' ]
+    then
+        builtin cd "$returnpath" || ( cmd-echo "Cannot cd $returnpath" && return 1)
+    else
+        builtin cd ~ || ( cmd-echo "Cannot cd ~" && return 1)
+    fi
+    return $status
+}

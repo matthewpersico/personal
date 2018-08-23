@@ -13,6 +13,7 @@ GetOptions(
                l
                include-dir
                include-file
+               match-dir
           )
 );
 my $pattern = shift;
@@ -35,14 +36,20 @@ for my $file (@ARGV) {
             $entry = {
                 time => $1
             };
-            if (    $opts{'include-dir'}
-                and $_ =~ m/## pwd => (.*)/ )
-            {
-                $entry->{dir} = $1;
+            if( $_ =~ m/## pwd => (.*)/ ) {
+                if ( $opts{'include-dir'} ) {
+                    $entry->{dir} = $1;
+                } elsif ( $opts{'match-dir'} ) {
+                    if( $1 =~ m/$opts{'match-dir'}/) {
+                        $entry->{dir} = $1;
+                    } else {
+                        $entry = undef;
+                    }
+                }
             }
             next;
         };
-        if ( $_ =~ m/$pattern/ ) {
+        if ( $_ =~ m/$pattern/ and defined $entry) {
             $entry->{cmd} = $_;
             if (    $opts{'include-file'}
                  or $opts{l}) {

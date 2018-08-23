@@ -1,0 +1,28 @@
+#!/usr/bin/env bash
+
+# <Function Class: autoload>
+# <Function Justification: env mod>
+
+autoload-edit-group ()
+{
+    [ -z "$EDITOR" ] && echo "Error: no EDITOR defined" && return 1
+    declare -a files
+    # shellcheck disable=SC2086 ## Need FPATH unquoted
+    mapfile -t files < <(find "$(IFS=':'; set -- ${FPATH}; echo "$@")" -type f -printf '%f ' | xargs grep -l "\\<Function Class: $1\\>")
+    [ -z "${files[0]}" ] && return 1
+
+    local timemarker
+    timemarker=$(mktemp-t tmp.autoload-edit-group.XXXXXXXXXX)
+
+    $EDITOR "${files[0]}"
+
+    local file
+    for file in "${files[@]}"
+    do
+        if [ "$file" -nt "$timemarker" ]
+        then
+            echo Reloading "$file"
+            autoload -r "$file"
+        fi
+    done
+}

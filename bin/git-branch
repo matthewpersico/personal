@@ -1,0 +1,401 @@
+#!/usr/bin/env bash
+
+# git-branch
+
+# shellcheck disable=SC1090
+# Don't know if we really need this yet:
+# . "$REALGIT_EXEC_PATH/git-sh-setup"
+
+## Functions that encapsulate the enhanced functionality. main() is defined
+## last and called last.
+git-branch-delete ()
+{
+    declare no_remote
+    no_remote=0
+    declare opt_yes
+    opt_yes=0
+    declare do_go_set
+    do_go_set=1
+    OPTSARGS=$(getoptp -o y --long yes,no-remote,declare-only,no-go-set -n "${FUNCNAME[0]}" -- "$@")
+    declare status
+    status=$?
+    ((status != 0)) && script-usage && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -y|--yes) opt_yes=1; shift ;;
+            --no-remote|--declare-only) no_remote=1; shift ;;
+            --no-go-set) do_go_set=0; shift ;;
+            -h|--help) script-usage; return 0 ;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) cmd-echo "Internal error!"; script-usage; return 1 ;;
+        esac
+    done
+
+    declare branch
+    branch=$1;
+    declare current_branch
+    current_branch=$(git branch get-current)
+    if [ -z "$branch" ]
+    then
+        declare branchesa
+        readarray -t branchesa < <(git-branch-list --strip)
+        if [ ${#branchesa[@]} == '0' ]
+        then
+            cmd-echo "No branches found. Are you in a git repo?"
+            return 1
+        fi
+        declare PS3
+        PS3="Choose by number, q to quit: "
+        declare selected
+        COLUMNS=1 ## One character wide terminal, forces list to be one column
+        select selected in "${branchesa[@]}"
+        do
+            if [ -n "$selected" ]
+            then
+                if [ "$selected" == "$current_branch" ]
+                then
+                    cmd-echo -- "$selected is current. Cannot delete current."
+                else
+                    branch=$selected
+                    break
+                fi
+            elif [ "$(echo "$REPLY" | tr '[:upper:]' '[:lower:]')" = 'q' ]
+            then
+                return 0
+            else
+                cmd-echo "'$REPLY' is an invalid choice"
+            fi
+        done
+    fi
+
+    if [ -n "$branch" ]
+    then
+        ## $branch was either $1 or we did not ctrl-c out of the select.
+        if [ "$branch" = "$current_branch" ]
+        then
+            cmd-echo "Nope, you can't delete the current branch."
+            return 1
+        fi
+
+        declare brdelstat
+        git branch -d "$branch"
+        brdelstat=$?
+        if ((brdelstat))
+        then
+            cmd-echo "ERROR: git branch -d $branch failed. Returning $brdelstat."
+            return $brdelstat
+        fi
+        cmd-echo "Branch deleted locally."
+
+        if [ "$no_remote" = '1' ]
+        then
+            return 0
+        fi
+
+        remotes=$(git remote)
+        for remote in $remotes
+        do
+            declare inremote
+            inremote=$(git-branch-list --strip -r | grep "$remote/$branch")
+            if [ -n "$inremote" ]
+            then
+                declare resp
+                if ((opt_yes))
+                then
+                    resp='y'
+                else
+                    resp=$(cmd-yesno "Try deleting in remote '$remote'" n)
+                fi
+                if [ "$resp" == 'y' ]
+                then
+                    git push --delete "$remote" "$branch" ## This should not fail
+                    ## since we have checked
+                    ## that the branch exists
+                    ## in the remote.
+                    brdelstat=$?
+                    if ((brdelstat))
+                    then
+                        cmd-echo "ERROR: git push --delete $remote $branch failed. Returning $brdelstat."
+                        return $brdelstat
+                    fi
+                    cmd-echo "Branch deleted remotely."
+                fi
+            fi
+        done
+    fi
+
+    ## Update with changed branches
+    ((do_go_set)) && git-go-set
+    return $?
+}
+
+git-branch-rename ()
+{
+    if (($#!=2))
+    then
+        cmd-echo "Need current and new branch names"
+        script-usage
+        return 1
+    fi
+
+    local old_branch=$1; shift
+    local new_branch=$1; shift
+    if (($#))
+    then
+        script-usage
+        echo "       argument(s) '$*' are illegal"
+        return 1
+    fi
+
+    # Rename branch locally.
+    echo "git branch -m $old_branch $new_branch ..."
+    git branch -m "$old_branch" "$new_branch"        || return $?
+
+    # Delete the old branch. DON'T DO THIS IF YOU HAVE AN OPEN PULL REQUEST!!!
+    echo "git push origin --delete $old_branch ..."
+    git push origin --delete "$old_branch"         || return $?
+
+    # Push the new branch, set local branch to track the new remote.
+    echo "git push --set-upstream origin $new_branch"
+    git push --set-upstream origin "$new_branch"
+    return $?
+}
+
+git-branch-info ()
+{
+    local branch
+    branch=$(git rev-parse --abbrev-ref HEAD)
+    local timestamp=''
+    local delete=0
+    local OPTSARGS
+    OPTSARGS=$(getoptp -o b:tdu --long branch:,timestamp,delete,unset -n "${FUNCNAME[0]}" -- "$@")
+    local status=$?
+    ((status != 0)) && script-usage && return $status
+
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            --branch|-b) branch=$2; shift; shift;;
+            --timestamp|-t) timestamp="[$(date)]"; shift;;
+            --delete|-d|--unset|-u) delete=1; shift;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; script-usage; return 1 ;;
+        esac
+    done
+
+    local get_option='--get'
+    local full_key="branch.${branch}"
+    local key=$1
+    if [ -n "$key" ]
+    then
+        full_key="${full_key}.${key}"
+    elif ((delete))
+    then
+        echo "Cannot delete without an exact key to match on"
+        return 1
+    else
+        get_option='--get-regexp'
+    fi
+
+    shift ## $@ is now the value if writing. All spaces will be converted to
+          ## %20.
+    if [ -z "$1" ]
+    then
+        if((delete))
+        then
+            ## Remove existing key
+            git config --unset "$full_key"
+        else
+            ## Read existing key
+            git config "$get_option" "$full_key" | \
+                perl -p -e 's/%20/ /g' | \
+                sort
+        fi
+    else
+        local value
+        value=$(echo "$@" | perl -p -e 's/\s/%20/g')
+        git config "$full_key" "${timestamp}$value"
+    fi
+}
+
+git-branch-get-current ()
+{
+    ( if [ -n "$1" ]
+      then
+          ## dirlist, not builtin cd, to take advantage this cd enhancement
+          dirlist "$1"
+      fi
+      git symbolic-ref HEAD | cut -d/ -f3-
+    )
+    return 0
+}
+
+git-branch-orphan()
+{
+    ##Create an empty branch, for tools you want to keep, but not publish
+    declare remote=origin
+    declare branch=$1; shift
+    git checkout --orphan "$branch" || return $?
+    declare -a files
+    readarray -t files < <(git what is new)
+    if [ -n "${files[0]}" ]
+    then
+        git rm -f "${files[@]}"
+    fi
+
+    declare -a comment
+    if [ "$1" ]
+    then
+        comment=('-m' "$*")
+    fi
+
+    git commit --allow-empty "${comment[@]}"
+    git push --set-upstream "$remote" "$branch"
+    git branch info created "$(date +%Y%m%d.%H%M%S%z)"
+    return 0
+}
+
+git-branch-track-remote ()
+{
+    declare remote=$1
+    declare branch=$2
+    declare local_branch=$3
+    if [ -z "$remote" ] || [ -z "$branch" ]
+    then
+        echo "Usage: git-track-remote-branch remote branch [localbranch]"
+        echo "       Missing one or both arguments (remote, branch)"
+        return 1
+    fi
+    [ -z "$local_branch" ] && local_branch=$branch
+
+    declare local_branch_exists
+    local-branch_exists="$(git branch --list "$local_branch")"
+    if [ -z "$local_branch_exists" ]
+    then
+        ## Does not exists, create and track
+        git checkout -b "$local_branch" --track "$remote/$branch"
+    else
+        declare already_tracking_remote
+        already_tracking_remote="$(git config branch."$local_branch".remote)"
+        if [ -z "$already_tracking_remote" ]
+        then
+            ## Exists, not tracking, track
+            git branch --set-upstream-to "$remote/$branch" "$local_branch"
+        else
+            declare already_tracking_branch
+            already_tracking_branch=$(git config branch."$local_branch".merge | sed 's|refs/heads/||')
+            echo "Branch $local_branch is already tracking $already_tracking_branch in $already_tracking_remote"
+            return 1
+        fi
+    fi
+    return $?
+}
+
+git-branch-fetch-remote ()
+{
+    git-branch-track-remote "$@"
+}
+
+git-branch-list ()
+{
+    local strip=0
+    local remote=''
+    local OPTSARGS
+    OPTSARGS=$(getoptp -o ra --long strip,nostrip,remote,all -n "${FUNCNAME[0]}" -- "$@")
+    status=$?
+    ((status != 0)) && cmd-echo "Exiting." && return $status
+    eval set -- "$OPTSARGS"
+    while true
+    do
+        case "$1" in
+            -a | --all) remote='-a'; shift;;
+            -r | --remote) remote='-r'; shift;;
+            --strip) strip=1; shift;;
+            --nostrip) strip=0; shift;;
+            --) shift; break ;; ## end of opts, remaining $*, if any, are args
+            *) echo "Internal error!"; return 1;;
+        esac
+    done
+
+    ## Update the local branches with remote. Shunt away the output - not
+    ## needed, interferes with functions that call git-branch-list and read the
+    ## output.
+    git remote update > /dev/null
+
+    local -a opts
+    opts=('--list' "$remote")
+    if ((strip))
+    then
+        "${REALGIT}" branch --no-color "${opts[@]}" | sed 's/^[ *] //' | sed 's/ .*//'
+    else
+        "${REALGIT}" branch "${opts[@]}"
+    fi
+}
+
+main ()
+{
+    declare action=$1
+
+    if [[ "$action" =~ -h ]]
+    then
+        (
+            echo "** Standard actions **"
+            "${REALGIT}" branch -h
+            echo
+            echo "** Extended actions **"
+            script-usage
+        ) 2>&1 | ${PAGER:-less}
+        return  0
+    fi
+
+    action_func_name="git-branch-${action}"
+    if declare -F "$action_func_name" >/dev/null
+    then
+        shift ## the $action
+        "$action_func_name" "$@"
+    else
+        ## Dispatch to real git branch
+        "${REALGIT}" branch "$@"
+    fi
+    return $?
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-branch - git extention of git branch
+
+=head1 SYNOPSIS
+
+ git branch delete oldBranch
+ git branch rename currentBranch newbranch
+ git branch info
+ git branch get current
+ git branch orphan
+ git branch track remote
+ git branch fetch remote
+ git branch list
+
+
+=head1 DESCRIPTION
+
+Extensions to the 'git branch' command. Any action not described here will be passed onto the actual 'git branch' command.
+
+=head1 EXTENSIONS
+
+=over 4
+
+=item TBD
+
+=back
+
+=cut
+
+__PODUSAGE__

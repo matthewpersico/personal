@@ -1,0 +1,303 @@
+#!/usr/bin/env bash
+#
+# <Function Class: git>
+# <Function Justification: change cwd>
+
+git-go ()
+{
+    # shellcheck disable=SC1090
+    source "$BASH_INC_DIR/on_exit.binc"
+
+    local PS3="Choose by number, /string to rematch, q to quit: "
+    local -a git_get_opts
+    local opt_list=0
+    local opt_wt='-w'
+    local opt_subwt_only=''
+    local opt_stat=0
+    local opt_mod=0
+    local opt_exact=''
+    local opt_size=0
+    local moreopts
+    local -a limited
+    moreopts=1
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        ## Strip all leading dashes here so that -foo and --foo can both
+        ## be processed as 'foo'.
+        declare original="$1"
+        declare option
+
+        option=$(dashstripper "$original")
+        shift ## That way you avoid endless loops on invalid options.
+
+        case $option in
+            e | exact ) opt_exact='--exact';;
+            et | exact-tail ) opt_exact='--exact-tail';;
+            eh | exact-head ) opt_exact='--exact-head';;
+            l | list ) opt_list=1 ;;
+            listfull ) opt_list=2 ;;
+            size ) opt_size=1; opt_list=1 ;;
+            m | mbig ) git_get_opts+=('-m') ;;
+            r | roots ) git_get_opts+=('-r') ;;
+            u | update ) git_get_opts+=('-u') ;;
+            wt ) opt_wt='-w' ;;
+            nowt ) opt_wt='' ;;
+            subwt ) opt_subwt_only='-o' ;;
+            wto* ) opt_subwt_only='-o' ;;
+            stat ) opt_stat=1; opt_list=1 ;;
+            dirty ) opt_stat=2; opt_list=1 ;;
+            mod ) opt_mod=1;;
+            limited ) limited=('--limited' "$1"); shift ;;
+            h | help ) func-usage git-go; return 0 ;;
+            -- ) moreopts=0; break ;; ## end of opts, remaining $*, if any, are args
+            * ) echo "$original is an invalid option."; func-usage git-go; return 1 ;;
+        esac
+    done
+
+    [ -n "$opt_wt" ] && git_get_opts+=("$opt_wt")
+    [ -n "$opt_subwt_only" ] && git_get_opts+=("$opt_subwt_only");
+    [ -n "$opt_exact" ] && git_get_opts+=("$opt_exact")
+
+    local -a tgts
+    if [ -n "$1" ]
+    then
+        tgts+=("$1")
+        shift;
+    fi
+    local opt_repo_no=0
+    local opt_repo_sel=''
+    if [ -n "$1" ]
+    then
+        if is-int "$1"
+        then
+            opt_repo_no=$1
+            shift
+        else
+            tgts+=("$@")
+        fi
+    fi
+
+    declare tgtilast
+    tgtilast=$((${#tgts[@]}-1 ))
+    for i in $(seq 0 $tgtilast )
+    do
+        if [[ "${tgts[$i]}" =~ /$ ]]
+        then
+            tgts[$i]="$(dirname "${tgts[$i]}")/$(basename "${tgts[$i]}")"
+        fi
+    done
+    local -a origtgts
+    origtgts=("${tgts[@]}")
+
+    local -a REPOS
+    if ((${#limited[@]}))
+    then
+        git_get_opts=()
+    fi
+    readarray -t REPOS < <(_git-go-get "${git_get_opts[@]}" "${limited[@]}" "${tgts[0]}")
+    tgts=("${tgts[@]:1}")
+    while((${#tgts[@]}))
+    do
+        # shellcheck disable=SC2046
+        readarray -t REPOS < <(_git-go-get --limited $(ajoin , $(tail_number_strip "${REPOS[@]}")) "${tgts[0]}")
+    tgts=("${tgts[@]:1}")
+    done
+
+    if ((${#REPOS[@]}==0))
+    then
+        echo Filter "${origtgts[@]}" does not match any repo
+        return 1
+    elif ((${#REPOS[@]}==1))
+    then
+        echo "Matches only ${REPOS[0]}. Going there."
+        REPO=${REPOS[0]}
+    else
+        if ((opt_mod))
+        then
+            for r in "${REPOS[@]}"
+            do
+                (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1)
+                 if (( $(git status --porcelain | wc  -l) ))
+                 then
+                     echo
+                     cmd-echo -- "$r"
+                     git status
+                 fi)
+            done
+        elif ((opt_list))
+        then
+            local r
+            if ((opt_size))
+            then
+                ## Re-sort the list of repos by size descending using
+                ## byte-level counts.
+                repos_size=$(mktemp -t tmp.git-go.size.XXXXXXXXXX)
+                rm_on_exit "$repos_size"
+                for r in "${REPOS[@]}"
+                do
+                    du -s --exclude wt "${TILDAE:-$HOME}/${r}"
+                done > "$repos_size"
+                readarray -t REPOS < <(sort -nr "$repos_size" | sed -E 's/^[0-9]+\s+//')
+            fi
+
+            for r in "${REPOS[@]}"
+            do
+                # shellcheck disable=SC2088
+                if((opt_size))
+                then
+                    du -hs --exclude wt "${r}"
+                else
+                    local rexp
+                    ((opt_list==1)) && rexp="~/${r}" || rexp="${TILDAE:-$HOME}/${r}"
+                    if ((opt_stat==0))
+                    then
+                        echo "$rexp"
+                    elif ((opt_stat==1))
+                    then
+                        echo "$rexp"
+                        (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
+                         git status --porcelain)
+                        echo
+                    fi
+                    if ((opt_stat==2))
+                    then
+                        (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
+                         (( $(git status --porcelain | wc -l) )) && (echo "$rexp" && git status --porcelain && echo))
+                    fi
+                fi
+            done
+        else
+            local REPO
+
+            if ((opt_repo_no))
+            then
+                local r
+                local ri=1
+                for r in "${REPOS[@]}"
+                do
+                    if ((ri==opt_repo_no))
+                    then
+                        REPOS=("$r")
+                        break
+                    fi
+                    ((ri+=1))
+                done
+            elif [ -n "$opt_repo_sel" ]
+            then
+                local -a REPOSTMP
+                local r
+                for r in "${REPOS[@]}"
+                do
+                    [[ "$r" =~ $opt_repo_sel ]] && REPOSTMP+=("$r")
+                done
+                REPOS=("${REPOSTMP[@]}")
+            fi
+
+            if ((${#REPOS[@]}==1))
+            then
+                ## Re-check singlematch condition in case we modified REPOS
+                ## above.
+                echo "Matches only ${REPOS[0]}. Going there."
+                REPO=${REPOS[0]}
+            else
+                readarray -t REPOS < <(tail_number_add "${REPOS[@]}")
+                COLUMNS=1 ## One character wide terminal, forces list to be one
+                          ## column.
+
+                select REPO in "${REPOS[@]}"
+                do
+                    if ((opt_list))
+                    then
+                        return
+                    fi
+                    if [ -n "$REPO" ]
+                    then
+                        REPO=$(tail_number_strip "$REPO")
+                        break
+                    elif [ "$(echo "$REPLY" | tr '[:upper:]' '[:lower]')" = 'q' ]
+                    then
+                        return
+                    elif [[ "$REPLY" =~ ^/ ]]
+                    then
+                        # shellcheck disable=SC2046
+                        git-go --limited $(ajoin , $(tail_number_strip "${REPOS[@]}")) "${REPLY#/}"
+                        return $?
+                    else
+                        echo "'$REPLY' is an invalid choice"
+                    fi
+                done
+            fi
+        fi
+    fi
+    if [ -n "$REPO" ]
+    then
+        ## dirlist, not builtin cd to take advantage this cd enhancement
+        dirlist "${TILDAE:-$HOME}/$(git-strip-repo "$REPO")"
+        git-hook-check
+    fi
+    return
+}
+
+return 0 ## USAGE guard when sourcing
+:<<'__USAGE__'
+Usage: git-go [--list[full] [--size] [--stat|--dirty] [--update|-u] \
+              [--roots|-r] [--mbig|-m] \
+              [--wt|--nowt|--wtonly ] [--mod] [dirmatch] [item]
+
+       git-go [-h|--help]
+
+       Presents a list of all git repos in ${TILDAE:-$HOME}/gits for you to
+       choose and then cd to.
+
+       --list
+           Skip the choosing part and just exit, printing each repo            '~' expanded.
+dir with a
+           literal '~'.
+
+       --listfull
+           Skip the choosing part and just exit, printing each repo dir with
+           '~' expanded.
+
+       --size
+           Skip the choosing part and just exit, printing each repo dir with
+           '~' expanded, and its size, sorted by descending size order. Worktree
+           sizes are not included in the size of their parent repos.
+
+       --stat
+           Invoke as if --list was specified and for each repo, call 'git
+           status --porcelain'.
+
+       --dirty
+           Invoke as if --stat was specified, but only print repos and status
+           where there is a non-blank status.
+
+       --update
+           Rescan to pick up new and deleted repos and worktrees.
+
+       --roots
+           Include the non-git directories where gits live as choices so you
+           can add new repos.
+
+       --mbig
+           Include the directories in MBIG as choices.
+
+       --wt
+           Include the worktree subdirectories in repos as choices. This is the
+           default.
+
+       --nowt
+           Override the default and do not include the worktree subdirectories
+           in repos as choices.
+
+       --wto[nly]
+           Include only the worktrees as choices.
+
+       --mod
+           Show status of repos that have mods outstanding.
+
+       'dirmatch' will filter the list using grep.
+
+       'item' is an integer N which will pick the Nth item in the
+           list of repos that would be presented if you didn't specify
+           an 'item'. Useful if you are cycling between a small number of repos.
+__USAGE__
