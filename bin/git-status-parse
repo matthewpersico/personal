@@ -2,6 +2,7 @@
 use strict;
 use warnings;
 
+use Cwd qw(abs_path);
 use Getopt::Long qw(:config auto_abbrev);
 my %opt;
 my %flags;
@@ -15,7 +16,9 @@ my @options=
       deleted
       all-modified
       unmodified
-      ignored);
+      ignored
+      absolute
+      rooted);
 
 GetOptions(\%opt,
            @options,
@@ -31,7 +34,7 @@ if( $opt{'all-modified'} || $opt{unmodified} || $opt{deleted}) {
       for ( qw (staged unstaged untracked) );
 }
 $flags{$_} //= 0
-    for ( qw (new staged unstaged deleted untracked all unmodified ignored) );
+  for ( qw (new staged unstaged deleted untracked all unmodified ignored) );
 
 %count = map {$_ => 0} keys %flags;
 
@@ -40,6 +43,9 @@ push @status_flags, '--ignored'
   if($opt{ignored});
 my @input = qx(git status @status_flags; echo GSE);
 my %files;
+my $gitroot=qx(git root);
+chomp $gitroot;
+
 INPUT:for (@input) {
     chomp;s/^\s+//;s/\s+$//;
     length($_) == 0 && next INPUT;
@@ -48,7 +54,7 @@ INPUT:for (@input) {
     if( ( $flags{staged}
             or $flags{'staged-only'}
             or $flags{new} )
-       && /^Changes to be committed/ .. /^Changes not staged for commit/) {
+          && /^Changes to be committed/ .. /^Changes not staged for commit/) {
         /^Changes to be committed/ && next INPUT;
         /use "git reset HEAD <file>..." to unstage/ && next INPUT;
         /use "git rm --cached <file>..." to unstage/ && next INPUT;
@@ -77,7 +83,7 @@ INPUT:for (@input) {
     }
 
     if($flags{unstaged} ## quick shortcut
-       && /^Changes not staged for commit/ .. /^Untracked files/) {
+         && /^Changes not staged for commit/ .. /^Untracked files/) {
         /^Changes not staged for commit/ && next INPUT;
         /use "git add <file>..." to update what will be committed/ && next INPUT;
         /use "git checkout -- <file>..." to discard changes in working directory/ && next INPUT;
@@ -90,7 +96,7 @@ INPUT:for (@input) {
     }
 
     if($flags{untracked} ## quick shortcut
-       && /^Untracked files/ .. /^GSE$/) {
+         && /^Untracked files/ .. /^GSE$/) {
         /^Untracked files/ && next INPUT;
         /use "git add <file>..." to include in what will be committed/ && next INPUT;
         if( /^GSE/ ) {
@@ -102,7 +108,7 @@ INPUT:for (@input) {
     }
 
     if($flags{ignored} ## quick shortcut
-       && /^Ignored files/ .. /^GSE$/) {
+         && /^Ignored files/ .. /^GSE$/) {
         /^Ignored files/ && next INPUT;
         /use "git add -f <file>..." to include in what will be committed/ && next INPUT;
         if( /^GSE/ ) {
@@ -159,6 +165,16 @@ sub store_filename {
                    and
                    $subtype ne 'renamed'
                    and (! -f $name and ! -d $name and ! -l $name) ) );
+    if( $opt{absolute} || $opt{rooted} ) {
+        $name = abs_path($name);
+        $newname = abs_path($newname)
+          if $newname;
+    }
+    if( $opt{rooted} ) {
+        $name =~ s|$gitroot/||;
+        $newname = s|$gitroot||
+          if $newname;
+    }
     $files{$type}{$name} = $subtype;
     $files{$subtype}{$name} = 1;
     if($files{affected}{$name}) {

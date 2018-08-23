@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# git-commit-with-changelog
+# git-commit-with-changelog-guts
 
 declare opt_a
 declare opt_v
@@ -8,6 +8,7 @@ declare -a opt_edit
 declare -A opt_exclude
 declare opt_skip
 declare opt_debug
+declare opt_confirm=''
 declare moreopts
 moreopts=1
 while [[ "$1" =~ ^- ]] && ((moreopts))
@@ -15,13 +16,14 @@ do
     declare original="$1"
     declare option
     option=$(dashstripper "$original")
-    shift ## That way you avoid endless loops on invalid options.
+    shift
 
     case $option in
         a ) opt_a='-a';;
         v ) opt_v='-v';;
         e ) opt_edit=(--editor "$1"); shift;;
         s ) opt_skip='--skip-no-changelog';;
+        c | confirm ) opt_confirm='--confirm';;
         exclude | ex) opt_exclude["$(realpath "$1")"]=1; shift;;
         h | help )
             script-usage
@@ -47,11 +49,11 @@ else
         ## We want to mimic the same behavior as git commit with no filenames
         ## (default to only staged files), but we need to pass files into
         ## git-process-changelog, so we grab the staged files.
-        mapfile -t filenames < <(git-what-is-staged)
+        mapfile -t filenames < <(git what is staged --rooted)
     else
         ## This mimics git commit -a; commit staged and unstaged files that are
         ## modified.
-        mapfile -t filenames < <(git-what-is-modified)
+        mapfile -t filenames < <(git what is modified --rooted)
     fi
 fi
 
@@ -71,7 +73,7 @@ then
     filenames=("${included[@]}")
 fi
 
-git-process-changelog --commit $opt_v $opt_debug "${opt_edit[@]}" $opt_skip "${filenames[@]}"
+git-process-changelog --commit $opt_confirm $opt_v $opt_debug "${opt_edit[@]}" $opt_skip "${filenames[@]}"
 status=$?
 exit $status
 
