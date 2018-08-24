@@ -83,22 +83,28 @@ my $ih;
 my %map =
   (
       TIME => {
-          idx => 0, justify => q(right)
+          idx => 0, justify => q(right),
+          alt => 'TIME'
       },
       UID => {
-          idx => 2, justify => q(right)
+          idx => 2, justify => q(right),
+          alt => 'UID'
       },
       PID => {
-          idx => 4, justify => q(right)
+          idx => 4, justify => q(right),
+          alt => 'PID'
       },
       PPID => {
-          idx => 6, justify => q(right)
+          idx => 6, justify => q(right),
+          alt => 'PPID'
       },
       TTY => {
-          idx => 8, justify => q(left)
+          idx => 8, justify => q(left),
+          alt => 'TT'
       },
       COMMAND => {
-          idx => 10, justify => q(left)
+          idx => 10, justify => q(left),
+          alt => 'COMMAND'
       },
   );
 
@@ -119,7 +125,7 @@ for ($ENV{OS_O} || '') {
         open(IH, '-|', "ps -o $fmtcols $opt{user}");
         last;
     };
-    open(IH, '-|', "ps -o $fmtcols $opt{user}");
+    open(IH, '-|', "ps --forest -o $fmtcols $opt{user}");
     last;
 }
 
@@ -136,15 +142,17 @@ while(<IH>) {
     if (not defined $header) {
         my $start = 0;
         my $end = 0;
-        my $headfield;
+      COL:
         for my $colname (@headcols) {
+            my $headfield;
             if ( $map{$colname}{justify} eq 'right' ) {
-                $l =~ m/(\s*$colname)/;
+                $l =~ m/(\s*(?:$colname|$map{$colname}{alt}))/;
                 $headfield = $1;
             } else {
-                $l =~ m/($colname\s*)/;
+                $l =~ m/((?:$colname|$map{$colname}{alt})\s*)/;
                 $headfield = $1;
             }
+            next if not defined $headfield;
             if ($colname eq $headcols[0] ) {
                 $map{$colname}{fmt} = 'A' . length($headfield) . 'A1';
             } elsif ($colname eq $headcols[-1] ) {
