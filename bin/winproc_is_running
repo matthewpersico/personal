@@ -1,0 +1,31 @@
+#!/usr/bin/env bash 
+
+# winproc_is_running
+
+# See if a process is running in Windows proc space
+
+declare wmic_cmd="/mnt/c/Windows/System32/wbem/WMIC.exe"
+if [ ! -f "$wmic_cmd" ]
+then
+    echo "WMIC command not found. Is this WSL on a Windows machine?"
+    exit 1
+fi
+
+declare verbose=0
+if [ "$1" = '-v' ]
+then
+verbose=1
+shift
+fi
+
+declare procname=$1
+
+procpid="$($wmic_cmd process where "name='$procname'" get processid 2>/dev/null | tail -2 | perl -ne 'chomp $_; print int($_) ')"
+
+if ((verbose))
+then
+echo "procpid='$procpid'"
+fi
+
+((procpid)) && exit 0 ## running
+exit 1 ## not running
