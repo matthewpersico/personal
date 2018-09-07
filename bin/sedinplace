@@ -36,7 +36,7 @@ declare f
 ## Read the args and options from the command line
 OPTSARGS=$(getoptp -o kcbvn: -l keepscript,confirm,backup,verbose,new: -n "$0" -- "$@")
 status=$?
-((status != 0)) && echo "Exiting." && exit $status
+((status != 0)) && cmd-echo "Exiting." && exit $status
 
 ## reset the command line ($@)
 eval set -- "$OPTSARGS"
@@ -51,7 +51,7 @@ while true ; do
 	        ;;
 	    -b|--backup)
 	        sedopt_inplace='-i.sip'
-	        echo "Backups in .sip files"
+	        cmd-echo "Backups in .sip files"
 	        shift
 	        ;;
 	    -v|--verbose)
@@ -71,7 +71,7 @@ while true ; do
 	        shift
 	        break
 	        ;;
-	    *) echo "Internal error!" ; byebye 1 ;;
+	    *) cmd-echo "Internal error!" ; byebye 1 ;;
     esac
 done
 
@@ -99,7 +99,7 @@ done
 
 if [ $opt_verbose = 1 ]
 then
-    echo "Processing these files: ${files[*]}"
+    cmd-echo "Processing these files: ${files[*]}"
 fi
 
 sedopts="$sedopt_inplace"
@@ -108,9 +108,9 @@ status=$?
 if [ $status != 0 ]
 then
     exitstatus=$status
-    echo "Sed editor. Status $status."
-    echo "The directory where the files live must be writable"
-    echo "for sed's temporaries and the final product."
+    cmd-echo "Sed editor. Status $status." \
+             "The directory where the files live must be writable" \
+             "for sed's temporaries and the final product."
 fi
 
 for f in "${files[@]}"
@@ -123,18 +123,18 @@ do
 	    then
             if ((opt_verbose))
             then
-		        echo "No changes in $f"
+		        cmd-echo "No changes in $f"
             fi
 		    \rm "${f}.sip"
         elif ((opt_new))
         then
-            \mv "${f}" "${f}.${opt_new}";status=$?;((status)) && echo "Rename ${f} ${f}.${opt_new} error. Exiting." && exit 1
-            \mv "${f}.sip" "${f}";status=$?;((status)) && echo "Rename ${f}.sip ${f} error. Exiting." && exit 1
-            ((opt_verbose)) && echo "${f}.${opt_new}"
+            \mv "${f}" "${f}.${opt_new}";status=$?;((status)) && cmd-echo "Rename ${f} ${f}.${opt_new} error. Exiting." && exit 1
+            \mv "${f}.sip" "${f}";status=$?;((status)) && cmd-echo "Rename ${f}.sip ${f} error. Exiting." && exit 1
+            ((opt_verbose)) && cmd-echo "${f}.${opt_new}"
         elif ((opt_confirm))
         then
-            echo
-            echo diff --text "${f}.sip" "$f"
+            cmd-echo
+            cmd-echo diff --text "${f}.sip" "$f"
             cat /tmp/sedinplace.diff.$$
 		    resp=$(yesno "Keep edits? ('n' reverts the edits)")
 		    if [ "$resp" = 'n' ]

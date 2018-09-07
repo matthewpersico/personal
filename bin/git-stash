@@ -1,0 +1,114 @@
+#!/usr/bin/env bash
+
+# git-stash
+
+## Functions that encapsulate the enhanced functionality. main() is defined
+## last and called last.
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        script-usage
+        echo
+        echo "** Standard actions **"
+        "${REALGIT}" stash --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+## Create a stash, then create a branch with the stashed items (which drops the
+## stash).
+git-stash-and-branch () {
+    declare branchname
+    branchname=$(git branch get-current)-stash-$(date +%Y%m%d.%H%M%S)
+    if "${REALGIT}" stash "$@"
+    then
+        if "${REALGIT}" stash branch "$branchname"
+        then
+            cmd-echo "Created branch $branchname"
+            return 0
+        fi
+    else
+        status=$?
+        cmd-echo "stash and-branch failed"
+        return $status
+    fi
+}
+
+main ()
+{
+    declare action=$1
+
+    if [[ "$action" =~ -h ]]
+    then
+        usage
+        return  0
+    fi
+
+    action_func_name="git-stash-${action}"
+    if declare -F "$action_func_name" >/dev/null
+    then
+        shift ## the $action
+        "$action_func_name" "$@"
+    else
+        case $action in
+            list | show | drop | pop | apply \
+                | branch | push | clear | create | store )
+                ## Dispatch to real git stash
+                "${REALGIT}" stash "$@"
+                ;;
+            * )
+                if [ -z "$action" ] || [[ "$action" =~ ^- ]] || [ -f "$action" ]
+                then
+                    ## then there is no action specified or it's an option or a
+                    ## pathspec. In any of these cases, we assume push.
+                    "${REALGIT}" stash push "$@"
+                    return $?
+                else
+                    usage "Error: unknown git stash action '$action'"
+                    return 1
+                fi
+                ;;
+        esac
+    fi
+    return $?
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-stash - git extention of git stash
+
+=head1 SYNOPSIS
+
+ git-stash and-branch <stash options and args>
+
+=head1 DESCRIPTION
+
+Extensions to the 'git stash' command.
+
+=head1 EXTENSIONS
+
+=over 4
+
+=item and-branch
+
+You can create a branch to hold an existing stash with the sequence:
+
+  git stash <options and args to create a stash>
+  git stash branch <branchname>
+
+which will create the stash and then create the branch with the stashed items,
+(which removes the stash).  This extention does both: it creates the stash
+and then creates a branch of those items, with a branch name of
+
+  <current-branch-name>-stash-<YYYYmmdd.HHMMSS>
+
+=back
+
+=cut
+
+__PODUSAGE__
