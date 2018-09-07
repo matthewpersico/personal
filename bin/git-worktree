@@ -4,6 +4,18 @@
 
 ## Functions that encapsulate the enhanced functionality. main() is defined
 ## last and called last.
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        script-usage
+        echo
+        echo "** Standard actions **"
+        "${REALGIT}" worktree --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
 git-worktree-create ()
 {
     local sctag='' ## "create: "
@@ -34,7 +46,7 @@ git-worktree-create ()
             f|fetch) fetch_existing=1 ;;
             m|message) opt_m=$1; message="$1"; shift ;;
             asmaster) asmaster=$1; shift ;;
-            h|help) func-usage; return 0 ;;
+            h|help) usage; return 0 ;;
             r|remote) remote=$1; shift ;;
             orphan) echo "Sorry, cannot create orphans this way."
                     echo "First create the orphan, then create a"
@@ -43,7 +55,7 @@ git-worktree-create ()
                     ;;
             l|local) localbranchname=$1; shift;;
             --) moreopts=0 ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Error getting options!"; func-usage; return 1 ;;
+            *) usage "Error getting options!"; return 1 ;;
         esac
     done
 
@@ -65,8 +77,7 @@ git-worktree-create ()
     repo="$(basename "$(dirname "$(pwd)")")" ## we are in /wt by now.
     if [ -z "$1" ]
     then
-        cmd-echo "Need a branch name to use for the worktree spec."
-        func-usage
+        usage "Need a branch name to use for the worktree spec."
         return 1
     fi
     local wt="$1"
@@ -117,82 +128,94 @@ git-worktree-create ()
           )
     if [ -n "$exists" ]
     then
-        cmd-echo "${sctag}Branch $localbranchname already exists locally. Cannot create it."
-        return 1
+        if ((fetch_existing==1)) && [ -n "$exists" ]
+        then
+            cmd-echo "${sctag}Branch $localbranchname already exists locally. Using it."
+            if git worktree add "$localbranchname" "$localbranchname"
+            then
+                ((verbose)) && cmd-echo "${sctag}cd $wtsubdir"
+                ## dirlist, not builtin cd, to take advantage this cd enhancement
+                dirlist "$localbranchname"
+            else
+                return $?
+            fi
+        else
+            cmd-echo "${sctag}Branch $localbranchname already exists locally. Cannot create it."
+            return 1
+        fi
+    else
+        ## Now see if branch exists remotely
+        exists=$(git branch -r --list --format='%(refname)' | sed 's|refs/remotes/||' | \
+                     while read -r line
+                     do
+                         if [ "$line" == "$remote/$wt" ]
+                         then
+                             echo "$remote/$wt"
+                             break
+                         fi
+                     done
+              )
+
+        if ((fetch_existing==1)) && [ -n "$exists" ]
+        then
+            ## Fetch it, Dear Henry...
+            ##                          branch             path
+            git worktree add --track -b "$localbranchname" "$localbranchname" "$remote/$wt"
+            ((verbose)) && cmd-echo "${sctag}cd $wtsubdir"
+            ## dirlist, not builtin cd, to take advantage this cd enhancement
+            dirlist "$localbranchname"
+        elif ((fetch_existing==1)) && [ -z "$exists" ]
+        then
+            cmd-echo "${sctag}Cannot find '$remote/$wt' to fetch"
+            return 1
+        elif ((fetch_existing==0)) && [ -n "$exists" ]
+        then
+            cmd-echo "${sctag}Branch '$wt' already exists in remote '$remote'"
+            return 1
+        else ## ((fetch_existing==0)) && [ -z "$exists" ]
+            ## Since this worktree is going to create a branch of the local
+            ## $asmaster, make sure the local $asmaster (where we should be right
+            ## now) it is up to date.
+            if [ "$(git branch get-current)" != "$asmaster" ]
+            then
+                cmd-echo "${sctag}Cannot create branch and worktree because the current branch '$(git branch get-current)' is not the master branch '$asmaster'."
+                return 1
+            fi
+            cmd-echo "${sctag}Checking local '$asmaster', starting point for branch."
+            git pull
+            status=$?
+            ## We can return here with no other notice, assuming the error message
+            ## from the pull would have been printed to stderr.
+            ((status)) && return 1
+
+            ## Let's practice a little hygiene here and keep the origin master up
+            ## to date with the upstream master.
+            #### - WARNING - This should only be used if the repo is YOUR FORK of a
+            #### - canonical repo. If you are working in a CLONE of the CANONICAL,
+            #### - you do NOT want to do this. Until we can tell the difference,
+            #### - we won't automajically do this.
+            #### git push origin master
+
+            ## Now create the worktree and the branch.
+            ((verbose)) && cmd-echo "${sctag}git worktree add -b $wtsubdir $wtbranch"
+            git worktree add $create_branch "$wtsubdir" "$wtbranch"
+            status=$?
+            if ((status))
+            then
+                cmd-echo "${sctag}Aborting."
+                return 1
+            fi
+
+            ((verbose)) && cmd-echo "${sctag}cd $wtsubdir"
+            ## dirlist, not builtin cd, to take advantage this cd enhancement
+            dirlist "$wtsubdir"
+
+            ## Finally push the branch upstream as a tracking branch
+            ((verbose)) && cmd-echo "${sctag}git push --set-upstream $remote $wtbranch"
+            git push --set-upstream "$remote" "$wtbranch"
+            git branch info created "$(date +%Y%m%d.%H%M%S%z)"
+        fi
     fi
-
-    ## Now see if branch exists remotely
-    exists=$(git branch -r --list --format='%(refname)' | sed 's|refs/remotes/||' | \
-                 while read -r line
-                 do
-                     if [ "$line" == "$remote/$wt" ]
-                     then
-                         echo "$remote/$wt"
-                         break
-                     fi
-                 done
-          )
-
-    if ((fetch_existing==1)) && [ -n "$exists" ]
-    then
-        ## Fetch it, Dear Henry...
-        ##                          branch             path
-        git worktree add --track -b "$localbranchname" "$localbranchname" "$remote/$wt"
-        ((verbose)) && cmd-echo "${sctag}cd $wtsubdir"
-        ## dirlist, not builtin cd, to take advantage this cd enhancement
-        dirlist "$localbranchname"
-    elif ((fetch_existing==1)) && [ -z "$exists" ]
-    then
-        cmd-echo "${sctag}Cannot find '$remote/$wt' to fetch"
-        return 1
-    elif ((fetch_existing==0)) && [ -n "$exists" ]
-    then
-        cmd-echo "${sctag}Branch '$wt' already exists in remote '$remote'"
-        return 1
-    else ## ((fetch_existing==0)) && [ -z "$exists" ]
-        ## Since this worktree is going to create a branch of the local
-        ## $asmaster, make sure the local $asmaster (where we should be right
-        ## now) it is up to date.
-        if [ "$(git branch get-current)" != "$asmaster" ]
-        then
-            cmd-echo "${sctag}Cannot create branch and worktree because the current branch '$(git branch get-current)' is not the master branch '$asmaster'."
-            return 1
-        fi
-        cmd-echo "${sctag}Checking local '$asmaster', starting point for branch."
-        git pull
-        status=$?
-        ## We can return here with no other notice, assuming the error message
-        ## from the pull would have been printed to stderr.
-        ((status)) && return 1
-
-        ## Let's practice a little hygiene here and keep the origin master up
-        ## to date with the upstream master.
-        #### - WARNING - This should only be used if the repo is YOUR FORK of a
-        #### - canonical repo. If you are working in a CLONE of the CANONICAL,
-        #### - you do NOT want to do this. Until we can tell the difference,
-        #### - we won't automajically do this.
-        #### git push origin master
-
-        ## Now create the worktree and the branch.
-        ((verbose)) && cmd-echo "${sctag}git worktree add -b $wtsubdir $wtbranch"
-        git worktree add $create_branch "$wtsubdir" "$wtbranch"
-        status=$?
-        if ((status))
-        then
-            cmd-echo "${sctag}Aborting."
-            return 1
-        fi
-
-        ((verbose)) && cmd-echo "${sctag}cd $wtsubdir"
-        ## dirlist, not builtin cd, to take advantage this cd enhancement
-        dirlist "$wtsubdir"
-
-        ## Finally push the branch upstream as a tracking branch
-        ((verbose)) && cmd-echo "${sctag}git push --set-upstream $remote $wtbranch"
-        git push --set-upstream "$remote" "$wtbranch"
-        git branch info created "$(date +%Y%m%d.%H%M%S%z)"
-     fi
-
     ## Convert the worktree's .git file to use a relative path to the master
     ## .git location. In that way, we can use the repo on machines where it may
     ## be mounted in a different place, so that the absolute path is different
@@ -229,7 +252,7 @@ git-worktree-delete ()
     local opt_reset=1
     OPTSARGS=$(getoptp -o yfs:h --long yes,force,help,no-reset,skip-reset -n "${FUNCNAME[0]}" -- "$@")
     local status=$?
-    ((status != 0)) && func-usage && return $status
+    ((status != 0)) && usage && return $status
 
     eval set -- "$OPTSARGS"
     while true
@@ -238,9 +261,9 @@ git-worktree-delete ()
             --no-reset | --skip-reset) opt_reset=0; shift ;;
             -y|--yes) opt_yes=1; opt_yes_string='--yes'; shift ;;
             -f|--force) opt_force=1; shift ;;
-            -h|--help) func-usage; return 0 ;;
+            -h|--help) usage; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; func_usage; return 1 ;;
+            *) usage "Internal error!"; return 1 ;;
         esac
     done
 
@@ -418,14 +441,15 @@ git-worktree-rename ()
 
         case $option in
             no-reset | skip-reset) opt_reset=0;;
+            h|help) usage; return 0 ;;
             --) moreopts=0 ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Error getting options!"; func-usage; return 1 ;;
+            *) usage "Error getting options!"; return 1 ;;
         esac
     done
 
     if (($#<2))
     then
-        script-usage
+        usage "Missing arguments"
         return 1
     fi
 
@@ -446,22 +470,19 @@ git-worktree-rename ()
 
     if [ "$old_worktree_path" = "$(pwd)" ]
     then
-        cmd-echo "${sctag}Cannot rename out of current directory"
-        script-usage
+        usage "${sctag}Cannot rename out of current directory"
         return 1
     fi
 
     if [ "$new_worktree_path" = "$(pwd)" ]
     then
-        cmd-echo "${sctag}Cannot rename into current directory"
-        script-usage
+        usage "${sctag}Cannot rename into current directory"
         return 1
     fi
 
     if (($#))
     then
-        cmd-echo "${sctag}argument(s) '$*' are illegal"
-        script-usage
+        usasge "${sctag}argument(s) '$*' are illegal"
         return 1
     fi
 
@@ -521,39 +542,26 @@ git-worktree-rename ()
 main ()
 {
     declare action=$1
-    shift;
 
     if [[ "$action" =~ -h ]]
     then
-        (
-            echo "** Standard actions **"
-            "${REALGIT}" worktree -h
-            echo
-            echo "** Extended actions **"
-            script-usage
-        ) 2>&1 | ${PAGER:-less}
+        usage
         return  0
     fi
 
     action_func_name="git-worktree-${action}"
     if declare -F "$action_func_name" >/dev/null
     then
+        shift ## the $action
         "$action_func_name" "$@"
     else
         case $action in
             add | list | lock | move | prune | remove | unlock )
                 ## Dispatch to real git worktree
-                "${REALGIT}" worktree "$action" "$@"
+                "${REALGIT}" worktree "$@"
                 ;;
             * )
-                echo "Error: unknown git worktree action '$action'"
-                (
-                    echo "** Standard actions **"
-                    "${REALGIT}" worktree -h
-                    echo
-                    echo "** Extended actions **"
-                    script-usage
-                ) 2>&1 | ${PAGER:-less}
+                usage "Error: unknown git worktree action '$action'"
                 return 1
                 ;;
         esac
@@ -577,7 +585,7 @@ git-worktree - git extention of git worktree
 
 =head1 DESCRIPTION
 
-Extensions to the 'git worktree' command the enforce or understand our worktree conventions. To wit:
+Extensions to the 'git worktree' command that understand and enforce our worktree conventions. To wit:
 
 o When we create a worktree, we first create a branch with the same name as the worktree.
 

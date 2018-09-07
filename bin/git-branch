@@ -8,6 +8,46 @@
 
 ## Functions that encapsulate the enhanced functionality. main() is defined
 ## last and called last.
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        script-usage
+        echo
+        echo "** Standard actions **"
+        "${REALGIT}" branch --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+git-branch-checkout ()
+{
+    declare tgt_branch=$1
+    if [ -z "$tgt_branch" ]
+    then
+        local PS3="Choose by number, q to quit: "
+        select tgt_branch in $(git branch list --strip)
+        do
+            [ "$(echo "$REPLY" | tr '[:upper:]' '[:lower]')" = 'q' ] && return 1
+            [ -n "$tgt_branch" ] && break
+        done
+    else
+        shift
+        if [ "$(git branch list --strip "$tgt_branch")" != "$tgt_branch" ]
+        then
+            cmd-echo "$tgt_branch does not exist to be checked out."
+            return 1
+        fi
+    fi
+
+    if (($#))
+    then
+        cmd-echo "arguments '$*' ignored"
+    fi
+
+    git checkout "$tgt_branch"
+
+}
 git-branch-delete ()
 {
     declare no_remote
@@ -19,7 +59,7 @@ git-branch-delete ()
     OPTSARGS=$(getoptp -o y --long yes,no-remote,declare-only,no-go-set -n "${FUNCNAME[0]}" -- "$@")
     declare status
     status=$?
-    ((status != 0)) && script-usage && return $status
+    ((status != 0)) && usage && return $status
 
     eval set -- "$OPTSARGS"
     while true
@@ -28,9 +68,9 @@ git-branch-delete ()
             -y|--yes) opt_yes=1; shift ;;
             --no-remote|--declare-only) no_remote=1; shift ;;
             --no-go-set) do_go_set=0; shift ;;
-            -h|--help) script-usage; return 0 ;;
+            -h|--help) usage; return 0 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) cmd-echo "Internal error!"; script-usage; return 1 ;;
+            *) cmd-echo "Internal error!"; usage; return 1 ;;
         esac
     done
 
@@ -136,8 +176,7 @@ git-branch-rename ()
 {
     if (($#!=2))
     then
-        cmd-echo "Need current and new branch names"
-        script-usage
+        usage "Need current and new branch names"
         return 1
     fi
 
@@ -145,8 +184,7 @@ git-branch-rename ()
     local new_branch=$1; shift
     if (($#))
     then
-        script-usage
-        echo "       argument(s) '$*' are illegal"
+        usage "       argument(s) '$*' are illegal"
         return 1
     fi
 
@@ -173,7 +211,7 @@ git-branch-info ()
     local OPTSARGS
     OPTSARGS=$(getoptp -o b:tdu --long branch:,timestamp,delete,unset -n "${FUNCNAME[0]}" -- "$@")
     local status=$?
-    ((status != 0)) && script-usage && return $status
+    ((status != 0)) && usage && return $status
 
     eval set -- "$OPTSARGS"
     while true
@@ -183,7 +221,7 @@ git-branch-info ()
             --timestamp|-t) timestamp="[$(date)]"; shift;;
             --delete|-d|--unset|-u) delete=1; shift;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; script-usage; return 1 ;;
+            *) echo "Internal error!"; usage; return 1 ;;
         esac
     done
 
@@ -266,8 +304,7 @@ git-branch-track-remote ()
     declare local_branch=$3
     if [ -z "$remote" ] || [ -z "$branch" ]
     then
-        echo "Usage: git-track-remote-branch remote branch [localbranch]"
-        echo "       Missing one or both arguments (remote, branch)"
+        usage "Missing one or both arguments (remote, branch)"
         return 1
     fi
     [ -z "$local_branch" ] && local_branch=$branch
@@ -321,18 +358,22 @@ git-branch-list ()
         esac
     done
 
-    ## Update the local branches with remote. Shunt away the output - not
-    ## needed, interferes with functions that call git-branch-list and read the
-    ## output.
-    git remote update > /dev/null
+    if [ -n "$remote" ]
+    then
+        ## Update the local branches with remote. Shunt away the output - not
+        ## needed, interferes with functions that call git-branch-list and read
+        ## the output.
+        git remote update > /dev/null
+    fi
 
     local -a opts
-    opts=('--list' "$remote")
+    opts=('--list')
+    [ -n "$remote" ] && opts+=("$remote")
     if ((strip))
     then
-        "${REALGIT}" branch --no-color "${opts[@]}" | sed 's/^[ *] //' | sed 's/ .*//'
+        "${REALGIT}" branch --no-color "${opts[@]}" "$@" | sed 's/^[ *] //' | sed 's/ .*//'
     else
-        "${REALGIT}" branch "${opts[@]}"
+        "${REALGIT}" branch "${opts[@]}" "$@"
     fi
 }
 
@@ -342,13 +383,7 @@ main ()
 
     if [[ "$action" =~ -h ]]
     then
-        (
-            echo "** Standard actions **"
-            "${REALGIT}" branch -h
-            echo
-            echo "** Extended actions **"
-            script-usage
-        ) 2>&1 | ${PAGER:-less}
+        usage
         return  0
     fi
 
