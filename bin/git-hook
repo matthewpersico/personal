@@ -1,0 +1,224 @@
+#!/usr/bin/env bash
+
+# git hook
+
+# Functions to manipulate local hooks
+
+git-hook-find-hook-dir ()
+{
+    local dotgit
+    dotgit=$(git-find-git-dir)
+    if [ -n "$dotgit" ] && [ -d "$dotgit/hooks" ]
+    then
+        echo "$dotgit/hooks"
+        return 0
+    else
+        echo
+        return 1
+    fi
+}
+
+git-hook-check ()
+{
+    local hook_dir
+    hook_dir=$(git-hook-find-hook-dir)
+    if [ -z "$hook_dir" ] || [ ! -d "$hook_dir" ]
+    then
+        echo "Cannot find hook directory"
+        return 1
+    fi
+    local i
+    for i in "${hook_dir}"/*
+    do
+        if [[ "$i" =~ \.sample$ ]] || [[ "$i" =~ $GITFUNCS_CHANGELOG_NAME ]]
+        then
+            continue
+        fi
+        if [ ! -x "$i" ]
+        then
+            echo "INFO: git hook $i is not executable. Making it so."
+            chmod a+x "$i"
+        fi
+    done
+    return 0
+}
+
+git-hook-dry-run ()
+{
+    local hook_name=$1; shift
+    local hook_dir
+    hook_dir=$(git-hook-find-hook-dir)
+    if [ -z "$hook_dir" ] || [ ! -d "$hook_dir" ]
+    then
+        echo "Cannot find hook directory"
+        return 1
+    fi
+    local hook_path=$hook_dir/$hook_name
+    if [ -x "$hook_path" ]
+    then
+        "$hook_path" "$@"
+        return $?
+    else
+        echo "Executable $hook_path not found."
+        return 1
+    fi
+}
+
+git-hook-pushpull-guts ()
+{
+    declare current_template
+    current_template=$(git config --get init.templatedir)
+    # gitfuncs_githook_root is assigned in git.env
+    # shellcheck disable=2154
+    if [ "$current_template" != "${gitfuncs_githook_root}" ]
+    then
+        echo "Error: Config says init.templatedir = '$current_template'"
+        echo "       It should be '${gitfuncs_githook_root}'"
+        echo "       Please correct."
+        return 1
+    fi
+
+    if [ ! -d "$current_template" ]
+    then
+        echo "Error: Can't find '$current_template'"
+        echo "       Please correct."
+        return 1
+    fi
+
+    declare hooks
+    # gitfuncs_githook_dir is assigned in git.env
+    # shellcheck disable=2154
+    hooks=$(ls "${gitfuncs_githook_dir}"/*)
+
+    declare repo
+    for repo in "$@"
+    do
+        (($# > 1)) && echo "== $repo"
+        for h in $hooks
+        do
+            declare hooktgtdir
+            hooktgtdir="${TILDAE:-$HOME}/$(git-strip-repo "$repo")/.git/hooks"
+            if [ -f "$hooktgtdir" ]
+            then
+                echo "$hooktgtdir is a file. whoops..."
+                ## Fix up accidental directory overwrite
+                \rm "$hooktgtdir"
+                mkdir "$hooktgtdir"
+            fi
+
+            declare hooktgtpath
+            hooktgtpath="$hooktgtdir/$(basename "$h")"
+            if [ ! -e "$hooktgtpath" ] || [ "$h" -nt "$hooktgtpath" ]
+            then
+                if [ ! -e "$hooktgtpath" ]
+                then
+                    echo "$hooktgtpath not found. Copying from $h..."
+                elif [ "$h" -nt "$hooktgtpath" ]
+                then
+                    echo "$hooktgtpath out of date. Updating from $h..."
+                fi
+                cp -pv "$h" "$hooktgtpath"
+                chmod +x "$hooktgtpath"
+            elif [ "$h" -ot "$hooktgtpath" ]
+            then
+                declare tmpout
+                tmpout=$(mktemp -t tmp.git-push-hook.XXXXXXXXXX)
+                diff "$h" "$hooktgtpath" 1>"$tmpout" 2>&1
+                if [ -s "$tmpout" ]
+                then
+                    echo "$hooktgtpath newer than $h. Here's the diff, older to newer:"
+                    cat "$tmpout"
+                fi
+                rm -f "$tmpout"
+            else
+                echo "$hooktgtpath up to date"
+            fi
+        done
+    done
+}
+
+git-hook-pull ()
+{
+   git-hook-pushpull-guts "$(git-worktree-root)"
+}
+
+git-hook-push ()
+{
+    git-hook-pushpull-guts "$(_git-go-get -m | grep -v ".git_template" )"
+}
+
+
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        script-usage
+    ) 2>&1 | ${PAGER:-less}
+}
+
+main ()
+{
+    declare action=$1
+
+    if [[ "$action" =~ -h ]]
+    then
+        usage
+        return  0
+    fi
+
+    action_func_name="git-hook-${action}"
+    if declare -F "$action_func_name" >/dev/null
+    then
+        shift ## the $action
+        "$action_func_name" "$@"
+    else
+        usage "Error: unknown git hook action '$action'"
+        return 1
+    fi
+    return $?
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-hook - local hook manipulation functions
+
+=head1 SYNOPSIS
+
+ git-hook check
+ git-hook dry-run
+ git-hook pull
+ git-hook push
+
+=head1 DESCRIPTION
+
+Hook manipulation functions.
+
+=head1 EXTENSIONS
+
+=over 4
+
+=item check
+
+Make sure the hooks are executable. Might not be after copying.
+
+=item dry-run
+
+Run the hook without doing the commit.
+
+=item pull
+
+Copy all the hooks from the template repo to the current repo.
+
+=item push
+
+Copy all the hooks from the current repo to the template directory.
+
+=back
+
+=cut
+
+__PODUSAGE__
