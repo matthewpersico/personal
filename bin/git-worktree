@@ -539,6 +539,97 @@ git-worktree-rename ()
     return $?
 }
 
+git-worktree-diff-to-root ()
+{
+    if git-in-a-worktree
+    then
+        cmd-echo "Must be in a wt"
+        return 1;
+    fi
+
+    declare moreopts
+    moreopts=1
+    declare opt_reverse
+    opt_reverse=0
+    declare opt_color
+    opt_color='always'
+    declare diff_opts
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        ## Strip all leading dashes here so that -foo and --foo can both
+        ## be processed as 'foo'.
+        declare original="$1"
+        declare option
+        option=$(dashstripper "$original")
+        shift ## That way you avoid endless loops on invalid options.
+
+        case $option in
+            reverse   ) opt_reverse=1 ;;
+            color     ) opt_color=$1; shift ;;
+            w         ) diff_opts="$diff_opts -w" ;;
+            help      ) echo "No documentation yet. Sorry."; return 0 ;;
+            debug | x ) set -x ;;
+            --        ) moreopts=0 ;;
+            *         ) echo "$original is an invalid option. See $0 --help"; return 1;;
+        esac
+    done
+
+    declare -a files=("$@")
+    if ((${#files[@]}==0))
+    then
+        mapfile -t files < <(git ls-files)
+        if ((${#files[@]}==0))
+        then
+            cmd-echo "No git files found. Is current dir '$(pwd)' a git repo?"
+            return 1;
+        fi
+    fi
+
+    declare root
+    root=$(pwd);
+    root=${root%%/wt*}
+    is-redirected "$STDOUT" && opt_color=never
+    for i in "${files[@]}"
+    do
+        declare -a comp=("${root}/$i" "$i")
+        if ((opt_reverse))
+        then
+            comp=("$i" "${root}/$i")
+        fi
+        git --no-pager diff --no-index --color=$opt_color "$diff_opts" "${comp[@]}" 2>&1
+    done | less -RE
+}
+
+git-worktree-diff-from-root ()
+{
+    git-worktree-diff-to-root --reverse "$@"
+    return $?
+}
+
+git-worktree-get-root ()
+{
+    local i
+    local status=0
+    local wtr
+    wtr=$(git worktree list | \
+              grep '\[master\]' | \
+              sed 's/....... \[master\]//' | \
+              sed 's/\s\{1,\}$//')
+    for i in "${PIPESTATUS[@]}"
+    do
+        ((i>status)) && status=$i
+    done
+    ((status)) && return "$status"
+    if [ -n "$wtr" ]
+    then
+        echo "$wtr"
+        return 0
+    else
+        echo
+        return 1
+    fi
+}
+
 main ()
 {
     declare action=$1
@@ -569,6 +660,7 @@ main ()
     return $?
 }
 
+
 main "$@"
 exit $?
 
@@ -582,6 +674,9 @@ git-worktree - git extention of git worktree
  git-worktree create
  git-worktree delete
  git-worktree rename
+ git-worktree get-root
+ git-worktree diff-from-root
+ git-worktree diff-to-root
 
 =head1 DESCRIPTION
 
@@ -630,6 +725,30 @@ A synonymn 'remove' but one that respects our conventions.
 Changes the worktree name and the corresponding directory and branch.
 
  git worktree rename current-worktree-name new-worktree-name
+
+=item get-root
+
+Get the root directory for the current worktree.
+
+ git worktree get-root
+
+=item diff-to-root
+
+Perform a diff betweeen the master branch and the current worktree for a given
+set of files or all the git-known files in the current worktree.
+
+ git worktree diff-to-root [--reverse] [--color] [-w]
+       --reverse - Perform the diff in the reverse order, i.e, betweeen the
+                   current worktree and the master branch.
+       --color   - Common git color options: always, never, or auto.
+       -w        - Perform the diff ignoring whitespace.
+
+=item diff-from-root
+
+Perform a diff betweeen the current worktree and the master branch for a given
+set of files or all the git-known files in the current worktree. A synonymn for
+
+ git worktree diff-to-root --reverse
 
 =back
 
