@@ -1,62 +1,36 @@
 #!/usr/bin/env bash
 # shellcheck shell=ksh
-# shellcheck disable=SC1090
+# shellcheck disable=SC1090 # Sourcing files without a fixed path.
 
 # xterminit
 
-## WARNING: This script MUST be valid KORN SHELL.
+## WARNING: This script is run in the Bloomberg environment on dev machines
+## under ksh before Chimera switches over to bash. This script MUST be valid
+## KORN SHELL for as long as it is run in a Bloomberg environment.
 
 ## - No associative arrays.
 ## - No variables with - in them. Use _ instead.
 
-## This script is run in the Bloomberg environment on dev machines under ksh
-## before Chimera switches over to bash. Therefore we do not make any audit or
-## controlfunc build calls. We call those in the caller of this in the *funcs
-## tree again after chimera.
-
-## init
-hasx=0
 if [ -z "$DISPLAY" ]
 then
     export DISPLAY=:0.0
-else
-    hasx=1
 fi
 
-XSERVER=''
-if [ "$(uname -s)" = 'Cygwin' ]
+## Is X installed?
+# shellcheck disable=SC2230 # 'which' is fine.
+if ! which xmodmap 1>/dev/null
 then
-    # shellcheck disable=SC2009
-    hasXming=$(ps -aW | grep Xming.exe)
-    if [ -n "$hasXming" ]
-    then
-        echo "Using Xming XServer"
-        XSERVER='Xming'
-        export XSERVER
-    else
-        ## Cygwin use only
-        # shellcheck disable=SC2143
-        # shellcheck disable=SC2009
-        if [ -z "$(ps -a | grep XWin)" ]
-        then
-            if [ "$1" = '--verbose' ]
-            then
-                echo "Starting Cygwin XServer..."
-            fi
-            startxwin 2>/dev/null 2>/dev/null &
-            XSERVER='XWin'
-            export XSERVER
-        fi
-    fi
-elif [ "$hasx" = '0' ]
+    echo 'No X installed. xterm setup skipped.'
+    return 0
+fi
+
+## Is X running?
+if ! perl -e 'alarm shift @ARGV; exec @ARGV' 5 xmodmap 1>/dev/null 2>/dev/null
 then
-    ## X server ping...
-    perl -e 'alarm shift @ARGV; exec @ARGV' xmodmap 1>/dev/null 2>/dev/null
-    # shellcheck disable=SC2181
-    if (($?))
+    if ! ~/personal/bin/launchxserver
     then
-        ## There is no xserver. Do not set any of this up.
-        return 0 ## return, not exit because this script is meant to be 'dotted in'
+        echo "XServer not running, can't be launched. xterm setup skipped."
+        return 0
     fi
 fi
 
@@ -67,14 +41,14 @@ then
         if [ -z "$XTERM" ] && [ -e "$i/xterm" ]
         then
             XTERM="$i/xterm -sb -sl 40000"
+            break
         fi
     done
-fi
-
-if [ -z "$XTERM" ]
-then
-    echo "$(date) - $(hostname) - Cannot find an xterm to use. xterm setup stops." >> ~/xterminit.stop
-    return 0
+    if [ -z "$XTERM" ]
+    then
+        echo "$(date) - $(hostname) - Cannot find an xterm to use. xterm setup stops." >> ~/xterminit.stop
+        return 0
+    fi
 fi
 
 if [ -z "${HOSTNAME}" ]
