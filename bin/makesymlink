@@ -4,39 +4,140 @@
 
 # Symlink $2 to $1, but do so relatively if they share a common root directory
 
-## TODO: --backup=backup_dir
-## TODO: --relink - remove link, relink.
-
-set -e
-
 declare backup_dir
 declare relink=0
+declare relative=1
+declare moreopts=1
+declare verbosity=2
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift
+    declare okey
+    declare ovalue
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        backup) backup_dir=$ovalue ;;
+        relink) relink=1 ;;
+        no-relative) relative=0 ;;
+        relative) relative=1 ;;
+        verbose) verbosity=2 ;;
+        quiet) verbosity=1 ;;
+        slient) verbosity=0 ;;
+        help)
+            script-usage "$0"
+            exit 0
+            ;;
+        * )
+            cmd-echo -- "$original is an invalid option. See $0 --help"
+            exit 1
+            ;;
+    esac
+done
+
 declare fullsrc=$1
 declare fulllink=$2
 
-if [ ! -e $fullsrc ]
+if [ ! -e "$fullsrc" ]
 then
-    echo "'$fullsrc' not found. Skipping processing of '$fulllink'."
-elif [ -h $fulllink ]
+    (( verbosity > 0 )) && cmd-echo "'$fullsrc' not found. Skipping processing of '$fulllink'."
+elif [ -h "$fulllink" ]
 then
-    echo -n "'$fulllink' is already a link."
     if ((relink))
     then
-        echo " --relink specified; relinking."
+        (( verbosity > 1 )) && cmd-echo "'$fulllink' is already a link. --relink specified; relinking."
     else
-        echo " Skipping processing of '$fulllink'."
+        (( verbosity > 0 )) && cmd-echo "'$fulllink' is already a link. Skipping processing of '$fulllink'."
     fi
 else
-    if [ -f $fulllink ] || [ -d $fulllink ]
+    if [ -n "$backup_dir" ]
     then
-        srctype='directory'; if [ -f $fulllink ]; then srctype='file'; fi
-        echo "Moving existing $srctype '$fulllink' to $backup_dir so we can link it to '$fullsrc'."
-        mv $fulllink $backup_dir/$(basename $fulllink).$(date '+%Y%m%d%H%M%S')
+        if [ -f "$fulllink" ] || [ -d "$fulllink" ]
+        then
+            srctype='directory'; if [ -f "$fulllink" ]; then srctype='file'; fi
+            (( verbosity > 1 )) && cmd-echo "Moving existing $srctype '$fulllink' to $backup_dir so we can link it to '$fullsrc'."
+            mv "$fulllink" "$backup_dir/$(basename "$fulllink").$(date '+%Y%m%d%H%M%S.%N')"
+        fi
     fi
-    echo "Relativizing src and link"
-    declare paths
-    asplit paths ':' $(relativize_two_paths $fullsrc $fulllink)
-    echo "Creating symlink '${paths[2]}' to '${paths[1]}' in '${paths[0]}'."
-    (builtin cd ${paths[0]}
-     ln -s ${paths[1]} ${paths[2]})
+    if ((relative))
+    then
+        (( verbosity > 1 )) && cmd-echo "Relativizing src and link"
+        declare paths
+        asplit paths ':' "$(relativize_two_paths "$fullsrc" "$fulllink")"
+        (( verbosity > 1 )) && cmd-echo "Creating symlink '${paths[2]}' to '${paths[1]}' in '${paths[0]}'."
+        (builtin cd "${paths[0]}" || exit 1
+         ln -s "${paths[1]}" "${paths[2]}")
+    else
+        (( verbosity > 1 )) && cmd-echo "Creating symlink '$fulllink' to '$fullsrc'."
+        ln -s "$fullsrc" "$fulllink"
+    fi
 fi
+
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+makesymlink - make a symlink, with relativization and backup
+
+=head1 SYNOPSIS
+
+ makesymlink [--backup backup_dir] [--relink] [--[no-]relative] \
+             [ --[verbose|quiet|slient]} \
+             source link
+
+=head1 DESCRIPTION
+
+Make a symlink, but with some smarts
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item source, link
+
+The original file and the link to it.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --backup
+
+If the link location is currently a file or directory, move it the the
+backup_dir.
+
+=item --relink
+
+If the link already exists, it will not be recreated unless this option is
+specfied.
+
+=item --[no-]relative
+
+If the source and the link share a directory tree (below /), then the link will
+be created relative to the source with respect to that tree. If no- is
+specfied, the link will be the absolute path to the source. The default is
+--relative. The purpose is to create links that can still work when the link
+and its source are copied or rsync'ed to a different location in the
+filesystem, typically for hot-backup purposes.
+
+=item --[verbose|quiet|slient
+
+'verbose' prints everything, 'quiet' prints only errors, 'silent' prints
+nothing. The default is 'verbose'.
+
+=back
+
+=cut
+
+__PODUSAGE__
