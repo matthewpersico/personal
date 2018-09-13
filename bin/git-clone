@@ -22,6 +22,7 @@ declare opt_t=0
 declare opt_triangle_namespace=''
 declare opt_worktree=0
 declare opt_use_githost_dir=0
+declare opt_make_fork=0
 declare dispatch_to_real_git=1
 declare githost
 declare moreopts
@@ -61,6 +62,9 @@ do
             dispatch_to_real_git=0; opt_y=1;;
         t | timestamp )
             dispatch_to_real_git=0; opt_t=1;;
+        fork )
+            opt_make_fork=1
+            ;&
         f | forkof | tri | triangle )
             dispatch_to_real_git=0
             opt_use_githost_dir=1 ## if we are using triangle, we most likely want trees too
@@ -246,6 +250,14 @@ then
     rm -rf "$tgt"
 fi
 
+if ((opt_make_fork))
+then
+    cmd-echo "github-do --server $githost --wait fork $opt_triangle_namespace $repo..."
+    if ! github-do --server "$githost" --wait fork "$opt_triangle_namespace" "$repo"
+    then
+        exit $?
+    fi
+fi
 cmd-echo "$REALGIT clone ${git_clone_opts[*]} ${githost_url}$namespace/$repo $namespace/$repo ..."
 if ! $REALGIT clone "${git_clone_opts[@]}" "${githost_url}$namespace/$repo" "$namespace/$repo"
 then
@@ -304,7 +316,7 @@ git-clone - extenstion to git clone
 
 =head1 SYNOPSIS
 
- git-clone [--tree] [--yes|y] [--timestamp|-t] [[--forkof|--tri[angle]] upstream-org] [--wt|--worktree] repoURL
+ git-clone [--tree] [--yes|y] [--timestamp|-t] [[--fork|[--forkof|--tri[angle]]] upstream-org] [--wt|--worktree] repoURL
 
 =head1 DESCRIPTION
 
@@ -336,9 +348,13 @@ Ansswer yes to all prompts.
 
 Read the git log of the repo and reset the timestamps on all the files to the date of the last commit of the file. Otherwise all files have the timestamp of when the repo is cloned.
 
+=item --fork
+
+If you want to create a fork and then clone that repo, provide the organization of the original and we'll create the fork, then establish it as the remote 'upstream'.
+
 =item --forkof
 
-If this repo is a fork, provide the organization of the fork and we'll establish it as the remote 'upstream'.
+If this repo is a fork, provide the organization of the original and we'll establish it as the remote 'upstream'.
 
 =item --worktree
 
