@@ -1,159 +1,331 @@
 #!/usr/bin/env bash
 
-declare usage_cmd="script-usage"
-## If there's any chance that this will be in a script that will be dotted in,
-## remove the explicit out_cmd calls.
-declare out_cmd="exit"
-declare moreopts=1
-declare server='github'
-declare token_file="$HOME/.github"
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
 
-while [[ "$1" =~ ^- ]] && ((moreopts))
-do
-    declare original="$1"
-    shift
-    declare option
-    option=$(dashstripper "$original")
-    ## This bit deals with --foo=bar instead of --foo bar
-    declare okey=''
-    declare ovalue=''
-    if [[ "$option" =~ = ]]
+curl-cat ()
+{
+    cmd-echo --title Headers
+    cat "$curlheaders"
+    cmd-echo --title Data
+    cat "$curldata"
+}
+
+main ()
+{
+    declare usage_cmd="script-usage"
+    ## If there's any chance that this will be in a script that will be dotted in,
+    ## remove the explicit out_cmd calls.
+    declare out_cmd="exit"
+    declare moreopts=1
+    declare server='github'
+    declare token_file="$HOME/.github"
+    declare verbose=0
+    declare synchronous=0
+    declare keep_data=0
+
+    ##
+    ## options parsing
+    ##
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        declare original="$1"
+        shift
+        declare option
+        option=$(dashstripper "$original")
+        ## This bit deals with --foo=bar instead of --foo bar
+        declare okey=''
+        declare ovalue=''
+        if [[ "$option" =~ = ]]
+        then
+            okey=${option%%=*}
+            ovalue=${option#*=}
+            option="$okey"
+        fi
+
+        case $option in
+            keep-data ) keep_data=1 ;;
+
+            server )
+                server=${ovalue:-$1}
+                [ -z "$ovalue" ] && shift
+                ;;
+
+            wait ) synchronous=1 ;;
+
+            h | help )
+                $usage_cmd
+                $out_cmd 0
+                ;;
+
+            v | verbose )
+                verbose=1
+                ;;
+
+            --)
+                moreopts=0
+                ;;
+
+            * )
+                cmd-echo "$original is an invalid option. See $0 --help"
+                $out_cmd 1
+                ;;
+        esac
+    done
+
+    declare server_url
+    server_url="$(kvstore get gitfuncs_git_api_urls "$server")/"
+    if [ -z "$server_url" ]
     then
-        okey=${option%%=*}
-        ovalue=${option#*=}
-        option="$okey"
+        cmd-echo "'$server' is an in valid --server option"
+        return 1
     fi
 
-    case $option in
-        server )
-            server=${ovalue:-$1}
-            [ -z "$ovalue" ] && shift
+    declare token_file
+    token_file="$HOME/$(kvstore get gitfuncs_git_token_file "$server")"
+
+    if [ ! -r "$token_file" ]
+    then
+        cmd-echo "Credentials file '$token_file' not found. Do you have the right server?"
+        exit 1
+    fi
+
+    ##
+    ## action parsing
+    ##
+    declare action=$1
+    shift
+
+    case $action in
+        fork | list-forks | exists | ping )
+            ## Requires a repo
+            if [ -z "$1" ]
+            then
+                cmd-echo "No org/repo specified"
+                return 1;
+            fi
+            if [[ "$1" =~ / ]]
+            then
+                org=${1%/*}
+                repo=${1#*/}
+            else
+                org=$1; shift
+                repo=$1; shift
+            fi
+            [ -z "$org" ] && cmd-echo "No org specified" && bail=1
+            [ -z "$repo" ] && cmd-echo "No repo specified" && bail=1
+            ((bail)) && return 1
             ;;
 
-        ## standard options
-        h | help )
-            $usage_cmd
-            $out_cmd 0
+        org | repos )
+            ## Requires an org
+            if [ -z "$1" ]
+            then
+                cmd-echo "No org specified"
+                return 1;
+            fi
+            if [[ "$1" =~ / ]]
+            then
+                org=${1%/*}
+                repo=${1#*/}
+                cmd-echo "org only, repo $repo ignored"
+            else
+                org=$1; shift
+                if [ -n "$1" ]
+                then
+                    repo=$1; shift
+                    cmd-echo "org only, repo $repo ignored"
+                fi
+            fi
             ;;
 
-        --)
-            moreopts=0
+        raw )
+            raw="$1"; shift
+            ;;
+
+        filename )
+            filename="$1"; shift
             ;;
 
         * )
-            cmd-echo "$original is an invalid option. See $0 --help"
-            $out_cmd 1
-            ;;
-    esac
-done
-
-declare server_url
-server_url="$(kvstore get gitfuncs_git_api_urls "$server")/"
-if [ -z "$server_url" ]
-then
-    cmd-echo "'$server' is an in valid --server option"
-    exit 1
-fi
-
-declare token_file
-token_file=$(kvstore get gitfuncs_git_token_file "$server")
-
-declare action=$1
-shift
-
-case $action in
-    fork | list-forks )
-        ## Requires a repo
-        if [ -z "$1" ]
-        then
-            cmd-echo "No org/repo specified"
-            exit 1;
-        fi
-        if [[ "$1" =~ / ]]
-        then
-            org=${1%/*}
-            repo=${1#*/}
-        else
-            org=$1; shift
-            repo=$1; shift
-        fi
-        [ -z "$org" ] && cmd-echo "No org specified" && bail=1
-        [ -z "$repo" ] && cmd-echo "No repo specified" && bail=1
-        ((bail)) && exit 1
-        ;;
-    org | repos )
-        ## Requires an org
-        if [ -z "$1" ]
-        then
-            cmd-echo "No org specified"
-            exit 1;
-        fi
-        if [[ "$1" =~ / ]]
-        then
-            org=${1%/*}
-            repo=${1#*/}
-            cmd-echo "org only, repo $repo ignored"
-        else
-            org=$1; shift
             if [ -n "$1" ]
             then
-                repo=$1; shift
-                cmd-echo "org only, repo $repo ignored"
+                cmd-echo "$1 is not supported"
+            else
+                cmd-echo "No action provided"
             fi
-        fi
-        ;;
+            return 1;
+    esac
 
-    raw )
-        raw="$1"; shift
-        ;;
+    if [ -n "$org" ]
+    then
+        # shellcheck disable=SC2034
+        declare dummy
+        ## todo make sure org exists
+    fi
 
-    filename )
-        filename="$1"; shift
-        ;;
+    ##
+    ## URL fixup, action normalization
+    ##
+    declare -a curlopts
+    case $action in
+        exists | ping )
+            action='exists'
+            url="repos/$org/$repo"
+            ;;
 
-    * )
-        if [ -n "$1" ]
-        then
-            script-echo "$1 is not supported"
-        else
-            cmd-echo "No action provided"
-        fi
-        exit 1;
-esac
+        fork )
+            url="repos/$org/$repo/forks"
+            curlopts=('-X' 'POST')
+            ;;
 
-case $action in
-    fork )
-        url="repos/$org/$repo/forks"
-        cmd=('-X' 'POST')
-        ;;
+        list-forks )
+            url="repos/$org/$repo/forks"
+            ;;
 
-    list-forks )
-        url="repos/$org/$repo/forks"
-        ;;
+        org)
+            url="orgs/$org"
+            ;;
 
-    org)
-        url="orgs/$org"
-        ;;
+        repos)
+            url="orgs/$org/repos"
+            ;;
 
-    repos)
-        url="orgs/$org/repos"
-        ;;
+        raw)
+            server_url=''
+            url="$raw"
+            ;;
 
-    raw)
-        server_url=''
-        url="$raw"
-        ;;
+        filename)
+            url="search/code?q=$filename+in:path"
+            ;;
+    esac
 
-    filename)
-        url="search/code?q=$filename+in:path"
-        ;;
-esac
+    declare curlheaders
+    curlheaders=$(mktemp -t tmp.github-do.curlheaders.$$.XXXXXXXXXX)
+    curlopts+=('-D' "$curlheaders")
 
-curl \
-    --header "Authorization: token$(grep token "$HOME/$token_file" | cut -d= -f2)" \
-    "${cmd[@]}" \
-    "${server_url}${url}" -s
+    declare curldata
+    curldata=$(mktemp -t tmp.github-do.curldata.$$.XXXXXXXXXX)
 
+    declare perldata
+    perldata=$(mktemp -t tmp.github-do.perldata.$$.XXXXXXXXXX)
+
+    if ((keep_data))
+    then
+        cmd-echo "Header and data files are" "$curlheaders" "$curldata"
+    else
+        rm_on_exit "$curlheaders" "$curldata" "$perldata"
+    fi
+
+    if((verbose))
+    then
+        cmd-echo 'curl \ ' \
+                 "    --header \"Authorization: <redacted>\" \\ " \
+                 "    ${curlopts[*]} \\ " \
+                 "    ${server_url}${url} -s"
+    fi
+
+    curl \
+        --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
+        "${curlopts[@]}" \
+        "${server_url}${url}" -s > "$curldata" 2>&1
+    declare status=$?
+
+    if ((status))
+    then
+        cmd-echo "curl returned with error :$status"
+        curl-cat
+        return $status
+    fi
+
+    declare htmlstatus
+    htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
+    case $action in
+        exists )
+            case $htmlstatus in
+                200 )
+                    cmd-echo "Repo exists."
+                    ;;
+                404 )
+                    cmd-echo "Error: '${server}:$org/$repo' not found."
+                    return 1;
+                    ;;
+                * )
+                    cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
+                    curl-cat
+                    return 1
+                    ;;
+            esac
+            ;;
+
+        list-forks )
+            case $htmlstatus in
+                200 )
+                    # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
+                    echo '$VAR1=' > "$perldata"
+                    json_xs -t dumper < "$curldata" >> "$perldata"
+                    perl -e 'do $ARGV[0]; print join(qq(\n), sort map {$_->{full_name}} @$VAR1)' "$perldata"
+                    ;;
+                404 )
+                    cmd-echo "Error: '${server}:$org/$repo' not found."
+                    return 1;
+                    ;;
+                * )
+                    cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
+                    curl-cat
+                    return 1
+                    ;;
+                esac
+            ;;
+
+        fork )
+            case $htmlstatus in
+                200 )
+                    cmd-echo "Fork created."
+                    ;;
+                202 )
+                    cmd-echo "Fork already exists."
+                    ;;
+                404 )
+                    cmd-echo "Error: either organization '$org' or repo '$repo' does not exist on '$server'."
+                    return 1;
+                    ;;
+                * )
+                    cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
+                    curl-cat
+                    return 1
+                    ;;
+            esac
+
+            if ((synchronous))
+            then
+                declare waiting='Waiting for fork creation...'
+                declare remaining=60
+                while github-do --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
+                do
+                    [ -n "$waiting" ] && cmd-echo "'$waiting'" && waiting=''
+                    sleep 1
+                    ((remaining-=1))
+                    ((remaining)) || break
+                done
+                if github-do --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
+                then
+                    cmd-echo "Warning: fork not yet created"
+                    return 1
+                else
+                    return 0
+                fi
+            fi
+            ;;
+    esac
+
+    ((verbose)) && curl-cat
+
+    return 0
+}
+
+main "$@"
 exit $?
 
 ## You can add sections with =head1, but stick to =item for section breakdowns,
@@ -163,7 +335,7 @@ exit $?
 :<<'__PODUSAGE__'
 =head1 NAME
 
-bbgithub-do - Wrapper around curl calls to the github api
+github-do - Wrapper around curl calls to the github api
 
 =head1 SYNOPSIS
 
