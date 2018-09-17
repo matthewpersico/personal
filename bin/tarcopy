@@ -1,57 +1,114 @@
 #!/usr/bin/env bash
 
-# <Function Class: util>
-# <Function Justification: none>
+# tarcopy
 
-tarcopy ()
-{
-    ##@@ none||none||tarcopy||Use the tar trick to copy a tree of files to a single target dir
 
-    declare moreopts
-    moreopts=1
-    declare -a ext_tar_opts
-    while [[ "$1" =~ ^- ]] && ((moreopts))
-    do
-        declare original="$1"
-        declare option
-        option=$(dashstripper "$original")
-        shift
+declare moreopts
+moreopts=1
+declare -a ext_tar_opts
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original
+    original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift
 
-        case $option in
-            p )
-                ext_tar_opts+=('-p')
-                ;;
-            v )
-                ext_tar_opts+=('-v')
-                ;;
-            help )
-                echo "No documentation yet. Look at the code:"
-                cat "$0"
-                return 0
-                ;;
-            debug | x ) set -x ;;
-            --)
-                moreopts=0
-                ;;
-            * )
-                echo "$original is an invalid option. See $0 --help"; return 1;;
-        esac
-    done
+    case $option in
+        p )
+            ext_tar_opts+=('-p')
+            ;;
+        v )
+            ext_tar_opts+=('-v')
+            ;;
+        help )
+            echo "No documentation yet. Look at the code:"
+            cat "$0"
+            exit 0
+            ;;
+        debug | x ) set -x ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            echo "$original is an invalid option. See $0 --help"; exit 1;;
+    esac
+done
 
-    if (($#<2))
-    then
-        echo "usage : src [src...] tgtdir"
-        return 1
-    fi
+if (($#<2))
+then
+    echo "usage : src [src...] tgtdir"
+    exit 1
+fi
 
-    local tgtdir="${*: -1}"
-    if [ ! -d "$tgtdir" ]
-    then
-        echo "Target '$tgtdir' must be an existing directory"
-        return 1
-    fi
+declare tgtdir
+tgtdir="${*: -1}"
+if [ ! -d "$tgtdir" ]
+then
+    echo "Target '$tgtdir' must be an existing directory"
+    exit 1
+fi
 
-    ## B - reblock
-    tar cf - "${@:1:$# - 1}" | tar -C "$tgtdir" "${ext_tar_opts[@]}" -xBf -
-    return $?
-}
+## B - reblock
+tar cf - "${@:1:$# - 1}" | tar -C "$tgtdir" "${ext_tar_opts[@]}" -xBf -
+exit $?
+## POD guard
+exit 0
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+tarcopy - script that does something
+
+=head1 SYNOPSIS
+
+ tarcopy [--option1] [ --option2 optionarg ] arg1 [arg2 ...] 
+     [fee] [dfsdfs] [sfsdfsf]
+
+=head1 DESCRIPTION
+
+Describe in general terms what tarcopy does.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item arg
+
+Describe what arg does, should be, etc. Add a new =item for each distinct arg.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --option1
+
+Describe what --option1 does.
+
+=item --option2
+
+Describe what --option2 does. Describe what optionarg does.
+
+=over 2
+
+=item *
+
+A choice for optionarg
+
+=item *
+
+Another choice for optionarg
+
+=back
+
+=back
+
+=cut
+
+__PODUSAGE__
+
