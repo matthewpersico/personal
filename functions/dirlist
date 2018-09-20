@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+## shellcheck disable=SC2164 # we take care of cd checks ourselves.
 
 # <Function Class: cd>
 # <Function Justification: env mod>
@@ -102,7 +103,7 @@ dirlist ()
                 ## we're not going to bother trying to figure out if this
                 ## version does or not.
                 # shellcheck disable=SC2046 # We want separation
-                builtin cd $(pwdswap "$1" "$2")
+                builtin cd $(pwd | sed "s|$1|$2|") || return 1
             fi
         else
             local tgt=$1;shift
@@ -110,7 +111,7 @@ dirlist ()
             ## directory syntax.
             if [ -d "$tgt" ] || [ "$tgt" = '-' ]
             then
-                builtin cd "$tgt"
+                builtin cd "$tgt" || return 1
             else
                 if is-int "$tgt"
 	            then
@@ -129,7 +130,7 @@ dirlist ()
 		                    tgtdir="$(dirname "$tgtdir")"
 		                    (( i=i+1 ))
 		                done
-		                builtin cd "$tgtdir"
+		                builtin cd "$tgtdir" || return 1
                     else
                         ## --------------------
                         ## Positive integer arg
@@ -141,13 +142,13 @@ dirlist ()
                         IFS=" " read -r -a dirlista <<< "$DIRLIST"
                         if ((tgt>${#dirlista[@]})) || ((tgt==0))
                         then
-                            stderrcho "$tgt" is not a valid choice
+                            echo "$tgt" is not a valid choice >&2
                         else
                             local d
                             d=$(echo "${dirlista[(tgt-1)]}" |
                                              sed "s|$DIRLIST_PWD_INDIC||" |
                                              sed "s|~|${TILDAE:-$HOME}|")
-                            builtin cd "$d"
+                            builtin cd "$d" || return 1
 	                    fi
 	                fi
                 else
