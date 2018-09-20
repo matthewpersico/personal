@@ -21,8 +21,10 @@ main ()
     declare server='github'
     declare token_file="$HOME/.github"
     declare verbose=0
+    declare silent=0
     declare synchronous=0
     declare keep_data=0
+    declare scope='all'
 
     ##
     ## options parsing
@@ -53,6 +55,9 @@ main ()
 
             wait ) synchronous=1 ;;
 
+            all | public | private | forks| sources | member )
+                scope=$option ;;
+
             h | help )
                 $usage_cmd
                 $out_cmd 0
@@ -60,6 +65,12 @@ main ()
 
             v | verbose )
                 verbose=1
+                silent=0
+                ;;
+
+            s | silent )
+                verbose=0
+                silent=1
                 ;;
 
             --)
@@ -117,7 +128,7 @@ main ()
             ((bail)) && return 1
             ;;
 
-        org | repos )
+        orgs | repos )
             ## Requires an org
             if [ -z "$1" ]
             then
@@ -183,12 +194,12 @@ main ()
             url="repos/$org/$repo/forks"
             ;;
 
-        org)
+        orgs)
             url="orgs/$org"
             ;;
 
         repos)
-            url="orgs/$org/repos"
+            url="orgs/$org/repos?type=$scope"
             ;;
 
         raw)
@@ -320,7 +331,7 @@ main ()
             ;;
     esac
 
-    ((verbose)) && curl-cat
+    ((!silent)) && curl-cat
 
     return 0
 }
@@ -335,24 +346,57 @@ exit $?
 :<<'__PODUSAGE__'
 =head1 NAME
 
-github-do - Wrapper around curl calls to the github api
+github-api - Wrapper around curl calls to the github api
 
 =head1 SYNOPSIS
 
- foo [--option1] [ --option2 optionarg ] arg1 [arg2 ...] \
-     [fee] [dfsdfs] [sfsdfsf]
+ github-api [--server server] [--keep-data] [--wait] [--verbose|--silent] \
+     org <orgname> |
+     repos <orgname> |
+     exists[|ping] <orgname> <reponame> |
+     list-forks <orgname> <reponame> |
+     fork <orgname> <reponame> |
+     filename <filename-to-search-for> |
+     raw <url-of-api-call>
 
 =head1 DESCRIPTION
 
-Describe in general terms what foo does.
+Run some specific github apis. Uses your own OAuth credentials so you may not
+be able to see everything.
 
 =head1 ARGUMENTS
 
 =over 4
 
-=item arg
+=item orgs
 
-Describe what arg does, should be, etc. Add a new =item for each distinct arg.
+Runs orgs api call. Requires an orgname. Returns metadata about that org.
+
+=item repos
+
+Runs repos api call. Requires an orgname. Returns metadata about all the repos
+in that org.
+
+=item exists|ping
+
+Runs repos api call. Requires an orgname and a repo. Returns metadata repo
+specified. Exits 0 if repo found, 1 if not.
+
+=item list-forks
+
+Lists the forks of a repo. Requires an orgname and a repo.
+
+=item fork
+
+Create a fork, in your org, a repo. Requires an orgname and a repo.
+
+=item filename
+
+Find a file in all orgs/repos. Requires an filename to search for.
+
+=item raw
+
+Run any api call, expressed as the raw api.
 
 =back
 
@@ -360,25 +404,23 @@ Describe what arg does, should be, etc. Add a new =item for each distinct arg.
 
 =over 4
 
-=item --option1
+=item --server
 
-Describe what --option1 does.
+Default: 'github'. Also accepts 'bbgithub'.
 
-=item --option2
+=item --keep-data
 
-Describe what --option2 does. Describe what optionarg does.
+Header and data are sent to a file for display. This options doesn't clean up after execution allowing you to use them. Filenames will be shown.
 
-=over 2
+=item --wait
 
-=item *
+Whe creating a fork, wait for the fork to create before exiting. Default is to send off the command and exit, as the fork creation is async by default.
 
-A choice for optionarg
+=item [--verbose|--silent]
 
-=item *
+'verbose' shows steps and the full curl command, sans authentication info.
 
-Another choice for optionarg
-
-=back
+'silent' represses the header and data output when you just want the return code.
 
 =back
 
