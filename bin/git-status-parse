@@ -2,7 +2,7 @@
 use strict;
 use warnings;
 
-use Cwd qw(abs_path);
+use Cwd qw(abs_path getcwd);
 use Getopt::Long qw(:config auto_abbrev);
 my %opt;
 my %flags;
@@ -45,6 +45,7 @@ my @input = qx(git status @status_flags; echo GSE);
 my %files;
 my $gitroot=qx(git root);
 chomp $gitroot;
+my $cwd=getcwd();
 
 INPUT:for (@input) {
     chomp;s/^\s+//;s/\s+$//;
@@ -166,13 +167,15 @@ sub store_filename {
                    $subtype ne 'renamed'
                    and (! -f $name and ! -d $name and ! -l $name) ) );
     if( $opt{absolute} || $opt{rooted} ) {
-        $name = abs_path($name);
-        $newname = abs_path($newname)
-          if $newname;
+        ## Files might be deleted, so that Cwd::abs_path() won't work. Sooooo,
+        ## we do the naive thing here: /./ => / and /dir/../ -> /.
+        $name = normalize_path("$cwd/$name");
+        $newname = normalize_path("$cwd/$newname")
+          if ($newname );
     }
     if( $opt{rooted} ) {
         $name =~ s|$gitroot/||;
-        $newname = s|$gitroot||
+        $newname = s|$gitroot/||
           if $newname;
     }
     $files{$type}{$name} = $subtype;
@@ -182,4 +185,12 @@ sub store_filename {
     } else {
         $files{affected}{$name} = [$subtype];
     }
+}
+
+sub normalize_path {
+    my $np = $_[0];
+    $np =~ s|/\./|/|g;    ## foo/./bar => foo/bar
+    $np =~ s|//|/|g;      ## foo//bar => foo/bar
+    while( $np =~ s|([^/][^/]*/\.\./)||g ) {} ## foo/baz/../bar => foo/bar
+    return $np;
 }
