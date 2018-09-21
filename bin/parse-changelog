@@ -17,14 +17,8 @@ $Text::Wrap::columns = 72;
 use constant NOFUNC => '!File Scope'; ## the ! will sort this before all function names.
 use constant NOCLENTRY => 'NOCLENTRY';
 
-## This script works best in the git root, which is where the Changelog is anyway
 my $cwd = cwd();
-#my $gr = qx(git rev-parse --show-toplevel);
-#die "Current directory ($cwd) is not the git root ($gr)"
-#  if( $cwd ne $gr);
-
 my @oldput;
-
 my $file;
 my $function;
 my $text;
@@ -122,7 +116,7 @@ if ($exit) {
 
 my %files = map { $_ => init_file_info ($_)
                 } @ARGV;
-my @file_list = map { $_->{cl_name} } values %files;
+my @file_list = map { $_->{local_name} } values %files;
 
 my @status;
 my %diff;
@@ -138,20 +132,26 @@ if($opt{diff}) {
     $opt{missingok}=1;
     my $cached='';
     $cached = '--cached' if $opt{cached};
-    ## Remove any deleted or moved files
+
+    ## Remove any deleted or moved files. This generates a list of files in
+    ## cl_name (from the git root) format.
     my @diff_list = ( map {chomp; substr($_,3)}
                         grep { ! m/^RM/ }
                         grep { ! m/^[D ]{2,2}/ }
                         qx(git status --porcelain @file_list));
+
+    ## Transform cl_names to local_names.
+    my %files_by_cl_name = map { $_->{cl_name} => $_ } values(%files);
+    @diff_list = map {$_->{local_name}} @files_by_cl_name{@diff_list};
+
     my @diff = map {chomp; $_} qx(git -c color.diff=always diff $cached @diff_list);
     my $entry;
     for my $line (@diff) {
         if ($line =~ m/^....diff --git a/) {
             $entry = $line;
             $entry =~ s|.*b/||;
-            $entry =~ s|([/a-zA-Z0-9_.-]+).*|$1|; ## really need this?
-            $entry = rel2abs($entry, $cwd); ## because diff outputs relative
-                                            ## path, even if FQP is provided.
+            $entry =~ s|([/a-zA-Z0-9_.-]+).*|$1|;
+            $entry = $files_by_cl_name{$entry}->{abs_name};
             $diff{$entry} = [];
         }
         push @{$diff{$entry}}, $line;
@@ -295,6 +295,8 @@ my $tracked_re_string  = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m[a-z ]+:\s+<PLAC
 my $untracked_re_string = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m<PLACEHOLDER>\x{1b}\[m);
 my @output;
 my $format_over;
+my $ascii_red_black = '[31;40m';
+my $ascii_normal = '[m';
 if (@status) {
     ##
     ## Mixing in the changelog entries with git status output.
@@ -475,15 +477,10 @@ sub push_to_output {
                 if ($output[-1] eq "${format_over}NE") {
                     pop @output;
                     if(not @gcs) {
-                        ## TO DO - work backwards in $output[-1] until you
-                        ## reach the first non-control character and insert the
-                        ## no entry found string. In this way, the string will
-                        ## also be highlighted if the entry is highlighted
-                        ## (highly likely as a git status output).
-                        $output[-1] .= ': No Changelog entry found.';
+                        $output[-1] .= ": ${ascii_red_black}No Changelog entry found.${ascii_normal}";
                         $space_files = 0;
                     } else {
-                        push @output, "${format_over}No Changelog entry found.";
+                        push @output, "${format_over}${ascii_red_black}No Changelog entry found.${ascii_normal}";
                     }
                     @gcs=();
                 }
