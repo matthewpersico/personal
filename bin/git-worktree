@@ -16,6 +16,15 @@ usage ()
     ) 2>&1 | ${PAGER:-less}
 }
 
+# shellcheck disable=SC2120
+git-worktree-ina ()
+{
+    local v
+    v=$(git rev-parse --is-inside-work-tree 2>/dev/null)
+    [ "$v" = "true" ] && return 0
+    return 1
+}
+
 git-worktree-create ()
 {
     local sctag='' ## "create: "
@@ -341,21 +350,6 @@ $(ls -la)"
         return 1
     fi
 
-    ## Check for being merged
-    local gmfout
-    gmfout=$(git-merge-find)
-    local status=$?
-    if ((status)) && ((!opt_force)) && ((!opt_yes))
-    then
-        echo "$gmfout"
-        local resp
-        resp=$(cmd-yesno 'Continue anyway')
-        if [ "$resp" = 'n' ]
-        then
-            return 1
-        fi
-    fi
-
     ## Whack it. Start with the current dir.
     local delit
     delit=$(basename "$(pwd)")
@@ -541,7 +535,8 @@ git-worktree-rename ()
 
 git-worktree-diff-to-root ()
 {
-    if git-in-a-worktree
+    # shellcheck disable=SC2119
+    if git-worktree-ina
     then
         cmd-echo "Must be in a wt"
         return 1;
@@ -677,6 +672,7 @@ git-worktree - git extention of git worktree
  git-worktree get-root
  git-worktree diff-from-root
  git-worktree diff-to-root
+ git-worktree ina
 
 =head1 DESCRIPTION
 
@@ -749,6 +745,11 @@ Perform a diff betweeen the current worktree and the master branch for a given
 set of files or all the git-known files in the current worktree. A synonymn for
 
  git worktree diff-to-root --reverse
+
+=item ina
+
+Is the current working directory in a worktree? Adding the -p option will print
+the worktree root.
 
 =back
 

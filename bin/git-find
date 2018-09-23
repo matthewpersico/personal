@@ -4,6 +4,10 @@
 
 declare opt_untracked_only=0
 declare opt_all=0
+declare opt_conflicts=0
+declare opt_deleted=0
+declare opt_last_existed=0
+declare opt_git_dir=0
 declare -a opt_grep_opts=("-E")
 declare moreopts=1
 while [[ "$1" =~ ^- ]] && ((moreopts))
@@ -13,15 +17,55 @@ do
     shift
 
     case $option in
-        i) opt_grep_opts+=("$1");;
+        i | l | n) opt_grep_opts+=(-"$option");;
         untracked_only|u) opt_untracked_only=1;;
         all|a) opt_all=1;;
+        conflicts) opt_conflicts=1;;
+        deleted) opt_deleted=1;;
+        last-existed) opt_last_existed=1;;
+        git-dir) opt_git_dir=1;;
         h|help) script-usage; exit 0 ;;
         --) moreopts=0;;
         *) cmd-echo -- "$original is an invalid option. See $0 --help"
            exit 1 ;;
     esac
 done
+
+if ((opt_conflicts))
+then
+    git grep "${opt_grep_opts[@]}" '^<<<<<<<'
+    exit $?
+fi
+
+if ((opt_deleted))
+then
+    git rev-list -n 1 HEAD -- "$1"
+    exit $?
+fi
+
+if ((opt_last_existed))
+then
+    git rev-list -n 1 "$(git rev-list -n 1 HEAD -- "$1")"^ -- "$1"
+    exit $?
+fi
+
+if ((opt_git_dir))
+then
+    declare dotgit
+    dotgit=$(git root)/.git
+    if [ -f "$dotgit" ]
+    then
+        ## Must be a worktree. Go find the source.
+        dotgit="$(realpath "$(sed 's/gitdir: //' < "$dotgit")" | sed 's/.git\/.*/.git/')"
+    fi
+    if [ -d "$dotgit" ]
+    then
+        echo "$dotgit"
+        exit 0
+    else
+        exit 1
+    fi
+fi
 
 if [ "$opt_untracked_only" = 1 ] && [ "$opt_all" = 1 ]
 then
@@ -62,7 +106,10 @@ git-find - run a 'find'-like command on the current repo
 
 =head1 SYNOPSIS
 
- git-find [-i] [--untracked_only|-u] [--all|-a] pattern [pattern...]
+ git-find [-i] [-n|-l] [--untracked_only|-u] [--all|-a] pattern [pattern...]
+ git-find --conflicts [-n|-l]
+ git-find [--deleted|--last-existed] file
+ git-find --git-dir
  git-find [--help|-h]
 
 =head1 DESCRIPTION
@@ -92,6 +139,11 @@ match and matched the directory.
 
 Case insensitive matching.
 
+=item -n|-l
+
+Print matches with line number or just print filename containing a
+match. Mutually exclusive.
+
 =item --untracked-only
 
 Consider only those files that are NOT objects in the repo.
@@ -99,6 +151,19 @@ Consider only those files that are NOT objects in the repo.
 =item --all
 
 Look at all files; those that are repo objects and those that are not (untracked).
+
+=item --conflicts
+
+Find files with git conflict markers in them.
+
+=item --deleted|--last-existed
+
+Print the commit id in which the given file was deleted from git or last
+existed in git, respectively.
+
+=item --git-dir
+
+Find the .git directory for the repo, even in a worktree.
 
 =item --help
 
