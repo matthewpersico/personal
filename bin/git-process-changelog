@@ -11,9 +11,6 @@ declare status=0
 declare parsed_cl
 parsed_cl=$(mktemp -t tmp.git-process-changelog.XXXXXXXXXX)
 rm_on_exit "$parsed_cl"
-declare pcl
-# shellcheck disable=SC2230
-pcl=$(which parse-changelog)
 declare -a pcl_flags
 declare git_editor
 declare opt_confirm=0
@@ -79,14 +76,10 @@ then
     exit 1
 fi
 
-declare git_root
-git_root=$(git root)
-
 declare -a filelist
 declare file
 for file in "$@"
 do
-    ## The files fed to git-process-changelog are in 'rooted' form (relative to the repo root)
     declare absolute_file
     absolute_file="$(pwd)/$file"
     if [ -r "$absolute_file" ]
@@ -94,10 +87,10 @@ do
         filelist+=("$absolute_file")
     else
         ## $file is either a git rm'ed file or a typo.
-        if [ "$(git what is deleted --rooted | grep -E "^$file$")" = "$file" ]
+        if [ "$(git what is deleted | grep -E "^$file$")" = "$file" ]
         then
             ## Then the file is indeed git rm'ed.
-            filelist+=("$git_root/$file")
+            filelist+=("$absolute_file")
         else
             cmd-echo "File $file not found. Aborting"
             exit 1
@@ -138,7 +131,7 @@ fi
 
 ## Backup
 cp -f "$changelog" "$changelogbkp"
-$DEBUG_PROCESS_CHANGELOG "$pcl" --cl "$changelog" "${pcl_flags[@]}" "${filelist[@]}"
+$DEBUG_PROCESS_CHANGELOG parse-changelog --cl "$changelog" "${pcl_flags[@]}" "${filelist[@]}"
 status=$?
 if ((status!=0))
 then
