@@ -2,68 +2,88 @@
 
 # makesymlinks
 
-# creates symlinks from any target file to the git-controlled source in
-# ~/personal/dotfiles. Use this when initing a new vm.
+# Creates symlinks from any target file to the git-controlled source
+# dotfiles. Use this when initing a new home directory or adding a dotfile to
+# git control.
 
 declare opwd
 opwd=$(pwd)
 
-# create DOTFILES_OLDDIR
-if [ ! -d "$DOTFILES_OLDDIR" ]
+declare interactive=''
+if [[ "$1" =~ -i ]]
 then
-    echo -n "Creating $DOTFILES_OLDDIR for backup of any existing dotfiles in ~..."
-    mkdir -p "$DOTFILES_OLDDIR"
+    interactive='--interactive'
+    shift
+fi
+
+dotfiles_dir=$1
+builtin cd "$dotfiles_dir" || exit 1
+dotfiles_dir="$(pwd)"
+
+dotfiles_olddir=${dotfiles_dir}_old
+dotfiles_manifest=${dotfiles_dir}/dotfiles.manifest
+
+if [ ! -d "$dotfiles_olddir" ]
+then
+    echo -n "Creating $dotfiles_olddir for backup of any existing dotfiles in ~..."
+    mkdir -p "$dotfiles_olddir"
     echo "done"
 fi
 
 # shellcheck disable=SC1090
-. "$DOTFILES_MANIFEST"
+. "$dotfiles_manifest"
 
-# change to the dotfiles directory
-echo -n "Changing to the $DOTFILES_DIR directory ..."
-builtin cd "$DOTFILES_DIR" || exit 1
-echo "done"
+echo "Changing to the $dotfiles_dir directory ..."
+builtin cd "$dotfiles_dir" || exit 1
 
-# Move any existing dotfiles in to dotfiles_old directory, then create
+# Move any existing dotfiles in to dotfiles_olddir directory, then create
 # symlinks from the original location to the corresponding files in the
 # ~/dotfiles directory.
-# shellcheck disable=SC2154 #dotfiles assigned in DOTFILES_MANIFEST source above
+
+# shellcheck disable=SC2154 #dotfiles assigned in dotfiles_manifest source above
 for src in "${!dotfiles[@]}"
 do
     declare fullsrc
-    fullsrc=$DOTFILES_DIR/$src
+    fullsrc=$dotfiles_dir/$src
     declare fulllink
     fulllink=${dotfiles[$src]}
-    makesymlink --backup "$DOTFILES_OLDDIR" --verbose --relative "$fullsrc" "$fulllink"
+    declare resp='y'
+    # Don't ask here if we are in interactive mode;`we'll ask in makesymlink.
+    [ -z "$interactive" ] && \
+          [ -n "${dotfilesopt[$src]}" ] && \
+        resp=$(yesno "Link $fulllink -> $fullsrc")
+    [ "$resp" = 'y' ] && \
+        makesymlink "$interactive" --verbose --relative \
+                    --backup "$dotfiles_olddir" \
+                    "$fullsrc" "$fulllink"
+    [ -n "${dotfilesperms[$src]}" ] && \
+        chmod "${dotfilesperms[$src]}" "$fullsrc"
 done
 builtin cd "$opwd" || exit 1
-## POD guard
-exit 0
 
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/.
+exit 0
 
 :<<'__PODUSAGE__'
 =head1 NAME
 
-makesymlinks - script that does something
+makesymlinks - create symlinks to dotfiles in a git repo.
 
 =head1 SYNOPSIS
 
- makesymlinks [--option1] [ --option2 optionarg ] arg1 [arg2 ...] 
-     [fee] [dfsdfs] [sfsdfsf]
+ makesymlinks [-i] directory-with-dotfiles
 
 =head1 DESCRIPTION
 
-Describe in general terms what makesymlinks does.
+Use the file $directory-with-dotfiles/dotfiles.manifest file to maintain links
+to git-controled versions of dotfiles.
 
 =head1 ARGUMENTS
 
 =over 4
 
-=item arg
+=item directory-with-dotfiles
 
-Describe what arg does, should be, etc. Add a new =item for each distinct arg.
+Where the dot files live.
 
 =back
 
@@ -71,29 +91,51 @@ Describe what arg does, should be, etc. Add a new =item for each distinct arg.
 
 =over 4
 
-=item --option1
+=item -i|--interactive
 
-Describe what --option1 does.
-
-=item --option2
-
-Describe what --option2 does. Describe what optionarg does.
-
-=over 2
-
-=item *
-
-A choice for optionarg
-
-=item *
-
-Another choice for optionarg
+Ask before linking each file.
 
 =back
+
+=head1 MANIFEST FILE
+
+Sample:
+
+ #!/usr/bin/env bash
+ # shellcheck disable=SC2034
+
+ # dotfiles.manifest
+
+ ## Key is name of file in dotfiles dir.
+ ## Value is name of target.
+ declare -A dotfiles
+ dotfiles[profile]=$HOME/.profile.$USER.bloomberg
+ dotfiles[bashrc]=$HOME/.bashrc.bloomberg
+ dotfiles[gitconfig_bloomberg]=$HOME/.gitconfig.bloomberg
+ dotfiles[config]=$HOME/.config
+ dotfiles[pg_service_conf]=$HOME/.pg_service.conf
+ dotfiles[pgpass]=$HOME/.pgpass
+ dotfiles[git-daily-repo-check_hosts]=$HOME/.git-daily-repo-check.hosts
+ dotfiles[builddeb_conf]=$HOME/.builddeb.conf
+ dotfiles[SecureCRTstart]=$HOME/.SecureCRTstart
+
+ ## Not all machines get these.
+ ## Key is name of file in dotfiles dir.
+ ## Value is logical true indicating the file is optional.
+ ## Src/tgt mapping must be defined in dotfiles above.
+ declare -A dotfilesopt
+ dotfilesopt[builddeb_conf]=1
+ dotfilesopt[SecureCRTstart]=1
+
+ ## Key is name of file in dotfiles dir.
+ ## Value is permissions of target, not the link.
+ ## Use this to override default permissions.
+ ## Src/tgt mapping must be defined in dotfiles above.
+ declare -A dotfilesperms
+ dotfilesperms[pgpass]='a-rwx,u+rw'
 
 =back
 
 =cut
 
 __PODUSAGE__
-
