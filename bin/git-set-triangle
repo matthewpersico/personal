@@ -30,7 +30,6 @@ triangle_workflow[branch.master.merge]="refs/heads/master"
 triangle_workflow[branch.master.mergeoptions]="--ff-only"
 triangle_workflow[branch.master.remote]="upstream"
 
-triangle_workflow[remote.origin.fetch]="+refs/heads/*:refs/remotes/origin/*"
 triangle_workflow[remote.origin.url]="${githosturl}${origin_namespace}/${repo}"
 triangle_workflow[remote.pushdefault]="origin"
 triangle_workflow[remote.upstream.url]="${githosturl}${upstream_namespace}/${repo}"
@@ -41,16 +40,24 @@ do
     git config --replace-all "$key" "${triangle_workflow[$key]}" || exit $?
 done
 
-## These two are special because they repeat
+##
+## These are special because they repeat
+##
+key='remote.origin.fetch'
+
+git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || exit $?
+git config --add         $key "+refs/pull/*/head:refs/pull/upstream/*" || exit $?
+## ^ allows git checkout -b 3 pull/upstream/3
+
 key='remote.upstream.fetch'
-## Replace all blows away all $key entries before adding this one
 git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" || exit $?
-## Now safe to add this one - it won't be duped.
+git config --add         $key "+refs/pull/*/head:refs/pull/upstream/*" || exit $?
 git config --add         $key "+refs/notes/*:refs/notes/*" || exit $?
 
-git config --replace-all gitfuncs.git-set-triangle.remote "${origin_namespace}"
-git config --replace-all gitfuncs.git-set-triangle.created "$(date +%Y%m%d.%H%M%S%z)"
-## POD guard
+## Our own metadata
+git config --replace-all gitfuncs.git-set-triangle.remote "${origin_namespace}" || exit $?
+git config --replace-all gitfuncs.git-set-triangle.created "$(date +%Y%m%d.%H%M%S%z)" || exit $?
+
 exit 0
 
 ## You can add sections with =head1, but stick to =item for section breakdowns,
@@ -63,7 +70,7 @@ git-set-triangle - script that does something
 
 =head1 SYNOPSIS
 
- git-set-triangle [--option1] [ --option2 optionarg ] arg1 [arg2 ...] 
+ git-set-triangle [--option1] [ --option2 optionarg ] arg1 [arg2 ...]
      [fee] [dfsdfs] [sfsdfsf]
 
 =head1 DESCRIPTION
@@ -109,4 +116,3 @@ Another choice for optionarg
 =cut
 
 __PODUSAGE__
-
