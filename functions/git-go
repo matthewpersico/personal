@@ -17,6 +17,7 @@ git-go ()
     local opt_mod=0
     local opt_exact=''
     local opt_size=0
+    local opt_all=0
     local moreopts
     local -a limited
     moreopts=1
@@ -48,6 +49,7 @@ git-go ()
             dirty ) opt_stat=2; opt_list=1 ;;
             mod ) opt_mod=1;;
             limited ) limited=('--limited' "$1"); shift ;;
+            all ) opt_all=1;;
             h | help ) func-usage git-go; return 0 ;;
             -- ) moreopts=0; break ;; ## end of opts, remaining $*, if any, are args
             * ) echo "$original is an invalid option."; func-usage git-go; return 1 ;;
@@ -61,8 +63,13 @@ git-go ()
     local -a tgts
     if [ -n "$1" ]
     then
-        tgts+=("$1")
-        shift;
+        if ((!opt_all))
+        then
+            tgts+=("$1")
+            shift;
+            ## else we want to treat $1 as an index in the whole list, using
+            ## the next block of code.
+        fi
     fi
     local opt_repo_no=0
     local opt_repo_sel=''
@@ -231,8 +238,8 @@ git-go ()
     fi
     if [ -n "$REPO" ]
     then
-        ## dirlist, not builtin cd to take advantage this cd enhancement
-        dirlist "${TILDAE:-$HOME}/$(echo "$REPO" | sed 's/(repo)//')"
+        ## dirlist, not builtin cd, to take advantage this cd enhancement
+        dirlist "${TILDAE:-$HOME}/${REPO//(repo)/}"
         git hook check
     fi
     return
