@@ -36,6 +36,7 @@ my %opt = (
     skipmissing => 0,
     skipgcs => 0,
     confirm => 0,
+    color => 1
 );
 my $exit = 0;
 my %deleted;
@@ -58,6 +59,7 @@ GetOptions(\%opt,
            'skipmissing',
            'skipgcs',
            'relok',
+           'color!'
        ) or die "Bad options";
 
 die "-cl ChangeLog option required"
@@ -122,7 +124,8 @@ my @status;
 my %diff;
 if($opt{withstatus}) {
     $opt{missingok}=1;
-    @status = qx(git -c color.status=always status @file_list);
+    my $color = ($opt{color} ? 'always' : 'never');
+    @status = qx(git -c color.status=$color status @file_list);
 }
 
 ################################
@@ -290,9 +293,9 @@ if( $opt{write} ) {
 ###################
 ## Create output ##
 ###################
-my $renamed_re_string  = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m[a-z ]+:\s+<PLACEHOLDER>\s->.*\x{1b}\[m);
-my $tracked_re_string  = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m[a-z ]+:\s+<PLACEHOLDER>\x{1b}\[m);
-my $untracked_re_string = q(\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m<PLACEHOLDER>\x{1b}\[m);
+my $renamed_re_string   = q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}[a-z ]+:\s+<PLACEHOLDER>\s->.*(?:\x{1b}\[m){0,1}$|;
+my $tracked_re_string   = q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}[a-z ]+:\s+<PLACEHOLDER>*(?:\x{1b}\[m){0,1}$|;
+my $untracked_re_string = q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}<PLACEHOLDER>(?:\x{1b}\[m){0,1}$|;
 my @output;
 my $format_over;
 my $ascii_red_black = '[31;40m';

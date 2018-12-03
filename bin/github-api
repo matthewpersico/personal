@@ -25,6 +25,8 @@ main ()
     declare synchronous=0
     declare keep_data=0
     declare scope='all'
+    declare pullId
+    declare stream_data=0
 
     ##
     ## options parsing
@@ -46,6 +48,8 @@ main ()
         fi
 
         case $option in
+            stream-data ) stream_data=1 ;;
+
             keep-data ) keep_data=1 ;;
 
             server )
@@ -57,6 +61,11 @@ main ()
 
             all | public | private | forks| sources | member )
                 scope=$option ;;
+
+            pull )
+                pullId=${ovalue:-$1}
+                [ -z "$ovalue" ] && shift
+                ;;
 
             h | help )
                 $usage_cmd
@@ -108,7 +117,7 @@ main ()
     shift
 
     case $action in
-        fork | list-forks | exists | ping )
+        fork | list-forks | exists | ping | pulls)
             ## Requires a repo
             if [ -z "$1" ]
             then
@@ -210,17 +219,22 @@ main ()
         filename)
             url="search/code?q=$filename+in:path"
             ;;
+
+        pulls)
+            url="repos/$org/$repo/pulls"
+            [ -n "$pullId" ] && url="${url}/$pullId"
+            ;;
     esac
 
     declare curlheaders
-    curlheaders=$(mktemp -t tmp.github-do.curlheaders.$$.XXXXXXXXXX)
+    curlheaders=$(mktemp -t tmp.github-api.curlheaders.$$.XXXXXXXXXX)
     curlopts+=('-D' "$curlheaders")
 
     declare curldata
-    curldata=$(mktemp -t tmp.github-do.curldata.$$.XXXXXXXXXX)
+    curldata=$(mktemp -t tmp.github-api.curldata.$$.XXXXXXXXXX)
 
     declare perldata
-    perldata=$(mktemp -t tmp.github-do.perldata.$$.XXXXXXXXXX)
+    perldata=$(mktemp -t tmp.github-api.perldata.$$.XXXXXXXXXX)
 
     if ((keep_data))
     then
@@ -290,6 +304,18 @@ main ()
                 esac
             ;;
 
+        pulls )
+            case $htmlstatus in
+                200 )
+                    ;;
+                * )
+                    cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
+                    curl-cat
+                    return 1
+                    ;;
+            esac
+            ;;
+
         fork )
             case $htmlstatus in
                 200 )
@@ -313,14 +339,14 @@ main ()
             then
                 declare waiting='Waiting for fork creation...'
                 declare remaining=60
-                while github-do --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
+                while github-api --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
                 do
                     [ -n "$waiting" ] && cmd-echo "'$waiting'" && waiting=''
                     sleep 1
                     ((remaining-=1))
                     ((remaining)) || break
                 done
-                if github-do --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
+                if github-api --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
                 then
                     cmd-echo "Warning: fork not yet created"
                     return 1
@@ -331,8 +357,19 @@ main ()
             ;;
     esac
 
-    ((!silent)) && curl-cat
 
+    if ((stream_data))
+    then
+        cat "$curldata"
+    elif ((!silent))
+    then
+        curl-cat
+    fi
+
+    if ((keep_data))
+    then
+        cmd-echo "Header and data files are" "$curlheaders" "$curldata"
+    fi
     return 0
 }
 
@@ -357,6 +394,7 @@ github-api - Wrapper around curl calls to the github api
      list-forks <orgname> <reponame> |
      fork <orgname> <reponame> |
      filename <filename-to-search-for> |
+     [--pullId N] pulls |
      raw <url-of-api-call>
 
 =head1 DESCRIPTION

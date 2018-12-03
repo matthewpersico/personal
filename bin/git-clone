@@ -20,7 +20,8 @@ usage ()
 declare opt_y=0
 declare opt_t=0
 declare opt_triangle_namespace=''
-declare opt_worktree=0
+declare opt_worktree=1
+declare opt_worktree_name=''
 declare opt_use_githost_dir=0
 declare opt_make_fork=0
 declare dispatch_to_real_git=1
@@ -39,7 +40,7 @@ do
     shift ## That way you avoid endless loops on invalid options.
     ## This bit deals with --foo=bar instead of --foo bar
     declare okey
-    declare ovalue
+    declare ovalue=''
     if [[ "$option" =~ = ]]
     then
         okey=${option%%=*}
@@ -62,18 +63,18 @@ do
             dispatch_to_real_git=0; opt_y=1;;
         t | timestamp )
             dispatch_to_real_git=0; opt_t=1;;
-        fork )
+        forkof )
             opt_make_fork=1
-            ;&
-        f | forkof | tri | triangle )
             dispatch_to_real_git=0
-            opt_use_githost_dir=1 ## if we are using triangle, we most likely want trees too
+            opt_use_githost_dir=1 ## if we are using triangle, we most want trees too
             opt_worktree=1 ## and worktrees.
-            declare tmp_otn=$ovalue
-            if [ -z "$tmp_otn" ]
+            declare tmp_otn=${ovalue:-$1}
+            [ -z "$ovalue" ] && shift ## If ovalue is blank, we used $1
+            if [[ "$tmp_otn" =~ ^- ]]
             then
-                tmp_otn=$1
-                shift
+                ## we got the next option, not an arg to this one
+                cmd-echo "Fork org ($tmp_otn) cannot start with a '-'."
+                exit 1
             fi
             opt_triangle_namespace=${tmp_otn%/*}
             if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
@@ -89,7 +90,17 @@ do
             ;;
         wt | worktree )
             dispatch_to_real_git=0
-            opt_worktree=1;;
+            opt_worktree=1
+            opt_worktree_name="${ovalue:-$1}"
+            [ -z "$ovalue" ] && shift ## If ovalue is blank, we used $1
+            if [[ "$opt_worktree_name" =~ ^- ]]
+            then
+                ## we got the next option, not an arg to this one
+                cmd-echo "Worktree name ($opt_worktree_name) cannot start with a '-'."
+                exit 1
+
+            fi
+            ;;
         h | help )
             usage; exit 0 ;;
         debug | x )
@@ -108,7 +119,7 @@ do
             | *single-branch \
             | *shallow-submodules )
             ## Options that do not take args
-            git_clone_opts+=("$original")
+            git_clone_opts+=("$option")
             ;;
 
         template \
@@ -118,23 +129,25 @@ do
             | reference \
             | separate-git-dir \
             | depth \
-            | jobs )
+            | jobs \
+            | shallow-since)
+            git_clone_opts+=("$option")
             ## Options taking mandatory args. If we don't have one with
-            ## --foo=bar syntax, then we just take the next arg and let real
-            ## clone sort it out
+            ## --foo=bar syntax, then we just assume the next arg is for this
+            ## option and let the real 'git clone' sort it out.
             if [ -n "$ovalue" ]
             then
                 ovalue="$1"
                 shift
             fi
-            git_clone_opts+=("$original" "$ovalue")
+            git_clone_opts+=("$ovalue")
             ;;
 
         recurse-submodules )
-            ## Options taking mandatory args. If we don't have one with
+            git_clone_opts+=("$original")
+            ## Options taking optional args. If we don't have one with
             ## --foo=bar syntax, then we just take the next arg IFF it does not
             ## look like an option.
-            git_clone_opts+=("$original")
             if [ -z "$ovalue" ]
             then
                 if [[ ! "$1" =~ ^- ]]
@@ -146,7 +159,7 @@ do
             [ -n "$ovalue" ] && git_clone_opts+=("$ovalue")
             ;;
         * )
-            cmd-echo -- "$original is an invalid option. See $0 --help"
+            cmd-echo -- "$original is an invalid option. We have disabled option ganging. See $0 --help"
             exit 1
     esac
 done
@@ -253,8 +266,8 @@ fi
 
 if ((opt_make_fork))
 then
-    cmd-echo "github-do --server $githost --wait fork $opt_triangle_namespace $repo..."
-    if ! github-do --server "$githost" --wait fork "$opt_triangle_namespace" "$repo"
+    cmd-echo "github-api --server $githost --wait fork $opt_triangle_namespace $repo..."
+    if ! github-api --server "$githost" --wait fork "$opt_triangle_namespace" "$repo"
     then
         exit $?
     fi
@@ -285,6 +298,11 @@ then
     cmd-echo "Setting up triangle workflow with ${githost_url}$opt_triangle_namespace/${repo}..."
     git-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo"
     git pull # To refresh from the upstream
+else
+    declare key='remote.origin.fetch'
+    git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || exit $?
+    git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || exit $?
+    ## ^ allows git checkout -b 3 pull/origin/3
 fi
 git remote -v
 
@@ -299,11 +317,24 @@ if ((opt_use_githost_dir))
 then
     ## Add this repo to the list
     git-go-set
-    cmd-echo "Done. Execute" "    gitgo $namespace/$repo" "to use."
-else
-    cmd-echo "Done."
-    echo
 fi
+
+if [ -n "$opt_worktree_name" ]
+then
+    git-go "$namespace/$repo"
+    git worktree create "$opt_worktree_name"
+    ## Add this repo to the list
+    git-go-set
+else
+    if ((opt_use_githost_dir))
+    then
+        cmd-echo "Done. Execute" "    gitgo $namespace/$repo" "to use."
+    else
+        cmd-echo "Done."
+        echo
+    fi
+fi
+
 exit 0
 
 ## You can add sections with =head1, but stick to =item for section breakdowns,
@@ -313,15 +344,21 @@ exit 0
 :<<'__PODUSAGE__'
 =head1 NAME
 
-git-clone - extenstion to git clone
+git-clone - extension to git clone
 
 =head1 SYNOPSIS
 
- git-clone [--tree] [--yes|y] [--timestamp|-t] [[--fork|[--forkof|--tri[angle]]] upstream-org] [--wt|--worktree] repoURL
+ git-clone [--tree] \
+           [--forkof org] \
+           [[--wt|--worktree] new-worktree] \
+           [--yes|y] [--timestamp|-t] \
+           repoURL
 
 =head1 DESCRIPTION
 
 Adds a few options to git clone. Without any of these options, just calls the real git clone. Otherwise, calls git clone with some additional actions.
+
+B<Note:> We have disabled option ganging in order to be able to properly handle options being passed to the real 'git clone'; each single option requires its own '-'.
 
 =head1 ARGUMENTS
 
@@ -341,25 +378,21 @@ The URL of the repo to clone in githost:org/repo format.
 
 Use the githost of the repoURL to determine where in the ~/gits tree to place this clone.
 
+=item --fork org
+
+Create a fork in your namespce of the same-named repo in the 'org' namespace, clone the fork locally, establish the 'origin' and 'upstream' remotes as the fork and the fork source, respectively. If the fork exists, we use it and continue.
+
+=item --worktree newworktree
+
+Create a wt subdir, for use by the git-worktree extenstions and then create the requested worktree.
+
 =item --yes
 
-Ansswer yes to all prompts.
+Answer yes to all prompts.
 
 =item --timestamp
 
 Read the git log of the repo and reset the timestamps on all the files to the date of the last commit of the file. Otherwise all files have the timestamp of when the repo is cloned.
-
-=item --fork
-
-If you want to create a fork and then clone that repo, provide the organization of the original and we'll create the fork, then establish it as the remote 'upstream'.
-
-=item --forkof
-
-If this repo is a fork, provide the organization of the original and we'll establish it as the remote 'upstream'.
-
-=item --worktree
-
-Create a wt subdir, for use by the git-worktree extenstions.
 
 =back
 

@@ -1,0 +1,49 @@
+#!/usr/bin/env bash
+
+declare moreopts=1
+declare o_width=1000
+declare o_height=500
+declare no_exec=0
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift ## That way you avoid endless loops on invalid options.
+    declare okey=''
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        w | width )
+            o_width=${ovalue:-$1}
+            [ -z "$ovalue" ] && shift
+            ;;
+        h | height )
+            o_height=${ovalue:-$1}
+            [ -z "$ovalue" ] && shift
+            ;;
+        n | noexec )
+            no_exec=1
+            ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            echo "$original is an invalid option. See $0 --help";
+            ## (return if a func, exit if a script) 1
+            ;;
+    esac
+done
+
+if ((no_exec))
+then
+    echo "$* | zenity --text-info --auto-scroll --title=$* --width=$o_width --height=$o_height"
+else
+    "$@" | zenity --text-info --auto-scroll --title="$*" --width="$o_width" --height="$o_height"  &
+fi
