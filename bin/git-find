@@ -9,6 +9,8 @@ declare opt_deleted=0
 declare opt_last_existed=0
 declare opt_git_dir=0
 declare -a opt_grep_opts=("-E")
+declare opt_grep_opts_v=''
+declare opt_edit=0
 declare moreopts=1
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
@@ -17,10 +19,12 @@ do
     shift
 
     case $option in
-        i | l | n) opt_grep_opts+=(-"$option");;
+        i ) opt_grep_opts+=(-"$option");;
+        l | n ) opt_grep_opts_v=-"$option";;
+        e) opt_edit=1;;
         untracked_only|u) opt_untracked_only=1;;
         all|a) opt_all=1;;
-        conflicts) opt_conflicts=1;;
+        conflict*) opt_conflicts=1;;
         deleted) opt_deleted=1;;
         last-existed) opt_last_existed=1;;
         git-dir) opt_git_dir=1;;
@@ -33,8 +37,46 @@ done
 
 if ((opt_conflicts))
 then
-    git grep "${opt_grep_opts[@]}" '^<<<<<<<'
-    exit $?
+    declare -a conflict_files
+    mapfile -t conflict_files < <(git grep "${opt_grep_opts[@]}" '^<<<<<<<' | sed 's/:<<<<<<<.*//g')
+    declare cf
+    for cf in "${conflict_files[@]}"
+    do
+        if [ "$opt_grep_opts_v" = '-l' ]
+        then
+            echo "$cf"
+        else
+            cmd-echo -head -- "Conflicts in $cf"
+            # shellcheck disable=SC2086 # we want $opt_grep_opts_v to "disappear" if empty.
+            perl -ne '
+BEGIN{
+$n=0;
+if ($ARGV[0] eq q(-n) ) {
+$n=1;
+shift @ARGV
+}
+}
+if(/^</ .. /^>/) {
+if ($n) {
+printf ( q(%6d:%s), $., $_)
+} else {
+print $_
+}
+my $dummy = 6;
+} ' -- -n "$cf"
+        fi
+    done
+    if (( opt_edit ))
+    then
+        if [ -z "$EDITOR" ]
+        then
+            cmd-echo -- "No EDITOR env variable found"
+            exit 1
+        fi
+        $EDITOR "${conflict_files[@]}"
+    fi
+    (( ${#conflict_files[@]} )) && exit 1
+    exit 0
 fi
 
 if ((opt_deleted))
@@ -106,8 +148,8 @@ git-find - run a 'find'-like command on the current repo
 
 =head1 SYNOPSIS
 
- git-find [-i] [-n|-l] [--untracked_only|-u] [--all|-a] pattern [pattern...]
- git-find --conflicts [-n|-l]
+ git-find [-i] [--untracked_only|-u] [--all|-a] pattern [pattern...]
+ git-find --conflicts [-n|-l] [-e]
  git-find [--deleted|--last-existed] file
  git-find --git-dir
  git-find [--help|-h]
@@ -143,6 +185,10 @@ Case insensitive matching.
 
 Print matches with line number or just print filename containing a
 match. Mutually exclusive.
+
+=item -e
+
+For conflicts, edit the files with conflicts using the editor defined in $EDITOR.
 
 =item --untracked-only
 

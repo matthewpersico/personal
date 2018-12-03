@@ -35,6 +35,7 @@ git-worktree-create ()
     local asmaster='master'
     local remote=origin
     local localbranchname
+    local pull_request=''
     declare moreopts
     moreopts=1
     declare verbose
@@ -51,6 +52,11 @@ git-worktree-create ()
         shift ## That way you avoid endless loops on invalid options.
 
         case $option in
+            pr | pull )
+                pull_request="$1"; shift
+                ## Not going to create a pull request via a worktree
+                ## create, force a fetch.
+                fetch_existing=1;;
             no-reset | skip-reset) opt_reset=0 ;;
             f|fetch) fetch_existing=1 ;;
             m|message) opt_m=$1; message="$1"; shift ;;
@@ -84,14 +90,34 @@ git-worktree-create ()
 
     declare repo
     repo="$(basename "$(dirname "$(pwd)")")" ## we are in /wt by now.
-    if [ -z "$1" ]
-    then
-        usage "Need a branch name to use for the worktree spec."
-        return 1
-    fi
+
     local wt="$1"
     shift
-    [ -z "$localbranchname" ] && localbranchname="$wt"
+    if [ -z "${wt}" ]
+    then
+        if [ -z "$pull_request" ]
+        then
+            usage "Need a branch name to use for the worktree spec."
+            return 1
+        else
+            wt="pull/$remote/$pull_request"
+        fi
+    else
+        if [ -n "$pull_request" ]
+        then
+            usage "Cannot specify both a worktree-name and pull request id."
+            return 1
+        fi
+    fi
+    [ -z "$localbranchname" ] && localbranchname="${wt}"
+
+    ## If the requested branch is a pull request, do some work on the local
+    ## branch name.
+    if [[ "$localbranchname" =~ pull/ ]]
+    then
+        ## Swap all / for - to give us a usable name for the branch
+        localbranchname=${localbranchname//\//-}
+    fi
 
     ## Check remote. Must be fetchable and pushable.
     local exists
@@ -111,9 +137,9 @@ git-worktree-create ()
     ## Check worktree dir
     ((verbose)) && cmd-echo "Check for existing worktrees with same name."
     wtdir="$(pwd)/$localbranchname"
-    if [ -e "$wtdir" ]
+    if [ -e "${wtdir}" ]
     then
-        cmd-echo -- "$wtdir already exists. Aborting."
+        cmd-echo -- "${wtdir} already exists. Aborting."
         return 1
     fi
 
@@ -125,6 +151,7 @@ git-worktree-create ()
     local create_branch="-b"
 
     ## Make sure we do not have a local branch with the same name
+    git pull ## update with latest remote names.
     exists=$(git branch --list --format='%(refname)' | sed 's|.*/||' | \
                  while read -r line
                  do
@@ -142,7 +169,7 @@ git-worktree-create ()
             cmd-echo "${sctag}Branch $localbranchname already exists locally. Using it."
             if git worktree add "$localbranchname" "$localbranchname"
             then
-                ((verbose)) && cmd-echo "${sctag}cd $wtsubdir"
+                ((verbose)) && cmd-echo "${sctag}cd ${wtsubdir}"
                 ## dirlist, not builtin cd, to take advantage this cd enhancement
                 dirlist "$localbranchname"
             else
@@ -153,33 +180,51 @@ git-worktree-create ()
             return 1
         fi
     else
-        ## Now see if branch exists remotely
-        exists=$(git branch -r --list --format='%(refname)' | sed 's|refs/remotes/||' | \
-                     while read -r line
-                     do
-                         if [ "$line" == "$remote/$wt" ]
-                         then
-                             echo "$remote/$wt"
-                             break
-                         fi
-                     done
-              )
+        if [ -z "$pull_request" ]
+        then
+            ## Now see if branch exists remotely
+            exists=$(git branch -r --list --format='%(refname)' | sed 's|refs/remotes/||' | \
+                         while read -r line
+                         do
+                             if [ "$line" == "$remote/${wt}" ]
+                             then
+                                 echo "$remote/${wt}"
+                                 break
+                             fi
+                         done
+                  )
+        else
+            ## Find the pull
+            exists=$(git show-ref | sed 's|.*refs/||' | grep pull/ | \
+                         while read -r line
+                         do
+                             if [ "$line" == "${wt}" ]
+                             then
+                                 echo "refs/${wt}"
+                                 break
+                             fi
+                         done
+                  )
+        fi
 
+        ## Yes, I could nest conditions instead of repeating them. I prefer to
+        ## be explicit here.
         if ((fetch_existing==1)) && [ -n "$exists" ]
         then
             ## Fetch it, Dear Henry...
             ##                          branch             path
-            git worktree add --track -b "$localbranchname" "$localbranchname" "$remote/$wt"
-            ((verbose)) && cmd-echo "${sctag}cd $wtsubdir"
+            git worktree add --track -b "$localbranchname" "$localbranchname" "$exists"
+            ((verbose)) && cmd-echo "${sctag}cd ${wtsubdir}"
+            set +x
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "$localbranchname"
         elif ((fetch_existing==1)) && [ -z "$exists" ]
         then
-            cmd-echo "${sctag}Cannot find '$remote/$wt' to fetch"
+            cmd-echo "${sctag}Cannot find '$remote/${wt}' to fetch"
             return 1
         elif ((fetch_existing==0)) && [ -n "$exists" ]
         then
-            cmd-echo "${sctag}Branch '$wt' already exists in remote '$remote'"
+            cmd-echo "${sctag}Branch '${wt}' already exists in remote '$remote'"
             return 1
         else ## ((fetch_existing==0)) && [ -z "$exists" ]
             ## Since this worktree is going to create a branch of the local
@@ -206,8 +251,8 @@ git-worktree-create ()
             #### git push origin master
 
             ## Now create the worktree and the branch.
-            ((verbose)) && cmd-echo "${sctag}git worktree add -b $wtsubdir $wtbranch"
-            git worktree add $create_branch "$wtsubdir" "$wtbranch"
+            ((verbose)) && cmd-echo "${sctag}git worktree add -b ${wtsubdir} ${wtbranch}"
+            git worktree add $create_branch "${wtsubdir}" "${wtbranch}"
             status=$?
             if ((status))
             then
@@ -215,13 +260,13 @@ git-worktree-create ()
                 return 1
             fi
 
-            ((verbose)) && cmd-echo "${sctag}cd $wtsubdir"
+            ((verbose)) && cmd-echo "${sctag}cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
-            dirlist "$wtsubdir"
+            dirlist "${wtsubdir}"
 
             ## Finally push the branch upstream as a tracking branch
-            ((verbose)) && cmd-echo "${sctag}git push --set-upstream $remote $wtbranch"
-            git push --set-upstream "$remote" "$wtbranch"
+            ((verbose)) && cmd-echo "${sctag}git push --set-upstream $remote ${wtbranch}"
+            git push --set-upstream "$remote" "${wtbranch}"
             git branch info created "$(date +%Y%m%d.%H%M%S%z)"
         fi
     fi
@@ -247,7 +292,7 @@ git-worktree-create ()
         cmd-echo -- "--skip-reset. Run 'git-go-set' at some point."
     fi
 
-    cmd-echo "${sctag}Done. Execute" "    gitgo $repo/wt/$wtsubdir" "to use."
+    cmd-echo "${sctag}Done. Execute" "    gitgo $repo/wt/${wtsubdir}" "to use."
 
     return 0
 }
@@ -487,7 +532,7 @@ git-worktree-rename ()
     cb="$(git branch get-current)"
     if [ "$cb" = "$old_worktree" ]
     then
-        cmd-echo "${sctag}Renaming branch first..."
+        cmd-echo "${sctag}Renaming the branch..."
         git-branch rename "$old_worktree" "$new_worktree"
         status=$?
         if ((status != OK))
@@ -496,6 +541,7 @@ git-worktree-rename ()
         fi
     fi
 
+    cmd-echo "${sctag}Updating metadata..."
     ## Get the metadata directory for this worktree
     local metadatadir
     metadatadir="$(grep -E '^gitdir:' .git | sed 's/.* //')"
@@ -515,6 +561,7 @@ git-worktree-rename ()
     newmetadatadir="$(dirname "$metadatadir")/$new_worktree"
     mv "$metadatadir" "$newmetadatadir" || return 1
 
+    cmd-echo "${sctag}Moving the local files..."
     ## Move us
     builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
     mv "$old_worktree_path" "$new_worktree_path" || return 1
@@ -615,9 +662,9 @@ git-worktree-get-root ()
         ((i>status)) && status=$i
     done
     ((status)) && return "$status"
-    if [ -n "$wtr" ]
+    if [ -n "${wtr}" ]
     then
-        echo "$wtr"
+        echo "${wtr}"
         return 0
     else
         echo
@@ -676,15 +723,24 @@ git-worktree - git extention of git worktree
 
 =head1 DESCRIPTION
 
-Extensions to the 'git worktree' command that understand and enforce our worktree conventions. To wit:
+Extensions to the 'git worktree' command that understand and enforce our
+worktree conventions. To wit:
 
-o When we create a worktree, we first create a branch with the same name as the worktree.
+o We do development on feature branches, using a clone of a forked repo.
 
-o Worktrees are created in the 'wt' subdir of the repo.
+o We create a worktree for each feature branch.
 
-o We then check out that branch into that subdir.
+o We locate the worktree in the 'wt' subdir of the corresponding repo.
 
-Any action not described here will be passed onto the actual 'git worktree' command.
+o We add the worktree location to the list of repos reachable by the 'git-go'
+  command.
+
+We now have a consistent environment to execute multiple lines of development
+in a given repo without the need to constantly checkout branches over and over
+into the same repo location.
+
+Any action not described here will be passed onto the actual 'git worktree'
+command.
 
 All extentions take a -h or --help option to display this manpage.
 
@@ -696,17 +752,39 @@ All extentions take a -h or --help option to display this manpage.
 
 A synonymn for 'add' but one that respects our conventions.
 
+For branches:
+
  git worktree create [-f] [-r remote] [-m 'message'] [--asmaster somebranch] [-l localbranchname] worktree-name
-       default remote is 'origin'
-       -f|--fetch   - Do not create the branch, but fetch an existing branch.
-       -r|--remote  - Use 'remote' as the source, not 'origin'.
-       -m|--message - Record a short description readable with git-st-ext.
-       --asmaster   - use 'somebranch' as the worktree basis.
-                      The default is 'master'.
-       -l           - When fetching an existing remote branch 'X', use
-                      'localbranchname' as the tracking branch name
-                      instead of 'X'. Most useful if you are fetching
-                      someone else's 'master' branch
+       -f|--fetch
+           - Do not create the branch, but fetch an existing branch.
+       -r|--remote
+           - Use 'remote' as the source; the default is 'origin'.
+       -m|--message
+           - Record a short description readable with git-st-ext.
+       --asmaster
+           - use 'somebranch' as the worktree basis. The default is 'master'.
+       -l localbranchname
+           - When fetching an existing remote branch 'X', use 'localbranchname'
+             as the tracking branch name instead of 'X'. Most useful if you are
+             fetching someone else's 'master' branch.
+       worktree-name
+           - the name of the branch and worktree to create
+
+For pull requests:
+
+ git worktree create [-r remote] [-m 'message'] [-l localbranchname] --pull ID
+       -r|--remote
+           - Use 'remote' as the source; the default is 'origin'.
+       -m|--message
+           - Record a short description readable with git-st-ext.
+       -l  localbranchname
+           - When fetching an existing pull request 'ID', use 'localbranchname'
+             as the tracking branch name instead of pull-<remote>-<ID>.
+       --pull ID
+           - The pull request #
+
+Note that there is not worktree-name argument. Unless overriden withe the '-l'
+flag, the worktree name will be 'pull-<remote>-<ID>'.
 
 =item delete
 

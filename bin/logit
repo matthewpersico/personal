@@ -12,6 +12,8 @@ source "$BASH_INC_DIR/on_exit.binc"
 declare logfile=''
 declare logdir=''
 declare teeit=0
+declare zenityit=0
+declare teeit=0
 declare tsit=0
 declare edit=''
 declare edit_echo=''
@@ -22,7 +24,7 @@ declare -a original_argv
 original_argv+=("$0" "$@")
 
 # Read the options and args from command line.
-OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
+OPTSARGS=$(getoptp -o h -l tee,zenity,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
 status=$?
 if ((status != 0))
 then
@@ -51,6 +53,9 @@ while true ; do
             shift 2 ;;
         --tee)
             teeit=1
+            shift ;;
+        --zenity)
+            zenityit=1
             shift ;;
         --edit-echo)
             edit_echo=1
@@ -190,12 +195,17 @@ echo "Working..."
 
 if ((teeit))
 then
-    termer=''
-    for i in xterm rxvt mrxvt
+    declare termer=''
+
+    declare -a terms
+    ((zenityit)) && terms+=('zenity')
+    terms+=(xterm rxvt mrxvt)
+    for i in "${terms[@]}"
     do
         # shellcheck disable=SC2230
-        [ -z "$termer" ] && [ -n "$(which $i 2>/dev/null)" ] && termer=$(which $i)
+        [ -z "$termer" ] && [ -n "$(which "$i" 2>/dev/null)" ] && termer=$(which "$i")
     done
+
     termheight=$(x-current-root --height)
     if ((termheight >1024)); then termheight=40; else termheight=20; fi
 
@@ -208,10 +218,27 @@ then
          fi
     fi
 
-    $termer -g 132x${termheight}+100+100 "${colors[@]}" -title "logit tee on $(hostname)" -e tail -f "$logspec" &
+    declare title
+    title="logit tee of '$command ${cmdargs[*]}' on $(hostname)"
+    if [[ $termer =~ zenity ]]
+    then
+        tail -f "$logspec" | \
+            $termer --text-info --auto-scroll \
+                    --width=1320 --height=800 \
+                    --title "$title [log is $logspec]" \
+            &
+    else
+        $termer -g 132x${termheight}+100+100 \
+                -title "$title [log is $logspec]" \
+                "${colors[@]}" \
+                -e tail -f "$logspec" \
+            &
+    fi
     sleep 2 ## Give the terminal a chance to come up and start tailing so we
-    ## see the whole log in the tail
-    tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v xterm | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+            ## see the whole log in the tail
+
+    tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+    termerpid=$(pstree | grep "$termer" | grep "$logspec" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
 fi
 
 (
@@ -219,6 +246,12 @@ fi
     echo "  logit invocation"
     echo "********************"
     echo "${original_argv[@]}"
+    echo
+
+    echo "********************"
+    echo "     log file"
+    echo "********************"
+    echo "$logspec"
     echo
 
     if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]
@@ -317,13 +350,14 @@ then
     else
         "${editcmd[@]}" "$logspec" &
         [ -n "$tailpid" ] && kill "$tailpid"
+        [ -n "$termerpid" ] && kill "$termerpid"
     fi
 fi
 exit $status
 
 :<<'__USAGE__'
 [FOO=BAR [ FOO2=BAR2... ] ] \\
-logit [ --tee ] \\
+logit [ --tee | --zenity ] \\
       [ --log log_basename ] \\
       [ --notimestamp ] \\
       [ --dir log_directory ] \\
@@ -338,6 +372,10 @@ logit [ --help | -h ]
 
       --tee    - Spin up a terminal and show the log
                  output in it as it is generated.
+
+      --zenity - Spin up a zenity text dialog and show the log
+                 output in it as it is generated. If zenity
+                 is not available, we fall back to --tee.
 
       --log    - Provide a root name for the log if
                  the command is generic.

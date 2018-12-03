@@ -61,6 +61,13 @@ declare holddir
 holddir=$1
 shift
 
+if [[ ! "$holddir" =~ ^/ ]]
+then
+    cmd-echo "rooting in ~/.git-hold"
+    mkdir -p "$HOME/.git-hold" || exit 1
+    holddir="$HOME/.git-hold/$holddir"
+fi
+
 (
     builtin cd "$repo" || exit 1
     if ! git-get-current-repo-name > /dev/null
@@ -144,9 +151,7 @@ else
     fi
 
     mkdir -p "$holddir"
-    holddir=$(realpath "$holddir") ## in case we stupidly specified a
-    ## relative path and we're about to cd
-    ## to $repo that != $(pwd)
+    holddir=$(realpath "$holddir")
     (
         builtin cd "$repo" || exit 1 ## cd command will spit out an error message
         declare file
@@ -258,7 +263,8 @@ them back.
 =item /tmp/some/tgt
 
 A directory to which the repo files should be copied. Must not exist when
-creating the copy, must exist when restoring.
+creating the copy, must exist when restoring. If there is no leading '/' on the
+path, we try to put the relative path in '~/.git-holds'.
 
 =back
 
