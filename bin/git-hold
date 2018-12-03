@@ -1,0 +1,285 @@
+#!/usr/bin/env bash
+
+# git-hold - Copy/restore a git repo to/from some other directory. Kind of like
+# a stash, but in file-system space, not git space.
+
+declare usage_cmd="script-usage"
+## If there's any chance that this will be in a script that will be dotted in,
+## remove the explicit out_cmd calls.
+declare out_cmd="exit"
+declare moreopts=1
+declare repo
+repo=$(pwd)
+declare restore=0
+declare confirm=0
+declare diff=0
+declare overwrite=0
+declare verbose_flag
+declare verbose=0
+
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    shift
+    declare option
+    option=$(dashstripper "$original")
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey=''
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        repo )
+            [ -z "$ovalue" ] && ovalue=$1 && shift
+            repo=$(realpath "$ovalue")
+            ;;
+        restore | confirm | diff | overwrite)
+            eval "$option"=1;;
+        v | verbose )
+            verbose=1
+            verbose_flag='-v';;
+        h | help )
+            $usage_cmd
+            $out_cmd 0
+            ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            cmd-echo "$original is an invalid option. See $0 --help"
+            $out_cmd 1
+            ;;
+    esac
+done
+
+declare holddir
+holddir=$1
+shift
+
+(
+    builtin cd "$repo" || exit 1
+    if ! git-get-current-repo-name > /dev/null
+    then
+        cmd-echo "'$repo' is not a git repo"
+        exit 1
+    fi
+    exit 0
+) || exit 1
+
+if (( restore ))
+then
+    if [ ! -d "$holddir" ]
+    then
+        cmd-echo "'$holddir' not found, cannot restore"
+        exit 1;
+    else
+        repo=$(realpath "$repo") ## in case we stupidly specified a relative
+                                 ## path and we're about to cd to $holdir that
+                                 ## != $(pwd)
+        (
+            builtin cd "$holddir" || exit 1 ## cd command will spit out an error message
+            declare -a files
+            mapfile -t files < <(find . -type f) ## we can't do while IFS= read
+                                                 ## ...done < <() because we
+                                                 ## need to keep stdin clear
+                                                 ## for yesnoquit
+            for file in "${files[@]}"
+            do
+                declare fullfile
+                fullfile=$(realpath "$file")
+                declare diffst
+                if (( diff ))
+                then
+                    cmd-echo "diff $fullfile $repo/$file"
+                    diff "$fullfile" "$repo/$file"
+                else
+                    diff -q "$fullfile" "$repo/$file" > /dev/null
+                fi
+                diffst=$?
+                if ((diffst==0))
+                then
+                    cmd-echo "Skipping target same as source '$fullfile'..."
+                    continue
+                fi
+
+                declare resp=y
+                if (( confirm ))
+                then
+                    resp=$(yesnoquit "cp $verbose_flag $fullfile $repo/$file")
+                fi
+                if [ "$resp" = 'y' ]
+                then
+                    ## We don't mkdir -p @(dirname $repo/$file) on the theory
+                    ## that the restore should be to the same structure you
+                    ## backed up. If the structure has changed so that
+                    ## directories have been deleted, the copy may be of
+                    ## dubious use. If that is not the case, change the code.
+                    cp $verbose_flag "$fullfile" "$repo/$file" || exit 1 ## cp command will spit out an error message
+                elif [ "$resp" = 'n' ]
+                then
+                    echo "Skipping"
+                else
+                    echo "Aborting"
+                    exit 1
+                fi
+            done
+        )
+    fi
+else
+    ## not restore, but hold (copy)
+    if [ -d "$holddir" ]
+    then
+        if (( overwrite ))
+        then
+            cmd-echo "'$holddir' exists, --overwrite specified, will copy to it"
+        else
+            cmd-echo "'$holddir' exists, will not copy to it"
+            exit 1;
+        fi
+    fi
+
+    mkdir -p "$holddir"
+    holddir=$(realpath "$holddir") ## in case we stupidly specified a
+    ## relative path and we're about to cd
+    ## to $repo that != $(pwd)
+    (
+        builtin cd "$repo" || exit 1 ## cd command will spit out an error message
+        declare file
+        declare -A git_is_deleted
+        while IFS= read -r file
+        do
+            git_is_deleted[$file]=1
+        done < <(git is deleted)
+
+        declare -a files
+        mapfile -t files < <(git ls-files) ## we can't do while IFS= read
+                                           ## ...done < <() because we need to
+                                           ## keep stdin clear for yesnoquit
+        for file in "${files[@]}"
+        do
+            if ((git_is_deleted[$file]))
+            then
+                ((verbose)) && cmd-echo "Skipping git rm'ed '$file'..."
+                continue ## skipping git rm'ed file
+            fi
+
+            declare fullfile
+            fullfile=$(realpath "$file")
+
+            if [ -h "$fullfile" ]
+            then
+                ((verbose)) && cmd-echo "Skipping link '$file'..."
+                continue
+            fi
+
+            declare diffst
+            if (( diff ))
+            then
+                cmd-echo "diff $fullfile $holddir/$file"
+                diff "$fullfile" "$holddir/$file"
+                diffst=$?
+            else
+                if [ ! -e "$holddir/$file" ]
+                then
+                    diffst=2
+                else
+                    diff -q "$fullfile" "$holddir/$file" > /dev/null
+                    diffst=$?
+                fi
+            fi
+
+            if ((diffst==0))
+            then
+                cmd-echo "Skipping target same as source '$file'..."
+                continue
+            fi
+
+            declare cprecurse_flag
+            if [ -d "$fullfile" ]
+            then
+                cprecurse_flag='-r'
+            fi
+
+            declare resp=y
+            if (( confirm ))
+            then
+                resp=$(yesnoquit "cp $verbose_flag $cprecurse_flag $fullfile $holddir/$file")
+            fi
+            if [ "$resp" = 'y' ]
+            then
+                mkdir -p "$(dirname "$holddir/$file")" || exit 1 ## mkdir command will spit out an error message
+                cp $verbose_flag $cprecurse_flag "$fullfile" "$holddir/$file" || exit 1 ## cp command will spit out an error message
+            elif [ "$resp" = 'n' ]
+            then
+                echo "Skipping"
+            else
+                echo "Aborting"
+                exit 1
+            fi
+        done
+    )
+fi
+
+## The End, to make sure we never eval the usage statement
+$out_cmd 0
+
+## Go grab the usage template the file USAGE
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-hold - Copy files between a repo and a temp directory
+
+=head1 SYNOPSIS
+
+ git hold /tmp/some/tgt
+
+ git hold [-v] [--restore [--confirm]] [--diff] [--repo some/repo] /tmp/some/tgt
+
+=head1 DESCRIPTION
+
+Sometimes 'git stash' is not what you want or your current repo has drifted too
+far from the stash. This command allows you to copy the current repo files,
+with directory structure intact, to another, non-git, directory and to pull
+them back.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item /tmp/some/tgt
+
+A directory to which the repo files should be copied. Must not exist when
+creating the copy, must exist when restoring.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -v | --verbose
+
+Use '-v' on the cp commands.
+
+=item --restore
+
+Copy from the /tmp/some/tgt to the repo.
+
+=item --repo
+
+If your repo is not the current directory, use this option's value as the repo.
+
+=back
+
+=cut
+
+__PODUSAGE__
