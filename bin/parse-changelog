@@ -30,6 +30,7 @@ my %opt = (
     diff => 0,
     cached => 0,
     noclonly => 0,
+    filesonly => 0,
     write => 0,
     withstatus => 0,
     missingok => 0,
@@ -53,6 +54,7 @@ GetOptions(\%opt,
            'diff',
            'cached',
            'noclonly',
+           'filesonly',
            'write',
            'withstatus',
            'missingok',
@@ -81,6 +83,10 @@ if( $opt{write} ) {
     }
 } elsif( $opt{newcl} ) {
     warn "parse-changelog: -newcl ChangeLog option ignored without --write\n";
+}
+
+if( $opt{filesonly} && not $opt{noclonly} ) {
+    die "--filesonly requires --noclonly\n";
 }
 
 ## You must specify all the files for which you want to grab a changelog
@@ -352,6 +358,13 @@ if (@status) {
     }
     unshift @output, "SUMMARY LINE HERE"
       if ($morethan1);
+}
+
+if( $opt{filesonly}) {
+    @output = map { s/\x{1b}.*//; $_ } ## Strip the trailing text
+      map { s/^.*?:\s+//; $_} ## Strip the leading text
+      grep { /No Changelog entry found/ } ## Get the lines with file names
+      @output;
 }
 
 $clnewh->print(join("\n", @output))
