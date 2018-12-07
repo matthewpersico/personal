@@ -43,7 +43,7 @@ my $exit = 0;
 my %deleted;
 my %format_seen;
 my $marker = join('', qw( < G C S > ));
-my $excl_marker = join('', qw( < G C S L I T E R A L > ));
+my $exclusion_marker = join('', qw( < G C S L I T E R A L > ));
 
 select((select(STDOUT), $| = 1)[0]);
 select((select(STDERR), $| = 1)[0]);
@@ -247,7 +247,7 @@ LINE: while (<$sclih>) {
             ## The current entry corresponds to a file we are processing.
 
             ## Mark that a SourceCtrlLog entry has been found.
-            $files{$file}->{scl_entry_found} = 1;
+            $files{$file}->{sscl_entry_found} = 1;
 
             ## Init the output if needed.
             $output{$file}->{$function}->{$entry_id} = []
@@ -264,13 +264,13 @@ LINE: while (<$sclih>) {
 $sclih->close();
 
 ## See about files with no SourceCtrlLog entries.
-my %nocl;
+my %noscl;
 for (keys %files) {
-    if( $files{$_}->{cl_entry_found} == 0 ) {
+    if( $files{$_}->{scl_entry_found} == 0 ) {
         if ($opt{missingok} || $opt{skipmissing}) {
-            $nocl{$_} = $opt{cl};
+            $noscl{$_} = $opt{scl};
         } else {
-            print STDERR "$_ has no entry in $opt{cl}.\n";
+            print STDERR "$_ has no entry in $opt{scl}.\n";
             $exit++;
         }
     }
@@ -279,21 +279,21 @@ if ($exit) {
     print STDERR "Aborting...\n";
     exit 1;
 }
-if ( %nocl and $opt{skipmissing}) {
-    delete @files{keys %nocl};
+if ( %noscl and $opt{skipmissing}) {
+    delete @files{keys %noscl};
 }
 
 #############################################
 ## Where to write the entries that matched ##
 #############################################
-my $clnew;
-my $clnewh;
+my $sclnew;
+my $sclnewh;
 if( $opt{write} ) {
-    $clnew = $opt{newcl};
-    $clnewh =  IO::File->new($clnew, "w")
-      or die "Cannot open $clnew for write:$!";
+    $sclnew = $opt{newscl};
+    $sclnewh =  IO::File->new($sclnew, "w")
+      or die "Cannot open $sclnew for write:$!";
 } else {
-    $clnewh = *STDOUT;
+    $sclnewh = *STDOUT;
 }
 
 ###################
@@ -338,11 +338,9 @@ if (@status) {
 
         (my $local_name_from_sline = $sline ) =~ s|.*:\s+([a-zA-Z0-9_./-]+).*|$1|;
         my $abs_name_from_sline = canonpath(catfile(cwd(), $local_name_from_sline) );
-        my $cl_name_from_sline = abs2rel($abs_name_from_sline, $cldir);
-        if (exists ($nocl{$abs_name_from_sline})) {
-            my $function = NOCLENTRY;
+        if (exists ($noscl{$abs_name_from_sline})) {
+            my $function = NOSCLENTRY;
             $output{$abs_name_from_sline}->{$function}->{$entry_id++} = [ 'NE' ];
-###              [ "*** No SourceCtrlLog entry in $nocl{$abs_name_from_sline} for $cl_name_from_sline. ***"];
             push_to_output($abs_name_from_sline);
         }
     }
@@ -354,7 +352,7 @@ if (@status) {
     my $morethan1=-1;
     for $file (sort keys %output) {
         $morethan1++;
-        push_to_output($file, $files{$file}->{cl_name});
+        push_to_output($file, $files{$file}->{scl_name});
     }
     unshift @output, "SUMMARY LINE HERE"
       if ($morethan1);
@@ -367,7 +365,7 @@ if( $opt{filesonly}) {
       @output;
 }
 
-$clnewh->print(join("\n", @output))
+$sclnewh->print(join("\n", @output))
   if(@output);
 
 #####################
@@ -377,12 +375,12 @@ if( $opt{write} ) {
     ## Now store the unused entries back in the SourceCtrlLog.
 
     ## Close the new entries file.
-    $clnewh->close();
+    $sclnewh->close();
 
     if (@oldput) {
         ## Reopen the SourceCtrlLog.
-        my $cloldh =  IO::File->new($opt{cl}, "w")
-          or die "Cannot open $opt{cl} for re-write:$!";
+        my $scloldh =  IO::File->new($opt{scl}, "w")
+          or die "Cannot open $opt{scl} for re-write:$!";
 
         my @tmpout;
         my @newout;
@@ -411,8 +409,8 @@ if( $opt{write} ) {
             ## have to write SOMETHING to get an empty file.
             push @newout, '';
         }
-        $cloldh->print(join(qq(\n),@newout));
-        $cloldh->close();
+        $scloldh->print(join(qq(\n),@newout));
+        $scloldh->close();
     }
 }
 
@@ -425,7 +423,7 @@ sub push_to_output {
     my $filedata = $output{$file};
     my $functions_pushed = 0;
 
-    if ($opt{noclonly} && $files{$file}->{cl_entry_found}) {
+    if ($opt{nosclonly} && $files{$file}->{scl_entry_found}) {
         pop @output; ## Remove the filename from the output
         return;
     }
@@ -441,7 +439,7 @@ sub push_to_output {
     ## We compose the markers this way so that the grep does not
     ## falsely find this code.
     my @gcs;
-    @gcs = `grep -i '$marker' $file | grep -v '$excl_marker'`
+    @gcs = `grep -i '$marker' $file | grep -v '$exclusion_marker'`
       if not exists $deleted{$file};
     if (@gcs) {
         if ( $opt{write} ) {
@@ -475,7 +473,7 @@ sub push_to_output {
 
             $format_seen{$file}->{$function} = 1;
             $functions_pushed++;
-            if ( $function ne NOCLENTRY) {
+            if ( $function ne NOSCLENTRY) {
                 push @output, join('', $format_over, $function)
                   if( $function ne NOFUNC);
                 if ($function =~ m|(.*)/$|) {
@@ -487,7 +485,7 @@ sub push_to_output {
             }
         }
         for my $order (sort {$b <=> $a} keys %{$filedata->{$function}} ) {
-            if( $function eq NOCLENTRY) {
+            if( $function eq NOSCLENTRY) {
                 push @output, join('', $format_over, shift @{$filedata->{$function}->{$order}});
                 $space_files = 1;
                 if ($output[-1] eq "${format_over}NE") {
@@ -529,10 +527,10 @@ sub push_to_output {
 
 sub init_file_info {
     return  {
-        cl_entry_found => 0,
+        scl_entry_found => 0,
         local_name => abs2rel($_[0], $cwd),
         abs_name => $_[0],
-        cl_name => abs2rel($_[0], $cldir)
+        scl_name => abs2rel($_[0], $scldir)
     };
 }
 
