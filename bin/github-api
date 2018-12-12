@@ -27,6 +27,7 @@ main ()
     declare scope='all'
     declare pullId
     declare stream_data=0
+    declare doexec=1
 
     ##
     ## options parsing
@@ -82,6 +83,10 @@ main ()
                 silent=1
                 ;;
 
+            noexec)
+                doexec=0
+                verbose=1
+                ;;
             --)
                 moreopts=0
                 ;;
@@ -251,112 +256,114 @@ main ()
                  "    ${server_url}${url} -s"
     fi
 
-    curl \
-        --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
-        "${curlopts[@]}" \
-        "${server_url}${url}" -s > "$curldata" 2>&1
-    declare status=$?
-
-    if ((status))
+    if ((doexec))
     then
-        cmd-echo "curl returned with error :$status"
-        curl-cat
-        return $status
-    fi
+        curl \
+            --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
+            "${curlopts[@]}" \
+            "${server_url}${url}" -s > "$curldata" 2>&1
+        declare status=$?
 
-    declare htmlstatus
-    htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
-    case $action in
-        exists )
-            case $htmlstatus in
-                200 )
-                    cmd-echo "Repo exists."
-                    ;;
-                404 )
-                    cmd-echo "Error: '${server}:$org/$repo' not found."
-                    return 1;
-                    ;;
-                * )
-                    cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
-                    curl-cat
-                    return 1
-                    ;;
-            esac
-            ;;
+        if ((status))
+        then
+            cmd-echo "curl returned with error :$status"
+            curl-cat
+            return $status
+        fi
 
-        list-forks )
-            case $htmlstatus in
-                200 )
-                    # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
-                    echo '$VAR1=' > "$perldata"
-                    json_xs -t dumper < "$curldata" >> "$perldata"
-                    perl -e 'do $ARGV[0]; print join(qq(\n), sort map {$_->{full_name}} @$VAR1)' "$perldata"
-                    ;;
-                404 )
-                    cmd-echo "Error: '${server}:$org/$repo' not found."
-                    return 1;
-                    ;;
-                * )
-                    cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
-                    curl-cat
-                    return 1
-                    ;;
+        declare htmlstatus
+        htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
+        case $action in
+            exists )
+                case $htmlstatus in
+                    200 )
+                        cmd-echo "Repo exists."
+                        ;;
+                    404 )
+                        cmd-echo "Error: '${server}:$org/$repo' not found."
+                        return 1;
+                        ;;
+                    * )
+                        cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
+                        curl-cat
+                        return 1
+                        ;;
                 esac
-            ;;
+                ;;
 
-        pulls )
-            case $htmlstatus in
-                200 )
-                    ;;
-                * )
-                    cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
-                    curl-cat
-                    return 1
-                    ;;
-            esac
-            ;;
+            list-forks )
+                case $htmlstatus in
+                    200 )
+                        # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
+                        echo '$VAR1=' > "$perldata"
+                        json_xs -t dumper < "$curldata" >> "$perldata"
+                        perl -e 'do $ARGV[0]; print join(qq(\n), sort map {$_->{full_name}} @$VAR1)' "$perldata"
+                        ;;
+                    404 )
+                        cmd-echo "Error: '${server}:$org/$repo' not found."
+                        return 1;
+                        ;;
+                    * )
+                        cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
+                        curl-cat
+                        return 1
+                        ;;
+                esac
+                ;;
 
-        fork )
-            case $htmlstatus in
-                200 )
-                    cmd-echo "Fork created."
+            pulls )
+                case $htmlstatus in
+                    200 )
                     ;;
-                202 )
-                    cmd-echo "Fork already exists."
-                    ;;
-                404 )
-                    cmd-echo "Error: either organization '$org' or repo '$repo' does not exist on '$server'."
-                    return 1;
-                    ;;
-                * )
-                    cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
-                    curl-cat
-                    return 1
-                    ;;
-            esac
+                    * )
+                        cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
+                        curl-cat
+                        return 1
+                        ;;
+                esac
+                ;;
 
-            if ((synchronous))
-            then
-                declare waiting='Waiting for fork creation...'
-                declare remaining=60
-                while github-api --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
-                do
-                    [ -n "$waiting" ] && cmd-echo "'$waiting'" && waiting=''
-                    sleep 1
-                    ((remaining-=1))
-                    ((remaining)) || break
-                done
-                if github-api --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
+            fork )
+                case $htmlstatus in
+                    200 )
+                        cmd-echo "Fork created."
+                        ;;
+                    202 )
+                        cmd-echo "Fork already exists."
+                        ;;
+                    404 )
+                        cmd-echo "Error: either organization '$org' or repo '$repo' does not exist on '$server'."
+                        return 1;
+                        ;;
+                    * )
+                        cmd-echo "Error: HTML status $(grep "Status:" "$curlheaders")"
+                        curl-cat
+                        return 1
+                        ;;
+                esac
+
+                if ((synchronous))
                 then
-                    cmd-echo "Warning: fork not yet created"
-                    return 1
-                else
-                    return 0
+                    declare waiting='Waiting for fork creation...'
+                    declare remaining=60
+                    while github-api --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
+                    do
+                        [ -n "$waiting" ] && cmd-echo "'$waiting'" && waiting=''
+                        sleep 1
+                        ((remaining-=1))
+                        ((remaining)) || break
+                    done
+                    if github-api --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
+                    then
+                        cmd-echo "Warning: fork not yet created"
+                        return 1
+                    else
+                        return 0
+                    fi
                 fi
-            fi
-            ;;
-    esac
-
+                ;;
+        esac
+    fi
 
     if ((stream_data))
     then
@@ -387,7 +394,7 @@ github-api - Wrapper around curl calls to the github api
 
 =head1 SYNOPSIS
 
- github-api [--server server] [--keep-data] [--wait] [--verbose|--silent] \
+ github-api [--server server] [--keep-data] [--wait] [--verbose|--silent--noexec] \
      org <orgname> |
      repos <orgname> |
      exists[|ping] <orgname> <reponame> |
@@ -454,11 +461,13 @@ Header and data are sent to a file for display. This options doesn't clean up af
 
 Whe creating a fork, wait for the fork to create before exiting. Default is to send off the command and exit, as the fork creation is async by default.
 
-=item [--verbose|--silent]
+=item [--verbose|--silent|--noexec]
 
 'verbose' shows steps and the full curl command, sans authentication info.
 
 'silent' represses the header and data output when you just want the return code.
+
+'noexec' show the full curl command, sans authentication info, but does not execute it.
 
 =back
 
