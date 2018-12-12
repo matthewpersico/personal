@@ -15,7 +15,7 @@ use Text::Wrap qw(wrap);
 $Text::Wrap::columns = 72;
 
 use constant NOFUNC => '!File Scope'; ## the ! will sort this before all function names.
-use constant NOCLENTRY => 'NOCLENTRY';
+use constant NOSCLENTRY => 'NOSCLENTRY';
 
 my $cwd = cwd();
 my @oldput;
@@ -25,11 +25,12 @@ my $text;
 my %current = ();
 my %output = ();
 my %opt = (
-    cl => undef,
-    newcl => undef,
+    scl => undef,
+    newscl => undef,
     diff => 0,
     cached => 0,
-    noclonly => 0,
+    nosclonly => 0,
+    filesonly => 0,
     write => 0,
     withstatus => 0,
     missingok => 0,
@@ -42,17 +43,18 @@ my $exit = 0;
 my %deleted;
 my %format_seen;
 my $marker = join('', qw( < G C S > ));
-my $excl_marker = join('', qw( < G C S L I T E R A L > ));
+my $exclusion_marker = join('', qw( < G C S L I T E R A L > ));
 
 select((select(STDOUT), $| = 1)[0]);
 select((select(STDERR), $| = 1)[0]);
 
 GetOptions(\%opt,
-           'cl=s',
-           'newcl|ncl=s',
+           'scl=s',
+           'newscl|nscl=s',
            'diff',
            'cached',
-           'noclonly',
+           'nosclonly',
+           'filesonly',
            'write',
            'withstatus',
            'missingok',
@@ -62,10 +64,10 @@ GetOptions(\%opt,
            'color!'
        ) or die "Bad options";
 
-die "-cl ChangeLog option required"
-  if( !$opt{cl} );
-$opt{cl} = rel2abs($opt{cl});
-my $cldir = dirname($opt{cl});
+die "-scl SourceCtrlLog option required"
+  if( !$opt{scl} );
+$opt{scl} = rel2abs($opt{scl});
+my $scldir = dirname($opt{scl});
 
 if( $opt{write} ) {
     die "Cannot set --write when one or more of --withstatus, --missingok, --diff, --cached are specified"
@@ -74,24 +76,28 @@ if( $opt{write} ) {
              or $opt{diff}
              or $opt{cached});
 
-    if( !$opt{newcl} ) {
-        die "-newcl ChangeLog option required with --write";
+    if( !$opt{newscl} ) {
+        die "-newscl SourceCtrlLog option required with --write";
     } else {
-        $opt{newcl} = rel2abs($opt{newcl});
+        $opt{newscl} = rel2abs($opt{newscl});
     }
-} elsif( $opt{newcl} ) {
-    warn "parse-changelog: -newcl ChangeLog option ignored without --write\n";
+} elsif( $opt{newscl} ) {
+    warn "parse-source-ctrl-log: -newscl SourceCtrlLog option ignored without --write\n";
 }
 
-## You must specify all the files for which you want to grab a changelog
+if( $opt{filesonly} && not $opt{nosclonly} ) {
+    die "--filesonly requires --nosclonly\n";
+}
+
+## You must specify all the files for which you want to grab a SourceCtrlLog
 ## entry. If you want to infer the list from the state of repo where the
-## changelog lives, that's an issue for the caller of this program.
+## SourceCtrlLog lives, that's an issue for the caller of this program.
 for (@ARGV) {
     if (substr($_, 0, 1) ne '/') {
         if( $opt{relok} ) {
             $_ = rel2abs($_);
         } else {
-            warn "parse-changelog: $_ is not a fully qualified filename (does not start with '/'. Fatal.\n";
+            warn "parse-source-ctrl-log: $_ is not a fully qualified filename (does not start with '/'. Fatal.\n";
             $exit++;
             next;
         }
@@ -99,14 +105,14 @@ for (@ARGV) {
     if ( ! -e $_ ) {
         my @ok=qx(git status $_ | grep deleted:);
         if(scalar(@ok) != 1 ) {
-            warn "parse-changelog: $_ not found." . ($opt{write} ? ' Fatal.' : '') . "\n";
+            warn "parse-source-ctrl-log: $_ not found." . ($opt{write} ? ' Fatal.' : '') . "\n";
             $exit++ if $opt{write};
         } else {
             $deleted{$_}=1;
         }
     } elsif ( -d $_ ) {
         if ( $opt{write} ) {
-            warn "parse-changelog: $_ is a directory." . ($opt{write} ? ' Fatal.' : '') . "\n";
+            warn "parse-source-ctrl-log: $_ is a directory." . ($opt{write} ? ' Fatal.' : '') . "\n";
             $exit++ ;
         }
     }
@@ -137,15 +143,15 @@ if($opt{diff}) {
     $cached = '--cached' if $opt{cached};
 
     ## Remove any deleted or moved files. This generates a list of files in
-    ## cl_name (from the git root) format.
+    ## scl_name (from the git root) format.
     my @diff_list = ( map {chomp; substr($_,3)}
                         grep { ! m/^RM/ }
                         grep { ! m/^[D ]{2,2}/ }
                         qx(git status --porcelain @file_list));
 
-    ## Transform cl_names to local_names.
-    my %files_by_cl_name = map { $_->{cl_name} => $_ } values(%files);
-    @diff_list = map {$_->{local_name}} @files_by_cl_name{@diff_list};
+    ## Transform scl_names to local_names.
+    my %files_by_scl_name = map { $_->{scl_name} => $_ } values(%files);
+    @diff_list = map {$_->{local_name}} @files_by_scl_name{@diff_list};
 
     my @diff = map {chomp; $_} qx(git -c color.diff=always diff $cached @diff_list);
     my $entry;
@@ -154,15 +160,15 @@ if($opt{diff}) {
             $entry = $line;
             $entry =~ s|.*b/||;
             $entry =~ s|([/a-zA-Z0-9_.-]+).*|$1|;
-            $entry = $files_by_cl_name{$entry}->{abs_name};
+            $entry = $files_by_scl_name{$entry}->{abs_name};
             $diff{$entry} = [];
         }
         push @{$diff{$entry}}, $line;
     }
 }
 
-my $clih = IO::File->new($opt{cl}, "r")
-  or die "Cannot open $opt{cl} for read:$!";
+my $sclih = IO::File->new($opt{scl}, "r")
+  or die "Cannot open $opt{scl} for read:$!";
 
 my $filetag_re = qr(^\s+\* ([a-zA-Z0-9_./-]+));
 my $functag_re = qr([(]([a-zA-Z0-9_.*\<\>\[\]\|/,: -]+)[)]);
@@ -170,13 +176,13 @@ my $functag_re = qr([(]([a-zA-Z0-9_.*\<\>\[\]\|/,: -]+)[)]);
 my $entry_id = 0; ## A serial number, monotonically increasing. We assign one
                   ## to each new entry because 1) we are getting a new entry
                   ## for each comment 2) the entries are entered at the top of
-                  ## the changelog. So to get the right chronological flow to
+                  ## the SourceCtrlLog. So to get the right chronological flow to
                   ## the output, we have to reverse the entries.
 
 #########################
-## Parse the changelog ##
+## Parse the SourceCtrlLog ##
 #########################
-LINE: while (<$clih>) {
+LINE: while (<$sclih>) {
     chomp;
 
     if ( /^\d{4,4}-\d{2,2}-\d{2,2}/ ) {
@@ -197,19 +203,19 @@ LINE: while (<$clih>) {
         %current=();
     } else {
         ## Parsing assumptions:
-        ## 1) One ChangeLog in git root for whole project.
+        ## 1) One SourceCtrlLog in git root for whole project.
         ## 2) Emacs variable add-log-always-start-new-record is set to 't'.
         ## 3) With #2, we can use Esc-Q to wrap text.
 
         if( m|${filetag_re}\s*${functag_re}:\s*(.*)|) {
             ## * file\s*(function):\s*text
-            $file = catfile($cldir, $1);
+            $file = catfile($scldir, $1);
             $function = $2;
             ($text = $3) =~ s/^\s+//;
             $text =~ s/\s+$//;
         } elsif( m|${filetag_re}:\s*(.*)|) {
             ## * file:\s*text
-            $file = catfile($cldir, $1);
+            $file = catfile($scldir, $1);
             $function = NOFUNC;
             ($text = $2) =~ s/^\s+//;
             $text =~ s/\s+$//;
@@ -221,7 +227,7 @@ LINE: while (<$clih>) {
             $text =~ s/\s+$//;
         } elsif ( m|${filetag_re}$|) {
             ## * file
-            $current{file} = catfile($cldir, $1);
+            $current{file} = catfile($scldir, $1);
             next LINE; ## No function or text to be found
         } else {
             ## text
@@ -240,8 +246,8 @@ LINE: while (<$clih>) {
         if( defined $files{$file} ) {
             ## The current entry corresponds to a file we are processing.
 
-            ## Mark that a changelog entry has been found.
-            $files{$file}->{cl_entry_found} = 1;
+            ## Mark that a SourceCtrlLog entry has been found.
+            $files{$file}->{scl_entry_found} = 1;
 
             ## Init the output if needed.
             $output{$file}->{$function}->{$entry_id} = []
@@ -250,21 +256,21 @@ LINE: while (<$clih>) {
             ## Save the text.
             push @{$output{$file}->{$function}->{$entry_id}}, $text;
         } else {
-            ## Not wanted. Store for push back to changelog.
+            ## Not wanted. Store for push back to SourceCtrlLog.
             push @{$oldput[-1]}, $_;
         }
     }
 }
-$clih->close();
+$sclih->close();
 
-## See about files with no changelog entries.
-my %nocl;
+## See about files with no SourceCtrlLog entries.
+my %noscl;
 for (keys %files) {
-    if( $files{$_}->{cl_entry_found} == 0 ) {
+    if( $files{$_}->{scl_entry_found} == 0 ) {
         if ($opt{missingok} || $opt{skipmissing}) {
-            $nocl{$_} = $opt{cl};
+            $noscl{$_} = $opt{scl};
         } else {
-            print STDERR "$_ has no entry in $opt{cl}.\n";
+            print STDERR "$_ has no entry in $opt{scl}.\n";
             $exit++;
         }
     }
@@ -273,21 +279,21 @@ if ($exit) {
     print STDERR "Aborting...\n";
     exit 1;
 }
-if ( %nocl and $opt{skipmissing}) {
-    delete @files{keys %nocl};
+if ( %noscl and $opt{skipmissing}) {
+    delete @files{keys %noscl};
 }
 
 #############################################
 ## Where to write the entries that matched ##
 #############################################
-my $clnew;
-my $clnewh;
+my $sclnew;
+my $sclnewh;
 if( $opt{write} ) {
-    $clnew = $opt{newcl};
-    $clnewh =  IO::File->new($clnew, "w")
-      or die "Cannot open $clnew for write:$!";
+    $sclnew = $opt{newscl};
+    $sclnewh =  IO::File->new($sclnew, "w")
+      or die "Cannot open $sclnew for write:$!";
 } else {
-    $clnewh = *STDOUT;
+    $sclnewh = *STDOUT;
 }
 
 ###################
@@ -302,7 +308,7 @@ my $ascii_red_black = '[31;40m';
 my $ascii_normal = '[m';
 if (@status) {
     ##
-    ## Mixing in the changelog entries with git status output.
+    ## Mixing in the SourceCtrlLog entries with git status output.
     ##
     my @files = keys %output;
     $format_over = ' ' x 8;
@@ -332,44 +338,49 @@ if (@status) {
 
         (my $local_name_from_sline = $sline ) =~ s|.*:\s+([a-zA-Z0-9_./-]+).*|$1|;
         my $abs_name_from_sline = canonpath(catfile(cwd(), $local_name_from_sline) );
-        my $cl_name_from_sline = abs2rel($abs_name_from_sline, $cldir);
-        if (exists ($nocl{$abs_name_from_sline})) {
-            my $function = NOCLENTRY;
+        if (exists ($noscl{$abs_name_from_sline})) {
+            my $function = NOSCLENTRY;
             $output{$abs_name_from_sline}->{$function}->{$entry_id++} = [ 'NE' ];
-###              [ "*** No Changelog entry in $nocl{$abs_name_from_sline} for $cl_name_from_sline. ***"];
             push_to_output($abs_name_from_sline);
         }
     }
 } else {
     ##
-    ## Just write the changelog output.
+    ## Just write the SourceCtrlLog output.
     ##
     $format_over = '';
     my $morethan1=-1;
     for $file (sort keys %output) {
         $morethan1++;
-        push_to_output($file, $files{$file}->{cl_name});
+        push_to_output($file, $files{$file}->{scl_name});
     }
     unshift @output, "SUMMARY LINE HERE"
       if ($morethan1);
 }
 
-$clnewh->print(join("\n", @output))
+if( $opt{filesonly}) {
+    @output = map { s/\x{1b}.*//; $_ } ## Strip the trailing text
+      map { s/^.*?:\s+//; $_} ## Strip the leading text
+      grep { /No SourceCtrlLog entry found/ } ## Get the lines with file names
+      @output;
+}
+
+$sclnewh->print(join("\n", @output))
   if(@output);
 
 #####################
 ## Post processing ##
 #####################
 if( $opt{write} ) {
-    ## Now store the unused entries back in the changelog.
+    ## Now store the unused entries back in the SourceCtrlLog.
 
     ## Close the new entries file.
-    $clnewh->close();
+    $sclnewh->close();
 
     if (@oldput) {
-        ## Reopen the changelog.
-        my $cloldh =  IO::File->new($opt{cl}, "w")
-          or die "Cannot open $opt{cl} for re-write:$!";
+        ## Reopen the SourceCtrlLog.
+        my $scloldh =  IO::File->new($opt{scl}, "w")
+          or die "Cannot open $opt{scl} for re-write:$!";
 
         my @tmpout;
         my @newout;
@@ -398,8 +409,8 @@ if( $opt{write} ) {
             ## have to write SOMETHING to get an empty file.
             push @newout, '';
         }
-        $cloldh->print(join(qq(\n),@newout));
-        $cloldh->close();
+        $scloldh->print(join(qq(\n),@newout));
+        $scloldh->close();
     }
 }
 
@@ -412,7 +423,7 @@ sub push_to_output {
     my $filedata = $output{$file};
     my $functions_pushed = 0;
 
-    if ($opt{noclonly} && $files{$file}->{cl_entry_found}) {
+    if ($opt{nosclonly} && $files{$file}->{scl_entry_found}) {
         pop @output; ## Remove the filename from the output
         return;
     }
@@ -428,7 +439,7 @@ sub push_to_output {
     ## We compose the markers this way so that the grep does not
     ## falsely find this code.
     my @gcs;
-    @gcs = `grep -i '$marker' $file | grep -v '$excl_marker'`
+    @gcs = `grep -i '$marker' $file | grep -v '$exclusion_marker'`
       if not exists $deleted{$file};
     if (@gcs) {
         if ( $opt{write} ) {
@@ -462,7 +473,7 @@ sub push_to_output {
 
             $format_seen{$file}->{$function} = 1;
             $functions_pushed++;
-            if ( $function ne NOCLENTRY) {
+            if ( $function ne NOSCLENTRY) {
                 push @output, join('', $format_over, $function)
                   if( $function ne NOFUNC);
                 if ($function =~ m|(.*)/$|) {
@@ -474,16 +485,16 @@ sub push_to_output {
             }
         }
         for my $order (sort {$b <=> $a} keys %{$filedata->{$function}} ) {
-            if( $function eq NOCLENTRY) {
+            if( $function eq NOSCLENTRY) {
                 push @output, join('', $format_over, shift @{$filedata->{$function}->{$order}});
                 $space_files = 1;
                 if ($output[-1] eq "${format_over}NE") {
                     pop @output;
                     if(not @gcs) {
-                        $output[-1] .= ": ${ascii_red_black}No Changelog entry found.${ascii_normal}";
+                        $output[-1] .= ": ${ascii_red_black}No SourceCtrlLog entry found.${ascii_normal}";
                         $space_files = 0;
                     } else {
-                        push @output, "${format_over}${ascii_red_black}No Changelog entry found.${ascii_normal}";
+                        push @output, "${format_over}${ascii_red_black}No SourceCtrlLog entry found.${ascii_normal}";
                     }
                     @gcs=();
                 }
@@ -516,10 +527,10 @@ sub push_to_output {
 
 sub init_file_info {
     return  {
-        cl_entry_found => 0,
+        scl_entry_found => 0,
         local_name => abs2rel($_[0], $cwd),
         abs_name => $_[0],
-        cl_name => abs2rel($_[0], $cldir)
+        scl_name => abs2rel($_[0], $scldir)
     };
 }
 

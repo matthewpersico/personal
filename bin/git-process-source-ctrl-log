@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# git-process-changelog
+# git-process-source-ctrl-log
 
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
@@ -9,9 +9,9 @@ declare action='read'
 declare opt_v='' ## passed to commit
 declare status=0
 declare parsed_cl
-parsed_cl=$(mktemp -t tmp.git-process-changelog.XXXXXXXXXX)
+parsed_cl=$(mktemp -t tmp.git-process-source-ctrl-log.XXXXXXXXXX)
 rm_on_exit "$parsed_cl"
-declare -a pcl_flags
+declare -a pscl_flags
 declare git_editor
 declare opt_confirm=0
 declare moreopts
@@ -35,23 +35,26 @@ do
             ;;
         commit)
             action=commit;
-            pcl_flags+=(--write --ncl "$parsed_cl")
+            pscl_flags+=(--write --newscl "$parsed_cl")
             ;;
         withstatus)
             action=withstatus;
-            pcl_flags+=(--withstatus)
+            pscl_flags+=(--withstatus)
             ;;
         diff)
-            pcl_flags+=(--diff)
+            pscl_flags+=(--diff)
             ;;
         cached)
-            pcl_flags+=(--cached)
+            pscl_flags+=(--cached)
             ;;
         noclonly)
-            pcl_flags+=(--noclonly)
+            pscl_flags+=(--noclonly)
             ;;
-        skip-no-changelog)
-            pcl_flags+=(--skipmissing)
+        filesonly)
+            pscl_flags+=(--filesonly)
+            ;;
+        skip-no-source-ctrl-log)
+            pscl_flags+=(--skipmissing)
             ;;
         confirm)
             opt_confirm=1
@@ -60,7 +63,7 @@ do
             git_editor=$2
             shift;;
         nocolor)
-            pcl_flags+=(--nocolor);;
+            pscl_flags+=(--nocolor);;
         --)
             moreopts=0
             ;;
@@ -100,46 +103,46 @@ do
     fi
 done
 
-## Find the changelog
-declare changelogdir
-changelogdir=$(git root)
+## Find the source-ctrl-log
+declare source_ctrl_logdir
+source_ctrl_logdir=$(git root)
 if ((status != 0))
 then
     script-usage
     exit $status
 fi
 
-declare changelog="${changelogdir}/$GITFUNCS_CHANGELOG_NAME"
-if [ ! -r "$changelog" ]
+declare source_ctrl_log="${source_ctrl_logdir}/$GITFUNCS_SOURCE_CTRL_LOG_NAME"
+if [ ! -r "$source_ctrl_log" ]
 then
-    cmd-echo -- "$changelog not readable"
+    cmd-echo -- "$source_ctrl_log not readable"
     exit 1
 fi
-if [ "$action" = 'commit' ] && [ ! -w "$changelog" ]
+if [ "$action" = 'commit' ] && [ ! -w "$source_ctrl_log" ]
 then
-    cmd-echo -- "$changelog not writable"
+    cmd-echo -- "$source_ctrl_log not writable"
     exit 1
 fi
 
-declare changelogbkp="${changelog}.bkp"
+declare source_ctrl_logbkp="${source_ctrl_log}.bkp"
 
 declare others
-others=$(find "$changelogdir" -name "$GITFUNCS_CHANGELOG_NAME" | grep -v "$changelog")
+others=$(find "$source_ctrl_logdir" -name "$GITFUNCS_SOURCE_CTRL_LOG_NAME" | grep -v "$source_ctrl_log")
 if [ -n "$others" ]
 then
-    cmd-echo "Found $others. No other $GITFUNCS_CHANGELOG_NAME allowed under $changelogdir."
+    cmd-echo "Found $others. No other $GITFUNCS_SOURCE_CTRL_LOG_NAME allowed under $source_ctrl_logdir."
     exit 1
 fi
 
 ## Backup
-cp -f "$changelog" "$changelogbkp"
-$DEBUG_PARSE_CHANGELOG parse-changelog --cl "$changelog" "${pcl_flags[@]}" "${filelist[@]}"
+cp -f "$source_ctrl_log" "$source_ctrl_logbkp"
+$DEBUG_PARSE_SOURCE_CTRL_LOG parse-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
 status=$?
 if ((status!=0))
 then
     ## Restore
-    cmd-echo "Rolling back $changelog"
-    cp -f "$changelogbkp" "$changelog"
+    cmd-echo "Rolling back $source_ctrl_log"
+    cp -f "$source_ctrl_logbkp" "$source_ctrl_log"
     exit $status
 fi
 
@@ -147,7 +150,7 @@ if [ "$action" = 'commit' ]
 then
     ## We rebuild the filelist from the commit message file so that we can
     ## account for having skipped files because they do not have a
-    ## changelog entry.
+    ## source_ctrl_log entry.
     declare -a filelist_refreshed
     mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY LINE HERE|o | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$parsed_cl")
     cmd-echo "About to commit" "${filelist_refreshed[@]}"
@@ -169,22 +172,22 @@ then
          if((status!=0))
          then
              ## Restore
-             cmd-echo "Rolling back $changelog"
-             cp -f "$changelogbkp" "$changelog"
+             cmd-echo "Rolling back $source_ctrl_log"
+             cp -f "$source_ctrl_logbkp" "$source_ctrl_log"
              exit $status
          fi
     else
         cmd-echo "Commit aborted"
     fi
 fi
-[ -f "$changelogbkp" ] && \rm -f "$changelogbkp"
+[ -f "$source_ctrl_logbkp" ] && \rm -f "$source_ctrl_logbkp"
 
 exit 0
 
 :<< __EOUSAGE__
 __USAGE__
 NAME
-    git-process-changelog
+    git-process-source_ctrl_log
 
 SYNOPSYS
 

@@ -3,47 +3,75 @@
 # git-commit
 
 # shellcheck disable=SC1090
-# Don't know if we really need this yet:
-# . "$REALGIT_EXEC_PATH/git-sh-setup"
+source "$BASH_INC_DIR/on_exit.binc"
+
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        script-usage
+        echo
+        echo "** Standard actions **"
+        "$REALGIT" commit --help
+    ) 2>&1 | ${PAGER:-less}
+}
 
 ## Functions that encapsulate the enhanced functionality. main() is defined
 ## last and called last.
-git-commit-with-changelog()
+git-commit-wscl()
 {
-    git-commit-with-changelog-guts "$@"
-    return $?
-}
-
-git-commit-wc()
-{
-    git-commit-with-changelog-guts "$@"
+    git-commit-with-source-ctrl-log-guts "$@"
     return $?
 }
 
 main ()
 {
-    declare action=$1
+    declare opt_wscl=0
+    declare moreopts=1
+    declare -a pass_on_args
 
-    if [[ "$action" =~ -h ]]
-    then
-        (
-            echo "** Standard actions **"
-            "${REALGIT}" commit -h
-            echo
-            echo "** Extended actions **"
-            script-usage
-        ) 2>&1 | ${PAGER:-less}
-        return  0
-    fi
+    ## This hunk of processing was written after git-clone and is an attempt to
+    ## NOT have to duplicate all existing arg process, as is done in git-clone,
+    ## because we only need to pick out one option.
+    while [ -n "$1" ] && ((moreopts))
+    do
+        declare original="$1"
 
-    action_func_name="git-commit-${action}"
-    if declare -F "$action_func_name" >/dev/null
+        if [[ "$original" =~ ^- ]]
+        then
+            if [[ "$original" =~ -h ]]
+            then
+                usage ''
+                exit 0
+            fi
+
+            if [[ "$original" =~ -wc ]]
+            then
+                cmd-echo -- "-wc is deprecated. Use -wscl"
+                original='-wscl'
+            fi
+            if [[ "$original" =~ -wscl ]]
+            then
+                ## This is what we need to pull out of the args before passing on
+                shift
+                opt_wscl=1
+                ## no pass_on_args here
+                continue
+            fi
+        fi
+
+        ## If we are here, pass it on
+        shift
+        pass_on_args+=("$original")
+    done
+
+    if ((opt_wscl))
     then
-        shift ## the $action
-        "$action_func_name" "$@"
+        git-commit-wscl "${pass_on_args[@]}"
     else
         ## Dispatch to real git commit
-        "${REALGIT}" commit "$@"
+        "${REALGIT}" commit "${pass_on_args[@]}"
     fi
 
     return $?
@@ -59,8 +87,7 @@ git-commit - git extention of git commit
 
 =head1 SYNOPSIS
 
- git commit wc
- git commit with-changelog
+ git commit -wscl
 
 =head1 DESCRIPTION
 
@@ -70,9 +97,9 @@ Extensions to the 'git commit' command. Any action not described here will be pa
 
 =over 4
 
-=item with-changelog|wc
+=item --wscl
 
-Use the local $GITFUNCS_CHANGELOG_NAME file for commit messages.
+Use the local $GITFUNCS_SOURCE_CTRL_LOG_NAME file for commit messages.
 
 =back
 
