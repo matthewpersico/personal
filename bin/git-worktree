@@ -16,6 +16,11 @@ usage ()
     ) 2>&1 | ${PAGER:-less}
 }
 
+_git_worktree_record_created_date ()
+{
+    git config --add "branch.$1.git-worktree.created" "$(date '+%Y-%m-%d %H:%M:%S %z')" || exit $?
+}
+
 # shellcheck disable=SC2120
 git-worktree-ina ()
 {
@@ -214,8 +219,16 @@ git-worktree-create ()
             ## Fetch it, Dear Henry...
             ##                          branch             path
             git worktree add --track -b "$localbranchname" "$localbranchname" "$exists"
+            status=$?
+            if ((status))
+            then
+                cmd-echo "${sctag}Aborting."
+                return 1
+            fi
+            _git_worktree_record_created_date "$localbranchname"
+
             ((verbose)) && cmd-echo "${sctag}cd ${wtsubdir}"
-            set +x
+
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "$localbranchname"
         elif ((fetch_existing==1)) && [ -z "$exists" ]
@@ -259,6 +272,7 @@ git-worktree-create ()
                 cmd-echo "${sctag}Aborting."
                 return 1
             fi
+            _git_worktree_record_created_date "${wtbranch}"
 
             ((verbose)) && cmd-echo "${sctag}cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
