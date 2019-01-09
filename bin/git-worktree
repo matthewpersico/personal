@@ -16,6 +16,12 @@ usage ()
     ) 2>&1 | ${PAGER:-less}
 }
 
+_git_worktree_record_created_date ()
+{
+    wt=$1
+    git config --replace-all "worktree.$1.created" "$(date '+%Y-%m-%d %H:%M:%S %z')" || exit $?
+}
+
 # shellcheck disable=SC2120
 git-worktree-ina ()
 {
@@ -214,10 +220,17 @@ git-worktree-create ()
             ## Fetch it, Dear Henry...
             ##                          branch             path
             git worktree add --track -b "$localbranchname" "$localbranchname" "$exists"
+            status=$?
+            if ((status))
+            then
+                cmd-echo "${sctag}Aborting."
+                return 1
+            fi
             ((verbose)) && cmd-echo "${sctag}cd ${wtsubdir}"
-            set +x
+
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "$localbranchname"
+            _git_worktree_record_created_date "$localbranchname"
         elif ((fetch_existing==1)) && [ -z "$exists" ]
         then
             cmd-echo "${sctag}Cannot find '$remote/${wt}' to fetch"
@@ -263,6 +276,7 @@ git-worktree-create ()
             ((verbose)) && cmd-echo "${sctag}cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "${wtsubdir}"
+            _git_worktree_record_created_date "${wtbranch}"
 
             ## Finally push the branch upstream as a tracking branch
             ((verbose)) && cmd-echo "${sctag}git push --set-upstream $remote ${wtbranch}"
@@ -500,13 +514,14 @@ git-worktree-rename ()
     local old_worktree
     old_worktree="$(basename "$1")"
     shift
-
+    cmd-echo "DEBUG: old_worktree_path=[$old_worktree_path]"
+    cmd-echo "DEBUG: pwd=[$(pwd)"]
     local new_worktree_path
     new_worktree_path="$(realpath "$1")"
     local new_worktree
     new_worktree="$(basename "$1")"
     shift
-
+    yesno "Check the DEBUG statements above; If you are in the worktree you are trying to rename, it should fail, but it does not seem to. Probably a realpath/pwd mismatch"
     if [ "$old_worktree_path" = "$(pwd)" ]
     then
         usage "${sctag}Cannot rename out of current directory"

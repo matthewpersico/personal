@@ -17,6 +17,11 @@ usage ()
     ) 2>&1 | ${PAGER:-less}
 }
 
+_git_clone_record_created_date ()
+{
+    git config --replace-all extMeta.git-clone.created "$(date '+%Y-%m-%d %H:%M:%S %z')" || exit $?
+}
+
 declare opt_y=0
 declare opt_t=0
 declare opt_triangle_namespace=''
@@ -281,6 +286,12 @@ if ! $REALGIT clone "${git_clone_opts[@]}" "${githost_url}$namespace/$repo" "$na
 then
     exit $?
 fi
+
+(
+    builtin cd "$namespace/$repo" || exit $?
+    _git_clone_record_created_date
+)
+
 if ((opt_t))
 then
     cmd-echo 'Setting timestamps...'
@@ -327,8 +338,6 @@ if [ -n "$opt_worktree_name" ]
 then
     git-go "$namespace/$repo"
     git worktree create "$opt_worktree_name"
-    ## Add this repo to the list
-    git-go-set
 else
     if ((opt_use_githost_dir))
     then
