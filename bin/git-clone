@@ -27,6 +27,7 @@ declare opt_t=0
 declare opt_triangle_namespace=''
 declare opt_worktree=1
 declare opt_worktree_name=''
+declare opt_worktree_fetch=''
 declare opt_use_githost_dir=0
 declare opt_make_fork=0
 declare dispatch_to_real_git=1
@@ -78,13 +79,13 @@ do
             if [[ "$tmp_otn" =~ ^- ]]
             then
                 ## we got the next option, not an arg to this one
-                cmd-echo "Fork org ($tmp_otn) cannot start with a '-'."
+                cmd-echo -- "Fork org ($tmp_otn) cannot start with a '-'."
                 exit 1
             fi
             opt_triangle_namespace=${tmp_otn%/*}
             if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
             then
-                cmd-echo \
+                cmd-echo -- \
                     "WARNING: --$option takes an upstream namespace specification," \
                     "         not a full upstream repo specification." \
                     "         We will use" \
@@ -93,7 +94,7 @@ do
                     "             $tmp_otn"
             fi
             ;;
-        wt | worktree )
+        wt | worktree | wtf | worktree-fetch )
             dispatch_to_real_git=0
             opt_worktree=1
             opt_worktree_name="${ovalue:-$1}"
@@ -101,10 +102,15 @@ do
             if [[ "$opt_worktree_name" =~ ^- ]]
             then
                 ## we got the next option, not an arg to this one
-                cmd-echo "Worktree name ($opt_worktree_name) cannot start with a '-'."
+                cmd-echo -- "Worktree name ($opt_worktree_name) cannot start with a '-'."
                 exit 1
 
             fi
+            if [[ "$option" =~ f ]]
+            then
+                opt_worktree_fetch='--fetch'
+            fi
+
             ;;
         h | help )
             usage; exit 0 ;;
@@ -177,7 +183,7 @@ then
     exit $?
 fi
 
-cmd-echo "Extended git clone functionality..."
+cmd-echo -- "Extended git clone functionality..."
 
 [ -z "$1" ] && usage "Missing arguments" && exit 1
 
@@ -187,7 +193,7 @@ then
     asplit tmpa : "$1"
     if [ "${tmpa[0]}" = "$1" ]
     then
-        cmd-echo "Error: --githost specified and no 'githost:' found in '$1'"
+        cmd-echo -- "Error: --githost specified and no 'githost:' found in '$1'"
         exit 1
     fi
     githost="${tmpa[0]}"
@@ -201,7 +207,7 @@ declare githost_url
 githost_url="$(kvstore get gitfuncs_gitsvcs "$githost")"
 if [ -z "$githost_url" ]
 then
-    cmd-echo "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
+    cmd-echo -- "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
     exit 1
 fi
 
@@ -223,7 +229,7 @@ if [ "$local_githost" != "$githost" ]
 then
     if ((opt_use_githost_dir == 1))
     then
-        cmd-echo "You must be in a directory path ending in"\
+        cmd-echo -- "You must be in a directory path ending in"\
                     "   $githost" \
                     "You are in $cwpath"
         # gitfuncs_root set externally
@@ -231,27 +237,27 @@ then
         declare shouldbein="$gitfuncs_gitroot/$githost"
         if [ ! -d "$shouldbein" ]
         then
-            cmd-echo "Cannot find '$shouldbein'." "Correct and re-execute."
+            cmd-echo -- "Cannot find '$shouldbein'." "Correct and re-execute."
             exit 1
         else
             declare resp
             if ((opt_y))
             then
-                cmd-echo "Going to $shouldbein"
+                cmd-echo -- "Going to $shouldbein"
                 resp='y'
             else
                 resp=$(cmd-yesno "cd to $shouldbein")
             fi
             if [ "$resp" = 'n' ]
             then
-                cmd-echo "Correct and re-execute."
+                cmd-echo -- "Correct and re-execute."
                 exit 1
             else
                 _git-cd-to "$shouldbein"
             fi
         fi
     else
-        cmd-echo "--githost nor --tree were not specified. Cloning right here ($(pwd)/$repo)"
+        cmd-echo -- "--githost nor --tree were not specified. Cloning right here ($(pwd)/$repo)"
     fi
 fi
 
@@ -275,13 +281,13 @@ fi
 
 if ((opt_make_fork))
 then
-    cmd-echo "github-api --server $githost --wait fork $opt_triangle_namespace $repo..."
+    cmd-echo -- "github-api --server $githost --wait fork $opt_triangle_namespace $repo..."
     if ! github-api --server "$githost" --wait fork "$opt_triangle_namespace" "$repo"
     then
         exit $?
     fi
 fi
-cmd-echo "$REALGIT clone ${git_clone_opts[*]} ${githost_url}$namespace/$repo $namespace/$repo ..."
+cmd-echo -- "$REALGIT clone ${git_clone_opts[*]} ${githost_url}$namespace/$repo $namespace/$repo ..."
 if ! $REALGIT clone "${git_clone_opts[@]}" "${githost_url}$namespace/$repo" "$namespace/$repo"
 then
     exit $?
@@ -294,23 +300,23 @@ fi
 
 if ((opt_t))
 then
-    cmd-echo 'Setting timestamps...'
+    cmd-echo -- 'Setting timestamps...'
     (
         if builtin cd "$namespace/$repo"
         then
             git-retimestamp
         else
-            cmd-echo "Cannot cd $namespace/$repo" && return 1
+            cmd-echo -- "Cannot cd $namespace/$repo" && return 1
         fi
     )
-    cmd-echo 'Done'
+    cmd-echo -- 'Done'
 fi
 
 ## dirlist, not builtin cd, to take advantage this cd enhancement
 dirlist "$namespace/$repo"
 if [ -n "$opt_triangle_namespace" ]
 then
-    cmd-echo "Setting up triangle workflow with ${githost_url}$opt_triangle_namespace/${repo}..."
+    cmd-echo -- "Setting up triangle workflow with ${githost_url}$opt_triangle_namespace/${repo}..."
     git-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo"
     git pull # To refresh from the upstream
 else
@@ -323,7 +329,7 @@ git remote -v
 
 if ((opt_worktree))
 then
-    cmd-echo "Setting up for worktrees..."
+    cmd-echo -- "Setting up for worktrees..."
     mkdir wt
     ls -ld "$(pwd)/wt"
 fi
@@ -337,13 +343,13 @@ fi
 if [ -n "$opt_worktree_name" ]
 then
     git-go "$namespace/$repo"
-    git worktree create "$opt_worktree_name"
+    git worktree create $opt_worktree_fetch "$opt_worktree_name"
 else
     if ((opt_use_githost_dir))
     then
-        cmd-echo "Done. Execute" "    gitgo $namespace/$repo" "to use."
+        cmd-echo -- "Done. Execute" "    gitgo $namespace/$repo" "to use."
     else
-        cmd-echo "Done."
+        cmd-echo -- "Done."
         echo
     fi
 fi
@@ -363,7 +369,7 @@ git-clone - extension to git clone
 
  git-clone [--tree] \
            [--forkof org] \
-           [[--wt|--worktree] new-worktree] \
+           [[--wt|--worktree] new-worktree [--fetch]] \
            [--yes|y] [--timestamp|-t] \
            repoURL
 
@@ -395,9 +401,13 @@ Use the githost of the repoURL to determine where in the ~/gits tree to place th
 
 Create a fork in your namespce of the same-named repo in the 'org' namespace, clone the fork locally, establish the 'origin' and 'upstream' remotes as the fork and the fork source, respectively. If the fork exists, we use it and continue.
 
-=item --worktree newworktree
+=item --worktree new-worktree
 
-Create a wt subdir, for use by the git-worktree extenstions and then create the requested worktree.
+Create a wt subdir, the requested worktree, a branch named 'new-worktree' and set it up as a tracking branch in the remote repo.
+
+=item --fetch
+
+Only used with --worktree, tries to fetch the existing remote branch 'new-worktree' instead of creating it  .
 
 =item --yes
 

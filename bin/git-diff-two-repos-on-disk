@@ -2,31 +2,46 @@
 
 # git-diff-two-repos-on-disk
 
-declare OPTSARGS
-OPTSARGS=$(getoptp -o h --long nocolor,help,exclude:,side-by-side -n "${FUNCNAME[@]}" -- "$@")
-declare status=$?
-((status != 0)) && script-usage && exit $status
-
+declare moreopts=1
 declare nocolor=0
+declare name_only=0
 declare exclude=''
 declare side_by_side='-u'
-eval set -- "$OPTSARGS"
-while true
+while [[ "$1" =~ ^- ]] && ((moreopts))
 do
-    case "$1" in
-        -h|--help)
+    declare original="$1"
+    shift
+    declare option
+    option=$(dashstripper "$original")
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey=''
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        h|help)
             script-usage
             exit 0 ;;
-        --nocolor)
-            nocolor=1 ; shift ;;
-        --exclude)
-            exclude=$2; shift; shift ;;
-        --side-by-side)
-            side_by_side='-y --suppress-common-lines'; shift;;
+        nocolor)
+            nocolor=1 ;;
+        exclude)
+            exclude=${ovalue:-$1}; [ -z "$ovalue" ] && shift ;;
+        side-by-side)
+            side_by_side='-y --suppress-common-lines';;
+        name-only)
+            name_only=1;;
         --)
-            shift; break ;; ## end of opts, remaining $*, if any, are args
-        *)
-            cmd-echo "Internal error!"; script-usage ; exit 1 ;;
+            moreopts=0
+            ;;
+        * )
+            cmd-echo -- "$original is an invalid option. See $0 --help"
+            exit 1
+            ;;
     esac
 done
 
@@ -40,13 +55,13 @@ then
     repo[left]=$(pwd)
     repo[right]=$(realpath "$1")
 else
-    cmd-echo "Need at least one directory"
+    cmd-echo -- "Need at least one directory"
     script-usage; exit 1 ;
 fi
 
 if [ "${repo[left]}" = "${repo[right]}" ]
 then
-    cmd-echo "Other dir is this dir. Whoops! Bye."
+    cmd-echo -- "Other dir is this dir. Whoops! Bye."
     exit 1
 fi
 
@@ -93,7 +108,15 @@ do
         unset leftfiles["$key"]
     fi
 done
-[ "${#missingright[@]}" != '0' ] &&  cmd-echo "These files do not exist in ${repo[right]}" "${missingright[@]}"
+if [ "${#missingright[@]}" != '0' ]
+then
+    if ((name_only))
+    then
+        cmd-echo -- "These files do not exist in ${repo[right]}" "${missingright[@]}" >&2
+    else
+        cmd-echo -- "These files do not exist in ${repo[right]}" "${missingright[@]}"
+    fi
+fi
 
 declare -A missingleft
 for key in "${!rightfiles[@]}"
@@ -104,7 +127,15 @@ do
         unset rightfiles["$key"]
     fi
 done
-[ "${#missingleft[@]}" != '0' ] &&  cmd-echo "These files do not exist in ${repo[left]}" "${missingleft[@]}"
+if [ "${#missingleft[@]}" != '0' ]
+then
+    if ((name_only))
+    then
+        cmd-echo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}" >&2
+    else
+        cmd-echo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}"
+    fi
+fi
 
 for key in "${!leftfiles[@]}"
 do
@@ -115,15 +146,20 @@ do
     output=$(diff -q "$leftf" "$rightf" 2>&1 | grep -v 'Common subdirectories')
     if [ -n "$output" ]
     then
-        cmd-echo -- '-----'
-        declare diffcmd
-        # shellcheck disable=SC2230
-        diffcmd=$(which colordiff 2>/dev/null)
-        # shellcheck disable=SC2209 # We don't want to run diff, just
-        # prepare the command
-        ( [ -z "$diffcmd" ] || ((nocolor)) ) && diffcmd=diff
-        $diffcmd "$side_by_side" "${leftf}" "${rightf}"
-        echo
+        if ((name_only))
+        then
+            echo "$leftf" "$rightf"
+        else
+            cmd-echo -- '-----'
+            declare diffcmd
+            # shellcheck disable=SC2230
+            diffcmd=$(which colordiff 2>/dev/null)
+            # shellcheck disable=SC2209 # We don't want to run diff, just
+            # prepare the command
+            ( [ -z "$diffcmd" ] || ((nocolor)) ) && diffcmd=diff
+            $diffcmd "$side_by_side" "${leftf}" "${rightf}"
+            echo
+        fi
     fi
 done
 
@@ -135,7 +171,9 @@ exit 0
 
 :<<'__USAGE__'
 
-Usage: git-diff-two-repos-on-disk [--nocolor] [src] tgt
+Usage: git-diff-two-repos-on-disk [--nocolor] [--name-only] \
+                                  [--exclude path/to/exclude] \
+                                  [src] tgt
        git-diff-two-repos-on-disk [-h|-help]
 
        Compare two repos on disk. If only one repo is specified,

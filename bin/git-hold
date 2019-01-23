@@ -51,7 +51,7 @@ do
             moreopts=0
             ;;
         * )
-            cmd-echo "$original is an invalid option. See $0 --help"
+            cmd-echo -- "$original is an invalid option. See $0 --help"
             $out_cmd 1
             ;;
     esac
@@ -63,7 +63,7 @@ shift
 
 if [[ ! "$holddir" =~ ^/ ]]
 then
-    cmd-echo "rooting in ~/.git-hold"
+    cmd-echo -- "rooting in ~/.git-hold"
     mkdir -p "$HOME/.git-hold" || exit 1
     holddir="$HOME/.git-hold/$holddir"
 fi
@@ -72,7 +72,7 @@ fi
     builtin cd "$repo" || exit 1
     if ! git-get-current-repo-name > /dev/null
     then
-        cmd-echo "'$repo' is not a git repo"
+        cmd-echo -- "'$repo' is not a git repo"
         exit 1
     fi
     exit 0
@@ -82,7 +82,7 @@ if (( restore ))
 then
     if [ ! -d "$holddir" ]
     then
-        cmd-echo "'$holddir' not found, cannot restore"
+        cmd-echo -- "'$holddir' not found, cannot restore"
         exit 1;
     else
         repo=$(realpath "$repo") ## in case we stupidly specified a relative
@@ -102,7 +102,7 @@ then
                 declare diffst
                 if (( diff ))
                 then
-                    cmd-echo "diff $fullfile $repo/$file"
+                    cmd-echo -- "diff $fullfile $repo/$file"
                     diff "$fullfile" "$repo/$file"
                 else
                     diff -q "$fullfile" "$repo/$file" > /dev/null
@@ -110,7 +110,7 @@ then
                 diffst=$?
                 if ((diffst==0))
                 then
-                    cmd-echo "Skipping target same as source '$fullfile'..."
+                    cmd-echo -- "Skipping target same as source '$fullfile'..."
                     continue
                 fi
 
@@ -143,9 +143,9 @@ else
     then
         if (( overwrite ))
         then
-            cmd-echo "'$holddir' exists, --overwrite specified, will copy to it"
+            cmd-echo -- "'$holddir' exists, --overwrite specified, will copy to it"
         else
-            cmd-echo "'$holddir' exists, will not copy to it"
+            cmd-echo -- "'$holddir' exists, will not copy to it"
             exit 1;
         fi
     fi
@@ -153,7 +153,7 @@ else
     mkdir -p "$holddir"
     holddir=$(realpath "$holddir")
     (
-        ((!verbose)) && cmd-echo "Working..."
+        ((!verbose)) && cmd-echo -- "Working..."
         builtin cd "$repo" || exit 1 ## cd command will spit out an error message
         declare file
         declare -A git_is_deleted
@@ -170,7 +170,7 @@ else
         do
             if ((git_is_deleted[$file]))
             then
-                ((verbose)) && cmd-echo "Skipping git rm'ed '$file'..."
+                ((verbose)) && cmd-echo -- "Skipping git rm'ed '$file'..."
                 continue ## skipping git rm'ed file
             fi
 
@@ -179,14 +179,14 @@ else
 
             if [ -h "$fullfile" ]
             then
-                ((verbose)) && cmd-echo "Skipping link '$file'..."
+                ((verbose)) && cmd-echo -- "Skipping link '$file'..."
                 continue
             fi
 
             declare diffst
             if (( diff ))
             then
-                cmd-echo "diff $fullfile $holddir/$file"
+                cmd-echo -- "diff $fullfile $holddir/$file"
                 diff "$fullfile" "$holddir/$file"
                 diffst=$?
             else
@@ -201,7 +201,7 @@ else
 
             if ((diffst==0))
             then
-                cmd-echo "Skipping target same as source '$file'..."
+                cmd-echo -- "Skipping target same as source '$file'..."
                 continue
             fi
 
@@ -230,7 +230,7 @@ else
         done
     )
 fi
-cmd-echo 'Done.'
+cmd-echo -- 'Done.'
 
 ## The End, to make sure we never eval the usage statement
 $out_cmd 0
@@ -249,7 +249,7 @@ git-hold - Copy files between a repo and a temp directory
 
  git hold /tmp/some/tgt
 
- git hold [-v] [--restore [--confirm]] [--diff] [--repo some/repo] /tmp/some/tgt
+ git hold [-v] [--restore ] [--confirm]] [--diff] [--repo some/repo] /tmp/some/tgt
 
 =head1 DESCRIPTION
 
@@ -280,7 +280,15 @@ Use '-v' on the cp commands.
 
 =item --restore
 
-Copy from the /tmp/some/tgt to the repo.
+Copy back from the /tmp/some/tgt to the repo.
+
+=item --confirm
+
+Ask before every copy.
+
+=item --diff
+
+Show a diff before each copy, direction relevent.
 
 =item --repo
 
