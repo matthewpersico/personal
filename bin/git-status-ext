@@ -2,22 +2,48 @@
 
 # git-status-ext
 
-if [[ "$1" =~ -h ]]
+cmd_echo_id='git-status'
+
+## Before we even start, make sure that the underlying client hasn't changed
+## under us. Otherwise we can have issues with the passthough options, either
+## new ones we don't handle or deprecated ones we have not removed.
+
+realgit_verified_version_string='git version 2.19.2'
+if [ ! "$($REALGIT --version)" = "$realgit_verified_version_string" ]
 then
-    script-usage "$0"
-    script-usage git-status-with-source-ctrl-log
-    exit 0
+    cmd-echo -id "$cmd_echo_id" -e -- \
+             "Verified to $realgit_verified_version_string," \
+             "but $($REALGIT --version) is installed." \
+             "Please investigate."
+    exit 1
 fi
 
+usage ()
+{
+    (
+        echo "** Extended actions **"
+        script-usage git-status-ext
+        script-usage git-status-with-source-ctrl-log
+        echo
+        echo "** Standard actions **"
+        "${REALGIT}" status --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+[[ "$1" =~ -h ]] && usage && exit 0
+
 declare color
-git root >/dev/null || exit 1
-for i in "$@"
-do
-    if [[ "$i" =~ -nocolor ]]
-    then
-        color='--color=never'
-    fi
-done
+if [ ! "$(git root)" = "$(pwd)" ]
+then
+    cmd-echo "Must run git status-ext from the root" \
+             "    $(git root)" \
+             "not the current directory" \
+             "    $(pwd)"
+    exit 1
+fi
+
+color='--color=never'
+{ [ -t 1 ] || [ -p /dev/stdout ] ; } && color="--color=always"
 
 echo
 echo "=== Latest log entry:"
@@ -36,7 +62,7 @@ if [[ "$1" =~ -dif ]]
 then
     outcmd='less -RE'
 fi
-git-status-with-source-ctrl-log "$@" | grep -v "No files specified" | $outcmd
+git-status-with-source-ctrl-log $color "$@" | grep -v "No files specified" | $outcmd
 
 ## You can add sections with =head1, but stick to =item for section breakdowns,
 ## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the

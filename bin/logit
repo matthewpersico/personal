@@ -149,10 +149,10 @@ fi
 [ -z "$logfile" ] && logfile=$(basename "$command")
 logfileroot="${logfile}.logit"
 now=$(date +%Y_%m_%dT%H_%M_%S)
-logfile="${logfile}.logit"
+logfile="${logfileroot}"
 if [ "$notimestamp" = '' ]
 then
-    logfile="${logfile}.${now}"
+    logfile="${logfile}.${now}.$$"
 fi
 today=${now%%T*}
 
@@ -241,7 +241,7 @@ then
     termerpid=$(pstree | grep "$termer" | grep "$logspec" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
 fi
 
-(
+{
     echo "********************"
     echo "  logit invocation"
     echo "********************"
@@ -292,9 +292,9 @@ fi
 
     echo "********************"
     echo "     execution"
-    echo "********************"
     echo "start time: $(date)"
     eval "${envs[@]}"
+    echo "********************"
     if((tsit))
     then
         $command "${cmdargs[@]}" | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
@@ -307,7 +307,6 @@ fi
         $command "${cmdargs[@]}"
     fi
     status=${PIPESTATUS[0]}
-    echo
 
     echo "********************"
     echo "$logmsg"
@@ -315,7 +314,7 @@ fi
     echo "end time: $(date)"
     echo "********************"
     exit "$status"
-) >> "$logspec" 2>&1
+} >> "$logspec" 2>&1
 status=$?
 echo "$logmsg"
 echo "Exit status: $status"
@@ -370,6 +369,20 @@ logit [ --tee | --zenity ] \\
 
 logit [ --help | -h ]
 
+Capture all the output of the command and some information about the executing
+environment into a log file.
+
+Tip: For command
+
+  logit somecommand --options args
+
+you can use 'nohup' and backgrounding (&) to execute it so that exiting the
+terminal you started the command with does not kill your command:
+
+  nohup logit somecommand --options args &
+
+OPTIONS:
+
       --tee    - Spin up a terminal and show the log
                  output in it as it is generated.
 
@@ -381,10 +394,9 @@ logit [ --help | -h ]
                  the command is generic.
 
       --notimestamp
-               - Do not add a timestamp to the log name.
-                 Use if the log name provided by --log is
-                 unique or you don't care about overwriting
-                 logs.
+               - Do not add a timestamp or the pid of the logit process to the
+                 log name.  Use if the log name provided by --log is unique or
+                 you don't care about overwriting logs.
 
       --dir    - Put the logs in specifed directory, not
                  current working directory. If not specified

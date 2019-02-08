@@ -5,47 +5,55 @@ use warnings;
 use Text::Wrap;
 
 our %opt = (trunc => 0, wrap => 0, raw => 0,
-            level => 10000000,
             head => 1,
+            help => 0,
             this => 1,
             exclude => 0,
             user => '-e',
             me => 0,
             short => 0,
-            verbose => 0);
+            verbose => 0,
+            pid => [],
+            cmd => [],
+        );
 my %print;
 my %noprint;
 my $wrap_min=0;
 
 use Getopt::Long;
 GetOptions(\%opt,
-           qw( pid=i
+           qw( pid=i@
+               cmd=s@
 
                raw
                wrap
                trunc
 
-               level=i
                head!
                this!
                exclude=i
 
                user|U=s
-               e
                short
                me
 
                verbose
+               help
          ) )
   or die ("Error in command line options\n");
 
+if ( $opt{help} ) {
+    use Pod::Usage;
+    pod2usage( -verbose => 99,
+               -exitval => 0);
+}
 my $uic = $opt{trunc} + $opt{wrap} + $opt{raw};
 my $ui = '';
 if ( $uic == 0 ) {
     $ui = 'trunc';
 } elsif ( $uic == 1 ) {
     $ui = (grep { exists($opt{$_}) && $opt{$_} != 0}
-      qw (raw wrap trunc))[0];
+             qw (raw wrap trunc))[0];
 } else {
     die "--trunc, --wrap, --raw are mutex\n";
 }
@@ -57,29 +65,12 @@ if ($opt{user} ne '-e' ) {
     $opt{user} = "-U $opt{user}";
 }
 
-if (@ARGV) {
-    my $nohead = ($opt{head} ? '' : '--nohead');
-    my $status;
-    for my $pid (@ARGV) {
-        system(
-            join(' ',
-                 ##'perl', '-d:ptkdb',
-                 $0,
-                 '--pid', $pid,
-                 "--$ui",
-                 '--level', $opt{level},
-                 ($opt{head} ? '--head' : '--nohead'),
-                 ($opt{this} ? '--this' : '--nothis'),
-                 $opt{user},
-                 '--exclude', ($opt{this} ? 0 : $$),
-                 ($opt{short} ? '--short' : ())
-             )
-        );
-        $status += ($? >> 8);
-        print qq(\n);
-        $nohead = '--nohead';
-    }
-    exit $status;
+for my $search_arg (@ARGV) {
+    my $which = (
+        $search_arg =~ m/^\d+$/
+          ? 'pid'
+          : 'cmd');
+    push @{$opt{$which}}, $search_arg
 }
 
 my $ih;
@@ -91,10 +82,10 @@ my %map =
           idx => 0, justify => q(right),
           alt => 'STARTED'
       },
-#      TIME => {
-#          idx => 0, justify => q(right),
-#          alt => 'TIME'
-#      },
+      #      TIME => {
+      #          idx => 0, justify => q(right),
+      #          alt => 'TIME'
+      #      },
       UID => {
           idx => 2, justify => q(right),
           alt => 'UID'
@@ -146,6 +137,7 @@ my $header;
 my $printed;
 my $pidcol=$map{PID}{idx};
 my $ppidcol=$map{PPID}{idx};
+my $cmdcol=$map{COMMAND}{idx};
 my $packfmt;
 
 LINE:
@@ -183,7 +175,8 @@ while(<IH>) {
     my @f = unpack($packfmt, $l);
     my $pid = $f[$pidcol] + 0;
     my $ppid = $f[$ppidcol] + 0;
-    if ( !$opt{pid} && $opt{this} ) {
+    my $cmd = $f[$cmdcol];
+    if ( !@{$opt{pid}} && !$opt{exclude} && !@{$opt{cmd}} && $opt{this} ) {
         ## No matching. Print every line.
         $print{$pid} = 1;
     } elsif ( ( !$opt{this} && $$ == $pid )
@@ -193,8 +186,8 @@ while(<IH>) {
                 exists $noprint{$ppid}) {
         $noprint{$pid} = 1;
     } else {
-        ## We are looking for a pid
-        if (defined $opt{pid} && $pid eq $opt{pid}) {
+        ## We are looking for a pid or a command
+        if ( match_either($pid,$cmd) ) {
             ## We matched it. Figure out how far in we want to indent.
             my $cmd = substr($l, $wrap_min);
             $cmd =~ m/^([|\s]+(?:\\_ )?)/;
@@ -203,8 +196,10 @@ while(<IH>) {
             $striplead = length($stripped);
             $print{$pid} = 1;
         } else {
-            ## We didn't match it. See if we printed its parent. If so then print this one.
-            if (defined $print{$ppid}) {
+            ## We didn't match it. See if we printed its parent or we didn't
+            ## not print its parent. If so then print this one.
+            if (defined $print{$ppid}
+                  or (keys %noprint and not defined $noprint{$ppid})) {
                 $print{$pid} = 1;
             }
         }
@@ -251,7 +246,104 @@ if(!$printed) {
         exit 1;
     }
 } else {
-    printf("%02d:%02d:%02d - now\n",
-           (localtime)[2,1,0]);
+    printf("%02d:%02d:%02d %s current time\n",
+           (localtime)[2,1,0], q(-) x ($wrap_min -10));
 }
 exit 0;
+
+sub match_either {
+    my ($pid, $cmd) = @_;
+    for (@{$opt{pid}}) {
+        return 1 if $pid == $_;
+    }
+    for (@{$opt{cmd}}) {
+        return 1 if $cmd =~ m/$_/;
+    }
+    return 0;
+}
+
+=head1 NAME
+
+pssearch - ps with filtering
+
+=head1 SYNOPSIS
+
+ pssearch [--pid=i...]
+          [--exclude=i]
+          [--cmd="s"...]
+          --[raw|wrap|trunc]
+          [--[no]head]
+          [--[no]this]
+          [ [--[user|U]=s] | --me ]
+          [--verbose]
+          [[pid|cmd]... ]
+
+=head1 DESCRIPTION
+
+Run a 'ps' command and filter the output.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item pid or "cmd"
+
+Numeric arguments are treated as if '--pid' was used. All other arguments are
+treated as if '--cmd' was used. The output will be filtered to include
+processes whose pids and commands that match the arguments, plus their child
+processes. Multiple arguments are 'or'ed.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --pid
+
+Include the process that has this pid in the output. Also include its child
+processes. More than one instance can be specified.
+
+=item --exclude
+
+Do not include the process that has this pid in the output. Not sure if child
+processes would be included. More than one instance can be specified.
+
+=item --cmd
+
+Include the process whose command matches this regular expression in the
+output. Also include its child processes. More than one instance can be
+specified.
+
+=item --raw|--wrap|--trunc
+
+--raw - Do not do any formatting to the output.
+--trunc - Truncate the output at terminal edge. This is the default.
+--wrap - Wrap the output at the command column.
+
+These three options are mutex.
+
+=item --[no]head
+
+Do or do not print the header. Default is to print it.
+
+=item --[no]this
+
+Do or do not include the 'pssearch' process itself in the output. Default is to
+include it.
+
+=item --user
+
+Only print processes for this user name.
+
+=item --me
+
+Same as "--user $USER".
+
+=item --verbose
+
+Print the 'ps' command used before the ps output.
+
+=back
+
+=cut

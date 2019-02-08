@@ -37,7 +37,7 @@ my %opt = (
     skipmissing => 0,
     skipgcs => 0,
     confirm => 0,
-    color => 1
+    color => 'always'
 );
 my $exit = 0;
 my %deleted;
@@ -61,7 +61,7 @@ GetOptions(\%opt,
            'skipmissing',
            'skipgcs',
            'relok',
-           'color!'
+           'color=s'
        ) or die "Bad options";
 
 die "-scl SourceCtrlLog option required"
@@ -130,7 +130,7 @@ my @status;
 my %diff;
 if($opt{withstatus}) {
     $opt{missingok}=1;
-    my $color = ($opt{color} ? 'always' : 'never');
+    my $color = $opt{color};
     @status = qx(git -c color.status=$color status @file_list);
 }
 
@@ -153,7 +153,7 @@ if($opt{diff}) {
     my %files_by_scl_name = map { $_->{scl_name} => $_ } values(%files);
     @diff_list = map {$_->{local_name}} @files_by_scl_name{@diff_list};
 
-    my @diff = map {chomp; $_} qx(git -c color.diff=always diff $cached @diff_list);
+    my @diff = map {chomp; $_} qx(git -c color.diff=$opt{color} diff $cached @diff_list);
     my $entry;
     for my $line (@diff) {
         if ($line =~ m/^....diff --git a/) {
@@ -304,8 +304,8 @@ my $tracked_re_string   = q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}[a-z ]
 my $untracked_re_string = q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}<PLACEHOLDER>(?:\x{1b}\[m){0,1}$|;
 my @output;
 my $format_over;
-my $ascii_red_black = ($opt{color} ? '[31;40m' : '' ) ;
-my $ascii_normal = ($opt{color} ? '[m' : '' );
+my $ascii_red_black = ($opt{color} ne 'never' ? '[31;40m' : '' ) ;
+my $ascii_normal = ($opt{color} ne 'never' ? '[m' : '' );
 if (@status) {
     ##
     ## Mixing in the SourceCtrlLog entries with git status output.

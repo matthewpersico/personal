@@ -5,6 +5,22 @@
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
+cmd_echo_id='git-clone'
+
+## Before we even start, make sure that the underlying client hasn't changed
+## under us. Otherwise we can have issues with the passthough options, either
+## new ones we don't handle or deprecated ones we have not removed.
+
+realgit_verified_version_string='git version 2.19.2'
+if [ ! "$($REALGIT --version)" = "$realgit_verified_version_string" ]
+then
+    cmd-echo -id "$cmd_echo_id" -e -- \
+             "Verified to $realgit_verified_version_string," \
+             "but $($REALGIT --version) is installed." \
+             "Please investigate."
+    exit 1
+fi
+
 usage ()
 {
     (
@@ -79,19 +95,19 @@ do
             if [[ "$tmp_otn" =~ ^- ]]
             then
                 ## we got the next option, not an arg to this one
-                cmd-echo -- "Fork org ($tmp_otn) cannot start with a '-'."
+                cmd-echo -id "$cmd_echo_id" -e -- "Fork org ($tmp_otn) cannot start with a '-'."
                 exit 1
             fi
             opt_triangle_namespace=${tmp_otn%/*}
             if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
             then
-                cmd-echo -- \
-                    "WARNING: --$option takes an upstream namespace specification," \
-                    "         not a full upstream repo specification." \
-                    "         We will use" \
-                    "             $opt_triangle_namespace" \
-                    "         not" \
-                    "             $tmp_otn"
+                cmd-echo -id "$cmd_echo_id" -w -- \
+                    "--$option takes an upstream namespace specification," \
+                    "not a full upstream repo specification." \
+                    "We will use" \
+                    "    $opt_triangle_namespace" \
+                    "not" \
+                    "    $tmp_otn"
             fi
             ;;
         wt | worktree | wtf | worktree-fetch )
@@ -102,7 +118,7 @@ do
             if [[ "$opt_worktree_name" =~ ^- ]]
             then
                 ## we got the next option, not an arg to this one
-                cmd-echo -- "Worktree name ($opt_worktree_name) cannot start with a '-'."
+                cmd-echo -id "$cmd_echo_id" -e -- "Worktree name ($opt_worktree_name) cannot start with a '-'."
                 exit 1
 
             fi
@@ -128,7 +144,8 @@ do
             | no-tags \
             | dissociate \
             | *single-branch \
-            | *shallow-submodules )
+            | *shallow-submodules \
+            | quiet )
             ## Options that do not take args
             git_clone_opts+=("$option")
             ;;
@@ -170,7 +187,7 @@ do
             [ -n "$ovalue" ] && git_clone_opts+=("$ovalue")
             ;;
         * )
-            cmd-echo -- "$original is an invalid option. We have disabled option ganging. See $0 --help"
+            cmd-echo -id "$cmd_echo_id" -e -- "$original is an invalid option. Also, we have disabled option ganging. See $0 --help"
             exit 1
     esac
 done
@@ -193,7 +210,7 @@ then
     asplit tmpa : "$1"
     if [ "${tmpa[0]}" = "$1" ]
     then
-        cmd-echo -- "Error: --githost specified and no 'githost:' found in '$1'"
+        cmd-echo -id "$cmd_echo_id" -e -- "githost specified and no 'githost:' found in '$1'"
         exit 1
     fi
     githost="${tmpa[0]}"
@@ -207,7 +224,7 @@ declare githost_url
 githost_url="$(kvstore get gitfuncs_gitsvcs "$githost")"
 if [ -z "$githost_url" ]
 then
-    cmd-echo -- "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
+    cmd-echo -id "$cmd_echo_id" -- "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_gitsvcs)"
     exit 1
 fi
 
@@ -237,7 +254,7 @@ then
         declare shouldbein="$gitfuncs_gitroot/$githost"
         if [ ! -d "$shouldbein" ]
         then
-            cmd-echo -- "Cannot find '$shouldbein'." "Correct and re-execute."
+            cmd-echo -e -- "Cannot find '$shouldbein'." "Correct and re-execute."
             exit 1
         else
             declare resp
@@ -257,7 +274,7 @@ then
             fi
         fi
     else
-        cmd-echo -- "--githost nor --tree were not specified. Cloning right here ($(pwd)/$repo)"
+        cmd-echo  -id "$cmd_echo_id" -- "Neither --githost nor --tree were specified. Cloning right here ($(pwd)/$repo)"
     fi
 fi
 
@@ -306,7 +323,7 @@ then
         then
             git-retimestamp
         else
-            cmd-echo -- "Cannot cd $namespace/$repo" && return 1
+            cmd-echo -id "$cmd_echo_id" -e -- "Cannot cd $namespace/$repo" && return 1
         fi
     )
     cmd-echo -- 'Done'
