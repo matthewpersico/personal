@@ -19,9 +19,18 @@ moreopts=1
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
     declare original="$1"
+    shift
     declare option
     option=$(dashstripper "$original")
-    shift ## That way you avoid endless loops on invalid options.
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey=''
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
 
     case $option in
         ## standard options
@@ -62,8 +71,13 @@ do
         editor)
             git_editor=$2
             shift;;
-        nocolor)
-            pscl_flags+=(--nocolor);;
+        color)
+            color=${ovalue:-$1}
+            ## If $ovalue is blank, we took arg from the next command line arg;
+            ## need to shift it off.
+            [ -z "$ovalue" ] && shift
+            pscl_flags+=(--color "$color")
+            ;;
         --)
             moreopts=0
             ;;

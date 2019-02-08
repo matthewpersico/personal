@@ -7,12 +7,22 @@ declare cached
 declare nosclonly
 declare moreopts=1
 declare color
+declare -a color_opt
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
     declare original="$1"
+    shift
     declare option
     option=$(dashstripper "$original")
-    shift
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey=''
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
 
     case $option in
         filesonly) filesonly='--filesonly';;
@@ -21,7 +31,15 @@ do
         cached) cached='--cached';;
         h|help) script-usage; exit 0 ;;
         debug | x ) set -x; trap 'set +x' EXIT;;
-        nocolor ) color='--nocolor';;
+        color)
+            color=${ovalue:-$1}
+
+            ## If $ovalue is blank, we took arg from the next command line arg;
+            ## need to shift it off.
+            [ -z "$ovalue" ] && shift
+
+            color_opt=(--color "$color")
+            ;;
         --) moreopts=0;;
         * )
             cmd-echo -- "$original is an invalid option. See $0 --help";
@@ -40,7 +58,7 @@ else
     mapfile -t filenames < <(git what is edited)
 fi
 
-git-process-source-ctrl-log --withstatus $diff $cached $color $nosclonly $filesonly "${filenames[@]}"
+git-process-source-ctrl-log --withstatus $diff $cached "${color_opt[@]}" $nosclonly $filesonly "${filenames[@]}"
 
 exit 0
 
@@ -51,8 +69,8 @@ git-status-with-source-ctrl-log - merge a SourceCrtlLog file with git status
 
 =head1 SYNOPSIS
 
-    git-status-with-source-ctrl-log [--nosclonly] [--diff [--cached]] [--nocolor]
-    git-status-with-source-ctrl-log [--help] [--diff] [--cached] [--nocolor]
+    git-status-with-source-ctrl-log [--nosclonly] [--diff [--cached]] [--color [always|never]]
+    git-status-with-source-ctrl-log [--help] [--diff] [--cached] [--color [always|never]]
 
 =head1 DESCRIPTION
 
@@ -74,9 +92,9 @@ Also mix in the git diff of the item.
 
 Do the git diff with the --cached flag.
 
-=item nocolor
+=item color
 
-Strip out the color highlighting
+Specify if coloring the output or not.
 
 =back
 
