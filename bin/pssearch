@@ -7,7 +7,7 @@ use Text::Wrap;
 our %opt = (trunc => 0, wrap => 0, raw => 0,
             head => 1,
             help => 0,
-            this => 1,
+            this => 0,
             exclude => 0,
             user => '-e',
             me => 0,
@@ -15,6 +15,7 @@ our %opt = (trunc => 0, wrap => 0, raw => 0,
             verbose => 0,
             pid => [],
             cmd => [],
+            color => 1
         );
 my %print;
 my %noprint;
@@ -28,6 +29,7 @@ GetOptions(\%opt,
                raw
                wrap
                trunc
+               color!
 
                head!
                this!
@@ -139,6 +141,8 @@ my $pidcol=$map{PID}{idx};
 my $ppidcol=$map{PPID}{idx};
 my $cmdcol=$map{COMMAND}{idx};
 my $packfmt;
+my $ascii_bold_red = '[1;31m';
+my $ascii_normal = '[m';
 
 LINE:
 while(<IH>) {
@@ -172,6 +176,7 @@ while(<IH>) {
         next LINE;
     }
 
+    my $uncoloredl = $l;
     my @f = unpack($packfmt, $l);
     my $pid = $f[$pidcol] + 0;
     my $ppid = $f[$ppidcol] + 0;
@@ -187,6 +192,7 @@ while(<IH>) {
         $noprint{$pid} = 1;
     } else {
         ## We are looking for a pid or a command
+        my $match;
         if ( match_either($pid,$cmd) ) {
             ## We matched it. Figure out how far in we want to indent.
             my $cmd = substr($l, $wrap_min);
@@ -194,6 +200,16 @@ while(<IH>) {
             my $stripped = $1;
             $stripped ||= q();
             $striplead = length($stripped);
+
+            ## Color the matches.
+            if($opt{color}) {
+                for my $filt (@{$opt{pid}}, @{$opt{cmd}}) {
+                    $l =~ s/$filt/${ascii_bold_red}${filt}${ascii_normal}/g;
+                }
+                $stripped = substr($stripped, 0, (length($stripped) - 1) - (length($l) - length($uncoloredl)));
+                $striplead = length($stripped);
+            }
+
             $print{$pid} = 1;
         } else {
             ## We didn't match it. See if we printed its parent or we didn't
@@ -215,7 +231,7 @@ while(<IH>) {
             chomp $l;
             print substr($l,0,$wrap_min),
               substr($l,$wrap_min + $striplead,
-                     $opt{trunc} - $wrap_min),"\n";
+                     $opt{trunc} - ($wrap_min - (length($l) - length($uncoloredl)))),"\n";
             $printed++;
         } elsif ($opt{wrap} ) {
             my $ll = substr($l,0,$wrap_min) . substr($l,$wrap_min + $striplead);
@@ -274,6 +290,7 @@ pssearch - ps with filtering
           --[raw|wrap|trunc]
           [--[no]head]
           [--[no]this]
+          [--[no]color]
           [ [--[user|U]=s] | --me ]
           [--verbose]
           [[pid|cmd]... ]
@@ -329,8 +346,13 @@ Do or do not print the header. Default is to print it.
 
 =item --[no]this
 
-Do or do not include the 'pssearch' process itself in the output. Default is to
-include it.
+Do or do not include the 'pssearch' process itself or it's children in the
+output. Default is to not include it.
+
+=item --[no]color
+
+Do or do not highlight any text that matches any pid or cmd argument used as a
+filter. Default is to color the matches.
 
 =item --user
 
