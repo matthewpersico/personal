@@ -3,49 +3,74 @@
 use strict;
 use warnings;
 use Text::Wrap;
+use File::Basename;
 
-our %opt = (trunc => 0, wrap => 0, raw => 0,
-            level => 10000000,
+our %opt = (trunc => 0, wrap => 0, raw => 0, original => 0,
             head => 1,
-            this => 1,
-            exclude => 0,
+            help => 0,
+            this => 0,
+            expid => [],
             user => '-e',
             me => 0,
-            short => 0);
+            short => 0,
+            verbose => 0,
+            pid => [],
+            cmd => [],
+            color => 1,
+            time => 0,
+            rtime => 0
+        );
 my %print;
 my %noprint;
 my $wrap_min=0;
-
+my $this = basename($0);
 use Getopt::Long;
 GetOptions(\%opt,
-           qw( pid=i
+           qw( pid=i@
+               cmd=s@
 
+               original
                raw
                wrap
                trunc
+               color!
 
-               level=i
                head!
                this!
-               exclude=i
+               expid=i@
 
                user|U=s
-               e
                short
                me
+
+               time
+               rtime
+
+               verbose
+               help
          ) )
   or die ("Error in command line options\n");
 
-my $uic = $opt{trunc} + $opt{wrap} + $opt{raw};
+if ( $opt{help} ) {
+    use Pod::Usage;
+    pod2usage( -verbose => 99,
+               -exitval => 0);
+}
+my $uic = $opt{trunc} + $opt{wrap} + $opt{raw} + $opt{original};
 my $ui = '';
 if ( $uic == 0 ) {
     $ui = 'trunc';
 } elsif ( $uic == 1 ) {
     $ui = (grep { exists($opt{$_}) && $opt{$_} != 0}
-      qw (raw wrap trunc))[0];
+             qw (raw wrap trunc original))[0];
 } else {
-    die "--trunc, --wrap, --raw are mutex\n";
+    die "--trunc, --wrap, --raw, --original are mutex\n";
 }
+
+if( $opt{time} + $opt{rtime} == 2) {
+    die "--time and --rtime are mutex\n";
+}
+
 $opt{$ui} = `tput cols` + 0;
 if ($opt{me} ){
     $opt{user} = $ENV{USER};
@@ -54,57 +79,48 @@ if ($opt{user} ne '-e' ) {
     $opt{user} = "-U $opt{user}";
 }
 
-if (@ARGV) {
-    my $nohead = ($opt{head} ? '' : '--nohead');
-    my $status;
-    for my $pid (@ARGV) {
-        system(
-            join(' ',
-                 ##'perl', '-d:ptkdb',
-                 $0,
-                 '--pid', $pid,
-                 "--$ui",
-                 '--level', $opt{level},
-                 ($opt{head} ? '--head' : '--nohead'),
-                 ($opt{this} ? '--this' : '--nothis'),
-                 $opt{user},
-                 '--exclude', ($opt{this} ? 0 : $$),
-                 ($opt{short} ? '--short' : ())
-             )
-        );
-        $status += ($? >> 8);
-        print qq(\n);
-        $nohead = '--nohead';
-    }
-    exit $status;
+for my $search_arg (@ARGV) {
+    my $which = (
+        $search_arg =~ m/^\d+$/
+          ? 'pid'
+          : 'cmd');
+    push @{$opt{$which}}, $search_arg
 }
 
-my $ih;
+## 'idx' are all even because the "separator" columns are between them.
 my %map =
   (
-      TIME => {
+      ETIMES => {
           idx => 0, justify => q(right),
-          alt => 'TIME'
+          header => 'ELAPSED'
+      },
+      START => {
+          idx => 2, justify => q(right),
+          header => 'STARTED'
+      },
+      ETIME => {
+          idx => 4, justify => q(right),
+          header => 'ELAPSED'
       },
       UID => {
-          idx => 2, justify => q(right),
-          alt => 'UID'
+          idx => 6, justify => q(right),
+          header => 'UID'
       },
       PID => {
-          idx => 4, justify => q(right),
-          alt => 'PID'
+          idx => 8, justify => q(right),
+          header => 'PID'
       },
       PPID => {
-          idx => 6, justify => q(right),
-          alt => 'PPID'
+          idx => 10, justify => q(right),
+          header => 'PPID'
       },
       TTY => {
-          idx => 8, justify => q(left),
-          alt => 'TT'
+          idx => 12, justify => q(left),
+          header => 'TT'
       },
       COMMAND => {
-          idx => 10, justify => q(left),
-          alt => 'COMMAND'
+          idx => 14, justify => q(left),
+          header => 'COMMAND'
       },
   );
 
@@ -116,100 +132,154 @@ my @headcols =
 
 my $fmtcols = join( ',' , map { lc } @headcols );
 
+my $ps="ps --forest -o $fmtcols $opt{user}";
 for ($ENV{OS_O} || '') {
+
     /Cygwin/ && do {
-        open(IH, '-|', "ps $opt{user}");
+        $ps="ps $opt{user}";
         last;
     };
     /Darwin/ && do {
-        open(IH, '-|', "ps -o $fmtcols $opt{user}");
+        $ps="ps -o $fmtcols $opt{user}";
         last;
     };
-    open(IH, '-|', "ps --forest -o $fmtcols $opt{user}");
-    last;
 }
 
+$opt{verbose} and print STDERR "$ps\n";
+open(IH, '-|', "$ps");
+
 my $striplead=-1;
-my $header;
 my $printed;
+my $etimescol=$map{ETIMES}{idx};
 my $pidcol=$map{PID}{idx};
 my $ppidcol=$map{PPID}{idx};
+my $cmdcol=$map{COMMAND}{idx};
 my $packfmt;
+my $ascii_bold_red = '[1;31m';
+my $ascii_normal = '[m';
+
+my @proc_groups;
+my $current_proc_group=[];
+my $col1read = 0;
+
+open(IH, '-|', "$ps");
+
+if($opt{original}) {
+    print <IH>;
+    exit 0;
+}
 
 LINE:
 while(<IH>) {
     my $l = $_;
-    if (not defined $header) {
+    if (not $col1read) {
         my $start = 0;
         my $end = 0;
+        my $ll = $l;
       COL:
         for my $colname (@headcols) {
             my $headfield;
             if ( $map{$colname}{justify} eq 'right' ) {
-                $l =~ m/(\s*(?:$colname|$map{$colname}{alt}))/;
+                $ll =~ m/(\s*(?:$colname|$map{$colname}{header}))\s/;
                 $headfield = $1;
             } else {
-                $l =~ m/((?:$colname|$map{$colname}{alt})\s*)/;
+                $ll =~ m/((?:$colname|$map{$colname}{header})\s*)/;
                 $headfield = $1;
             }
             next if not defined $headfield;
-            if ($colname eq $headcols[0] ) {
+            if (!$col1read ) {
                 $map{$colname}{fmt} = 'A' . length($headfield) . 'A1';
-            } elsif ($colname eq $headcols[-1] ) {
-                $map{$colname}{fmt} = 'A*';
+                $packfmt .= $map{$colname}{fmt};
+                $col1read=length($headfield)+1;
             } else {
-                $map{$colname}{fmt} = 'A' . (length($headfield)-1) . 'A1';
+                if ($colname eq $headcols[-1] ) {
+                    $map{$colname}{fmt} = 'A*';
+                } else {
+                    $map{$colname}{fmt} = 'A' . (length($headfield)-1) . 'A1';
+                }
+                $packfmt .= $map{$colname}{fmt};
             }
-            $packfmt .= $map{$colname}{fmt};
+            $ll =~ s/$headfield//;
         }
-        $header = $l;
+        ## Now that we have read the line, get rid of the first column in the
+        ## output - we only have it for sorting purposes.
+        $l = substr($l,$col1read);
         $wrap_min = index($l, q(COMMAND));
         $striplead = 0;
+        if(not $opt{nohead}) {
+            push @{$current_proc_group},{sortval => 0, output => $l};
+        }
         next LINE;
     }
 
     my @f = unpack($packfmt, $l);
     my $pid = $f[$pidcol] + 0;
     my $ppid = $f[$ppidcol] + 0;
-    if ( !$opt{pid} && $opt{this} ) {
+    my $cmd = $f[$cmdcol];
+    my $etimes = $f[$etimescol] + 0;
+
+    ## Now that we have read the line, get rid of the first column in the
+    ## output - we only have it for sorting purposes.
+    $l = substr($l,$col1read);
+    my $uncoloredl = $l;
+
+    if ( !@{$opt{pid}} && !$opt{expid} && !@{$opt{cmd}} && $opt{this} ) {
         ## No matching. Print every line.
         $print{$pid} = 1;
-    } elsif ( ( !$opt{this} && $$ == $pid )
+    } elsif ( ( !$opt{this} && $$ eq $pid )
                 or
-                ( $opt{exclude} && $opt{exclude} == $pid )
+                ( match_any($pid, '') eq 'expid' )
                 or
                 exists $noprint{$ppid}) {
         $noprint{$pid} = 1;
     } else {
-        ## We are looking for a pid
-        if (defined $opt{pid} && $pid eq $opt{pid}) {
+        ## We are looking for a pid or a command
+        my $match;
+        if ( match_any($pid,$cmd) ) {
             ## We matched it. Figure out how far in we want to indent.
             my $cmd = substr($l, $wrap_min);
             $cmd =~ m/^([|\s]+(?:\\_ )?)/;
             my $stripped = $1;
             $stripped ||= q();
             $striplead = length($stripped);
+
+            ## Color the matches.
+            if($opt{color}) {
+                for my $filt (@{$opt{pid}}, @{$opt{cmd}}) {
+                    $l =~ s/$filt/${ascii_bold_red}${filt}${ascii_normal}/g;
+                }
+                $stripped = substr($stripped, 0, (length($stripped) - 1) - (length($l) - length($uncoloredl)));
+                $striplead = length($stripped);
+            }
+
             $print{$pid} = 1;
         } else {
-            ## We didn't match it. See if we printed its parent. If so then print this one.
-            if (defined $print{$ppid}) {
+            ## We didn't match it. See if we printed its parent or we didn't
+            ## not print its parent. If so then print this one.
+            if (defined $print{$ppid}
+                  or not defined $noprint{$ppid}) {
                 $print{$pid} = 1;
             }
         }
     }
 
     if(defined $print{$pid}) {
-        if($header && not $opt{nohead}) {
-            print $header;
-            $printed++;
-            $header = '';
+        if ( $cmd !~ m/\s+\\_/ ) {
+            if (@{$current_proc_group}) {
+                push @proc_groups, $current_proc_group;
+                $current_proc_group = [];
+            }
         }
         if ($opt{trunc} ) {
             chomp $l;
-            print substr($l,0,$wrap_min),
-              substr($l,$wrap_min + $striplead,
-                     $opt{trunc} - $wrap_min),"\n";
-            $printed++;
+            my $output = join( '',
+                               substr($l,0,$wrap_min),
+                               substr($l,$wrap_min + $striplead,
+                                      $opt{trunc} - ($wrap_min - (length($l) - length($uncoloredl)))),
+                               "\n");
+#            print $output;
+#            $printed++;
+            push @{$current_proc_group},{sortval => $etimes, output => $output};
         } elsif ($opt{wrap} ) {
             my $ll = substr($l,0,$wrap_min) . substr($l,$wrap_min + $striplead);
             my $indent_idx = index($ll, q(\\_));
@@ -218,23 +288,179 @@ while(<IH>) {
             } else {
                 $indent_idx=$wrap_min;
             }
+            my $output;
             if($indent_idx) {
                 $Text::Wrap::columns=$opt{wrap};
-                print wrap(q(),( q( ) x ($indent_idx + 4 )), $ll);
-                $printed++;
+                $output = wrap(q(),( q( ) x ($indent_idx + 4 )), $ll);
+                push @{$current_proc_group},{sortval => $etimes, output => $output};
+#                print $output;
+#                $printed++;
             } else {
-                print $l;
-                $printed++;
+                push @{$current_proc_group},{sortval => $etimes, output => $l};
+#                print $l;
+#                $printed++;
             }
         } else {
-            print $l;
-            $printed++;
+            push @{$current_proc_group},{sortval => $etimes, output => $l};
+#            print $l;
+#            $printed++;
         }
     }
 }
 
-if(! $printed && $opt{pid}) {
-    print "No process found for pid $opt{pid}\n";
+if(@{$current_proc_group}) {
+    push @proc_groups, $current_proc_group;
+}
+
+## Add 'now'
+push @proc_groups,[{sortval => 1,
+                    output => sprintf("%02d:%02d:%02d %s current time\n",
+                                      (localtime)[2,1,0], q(-) x ($wrap_min -10))
+                }];
+
+if($opt{time}) {
+    ## newest at the top
+    @proc_groups = sort { $a->[0]->{sortval}
+                            <=>
+                            $b->[0]->{sortval}
+                        } @proc_groups;
+} elsif($opt{rtime}) {
+    ## newest at the bottom
+    $proc_groups[0][0]{sortval} = 2**32; ## make header come out at the top.
+    @proc_groups = sort { $b->[0]->{sortval}
+                            <=>
+                            $a->[0]->{sortval}
+                        } @proc_groups;
+}
+
+if(!@proc_groups) {
+    print "No process found for given filters\n";
     exit 1;
+} else {
+    for my $proc_group (@proc_groups) {
+        for my $proc (@{$proc_group}) {
+            print $proc->{output};
+        }
+    }
 }
 exit 0;
+
+sub match_any {
+    my ($pid, $cmd) = @_;
+    for (@{$opt{pid}}) {
+        return 'pid' if $pid eq $_;
+    }
+    for (@{$opt{expid}}) {
+        return 'expid' if $pid eq $_;
+    }
+    for (@{$opt{cmd}}) {
+        return 'cmd' if $cmd =~ m/$_/;
+    }
+    return '';
+}
+
+=head1 NAME
+
+pssearch - ps with filtering
+
+=head1 SYNOPSIS
+
+ pssearch [--pid=i...]
+          [--expid=i]
+          [--cmd="s"...]
+          --[original|raw|wrap|trunc]
+          [--[no]head]
+          [--[no]this]
+          [--[no]color]
+          [ [--[user|U]=s] | --me ]
+          [ --[r]time]
+          [--verbose]
+          [[pid|cmd]... ]
+
+=head1 DESCRIPTION
+
+Run a 'ps' command and filter the output.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item pid or "cmd"
+
+Numeric arguments are treated as if '--pid' was used. All other arguments are
+treated as if '--cmd' was used. The output will be filtered to include
+processes whose pids and commands that match the arguments, plus their child
+processes. Multiple arguments are 'or'ed.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --pid
+
+Include the process that has this pid in the output. Also include its child
+processes. More than one instance can be specified.
+
+=item --expid
+
+Do not include the process that has this pid in the output. Not sure if child
+processes would be included. More than one instance can be specified.
+
+=item --cmd
+
+Include the process whose command matches this regular expression in the
+output. Also include its child processes. More than one instance can be
+specified.
+
+=item --original|--raw|--wrap|--trunc
+
+--original - Does not process any options except --verbose; just runs the ps
+  command.
+
+The following options process all other specified options before formatting
+their output.
+
+--raw - Do not do any formatting to the output, but respect filters.
+--trunc - Truncate the output at terminal edge. This is the default.
+--wrap - Wrap the output at the command column.
+
+These three options are mutex.
+
+=item --[no]head
+
+Do or do not print the header. Default is to print it.
+
+=item --[no]this
+
+Do or do not include the 'pssearch' process itself or it's children in the
+output. Default is to *not* include it.
+
+=item --[no]color
+
+Do or do not highlight any text that matches any pid or cmd argument used as a
+filter. Default is to color the matches.
+
+=item --user
+
+Only print processes for this user name.
+
+=item --me
+
+Same as "--user $USER".
+
+=item --time/rtime
+
+'time' sorts processes by start time of the topmost process in a tree group
+from newest to oldest (like ls -t). 'rtime' sorts newest to oldest. Default is
+not to sort but just print in whatever order comes out of the underlying 'ps'
+command.
+
+=item --verbose
+
+Print the 'ps' command used before the ps output.
+
+=back
+
+=cut

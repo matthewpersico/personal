@@ -1,0 +1,158 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2164 # cd || exit
+
+# dpkgrefrepos
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+on_exit set +x
+
+declare owd
+owd=$(pwd)
+
+declare moreopts=1
+declare quiet=0
+declare opt_repo
+declare -A repos
+declare repo
+fmt=''
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    shift
+    declare option
+    option=$(dashstripper "$original")
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey=''
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        repo )
+            opt_repo=${ovalue:-$1}
+            [ -z "$ovalue" ] && shift
+
+            [ "$opt_repo" = ':all' ] && opt_repo=''
+            for repo in $( git-go --listfull "$opt_repo")
+            do
+                repos[$repo]=1
+            done
+            ;;
+
+        ## standard options
+        h | help )
+            script-usage
+            exit 0
+            ;;
+        quiet | q )
+            quiet=1
+            ;;
+        x )
+            set -x
+            ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            cmd-echo -- "$original is an invalid option. See $0 --help"
+            exit 1
+            ;;
+    esac
+done
+
+if ((${#repos[@]} == 0))
+then
+    cmd-echo -- "Required option '--repo' not specified"
+    script-usage
+    exit 1
+fi
+
+if {
+    [ "$1" = 'git' ] && \
+        { [ "$2" = 'grep' ] || \
+              [ "$2" = 'ls-files' ] || \
+                  [ "$2" = 'find' ] \
+        ; }
+} || \
+    [ "$1" = 'git-find' ]
+then
+    fmt='/'
+fi
+
+for repo in "${!repos[@]}"
+do
+    if (( !quiet ))
+    then
+        echo
+        echo "*** $repo"
+    fi
+
+    builtin cd "$repo"
+    if [ -n "$fmt" ]
+    then
+        declare t
+        t=$(mktemp -t tmp.dpkgrefrepos.XXXXXXXXXX)
+        rm_on_exit "$t"
+        "$@" > "$t"
+        declare line
+        while read -r line
+        do
+            echo "${repo}${fmt}${line}"
+        done < "$t"
+    else
+        "$@"
+    fi
+done
+
+builtin cd "$owd"
+
+exit 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git mono - run a git command over a list of repos
+
+=head1 SYNOPSIS
+
+ git mono --repo repo [ -repo repo ...] [--quiet] command [args...]
+
+=head1 DESCRIPTION
+
+Run 'command' over each repo.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --repo
+
+A repo spec that matches one or more repos via 'gitgo --listfull'. If the repo spec is ':all', we search all repos we can find.
+
+=item --quiet
+
+Do not print a header with each repo as it is encountered.
+
+=back
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item command [args...]
+
+The command and its arguments are run in each repo specified, cd'ing to the repo before running. If command is a git command, you need to specify the 'git' part.
+
+=back
+
+
+
+=cut
+
+__PODUSAGE__

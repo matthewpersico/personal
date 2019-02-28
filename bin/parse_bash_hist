@@ -5,68 +5,94 @@ use warnings;
 
 use Getopt::Long;
 use POSIX qw(strftime);
+use File::Basename;
 
-my %opts;
-
+my %opt;
+our %index;
 GetOptions(
-    \%opts, qw(i
-               l
-               include-dir
-               include-file
-               match-dir
-          )
+    \%opt, qw(i
+              l
+              include-dir
+              include-file
+              match-dir=s
+              hostname=s
+              epoch-ago=i
+         )
 );
 my $pattern = shift;
-$pattern = "(?i)$pattern" if $opts{i};
+$pattern = "(?i)$pattern" if $opt{i};
 $pattern = qr/$pattern/;
 my $time;
 my $dir;
 my @entries;
 my $entry;
-for my $file (@ARGV) {
+my @files;
+if ($opt{'epoch-ago'}) {
+    my $index_file = dirname("$ENV{HISTFILE}") . '/.index';
+    do $index_file;
+    @files = grep{ $index{$_}->{start} >= $opt{'epoch-ago'} } keys %index;
+} else {
+    @files = @ARGV;
+}
+FILE: for my $file (@files) {
+    next FILE
+      if ( $opt{hostname} and $file !~ m/$opt{hostname}/);
     my $ih = IO::File->new("< $file")
       or die "Cannot open $file:$!";
-    while (<$ih>) {
+
+  LINE: while (<$ih>) {
         if( $_ =~ m/^##/ ) {
             $entry = {};
             next;
         }
         chomp;
-        $_ =~ m/^#(\d+)/ && do {
+
+        if($_ =~ m/^#(\d+)/) {
+            ## Parsing line 1
             $entry = {
                 time => $1
             };
             if( $_ =~ m/## pwd => (.*)/ ) {
-                if ( $opts{'include-dir'} ) {
-                    $entry->{dir} = $1;
-                } elsif ( $opts{'match-dir'} ) {
-                    if( $1 =~ m/$opts{'match-dir'}/) {
-                        $entry->{dir} = $1;
-                    } else {
-                        $entry = undef;
-                    }
+                my $dir = $1;
+                if ( $opt{'include-dir'} ||
+                       $opt{'match-dir'} ) {
+                    $entry->{dir} = $dir;
                 }
+                next;
             }
-            next;
-        };
-        if ( $_ =~ m/$pattern/ and defined $entry) {
+        } else {
+            ## Parsing line 2
             $entry->{cmd} = $_;
-            if (    $opts{'include-file'}
-                 or $opts{l}) {
+            if (    $opt{'include-file'}
+                 or $opt{l}) {
                 $entry->{file} = $file;
             }
-            push @entries, $entry;
+
+            ## Now that it is parsed, do we want it?
+            if ( $opt{'match-dir'} ) {
+                if ($entry->{dir} and
+                    $entry->{dir} =~ m/$opt{'match-dir'}/)  {
+                    push @entries, $entry;
+                }
+            } elsif ( $_ =~ m/$pattern/ ) {
+                push @entries, $entry;
+            }
         }
     }
 }
 
 @entries = sort { $a->{time}<=> $b->{time} } @entries;
-$ENV{HISTTIMEFORMAT} ||= '%m/%d - %H:%M:%S';
+if (! $ENV{HISTTIMEFORMAT} ) {
+    $ENV{HISTTIMEFORMAT} = '%m/%d - %H:%M:%S';
+    if ($entries[-1]->{time} - $entries[0]->{time} >= 60*60*24*365) {
+        $ENV{HISTTIMEFORMAT} = '%Y/%m/%d - %H:%M:%S';
+    }
+}
 my $datelen = 0;
 my @output;
 my %unique;
 for (@entries) {
-    if($opts{l}) {
+    if($opt{l}) {
         $unique{$_->{file}}++
     } else {
         $datelen = length( strftime( $ENV{HISTTIMEFORMAT}, localtime(1) ) )
@@ -74,10 +100,10 @@ for (@entries) {
         push @output, sprintf( "%s %s%s%s\n",
                                strftime( $ENV{HISTTIMEFORMAT}, localtime( $_->{time} ) ),
                                $_->{cmd},
-                               ( $_->{dir} ? "\n" . ' ' x $datelen . "($_->{dir})" : '' ),
-                               ( $_->{file} ? "\n" . ' ' x $datelen . "($_->{file})" : '' )
+                               ( $_->{dir} ? "\n" . ' ' x ($datelen+5) . "($_->{dir})" : '' ),
+                               ( $_->{file} ? "\n" . ' ' x ($datelen+5) . "($_->{file})" : '' )
                            );
     }
 }
-@output = map { "$_\n" } sort keys %unique if $opts{l};
+@output = map { "$_\n" } sort keys %unique if $opt{l};
 print @output if(@output);

@@ -4,30 +4,34 @@
 
 declare moreopts
 moreopts=1
-declare hostfilt=''
-declare grepopts=''
+declare -a hostfilt
+declare -a grepopts
 declare epoch_ago=''
+declare -a opt_epoch_ago
 declare dodir=''
 declare dofile=''
-declare matchdir=''
+declare -a matchdir
+
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
-    ## Strip all leading dashes here so that -foo and --foo can both
-    ## be processed as 'foo'.
     declare original="$1"
-    declare option="$1"
-    declare new=''
-    while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
-    do
-        new=$option
-        option=${option##-}
-    done
-    shift ## That way you avoid endless loops on invalid options
+    shift
+    declare option
+    option=$(dashstripper "$original")
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey=''
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
 
-    case "$option" in
+    case $option in
         help )
             cat <<EOHELP
--h host        : only from this host
+-h host        : only from machine 'host' (not yet implemented)
 -n             : start n days ago
 -d epoch       : epoch seconds ago
 -i/-l          : pass these to grep
@@ -41,31 +45,40 @@ do
 EOHELP
             exit 0
             ;;
-        h ) hostfilt=$1
-            shift ;;
+        h )
+            # shellcheck disable=SC2034 # remove when implemented
+            hostfilt=("--hostname" "${ovalue:-$1}")
+            [ -z "$ovalue" ] && shift
+            ;;
         ## Both date options imply "from this date, forward"
         [0-9]* )
-            declare epoch_today=$(date --date=$(date +%Y%m%d) +%s) ## midnight today
-            declare days_ago=$(echo "$option" | sed 's/^-//')
+            declare epoch_today
+            epoch_today=$(date --date="$(date +%Y%m%d)" +%s) ## midnight today
+            declare days_ago
+            # shellcheck disable=SC2001
+            days_ago=$(echo "$option" | sed 's/^-//')
             epoch_ago=$((epoch_today - (86400*days_ago)))
+            opt_epoch_ago=("--epoch-ago" "$epoch_ago")
             ;;
         d )
-            epoch_ago=$(date --date=$1 +%s)
-            shift ;;
+            opt_epoch_ago=("--epoch-ago" "$(date --date="${ovalue:-$1}" +%s)" )
+            [ -z "$ovalue" ] && shift
+            ;;
         i | l )
-            grepopts="$grepopts $original"
+            grepopts+=("$original")
             ;;
         dir )
             dodir=--include-dir
             ;;
-        matchdir )
-            matchdir="--match-dir $1"
-            shift ;;
+        matchdir | match-dir)
+            matchdir=("--match-dir" "${ovalue:-$1}")
+            [ -z "$ovalue" ] && shift
+            ;;
         f|file )
             dofile=--include-file
             ;;
         fo|fileonly )
-            grepopts="$grepopts -l"
+            grepopts+=('-l')
             ;;
         -- )
             moreopts=0
@@ -76,23 +89,6 @@ EOHELP
     esac
 done
 
-declare histfs
-if [ -n "$epoch_ago" ]
-then
-    declare index_file=$(dirname $HISTFILE)/.index
-    histfs=$(perl -MData::Dumper -e '
- do $ARGV[0] if (-r $ARGV[0]);
- @files = grep{ $index{$_}->{start} >= $ARGV[1] }
-      keys %index;
- print "@files";'  $index_file $epoch_ago)
-else
-    histfs="$(dirname $HISTFILE)/*"
-fi
-
-if [ -z "$histfs" ]
-then
-    echo "No history files found matching date params"
-else
-    # DEBUG perl -d:ptkdb $(which parse_bash_hist)\
-    parse_bash_hist $dodir $dofile $matchdir $grepopts -- "$1" $histfs
-fi
+pattern_to_match="${1:-.*}"
+##perl -d:ptkdb -S
+parse_bash_hist "${opt_epoch_ago[@]}" "${hostfilt[@]}" $dodir $dofile "${matchdir[@]}" "${grepopts[@]}" -- "$pattern_to_match" "$(dirname "$HISTFILE")"/*

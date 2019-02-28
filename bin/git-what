@@ -12,6 +12,9 @@
 main ()
 {
     declare action=$1
+    shift
+
+    [ "$action" = 'is' ] && action=$1 && shift ## syntactic sugar
 
     if [[ "$action" =~ -h ]]
     then
@@ -21,12 +24,10 @@ main ()
         return  0
     fi
 
-    [ "$action" = 'is' ] && shift && action=$1 && shift ## syntactic sugar
-
     declare -a actions
     declare modified_only=0
     case $action in
-        modified-only )
+        mod-only | modified-only )
             modified_only=1
             ;;
         committable | staged )
@@ -37,7 +38,7 @@ main ()
             actions+=('--all-mod') ;;
         untracked | unstaged | \
             unmodified | deleted | \
-            new | ignored )
+            new | ignored | renamed )
             actions+=("--$action") ;;
         * )
             cmd-echo -- "'$action' is an invalid request"
@@ -48,8 +49,9 @@ main ()
 
     declare moreopts=1
     declare -a fmt_options
-    declare absolute=0
-    declare rooted=0
+    declare opt_absolute=0
+    declare opt_rooted=0
+    declare opt_edit=0
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
         declare original="$1"
@@ -58,33 +60,33 @@ main ()
         option=$(dashstripper "$original")
 
         case $option in
-            absolute )
-                if ((rooted))
-                then
-                    cmd-echo -- 'Cannot specify --absolute and --rooted'
-                    script-usage 2>&1 | ${PAGER:less}
-                    exit 1
-                else
-                   fmt_options+=("--$option")
-                fi
-                ;;
-            rooted )
-                if ((absolute))
-                then
-                    cmd-echo -- 'Cannot specify --rooted and --absolute'
-                    script-usage 2>&1 | ${PAGER:less}
-                    exit 1
-                else
-                    fmt_options+=("--$option")
-                fi
-                ;;
+            absolute ) opt_absolute=1 ;;
+            rooted ) opt_rooted=1 ;;
+            edit ) opt_edit=1 ;;
             * )
                 cmd-echo -- "--$action is an invalid option"
                 script-usage 2>&1 | ${PAGER:less}
                 exit 1
         esac
+        fmt_options+=("--$option")
     done
 
+    if ((opt_rooted))
+    then
+        if ((opt_absolute))
+        then
+            cmd-echo -- 'Cannot specify --rooted and --absolute'
+            script-usage 2>&1 | ${PAGER:less}
+            exit 1
+        elif ((opt_edit))
+        then
+            cmd-echo -- 'Cannot specify --rooted and --edit'
+            script-usage 2>&1 | ${PAGER:less}
+            exit 1
+        fi
+    fi
+
+    declare -a output
     if ((modified_only))
     then
         declare deleted
@@ -92,12 +94,18 @@ main ()
         declare mod
         for mod in $(git what is modified "${fmt_options[@]}")
         do
-            echo "$mod" | grep -v -E "$deleted"
+            output+=("$(echo "$mod" | grep -v -E "$deleted")")
         done
     else
-        $DEBUG_GIT_STATUS_PARSE git-status-parse "${fmt_options[@]}" "${actions[@]}"
+        mapfile -t output < <($DEBUG_GIT_STATUS_PARSE git-status-parse "${fmt_options[@]}" "${actions[@]}")
     fi
 
+    if((opt_edit))
+    then
+        $EDITOR "${output[@]}"
+    else
+        for mod in "${output[@]}"; do echo "$mod"; done
+    fi
     exit $?
 }
 
@@ -112,13 +120,59 @@ git-what
 =head1 SYNOPSIS
 
  git what [is] [committable | untracked | unstaged | unmodified |
-                staged | deleted | modified-only | modified |
-                ignored | edited | deleted ] [--rooted|--absolute]
+                staged | renamed | deleted | mod[ified]-only | mod[ified] |
+                ignored | edited ] [--rooted| [--absolute] [--edit] ]
+
+ git what [is] --help|-h
 
 =head1 DESCRIPTION
 
-status --porcelain, parsed for certain statuses.
+Executes 'git status --porcelain', parsed and formatted for requested
+statuses. To debug:
 
-export DEBUG_GIT_STATUS_PARSE='perl -S -d' to debug.
+ $ export DEBUG_GIT_STATUS_PARSE='perl -S -d'
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item is
+
+Syntactic sugar. Ignored.
+
+=item actions
+
+'committable', 'untracked', 'unstaged', 'unmodified', 'staged', 'renamed',
+'deleted', 'mod[ified]', 'ignored', and 'edited' correspond to git statuses.
+
+'mod[ified]-only' is modified, excluding 'deleted', whereas git reports deleted
+files as 'modified'.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item ---rooted
+
+Show files relative to the repo root dir. Default is to show them relative to
+the current directory. Cannot specify --absolute or --edit with this option.
+
+=item ---absolute
+
+Show files relative to '/'. Default is to show them relative to the current directory.
+
+=item --edit
+
+Pass all the files found to $EDITOR.
+
+=item --help
+
+Print this help text.
+
+=back
+
+=cut
 
 __PODUSAGE__

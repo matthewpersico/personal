@@ -12,17 +12,21 @@ source "$BASH_INC_DIR/on_exit.binc"
 declare logfile=''
 declare logdir=''
 declare teeit=0
+declare zenityit=0
+declare teeit=0
 declare tsit=0
 declare edit=''
 declare edit_echo=''
 declare edit_on_fail=''
 declare purge=''
 declare notimestamp=''
+declare attime=''
+declare isat=0
 declare -a original_argv
 original_argv+=("$0" "$@")
 
 # Read the options and args from command line.
-OPTSARGS=$(getoptp -o h -l tee,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
+OPTSARGS=$(getoptp -o h -l isat,at:,tee,zenity,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
 status=$?
 if ((status != 0))
 then
@@ -39,8 +43,27 @@ eval set -- "$OPTSARGS"
 
 # Reprocess the command line, extracting options and their arguments into
 # variables.
+declare opts_count=0
 while true ; do
     case "$1" in
+        --at )
+            if ((opts_count))
+            then
+                echo "--at must be first option"
+                exit 1
+            fi
+            attime="$2"
+            shift 2
+            atfile=$(mktemp -t tmp.logit.at.XXXXXXXXXX)
+            echo "logit --isat $*" > "$atfile"
+            chmod +x "$atfile"
+            at -f "$atfile" "$attime"
+            exit 0
+            ;;
+        --isat)
+            isat=1
+            shift
+            ;;
         -h|--help)
             script-usage; exit 0 ;;
         --log)
@@ -51,6 +74,9 @@ while true ; do
             shift 2 ;;
         --tee)
             teeit=1
+            shift ;;
+        --zenity)
+            zenityit=1
             shift ;;
         --edit-echo)
             edit_echo=1
@@ -91,9 +117,18 @@ while true ; do
         --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
         *) echo "Internal error! You probably forgot to add a -- option between the logit options and the command to run."
            script-usage
-           exi 1 ;;
+           exit 1 ;;
     esac
 done
+
+if ((isat)) \
+       && { (( teeit+zenityit )) \
+                || \
+                [ -n "${edit}${edit_on_fail}" ]; }
+then
+    echo "Cannot use --at with any of --teeit, --zenityit, --edit, --edit_on_fail"
+    script-usage; exit 1
+fi
 
 # Arg checking
 if [ -z "$1" ]
@@ -110,7 +145,7 @@ declare -a cmdargs
 
 for arg in "$@"
 do
-    if [[ "$arg" =~ x ]] && ((before_command))
+    if [[ "$arg" =~ = ]] && ((before_command))
     then
         envs+=("$arg")
     else
@@ -144,10 +179,10 @@ fi
 [ -z "$logfile" ] && logfile=$(basename "$command")
 logfileroot="${logfile}.logit"
 now=$(date +%Y_%m_%dT%H_%M_%S)
-logfile="${logfile}.logit"
+logfile="${logfileroot}"
 if [ "$notimestamp" = '' ]
 then
-    logfile="${logfile}.${now}"
+    logfile="${logfile}.${now}.$$"
 fi
 today=${now%%T*}
 
@@ -183,19 +218,25 @@ fi
 
 touch "$logspec" ## Critical for tee below
 logmsg="Logfile is: $logspec"
-echo "$logmsg"
-
-# And off we go...
-echo "Working..."
+if ((! isat))
+then
+    echo "$logmsg"
+    echo "Working..."
+fi
 
 if ((teeit))
 then
-    termer=''
-    for i in xterm rxvt mrxvt
+    declare termer=''
+
+    declare -a terms
+    ((zenityit)) && terms+=('zenity')
+    terms+=(xterm rxvt mrxvt)
+    for i in "${terms[@]}"
     do
         # shellcheck disable=SC2230
-        [ -z "$termer" ] && [ -n "$(which $i 2>/dev/null)" ] && termer=$(which $i)
+        [ -z "$termer" ] && [ -n "$(which "$i" 2>/dev/null)" ] && termer=$(which "$i")
     done
+
     termheight=$(x-current-root --height)
     if ((termheight >1024)); then termheight=40; else termheight=20; fi
 
@@ -208,17 +249,40 @@ then
          fi
     fi
 
-    $termer -g 132x${termheight}+100+100 "${colors[@]}" -title "logit tee on $(hostname)" -e tail -f "$logspec" &
+    declare title
+    title="logit tee of '$command ${cmdargs[*]}' on $(hostname)"
+    if [[ $termer =~ zenity ]]
+    then
+        tail -f "$logspec" | \
+            $termer --text-info --auto-scroll \
+                    --width=1320 --height=800 \
+                    --title "$title [log is $logspec]" \
+            &
+    else
+        $termer -g 132x${termheight}+100+100 \
+                -title "$title [log is $logspec]" \
+                "${colors[@]}" \
+                -e tail -f "$logspec" \
+            &
+    fi
     sleep 2 ## Give the terminal a chance to come up and start tailing so we
-    ## see the whole log in the tail
-    tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v xterm | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+            ## see the whole log in the tail
+
+    tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+    termerpid=$(pstree | grep "$termer" | grep "$logspec" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
 fi
 
-(
+{
     echo "********************"
     echo "  logit invocation"
     echo "********************"
     echo "${original_argv[@]}"
+    echo
+
+    echo "********************"
+    echo "     log file"
+    echo "********************"
+    echo "$logspec"
     echo
 
     if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]
@@ -259,9 +323,9 @@ fi
 
     echo "********************"
     echo "     execution"
-    echo "********************"
     echo "start time: $(date)"
     eval "${envs[@]}"
+    echo "********************"
     if((tsit))
     then
         $command "${cmdargs[@]}" | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
@@ -274,7 +338,6 @@ fi
         $command "${cmdargs[@]}"
     fi
     status=${PIPESTATUS[0]}
-    echo
 
     echo "********************"
     echo "$logmsg"
@@ -282,10 +345,13 @@ fi
     echo "end time: $(date)"
     echo "********************"
     exit "$status"
-) >> "$logspec" 2>&1
+} >> "$logspec" 2>&1
 status=$?
-echo "$logmsg"
-echo "Exit status: $status"
+if (( !isat))
+then
+    echo "$logmsg"
+    echo "Exit status: $status"
+fi
 
 declare -a editcmd
 if [ -n "$edit" ]
@@ -317,13 +383,15 @@ then
     else
         "${editcmd[@]}" "$logspec" &
         [ -n "$tailpid" ] && kill "$tailpid"
+        [ -n "$termerpid" ] && kill "$termerpid"
     fi
 fi
 exit $status
 
 :<<'__USAGE__'
 [FOO=BAR [ FOO2=BAR2... ] ] \\
-logit [ --tee ] \\
+logit [--at time] \\
+      [ --tee | --zenity ] \\
       [ --log log_basename ] \\
       [ --notimestamp ] \\
       [ --dir log_directory ] \\
@@ -336,17 +404,37 @@ logit [ --tee ] \\
 
 logit [ --help | -h ]
 
+Capture all the output of the command and some information about the executing
+environment into a log file.
+
+Tip: For command
+
+  logit somecommand --options args
+
+you can use 'nohup' and backgrounding (&) to execute it so that exiting the
+terminal you started the command with does not kill your command:
+
+  nohup logit somecommand --options args &
+
+OPTIONS:
+      --at     - Run the command on an 'at' queue at the
+                 specified time. '--at' must be the first option,
+                 if specified.
+
       --tee    - Spin up a terminal and show the log
                  output in it as it is generated.
+
+      --zenity - Spin up a zenity text dialog and show the log
+                 output in it as it is generated. If zenity
+                 is not available, we fall back to --tee.
 
       --log    - Provide a root name for the log if
                  the command is generic.
 
       --notimestamp
-               - Do not add a timestamp to the log name.
-                 Use if the log name provided by --log is
-                 unique or you don't care about overwriting
-                 logs.
+               - Do not add a timestamp or the pid of the logit process to the
+                 log name.  Use if the log name provided by --log is unique or
+                 you don't care about overwriting logs.
 
       --dir    - Put the logs in specifed directory, not
                  current working directory. If not specified

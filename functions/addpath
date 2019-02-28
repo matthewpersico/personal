@@ -27,13 +27,14 @@ addpath ()
     typeset opt_h opt_p opt_s
     typeset opt_x opt_v
     typeset opt_f opt_b opt_i
+    typeset opt_d
     typeset sep=:
 
     typeset pathvar dirname tmp element TEMP
 
     pathfunc_usage_init
     typeset -a USAGE
-    i=0; USAGE[i]="addpath [-h] [-s separator] [-f|-b|-i n] [-x] [-v] [[-p] pathvar] dirname"
+    i=0; USAGE[i]="addpath [-h] [-s separator] [-f|-b|-i n] [-d] [-x] [-v] [[-p] pathvar] dirname"
     ((i+=1)); USAGE[i]="Idempotently adds 'dirname' to 'pathvar'."
     ((i+=1)); USAGE[i]="$USAGE_OPT_P1"
     ((i+=1)); USAGE[i]="$USAGE_OPT_P2"
@@ -45,7 +46,7 @@ addpath ()
     ((i+=1)); USAGE[i]="-b - Add to back of 'pathvar' (default behavior)."
     ((i+=1)); USAGE[i]="-i n - Add to 'pathvar' in position 'n'. Indexing starts"
     ((i+=1)); USAGE[i]="   at 1. Elements are moved down to make room for the"
-    ((i+=1)); USAGE[i]="   added 'dirname'."
+    ((i+=1)); USAGE[i]="-d - only add if the 'dirname' exists."
     ((i+=1)); USAGE[i]="$USAGE_OPT_X"
     ((i+=1)); USAGE[i]="$USAGE_OPT_V"
     ((i+=1)); USAGE[i]="$USAGE_OPT_H"
@@ -54,7 +55,7 @@ addpath ()
     # handle options
     ###########################################################################
 
-    options "hp:s:xvfbi:" "$@"
+    options "hp:s:xvfbi:d" "$@"
     shift "$options_shift_val"
     if [ -n "$opt_h" ]
     then
@@ -133,7 +134,17 @@ addpath ()
         element=$(echo "$oldvalue" | awk "BEGIN{RS=\"$sep\"}{print}" | grep -x "$dirname")
         if [ "$element" = "" ]
         then
-            # $dirname is not currently in pathvar so add it
+            # $dirname is not currently in pathvar.
+
+            # If asked, check to see if the path exists on disk and bail if it
+            # does not.
+            if (( opt_d )) && [ ! -d "$dirname" ]
+            then
+                echo "$dirname does not exist. Skipping."
+                return 1
+            fi
+
+            # Add it.
             local newvalue
             if [ -n "$opt_f" ]
             then

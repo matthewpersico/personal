@@ -9,6 +9,11 @@ declare opt_deleted=0
 declare opt_last_existed=0
 declare opt_git_dir=0
 declare -a opt_grep_opts=("-E")
+declare opt_grep_opts_v=''
+declare opt_edit=0
+declare opt_abspath=0
+declare timecompfile=''
+declare timecomp=''
 declare moreopts=1
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
@@ -17,24 +22,94 @@ do
     shift
 
     case $option in
-        i | l | n) opt_grep_opts+=(-"$option");;
+        i ) opt_grep_opts+=(-"$option");;
+        l | n ) opt_grep_opts_v=-"$option";;
+        e) opt_edit=1;;
         untracked_only|u) opt_untracked_only=1;;
         all|a) opt_all=1;;
-        conflicts) opt_conflicts=1;;
+        conflict*) opt_conflicts=1;;
         deleted) opt_deleted=1;;
         last-existed) opt_last_existed=1;;
         git-dir) opt_git_dir=1;;
         h|help) script-usage; exit 0 ;;
+        newer) timecomp='-nt';timecompfile=$1;shift ;;
+        older) timecomp='-ot';timecompfile=$1;shift ;;
+        abspath) opt_abspath=1 ;;
         --) moreopts=0;;
         *) cmd-echo -- "$original is an invalid option. See $0 --help"
            exit 1 ;;
     esac
 done
 
+if [ -n "$timecomp" ]
+then
+    if [ ! -f "$timecompfile" ]
+    then
+        cmd-echo -- "Cannot find file '$timecompfile' for $timecomp comparison"
+        exit 1
+    fi
+
+    declare exitval=1 ## bad - no files found
+    for gitfile in $(git ls-files)
+    do
+        declare timecompstat
+        test  "$gitfile" "$timecomp" "$timecompfile"; timecompstat=$?
+        if ((timecompstat==0))
+        then
+            exitval=0 ## good - at least one file found
+            if (( opt_abspath ))
+            then
+                realpath "$gitfile"
+            else
+                echo "$gitfile"
+            fi
+        fi
+    done
+    exit $exitval
+fi
+
 if ((opt_conflicts))
 then
-    git grep "${opt_grep_opts[@]}" '^<<<<<<<'
-    exit $?
+    declare -a conflict_files
+    mapfile -t conflict_files < <(git grep "${opt_grep_opts[@]}" '^<<<<<<<' | sed 's/:<<<<<<<.*//g')
+    declare cf
+    for cf in "${conflict_files[@]}"
+    do
+        if [ "$opt_grep_opts_v" = '-l' ]
+        then
+            echo "$cf"
+        else
+            cmd-echo -head -- "Conflicts in $cf"
+            # shellcheck disable=SC2086 # we want $opt_grep_opts_v to "disappear" if empty.
+            perl -ne '
+BEGIN{
+$n=0;
+if ($ARGV[0] eq q(-n) ) {
+$n=1;
+shift @ARGV
+}
+}
+if(/^</ .. /^>/) {
+if ($n) {
+printf ( q(%6d:%s), $., $_)
+} else {
+print $_
+}
+my $dummy = 6;
+} ' -- -n "$cf"
+        fi
+    done
+    if (( opt_edit ))
+    then
+        if [ -z "$EDITOR" ]
+        then
+            cmd-echo -- "No EDITOR env variable found"
+            exit 1
+        fi
+        $EDITOR "${conflict_files[@]}"
+    fi
+    (( ${#conflict_files[@]} )) && exit 1
+    exit 0
 fi
 
 if ((opt_deleted))
@@ -106,10 +181,12 @@ git-find - run a 'find'-like command on the current repo
 
 =head1 SYNOPSIS
 
- git-find [-i] [-n|-l] [--untracked_only|-u] [--all|-a] pattern [pattern...]
- git-find --conflicts [-n|-l]
+ git-find [-i] [--untracked_only|-u] [--all|-a] pattern [pattern...]
+ git-find --conflicts [-n|-l] [-e]
  git-find [--deleted|--last-existed] file
  git-find --git-dir
+ git-find --newer markerfile [--abspath]
+ git-find --older markerfile [--abspath]
  git-find [--help|-h]
 
 =head1 DESCRIPTION
@@ -144,6 +221,10 @@ Case insensitive matching.
 Print matches with line number or just print filename containing a
 match. Mutually exclusive.
 
+=item -e
+
+For conflicts, edit the files with conflicts using the editor defined in $EDITOR.
+
 =item --untracked-only
 
 Consider only those files that are NOT objects in the repo.
@@ -164,6 +245,18 @@ existed in git, respectively.
 =item --git-dir
 
 Find the .git directory for the repo, even in a worktree.
+
+=item --newer
+
+Find all the git files newer than the file given.
+
+=item --older
+
+Find all the git files older than the file given.
+
+=item --abspath
+
+Print the full path to any files found with --newer or --older.
 
 =item --help
 

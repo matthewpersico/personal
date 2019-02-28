@@ -14,6 +14,7 @@ my @options=
       unstaged
       untracked
       deleted
+      renamed
       all-modified
       unmodified
       ignored
@@ -34,7 +35,7 @@ if( $opt{'all-modified'} || $opt{unmodified} || $opt{deleted}) {
       for ( qw (staged unstaged untracked) );
 }
 $flags{$_} //= 0
-  for ( qw (new staged unstaged deleted untracked all unmodified ignored) );
+  for ( qw (new staged unstaged renamed deleted untracked all unmodified ignored) );
 
 %count = map {$_ => 0} keys %flags;
 
@@ -54,7 +55,8 @@ INPUT:for (@input) {
 
     if( ( $flags{staged}
             or $flags{'staged-only'}
-            or $flags{new} )
+            or $flags{new}
+            or $flags{renamed})
           && /^Changes to be committed/ .. /^Changes not staged for commit/) {
         /^Changes to be committed/ && next INPUT;
         /use "git reset HEAD <file>..." to unstage/ && next INPUT;
@@ -62,13 +64,18 @@ INPUT:for (@input) {
         if( /^GSE/ ) {
             last INPUT;
         } else {
-            ## If we specify new, we print count new.
+            ## If we specify new, we print new.
             ## If we specify staged, we print staged and new.
             ## If we specify staged-only, we print only staged, not new.
             ## If we specify staged and new, we print staged and new.
             if( $flags{new} && $_ =~ m/new file:/ ) {
                 $count{'new'}++;
                 store_filename('new',$_);
+                next INPUT;
+            }
+            if( $flags{renamed} && $_ =~ m/renamed:/ ) {
+                $count{'renamed'}++;
+                store_filename('renamed',$_);
                 next INPUT;
             }
             if ($flags{'staged-only'} ) {

@@ -10,14 +10,15 @@ dirlist ()
 
     ## The nosave* options are in support of the dirlist -5 foo/bar case. We
     ## call dirlist on the -5 to go up and on foo./bar to go down. In the first
-    ## call, we do not want the setdirlist at the END of this call to save the
+    ## call, we do not want the _dirlist_set at the END of this call to save the
     ## current directory (the result of the up) on the stack, so we specify
     ## nosavetarget.  When we make the second call we don't want the current
-    ## directory added to the list in the call to setdirlist at the START of
+    ## directory added to the list in the call to _dirlist_set at the START of
     ## the call - that's nosavecurrent.
 
     local target
     local current
+    local do_list=0
 
     ## Have to pull off any negative numbers or ^ args, both of which signify
     ## 'up', first so as not to confuse getoptp
@@ -40,7 +41,7 @@ dirlist ()
     eval set -- "${args[@]}"
 
     local OPTSARGS
-    OPTSARGS=$(getoptp -o h --long nosavetarget,nosavecurrent -n 'dirlist' -- "$@")
+    OPTSARGS=$(getoptp -o h --long nosavetarget,nosavecurrent,up:,clear,init,list,show,prune  -n 'dirlist' -- "$@")
     status=$?
     ((status != 0)) && echo "Exiting." && return $status
 
@@ -48,12 +49,33 @@ dirlist ()
     while true
     do
         case "$1" in
-            -h|--help) dirlist_usage; return 0 ;;
+            -h|--help) func-usage dirlist; return 0 ;;
+            --up) negs+=("-$2"); shift; shift;;
             --nosavetarget) target='--nopwd'; shift;;
             --nosavecurrent) current='--nopwd'; shift ;;
-
+            --clear|--init)
+                DIRLIST=''
+                return 0;;
+            --list|--show) do_list=1; shift;;
+            --prune)
+                local tmplist
+                tmplist=$(echo "${DIRLIST}" | tr ' ' '\n' | sort -ur)
+                local lastdir
+                local newlist
+                local i
+                for i in $tmplist
+                do
+                    if [[ "${lastdir}" != "${i}"* ]]
+                    then
+                        newlist="$newlist $i"
+                    fi
+                    lastdir=$i
+                done
+                DIRLIST="$newlist"
+                _dirlist_set
+                return 0;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; dirlist_usage; return 1 ;;
+            *) echo "Internal error!"; func-usage dirlist; return 1 ;;
         esac
     done
 
@@ -62,7 +84,7 @@ dirlist ()
         eval set -- "${negs[@]}" "$@"
     fi
 
-    setdirlist $current
+    _dirlist_set $current
 
     if [ -z "$1" ]
     then
@@ -161,8 +183,18 @@ dirlist ()
                     FILTERED_DIRLIST="$(echo $DIRLIST | tr ' ' '\n' | grep "$tgt" )"
                     if [ -n "$FILTERED_DIRLIST" ]
                     then
-                        # shellcheck disable=SC2086 # we want to split $FILTERED_DIRLIST
-                        _dirlist_select $FILTERED_DIRLIST
+                        if ((do_list))
+                        then
+                            local d
+                            select d in "$FILTERED_DIRLIST"
+                            do
+                                break
+                            done < <(echo noop)
+                            return 0
+                        else
+                            # shellcheck disable=SC2086 # we want to split $FILTERED_DIRLIST
+                            _dirlist_select $FILTERED_DIRLIST
+                        fi
                     else
                         echo "$tgt not found"
                     fi
@@ -171,5 +203,151 @@ dirlist ()
         fi
     fi
 
-    setdirlist $target
+    _dirlist_set $target
 }
+:<<'__PODUSAGE__'
+=head1 NAME
+
+dirlist - cd replacement keeping track of where you've been in a list, not a stack
+
+=head1 SYNOPSIS
+
+ dirlist
+ dirlist --list|--show
+ dirlist [--list|--show] pattern
+ dirlist -
+ dirlist [--nosavecurrent] [--nosavetarget] i
+ dirlist [--nosavecurrent] [--nosavetarget] [-i|^i|--up i] target_dir
+ dirlist [--nosavecurrent] [--nosavetarget] current_pattern new_pattern
+ dirlist --clear|--init
+ dirlist --prune
+ dirlist -h|--help
+
+=head1 DESCRIPTION
+
+A cd that keeps track of where you've been and allows you to pick a target to
+return to from a list, instead of having to rotate, push, pop a stack of
+directories.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item no arguments
+
+Presents a numbered list of previously visited directories and allows you to choose which to return to by number.
+
+ $ dirlist
+ 1) ~
+ 2) ==>~/examples/bash
+ 3) ~/gits/bbgithub/dpkg/dpkg-docs
+ 4) ~/gits/bbgithub/mpersico5/blp-dpkg-metrics/wt/db-master-swap-detection
+ 5) ~/gits/bbgithub/mpersico5/dpkg-docs
+ 6) ~/gits/bbgithub/mpersico5/dpkg-docs/wt/direct-python
+ 7) ~/personal/bin
+ Choose by number, - for prior, q to quit: tgarget_dirarg
+
+=item pattern
+
+Reduce the list presented by not printing items that do not match the pattern:
+
+ $ dirlist ico5
+ 1) ~/gits/bbgithub/mpersico5/blp-dpkg-metrics/wt/db-master-swap-detection
+ 2) ~/gits/bbgithub/mpersico5/dpkg-docs
+ 3) ~/gits/bbgithub/mpersico5/dpkg-docs/wt/direct-python
+ Choose by number, - for prior, q to quit:
+
+=item -
+
+A single '-' means go back the prior directory. Use this to bounce between two directories.
+
+=item i
+
+'i' is a positive integer that is a choice that would be available if you provided no arguments. It's a short cut that can be used to bounce around between a few directories if you don't add any new ones to the list, so that the numbering does not change.
+
+=item target_dir
+
+'cd' to 'target_dir' and add 'target_dir' to the list if it is not already in the list.
+
+=item current_pattern/new_pattern
+
+Looks for the text 'current_pattern' in the current directory, replaces that with the 'new_pattern' and then attempts to 'cd' to that new location.
+
+  $ pwd
+  /home/mpersico5/gits/bbgithub/mpersico5/dpkg-docs
+  $ dirlist mpersico5 dpkg
+  -bash: cd: /home/dpkg/gits/bbgithub/mpersico5/dpkg-docs: No such file or directory
+
+  You need to be specific - its only the first match on 'current_pattern' that is used.
+
+  $ pwd
+  /home/mpersico5/gits/bbgithub/mpersico5/dpkg-docs
+  $ dirlist mpersico5/d  dpkg/d
+  $ pwd
+  /home/mpersico5/gits/bbgithub/dpkg/dpkg-docs
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -i|^i|--up i
+
+'i' is a positive integer. Using the option dash makes it "look" negative or
+using the '^' makes it look like 'up'. This is the 'up' option; it specifes
+executing `cd ..` 'i' number of times. It can be used in combination with
+relative 'target_dir' to avoid long .. chains:
+
+ $ cd /tmp
+ $ mkdir -p one/two/three/four
+ $ mkdir -p one/2/3/4/5
+ $ dirlist one/2/3/4/5
+ $ pwd
+ /tmp/one/2/3/4/5
+ # Traditionally: dirlist ../../../../two/three
+ $ dirlist -4 two/three
+ $ pwd
+ /tmp/one/two/three
+
+=item --nosavecurrent/--nosavetarget
+
+Execute 'cd' without adding the current or target directory, respectively, to the list.
+
+=item --list|--show
+
+Print the menu of directories without a prompt for input. Can be combined with a pattern to reduce the list.
+
+=item --clear|--init
+
+Delete the current list of directories.
+
+=item --prune
+
+Remove intermediate directories from the list
+
+ $ dirlist --list
+ 1) ~
+ 2) ==>~/examples/bash
+ 3) ~/gits/bbgithub/dpkg/dpkg-docs
+ 4) ~/gits/bbgithub/mpersico5/blp-dpkg-metrics/wt/db-master-swap-detection
+ 5) ~/gits/bbgithub/mpersico5/dpkg-docs
+ 6) ~/gits/bbgithub/mpersico5/dpkg-docs/wt
+ 7) ~/gits/bbgithub/mpersico5/dpkg-docs/wt/direct-python
+ 8) ~/personal/bin
+
+ $ dirlist --prune
+
+ $ dirlist --list
+ 1) ~
+ 2) ==>~/examples/bash
+ 3) ~/gits/bbgithub/dpkg/dpkg-docs
+ 4) ~/gits/bbgithub/mpersico5/blp-dpkg-metrics/wt/db-master-swap-detection
+ 6) ~/gits/bbgithub/mpersico5/dpkg-docs/wt/direct-python
+ 7) ~/personal/bin
+
+=back
+
+=cut
+
+__PODUSAGE__

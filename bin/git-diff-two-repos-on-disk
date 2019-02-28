@@ -2,67 +2,81 @@
 
 # git-diff-two-repos-on-disk
 
-declare OPTSARGS
-OPTSARGS=$(getoptp -o h --long nocolor,help,exclude:,side-by-side -n "${FUNCNAME[@]}" -- "$@")
-declare status=$?
-((status != 0)) && script-usage && exit $status
-
+declare moreopts=1
 declare nocolor=0
+declare name_only=0
 declare exclude=''
 declare side_by_side='-u'
-eval set -- "$OPTSARGS"
-while true
+while [[ "$1" =~ ^- ]] && ((moreopts))
 do
-    case "$1" in
-        -h|--help)
+    declare original="$1"
+    shift
+    declare option
+    option=$(dashstripper "$original")
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey=''
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        h|help)
             script-usage
             exit 0 ;;
-        --nocolor)
-            nocolor=1 ; shift ;;
-        --exclude)
-            exclude=$2; shift; shift ;;
-        --side-by-side)
-            side_by_side='-y --suppress-common-lines'; shift;;
+        nocolor)
+            nocolor=1 ;;
+        exclude)
+            exclude=${ovalue:-$1}; [ -z "$ovalue" ] && shift ;;
+        side-by-side)
+            side_by_side='-y --suppress-common-lines';;
+        name-only)
+            name_only=1;;
         --)
-            shift; break ;; ## end of opts, remaining $*, if any, are args
-        *)
-            cmd-echo "Internal error!"; script-usage ; exit 1 ;;
+            moreopts=0
+            ;;
+        * )
+            cmd-echo -- "$original is an invalid option. See $0 --help"
+            exit 1
+            ;;
     esac
 done
 
 declare -A repo
 if [ -n "$2" ]
 then
-    repo[this]=$(realpath "$1")
-    repo[other]=$(realpath "$2")
+    repo[left]=$(realpath "$1")
+    repo[right]=$(realpath "$2")
 elif [ -n "$1" ]
 then
-    repo[this]=$(pwd)
-    repo[other]=$(realpath "$1")
+    repo[left]=$(pwd)
+    repo[right]=$(realpath "$1")
 else
-    cmd-echo "Need at least one directory"
+    cmd-echo -- "Need at least one directory"
     script-usage; exit 1 ;
 fi
 
-if [ "${repo[this]}" = "${repo[other]}" ]
+if [ "${repo[left]}" = "${repo[right]}" ]
 then
-    cmd-echo "Other dir is this dir. Whoops! Bye."
+    cmd-echo -- "Other dir is this dir. Whoops! Bye."
     exit 1
 fi
 
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 declare -A list
-list[this]=$(mktemp -t tmp.git-diff-two-repos-on-disk.this.XXXXXXXXXX)
-list[other]=$(mktemp -t tmp.git-diff-two-repos-on-disk.other.XXXXXXXXXX)
-rm_on_exit "${list[this]}" "${list[that]}"
+list[left]=$(mktemp -t tmp.git-diff-two-repos-on-disk.left.XXXXXXXXXX)
+list[right]=$(mktemp -t tmp.git-diff-two-repos-on-disk.right.XXXXXXXXXX)
+rm_on_exit "${list[left]}" "${list[right]}"
 
-declare -A opposed
-opposed[this]=other
-opposed[other]=this
-
+# Get lists of files from each repo
 declare which
-for which in this other
+declare -A leftfiles
+declare -A rightfiles
+for which in left right
 do
     perl -e 'chdir $ARGV[0];
              print qx(git ls-files)' "${repo[$which]}" > "${list[$which]}"
@@ -71,39 +85,82 @@ do
         grep -v "$exclude" "${list[$which]}" > "${list[$which]}.filt"
         mv "${list[$which]}.filt" "${list[$which]}"
     fi
-done
-
-declare -A seen
-for which in this other
-do
     declare line
+    declare key
     while IFS='' read -r line || [[ -n "$line" ]]
     do
-        if [ -z "${seen[$line]}" ]
-        then
-            seen[$line]=$line
+        ## Because for some unknown reason a directory spec with a '/' in it
+        ## was giving me some weird error.
+        key=${line//\//%2F}
 
-            declare output
-            output=$(diff -q "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line" 2>&1 | grep -v 'Common subdirectories')
-            if [[ "$output" =~ 'No such file or directory' ]]
-            then
-                cmd-echo "Copying ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
-                cp -vf "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
-            elif [ -n "$output" ]
-            then
-                cmd-echo -- '-----'
-                declare diffcmd
-                # shellcheck disable=SC2230
-                diffcmd=$(which colordiff 2>/dev/null)
-                # shellcheck disable=SC2209 # We don't want to run diff, just
-                # prepare the command
-                ( [ -z "$diffcmd" ] || ((nocolor)) ) && diffcmd=diff
-                cmd-echo -- "$diffcmd $side_by_side ${repo[$which]}/$line ${repo[${opposed[$which]}]}/$line"
-                $diffcmd "$side_by_side" "${repo[$which]}/$line" "${repo[${opposed[$which]}]}/$line"
-                echo
-            fi
-        fi
+        ## Yes, there's some indirect referencing here. Not my fault there are
+        ## no multi-level arrays/hashes in bash.
+        eval "${which}files[$key]=${repo[$which]}/$line"
     done < "${list[$which]}"
+done
+
+declare -A missingright
+for key in "${!leftfiles[@]}"
+do
+    if [ -z "${rightfiles[$key]}" ]
+    then
+        missingright[$key]=${key//%2F/\/}
+        unset leftfiles["$key"]
+    fi
+done
+if [ "${#missingright[@]}" != '0' ]
+then
+    if ((name_only))
+    then
+        cmd-echo -- "These files do not exist in ${repo[right]}" "${missingright[@]}" >&2
+    else
+        cmd-echo -- "These files do not exist in ${repo[right]}" "${missingright[@]}"
+    fi
+fi
+
+declare -A missingleft
+for key in "${!rightfiles[@]}"
+do
+    if [ -z "${leftfiles[$key]}" ]
+    then
+        missingleft[$key]=${key//%2F/\/}
+        unset rightfiles["$key"]
+    fi
+done
+if [ "${#missingleft[@]}" != '0' ]
+then
+    if ((name_only))
+    then
+        cmd-echo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}" >&2
+    else
+        cmd-echo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}"
+    fi
+fi
+
+for key in "${!leftfiles[@]}"
+do
+    declare output
+    declare leftf
+    leftf=${leftfiles["$key"]}
+    declare rightf=${rightfiles["$key"]}
+    output=$(diff -q "$leftf" "$rightf" 2>&1 | grep -v 'Common subdirectories')
+    if [ -n "$output" ]
+    then
+        if ((name_only))
+        then
+            echo "$leftf" "$rightf"
+        else
+            cmd-echo -- '-----'
+            declare diffcmd
+            # shellcheck disable=SC2230
+            diffcmd=$(which colordiff 2>/dev/null)
+            # shellcheck disable=SC2209 # We don't want to run diff, just
+            # prepare the command
+            ( [ -z "$diffcmd" ] || ((nocolor)) ) && diffcmd=diff
+            $diffcmd "$side_by_side" "${leftf}" "${rightf}"
+            echo
+        fi
+    fi
 done
 
 exit 0
@@ -114,7 +171,9 @@ exit 0
 
 :<<'__USAGE__'
 
-Usage: git-diff-two-repos-on-disk [--nocolor] [src] tgt
+Usage: git-diff-two-repos-on-disk [--nocolor] [--name-only] \
+                                  [--exclude path/to/exclude] \
+                                  [src] tgt
        git-diff-two-repos-on-disk [-h|-help]
 
        Compare two repos on disk. If only one repo is specified,

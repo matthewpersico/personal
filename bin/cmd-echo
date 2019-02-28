@@ -15,29 +15,47 @@ declare nonl
 nonl=''
 declare continueline
 continueline=0
+declare head
+head=0
 declare title
 title=0
 declare join
 join=0
+declare id
+id=''
+declare msg_status
+msg_status=''
 declare interactive=1
 [ ! -t 1 ] && interactive=0
 
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
-    declare original
-    original="$1"
-    declare option
-    option="$1"
-    option=$(dashstripper "$original")
+    declare original="$1"
     shift
+    declare option
+    option=$(dashstripper "$original")
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey=''
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
 
     case $option in
-        head ) echo ;;
+        head ) head=1 ;;
         title )
-            echo
+            head=1
             title=1
             reset_title="${reset_normal}"
             reset_normal=''
+            ;;
+        id )
+            # shellcheck disable=SC2034 # see line 101
+            id=${ovalue:-$1}
+            [ -z "$ovalue" ] && shift
             ;;
         i ) interactive=1 ;;
         n ) nonl='-n' ;;
@@ -47,6 +65,11 @@ do
             echo "-f, -s and -o are no longer used. Ignored..."
             ;;
         j ) join=1 ;;
+        w ) msg_status='WARNING'
+            ;;
+        e ) # shellcheck disable=SC2034 # see line 101
+            msg_status='ERROR'
+            ;;
         oii | \
             only-if-interactive )
             ((interactive==0)) && exit 0
@@ -73,8 +96,17 @@ then
     dorest=''
     doresn=''
 fi
+((head)) && echo
 for p in "$@"
 do
+    for i in "id" "msg_status"
+    do
+        if [ -n "${!i}" ]
+        then
+            prefix="$prefix${!i}:"
+            eval ${i}=''
+        fi
+    done
     if ((continueline))
     then
         ## Substitutes all characters for spaces, giving us a properly
@@ -116,7 +148,7 @@ exit 0 ## USAGE guard during sourcing this file.
 
 =head1 SYNOPSIS
 
- cmd-echo [--oii] [--head] [--title] [-n] [-c] [-i] -- "text" ["text"...]
+ cmd-echo [--oii] [--head] [--title] [-n] [-c] [-i] [-id "id" ] -- "text" ["text"...]
 
 =head1 DESCRIPTION
 
@@ -170,6 +202,11 @@ Force interactive mode to force the colorization strings. Used when the output
 is being passed onto some other command as a prompt.
 
 =back
+
+=item id
+
+Prefix the first line of the message with this text and a ": " and indent
+subsequent lines accordingly.
 
 =cut
 
