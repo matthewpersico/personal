@@ -20,11 +20,13 @@ declare edit_echo=''
 declare edit_on_fail=''
 declare purge=''
 declare notimestamp=''
+declare attime=''
+declare isat=0
 declare -a original_argv
 original_argv+=("$0" "$@")
 
 # Read the options and args from command line.
-OPTSARGS=$(getoptp -o h -l tee,zenity,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
+OPTSARGS=$(getoptp -o h -l isat,at:,tee,zenity,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
 status=$?
 if ((status != 0))
 then
@@ -41,8 +43,27 @@ eval set -- "$OPTSARGS"
 
 # Reprocess the command line, extracting options and their arguments into
 # variables.
+declare opts_count=0
 while true ; do
     case "$1" in
+        --at )
+            if ((opts_count))
+            then
+                echo "--at must be first option"
+                exit 1
+            fi
+            attime="$2"
+            shift 2
+            atfile=$(mktemp -t tmp.logit.at.XXXXXXXXXX)
+            echo "logit --isat $*" > "$atfile"
+            chmod +x "$atfile"
+            at -f "$atfile" "$attime"
+            exit 0
+            ;;
+        --isat)
+            isat=1
+            shift
+            ;;
         -h|--help)
             script-usage; exit 0 ;;
         --log)
@@ -99,6 +120,15 @@ while true ; do
            exit 1 ;;
     esac
 done
+
+if ((isat)) \
+       && { (( teeit+zenityit )) \
+                || \
+                [ -n "${edit}${edit_on_fail}" ]; }
+then
+    echo "Cannot use --at with any of --teeit, --zenityit, --edit, --edit_on_fail"
+    script-usage; exit 1
+fi
 
 # Arg checking
 if [ -z "$1" ]
@@ -188,10 +218,11 @@ fi
 
 touch "$logspec" ## Critical for tee below
 logmsg="Logfile is: $logspec"
-echo "$logmsg"
-
-# And off we go...
-echo "Working..."
+if ((! isat))
+then
+    echo "$logmsg"
+    echo "Working..."
+fi
 
 if ((teeit))
 then
@@ -316,8 +347,11 @@ fi
     exit "$status"
 } >> "$logspec" 2>&1
 status=$?
-echo "$logmsg"
-echo "Exit status: $status"
+if (( !isat))
+then
+    echo "$logmsg"
+    echo "Exit status: $status"
+fi
 
 declare -a editcmd
 if [ -n "$edit" ]
@@ -356,7 +390,8 @@ exit $status
 
 :<<'__USAGE__'
 [FOO=BAR [ FOO2=BAR2... ] ] \\
-logit [ --tee | --zenity ] \\
+logit [--at time] \\
+      [ --tee | --zenity ] \\
       [ --log log_basename ] \\
       [ --notimestamp ] \\
       [ --dir log_directory ] \\
@@ -382,6 +417,9 @@ terminal you started the command with does not kill your command:
   nohup logit somecommand --options args &
 
 OPTIONS:
+      --at     - Run the command on an 'at' queue at the
+                 specified time. '--at' must be the first option,
+                 if specified.
 
       --tee    - Spin up a terminal and show the log
                  output in it as it is generated.
