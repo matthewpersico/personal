@@ -8,7 +8,7 @@ use File::Basename;
 ## This only does the physical transform. The complete set of steps for function X is:
 ##
 
-if (@ARGV==0) {
+if ( @ARGV == 0 ) {
     print <<'EOF'
 
 # Issue the following command sequence to convert one or more files X* from
@@ -30,19 +30,19 @@ if (@ARGV==0) {
   git commit $(cat committem) -m 'func to exec, convert phase'
 
 EOF
-;
-      exit 0;
+      ;
+    exit 0;
 }
 
-my $current_pathfile = '';
-my $current_file = '';
+my $current_pathfile     = '';
+my $current_file         = '';
 my $current_file_has_pod = 0;
-my @funclines = ();
+my @funclines            = ();
 
 my %RE = (
     funcname => qr/[a-zA-Z0-9_\+-]+/,
-    lvarname  => qr/[a-zA-z_][0-9a-zA-z_]+/,
-    rvarname  => qr/\$[a-zA-z_][0-9a-zA-z_]+/,
+    lvarname => qr/[a-zA-z_][0-9a-zA-z_]+/,
+    rvarname => qr/\$[a-zA-z_][0-9a-zA-z_]+/,
 );
 
 my $lineno;
@@ -50,17 +50,17 @@ LINE: while (<>) {
     ##
     ## Check for next file to convert.
     ##
-    if ($ARGV ne $current_pathfile) {
+    if ( $ARGV ne $current_pathfile ) {
         ## Write out the current file.
         if ($current_pathfile) {
             writeit();
         }
         ## Set up for new file.
-        $current_pathfile = $ARGV;
-        $current_file = basename $ARGV;
+        $current_pathfile     = $ARGV;
+        $current_file         = basename $ARGV;
         $current_file_has_pod = 0;
-        @funclines = ();
-        $lineno=0;
+        @funclines            = ();
+        $lineno               = 0;
         print qq($current_pathfile\n);
     }
     $lineno++;
@@ -68,12 +68,12 @@ LINE: while (<>) {
     ##
     ## Ensure shebang, unwind shellcheck shell spec.
     ##
-    if ($lineno == 1 and $_ !~ m|^#!/usr/bin/env bash| ) {
+    if ( $lineno == 1 and $_ !~ m|^#!/usr/bin/env bash| ) {
         ## Line 1 must be a shebang.
         push @funclines, qq(#!/usr/bin/env bash\n);
         next LINE;
     }
-    if ($lineno == 2 && $_ =~ m/shellcheck shell=bash/ ) {
+    if ( $lineno == 2 && $_ =~ m/shellcheck shell=bash/ ) {
         next LINE;
     }
 
@@ -81,9 +81,7 @@ LINE: while (<>) {
     ## Function information confirmed for replacement with current filename.
     ##
     m/# <(?:Function )?Class:/i && do {
-        push @funclines, join(qq(\n),
-                              qq(# $current_file),
-                              '');
+        push @funclines, join( qq(\n), qq(# $current_file), '' );
         next LINE;
     };
     m/# <Function Justification:\s+(.*)>/i && do {
@@ -192,7 +190,7 @@ LINE: while (<>) {
     };
 
     ## Documentation :-)
-    $current_file_has_pod=1
+    $current_file_has_pod = 1
       if $_ =~ m/^:<<'__PODUSAGE__'/;
 
     ## Fix up the name used to id the program in getopt
@@ -204,7 +202,7 @@ LINE: while (<>) {
 
 sub writeit {
     my $oh = IO::File->new("> ${current_pathfile}.tmp");
-    if (! $current_file_has_pod) {
+    if ( !$current_file_has_pod ) {
         push @funclines, <<EOF
 ## POD guard
 exit 0
@@ -269,7 +267,7 @@ __PODUSAGE__
 EOF
     }
 
-    $oh->print(@funclines, '');
+    $oh->print( @funclines, '' );
     $oh->close();
 }
 
