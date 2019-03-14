@@ -12,18 +12,18 @@ License: perl
 
 =cut
 
-while (@ARGV && $ARGV[0] =~ s/^-//) {
+while ( @ARGV && $ARGV[0] =~ s/^-// ) {
     local $_ = shift;
     while (/([cdfqx])/g) {
-	if ($1 eq 'd') {
-	    $opts{'d'} = /\G(.*)/g && $1 ? $1 : shift;
-    } elsif ( $1 eq 'x' ) {
-        $opts{'x'} ||= {};
-        my $key = /\G(.*)/g && $1 ? $1 : shift;
-        $opts{'x'}->{$key}=1;
-	} else {
-	    $opts{$1}++;
-	}
+        if ( $1 eq 'd' ) {
+            $opts{'d'} = /\G(.*)/g && $1 ? $1 : shift;
+        } elsif ( $1 eq 'x' ) {
+            $opts{'x'} ||= {};
+            my $key = /\G(.*)/g && $1 ? $1 : shift;
+            $opts{'x'}->{$key} = 1;
+        } else {
+            $opts{$1}++;
+        }
     }
 }
 
@@ -31,7 +31,7 @@ if ( !$opts{'x'} ) {
     die "No sense in using $0 if you're not extracting individual files\n";
 }
 
-local $SIG{__WARN__} = $opts{'q'} ? sub {} : sub { print @_ };
+local $SIG{__WARN__} = $opts{'q'} ? sub { } : sub { print @_ };
 
 $ENV{1} = $opts{'c'} || $opts{'f'} ? '-c' : '';
 
@@ -41,14 +41,14 @@ while (<>) {
 
 die "No script found.\n" unless $_;
 
-if ($opts{'d'}) {
+if ( $opts{'d'} ) {
     chdir $opts{'d'} || die "Can't chdir '$opts{'d'}': $!";
 }
 
 ## Pull off the head stuff
 my $head;
 while (<>) {
-    last if /# ========/; ## This is the first file
+    last if /# ========/;    ## This is the first file
     $head .= $_;
 }
 
@@ -64,15 +64,12 @@ do {
         last if $_ =~ m/# =+ [^= ]+ =.*/;
         push @code, $_;
     }
-    $opts{'x'}->{$current_file} and
-      $opts{'x'}->{$current_file} = \@code;
+    $opts{'x'}->{$current_file}
+      and $opts{'x'}->{$current_file} = \@code;
 } while ($_);
 
-my $all = join('',
-               $head,
-               map {@$_} values(%{$opts{'x'}})
-           );
-open(REM,">./.r") || die "Can't create ./.r";
+my $all = join( '', $head, map { @$_ } values( %{ $opts{'x'} } ) );
+open( REM, ">./.r" ) || die "Can't create ./.r";
 print REM $all;
 close REM;
 chmod 0700, './.r';

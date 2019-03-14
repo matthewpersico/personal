@@ -7,123 +7,138 @@ use Getopt::Long qw(:config auto_abbrev);
 my %opt;
 my %flags;
 my %count;
-my @options=
-  qw( new
-      staged-only
-      staged
-      unstaged
-      untracked
-      deleted
-      renamed
-      all-modified
-      unmodified
-      ignored
-      absolute
-      rooted);
+my @options = qw( new
+  staged-only
+  staged
+  unstaged
+  untracked
+  deleted
+  renamed
+  all-modified
+  unmodified
+  ignored
+  absolute
+  rooted);
 
-GetOptions(\%opt,
-           @options,
-           'verbose'
-       ) or die;
-die "Need at least one of " .
-  join(' ', map {"--$_"} @options)
-  if(! %opt );
+GetOptions( \%opt, @options, 'verbose' ) or die;
+die "Need at least one of " . join( ' ', map { "--$_" } @options )
+  if ( !%opt );
 %flags = %opt;
 
-if( $opt{'all-modified'} || $opt{unmodified} || $opt{deleted}) {
-    $flags{$_} = 1
-      for ( qw (staged unstaged untracked) );
+if ( $opt{'all-modified'} || $opt{unmodified} || $opt{deleted} ) {
+    $flags{$_} = 1 for (qw (staged unstaged untracked));
 }
 $flags{$_} //= 0
-  for ( qw (new staged unstaged renamed deleted untracked all unmodified ignored) );
+  for (
+    qw (new staged unstaged renamed deleted untracked all unmodified ignored));
 
-%count = map {$_ => 0} keys %flags;
+%count = map { $_ => 0 } keys %flags;
 
 my @status_flags;
 push @status_flags, '--ignored'
-  if($opt{ignored});
+  if ( $opt{ignored} );
 my @input = qx(git status @status_flags; echo GSE);
 my %files;
-my $gitroot=qx(git root);
+my $gitroot = qx(git root);
 chomp $gitroot;
-my $cwd=getcwd();
+my $cwd = getcwd();
 
-INPUT:for (@input) {
-    chomp;s/^\s+//;s/\s+$//;
+INPUT: for (@input) {
+    chomp;
+    s/^\s+//;
+    s/\s+$//;
     length($_) == 0 && next INPUT;
     $_ =~ /nothing to commit, working tree clean/ && next INPUT;
 
-    if( ( $flags{staged}
+    if (
+        (
+               $flags{staged}
             or $flags{'staged-only'}
             or $flags{new}
-            or $flags{renamed})
-          && /^Changes to be committed/ .. /^Changes not staged for commit/) {
-        /^Changes to be committed/ && next INPUT;
-        /use "git reset HEAD <file>..." to unstage/ && next INPUT;
+            or $flags{renamed}
+        )
+        && /^Changes to be committed/ .. /^Changes not staged for commit/
+      )
+    {
+        /^Changes to be committed/                   && next INPUT;
+        /use "git reset HEAD <file>..." to unstage/  && next INPUT;
         /use "git rm --cached <file>..." to unstage/ && next INPUT;
-        if( /^GSE/ ) {
+        if (/^GSE/) {
             last INPUT;
         } else {
             ## If we specify new, we print new.
             ## If we specify staged, we print staged and new.
             ## If we specify staged-only, we print only staged, not new.
             ## If we specify staged and new, we print staged and new.
-            if( $flags{new} && $_ =~ m/new file:/ ) {
+            if ( $flags{new} && $_ =~ m/new file:/ ) {
                 $count{'new'}++;
-                store_filename('new',$_);
+                store_filename( 'new', $_ );
                 next INPUT;
             }
-            if( $flags{renamed} && $_ =~ m/renamed:/ ) {
+            if ( $flags{renamed} && $_ =~ m/renamed:/ ) {
                 $count{'renamed'}++;
-                store_filename('renamed',$_);
+                store_filename( 'renamed', $_ );
                 next INPUT;
             }
-            if ($flags{'staged-only'} ) {
-                next INPUT if $_ =~ m/new file:/
+            if ( $flags{'staged-only'} ) {
+                next INPUT if $_ =~ m/new file:/;
             }
-            if ($flags{staged}
-                  or
-                  $flags{'staged-only'} ) {
+            if (   $flags{staged}
+                or $flags{'staged-only'} )
+            {
                 $count{'staged'}++;
-                store_filename('staged',$_);
+                store_filename( 'staged', $_ );
             }
         }
     }
 
-    if($flags{unstaged} ## quick shortcut
-         && /^Changes not staged for commit/ .. /^Untracked files/) {
+    if (
+        $flags{unstaged}    ## quick shortcut
+        && /^Changes not staged for commit/ .. /^Untracked files/
+      )
+    {
         /^Changes not staged for commit/ && next INPUT;
-        /use "git add <file>..." to update what will be committed/ && next INPUT;
-        /use "git checkout -- <file>..." to discard changes in working directory/ && next INPUT;
-        if( /^GSE/ ) {
+        /use "git add <file>..." to update what will be committed/
+          && next INPUT;
+/use "git checkout -- <file>..." to discard changes in working directory/
+          && next INPUT;
+        if (/^GSE/) {
             last INPUT;
         } else {
             $count{'unstaged'}++;
-            store_filename('unstaged', $_);
+            store_filename( 'unstaged', $_ );
         }
     }
 
-    if($flags{untracked} ## quick shortcut
-         && /^Untracked files/ .. /^GSE$/) {
+    if (
+        $flags{untracked}    ## quick shortcut
+        && /^Untracked files/ .. /^GSE$/
+      )
+    {
         /^Untracked files/ && next INPUT;
-        /use "git add <file>..." to include in what will be committed/ && next INPUT;
-        if( /^GSE/ ) {
+        /use "git add <file>..." to include in what will be committed/
+          && next INPUT;
+        if (/^GSE/) {
             last INPUT;
         } else {
             $count{'untracked'}++;
-            store_filename('untracked', $_);
+            store_filename( 'untracked', $_ );
         }
     }
 
-    if($flags{ignored} ## quick shortcut
-         && /^Ignored files/ .. /^GSE$/) {
+    if (
+        $flags{ignored}    ## quick shortcut
+        && /^Ignored files/ .. /^GSE$/
+      )
+    {
         /^Ignored files/ && next INPUT;
-        /use "git add -f <file>..." to include in what will be committed/ && next INPUT;
-        if( /^GSE/ ) {
+        /use "git add -f <file>..." to include in what will be committed/
+          && next INPUT;
+        if (/^GSE/) {
             last INPUT;
         } else {
             $count{'ignored'}++;
-            store_filename('ignored', $_);
+            store_filename( 'ignored', $_ );
         }
     }
 
@@ -133,62 +148,72 @@ for (qw(staged unstaged untracked ignored)) {
     $flags{$_} = $count{$_} > 0 ? 1 : 0;
 }
 
-if( $flags{unmodified} ) {
-    print join("\n", ( sort
-                         grep { ! defined $files{affected}{$_} }
-                         map {chomp;$_}
-                         qx(git ls-files)),
-               '');
-} elsif( $flags{deleted} ) {
-    print join("\n", (sort keys %{$files{deleted}}), '');
-} elsif($opt{verbose}) {
-    print join("\n", (map { "$_ - " . join(', ', @{$files{affected}{$_}}) } sort keys %{$files{affected}}), '');
+if ( $flags{unmodified} ) {
+    print join(
+        "\n",
+        (
+            sort
+            grep { !defined $files{affected}{$_} }
+            map { chomp; $_ } qx(git ls-files)
+        ),
+        ''
+    );
+} elsif ( $flags{deleted} ) {
+    print join( "\n", ( sort keys %{ $files{deleted} } ), '' );
+} elsif ( $opt{verbose} ) {
+    print join(
+        "\n",
+        (
+            map { "$_ - " . join( ', ', @{ $files{affected}{$_} } ) }
+            sort keys %{ $files{affected} }
+        ),
+        ''
+    );
 } else {
-    print join("\n", (sort keys %{$files{affected}}), '');
+    print join( "\n", ( sort keys %{ $files{affected} } ), '' );
 }
 
 sub store_filename {
     my $type = $_[0];
-    my ($subtype, $name, $newname);
-    if( $type eq 'untracked'
-          or
-          $type eq 'ignored') {
-        $name = $_[1];
+    my ( $subtype, $name, $newname );
+    if (   $type eq 'untracked'
+        or $type eq 'ignored' )
+    {
+        $name    = $_[1];
         $subtype = $type;
     } else {
-        my @splits = (map { s/\s+//g; $_} (split(/:/, $_[1])));
+        my @splits = ( map { s/\s+//g; $_ } ( split( /:/, $_[1] ) ) );
         $subtype = shift @splits;
-        $name = join(':',@splits);
-        if( $subtype eq 'renamed' ) {
-            ($name, $newname) = split(/->/, $name);
+        $name = join( ':', @splits );
+        if ( $subtype eq 'renamed' ) {
+            ( $name, $newname ) = split( /->/, $name );
         }
     }
-    return if (not defined $name
-                 or
-                 ( $subtype eq 'renamed'
-                   and
-                   (! -f $newname and ! -d $newname and ! -l $newname) )
-                 or
-                 ( $subtype ne 'deleted'
-                   and
-                   $subtype ne 'renamed'
-                   and (! -f $name and ! -d $name and ! -l $name) ) );
-    if( $opt{absolute} || $opt{rooted} ) {
+    return
+      if (
+        not defined $name
+        or ( $subtype eq 'renamed'
+            and ( !-f $newname and !-d $newname and !-l $newname ) )
+        or (    $subtype ne 'deleted'
+            and $subtype ne 'renamed'
+            and ( !-f $name and !-d $name and !-l $name ) )
+      );
+    if ( $opt{absolute} || $opt{rooted} ) {
         ## Files might be deleted, so that Cwd::abs_path() won't work. Sooooo,
         ## we do the naive thing here: /./ => / and /dir/../ -> /.
-        $name = normalize_path("$cwd/$name");
+        $name    = normalize_path("$cwd/$name");
         $newname = normalize_path("$cwd/$newname")
-          if ($newname );
+          if ($newname);
     }
-    if( $opt{rooted} ) {
+    if ( $opt{rooted} ) {
         $name =~ s|$gitroot/||;
         $newname = s|$gitroot/||
           if $newname;
     }
-    $files{$type}{$name} = $subtype;
+    $files{$type}{$name}    = $subtype;
     $files{$subtype}{$name} = 1;
-    if($files{affected}{$name}) {
-        push @{$files{affected}{$name}}, $subtype;
+    if ( $files{affected}{$name} ) {
+        push @{ $files{affected}{$name} }, $subtype;
     } else {
         $files{affected}{$name} = [$subtype];
     }
@@ -198,6 +223,6 @@ sub normalize_path {
     my $np = $_[0];
     $np =~ s|/\./|/|g;    ## foo/./bar => foo/bar
     $np =~ s|//|/|g;      ## foo//bar => foo/bar
-    while( $np =~ s|([^/][^/]*/\.\./)||g ) {} ## foo/baz/../bar => foo/bar
+    while ( $np =~ s|([^/][^/]*/\.\./)||g ) { }    ## foo/baz/../bar => foo/bar
     return $np;
 }
