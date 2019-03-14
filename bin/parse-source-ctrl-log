@@ -6,7 +6,7 @@ use strict;
 use warnings;
 
 use Cwd;
-use Data::Dumper; ## for debugging.
+use Data::Dumper;    ## for debugging.
 use File::Basename;
 use File::Spec::Functions qw(abs2rel canonpath catfile rel2abs);
 use Getopt::Long;
@@ -23,69 +23,62 @@ my $file;
 my $function;
 my $text;
 my %current = ();
-my %output = ();
-my %opt = (
-    scl => undef,
-    newscl => undef,
-    diff => 0,
-    cached => 0,
-    nosclonly => 0,
-    filesonly => 0,
-    write => 0,
-    withstatus => 0,
-    missingok => 0,
+my %output  = ();
+my %opt     = (
+    scl         => undef,
+    newscl      => undef,
+    diff        => 0,
+    cached      => 0,
+    nosclonly   => 0,
+    filesonly   => 0,
+    write       => 0,
+    withstatus  => 0,
+    missingok   => 0,
     skipmissing => 0,
-    skipgcs => 0,
-    confirm => 0,
-    color => 'always'
+    skipgcs     => 0,
+    confirm     => 0,
+    color       => 'always'
 );
 my $exit = 0;
 my %deleted;
 my %format_seen;
-my $marker = join('', qw( < G C S > ));
-my $exclusion_marker = join('', qw( < G C S L I T E R A L > ));
+my $marker           = join( '', qw( < G C S > ) );
+my $exclusion_marker = join( '', qw( < G C S L I T E R A L > ) );
 
-select((select(STDOUT), $| = 1)[0]);
-select((select(STDERR), $| = 1)[0]);
+select( ( select(STDOUT), $| = 1 )[0] );
+select( ( select(STDERR), $| = 1 )[0] );
 
-GetOptions(\%opt,
-           'scl=s',
-           'newscl|nscl=s',
-           'diff',
-           'cached',
-           'nosclonly',
-           'filesonly',
-           'write',
-           'withstatus',
-           'missingok',
-           'skipmissing',
-           'skipgcs',
-           'relok',
-           'color=s'
-       ) or die "Bad options";
+GetOptions(
+    \%opt,        'scl=s',     'newscl|nscl=s', 'diff',
+    'cached',     'nosclonly', 'filesonly',     'write',
+    'withstatus', 'missingok', 'skipmissing',   'skipgcs',
+    'relok',      'color=s'
+) or die "Bad options";
 
 die "-scl SourceCtrlLog option required"
-  if( !$opt{scl} );
-$opt{scl} = rel2abs($opt{scl});
-my $scldir = dirname($opt{scl});
+  if ( !$opt{scl} );
+$opt{scl} = rel2abs( $opt{scl} );
+my $scldir = dirname( $opt{scl} );
 
-if( $opt{write} ) {
-    die "Cannot set --write when one or more of --withstatus, --missingok, --diff, --cached are specified"
-        if ( $opt{withstatus}
-             or $opt{missingok}
-             or $opt{diff}
-             or $opt{cached});
+if ( $opt{write} ) {
+    die
+"Cannot set --write when one or more of --withstatus, --missingok, --diff, --cached are specified"
+      if ( $opt{withstatus}
+        or $opt{missingok}
+        or $opt{diff}
+        or $opt{cached} );
 
-    if( !$opt{newscl} ) {
+    if ( !$opt{newscl} ) {
         die "-newscl SourceCtrlLog option required with --write";
     } else {
-        $opt{newscl} = rel2abs($opt{newscl});
+        $opt{newscl} = rel2abs( $opt{newscl} );
     }
-} elsif( $opt{newscl} ) {
-    warn "parse-source-ctrl-log: -newscl SourceCtrlLog option ignored without --write\n";
+} elsif ( $opt{newscl} ) {
+    warn
+"parse-source-ctrl-log: -newscl SourceCtrlLog option ignored without --write\n";
 }
 
-if( $opt{filesonly} && not $opt{nosclonly} ) {
+if ( $opt{filesonly} && not $opt{nosclonly} ) {
     die "--filesonly requires --nosclonly\n";
 }
 
@@ -93,27 +86,30 @@ if( $opt{filesonly} && not $opt{nosclonly} ) {
 ## entry. If you want to infer the list from the state of repo where the
 ## SourceCtrlLog lives, that's an issue for the caller of this program.
 for (@ARGV) {
-    if (substr($_, 0, 1) ne '/') {
-        if( $opt{relok} ) {
+    if ( substr( $_, 0, 1 ) ne '/' ) {
+        if ( $opt{relok} ) {
             $_ = rel2abs($_);
         } else {
-            warn "parse-source-ctrl-log: $_ is not a fully qualified filename (does not start with '/'. Fatal.\n";
+            warn
+"parse-source-ctrl-log: $_ is not a fully qualified filename (does not start with '/'. Fatal.\n";
             $exit++;
             next;
         }
     }
-    if ( ! -e $_ ) {
-        my @ok=qx(git status $_ | grep deleted:);
-        if(scalar(@ok) != 1 ) {
-            warn "parse-source-ctrl-log: $_ not found." . ($opt{write} ? ' Fatal.' : '') . "\n";
+    if ( !-e $_ ) {
+        my @ok = qx(git status $_ | grep deleted:);
+        if ( scalar(@ok) != 1 ) {
+            warn "parse-source-ctrl-log: $_ not found."
+              . ( $opt{write} ? ' Fatal.' : '' ) . "\n";
             $exit++ if $opt{write};
         } else {
-            $deleted{$_}=1;
+            $deleted{$_} = 1;
         }
     } elsif ( -d $_ ) {
         if ( $opt{write} ) {
-            warn "parse-source-ctrl-log: $_ is a directory." . ($opt{write} ? ' Fatal.' : '') . "\n";
-            $exit++ ;
+            warn "parse-source-ctrl-log: $_ is a directory."
+              . ( $opt{write} ? ' Fatal.' : '' ) . "\n";
+            $exit++;
         }
     }
 }
@@ -122,14 +118,13 @@ if ($exit) {
     exit 1;
 }
 
-my %files = map { $_ => init_file_info ($_)
-                } @ARGV;
+my %files = map { $_ => init_file_info($_) } @ARGV;
 my @file_list = map { $_->{local_name} } values %files;
 
 my @status;
 my %diff;
-if($opt{withstatus}) {
-    $opt{missingok}=1;
+if ( $opt{withstatus} ) {
+    $opt{missingok} = 1;
     my $color = $opt{color};
     @status = qx(git -c color.status=$color status @file_list);
 }
@@ -137,47 +132,49 @@ if($opt{withstatus}) {
 ################################
 ## Grab diffs if so requested ##
 ################################
-if($opt{diff}) {
-    $opt{missingok}=1;
-    my $cached='';
+if ( $opt{diff} ) {
+    $opt{missingok} = 1;
+    my $cached = '';
     $cached = '--cached' if $opt{cached};
 
     ## Remove any deleted or moved files. This generates a list of files in
     ## scl_name (from the git root) format.
-    my @diff_list = ( map {chomp; substr($_,3)}
-                        grep { ! m/^RM/ }
-                        grep { ! m/^[D ]{2,2}/ }
-                        qx(git status --porcelain @file_list));
+    my @diff_list = (
+        map { chomp; substr( $_, 3 ) }
+        grep { !m/^RM/ }
+        grep { !m/^[D ]{2,2}/ } qx(git status --porcelain @file_list)
+    );
 
     ## Transform scl_names to local_names.
     my %files_by_scl_name = map { $_->{scl_name} => $_ } values(%files);
-    @diff_list = map {$_->{local_name}} @files_by_scl_name{@diff_list};
+    @diff_list = map { $_->{local_name} } @files_by_scl_name{@diff_list};
 
-    my @diff = map {chomp; $_} qx(git -c color.diff=$opt{color} diff $cached @diff_list);
+    my @diff = map { chomp; $_ }
+      qx(git -c color.diff=$opt{color} diff $cached @diff_list);
     my $entry;
     for my $line (@diff) {
-        if ($line =~ m/^....diff --git a/) {
+        if ( $line =~ m/^....diff --git a/ ) {
             $entry = $line;
             $entry =~ s|.*b/||;
             $entry =~ s|([/a-zA-Z0-9_.-]+).*|$1|;
             $entry = $files_by_scl_name{$entry}->{abs_name};
             $diff{$entry} = [];
         }
-        push @{$diff{$entry}}, $line;
+        push @{ $diff{$entry} }, $line;
     }
 }
 
-my $sclih = IO::File->new($opt{scl}, "r")
+my $sclih = IO::File->new( $opt{scl}, "r" )
   or die "Cannot open $opt{scl} for read:$!";
 
 my $filetag_re = qr(^\s+\* ([a-zA-Z0-9_./-]+));
 my $functag_re = qr([(]([a-zA-Z0-9_.*\<\>\[\]\|/,: -]+)[)]);
 
-my $entry_id = 0; ## A serial number, monotonically increasing. We assign one
-                  ## to each new entry because 1) we are getting a new entry
-                  ## for each comment 2) the entries are entered at the top of
-                  ## the SourceCtrlLog. So to get the right chronological flow to
-                  ## the output, we have to reverse the entries.
+my $entry_id = 0;    ## A serial number, monotonically increasing. We assign one
+## to each new entry because 1) we are getting a new entry
+## for each comment 2) the entries are entered at the top of
+## the SourceCtrlLog. So to get the right chronological flow to
+## the output, we have to reverse the entries.
 
 #########################
 ## Parse the SourceCtrlLog ##
@@ -185,65 +182,65 @@ my $entry_id = 0; ## A serial number, monotonically increasing. We assign one
 LINE: while (<$sclih>) {
     chomp;
 
-    if ( /^\d{4,4}-\d{2,2}-\d{2,2}/ ) {
+    if (/^\d{4,4}-\d{2,2}-\d{2,2}/) {
         ## date and user header line
         $entry_id++;
         push @oldput, [];
-        push @{$oldput[-1]}, $_;
-    } elsif (length($_) == 0 ) {
-        if($entry_id) {
+        push @{ $oldput[-1] }, $_;
+    } elsif ( length($_) == 0 ) {
+        if ($entry_id) {
             ## blank
-            push @{$oldput[-1]}, $_;
-            %current=();
-        } ## else it's a blank line before first entry - ignore fat fingered
-          ## typing
-    } elsif ( /^\s+$/) {
+            push @{ $oldput[-1] }, $_;
+            %current = ();
+        }    ## else it's a blank line before first entry - ignore fat fingered
+        ## typing
+    } elsif (/^\s+$/) {
         ## technically blank, so let's make it so
-        push @{$oldput[-1]}, '';
-        %current=();
+        push @{ $oldput[-1] }, '';
+        %current = ();
     } else {
         ## Parsing assumptions:
         ## 1) One SourceCtrlLog in git root for whole project.
         ## 2) Emacs variable add-log-always-start-new-record is set to 't'.
         ## 3) With #2, we can use Esc-Q to wrap text.
 
-        if( m|${filetag_re}\s*${functag_re}:\s*(.*)|) {
+        if (m|${filetag_re}\s*${functag_re}:\s*(.*)|) {
             ## * file\s*(function):\s*text
-            $file = catfile($scldir, $1);
+            $file = catfile( $scldir, $1 );
             $function = $2;
-            ($text = $3) =~ s/^\s+//;
+            ( $text = $3 ) =~ s/^\s+//;
             $text =~ s/\s+$//;
-        } elsif( m|${filetag_re}:\s*(.*)|) {
+        } elsif (m|${filetag_re}:\s*(.*)|) {
             ## * file:\s*text
-            $file = catfile($scldir, $1);
+            $file = catfile( $scldir, $1 );
             $function = NOFUNC;
-            ($text = $2) =~ s/^\s+//;
+            ( $text = $2 ) =~ s/^\s+//;
             $text =~ s/\s+$//;
-        } elsif ( m|${functag_re}:\s*(.*)|) {
+        } elsif (m|${functag_re}:\s*(.*)|) {
             ## (function):\s*text
-            $file = $current{'file'};
+            $file     = $current{'file'};
             $function = $1;
-            ($text = $2)=~ s/^\s+//;
+            ( $text = $2 ) =~ s/^\s+//;
             $text =~ s/\s+$//;
-        } elsif ( m|${filetag_re}$|) {
+        } elsif (m|${filetag_re}$|) {
             ## * file
-            $current{file} = catfile($scldir, $1);
-            next LINE; ## No function or text to be found
+            $current{file} = catfile( $scldir, $1 );
+            next LINE;    ## No function or text to be found
         } else {
             ## text
-            $file = $current{file};
+            $file     = $current{file};
             $function = $current{function};
-            ($text = $_) =~ s/^\s+//;
+            ( $text = $_ ) =~ s/^\s+//;
             $text =~ s/\s*$//;
         }
 
-        @current{qw(file function)} = ($file, $function);
+        @current{qw(file function)} = ( $file, $function );
 
-        if (not defined $file) {
+        if ( not defined $file ) {
             my $dummy = 6;
         }
 
-        if( defined $files{$file} ) {
+        if ( defined $files{$file} ) {
             ## The current entry corresponds to a file we are processing.
 
             ## Mark that a SourceCtrlLog entry has been found.
@@ -254,10 +251,10 @@ LINE: while (<$sclih>) {
               if not defined $output{$file}->{$function}->{$entry_id};
 
             ## Save the text.
-            push @{$output{$file}->{$function}->{$entry_id}}, $text;
+            push @{ $output{$file}->{$function}->{$entry_id} }, $text;
         } else {
             ## Not wanted. Store for push back to SourceCtrlLog.
-            push @{$oldput[-1]}, $_;
+            push @{ $oldput[-1] }, $_;
         }
     }
 }
@@ -265,9 +262,9 @@ $sclih->close();
 
 ## See about files with no SourceCtrlLog entries.
 my %noscl;
-for (keys %files) {
-    if( $files{$_}->{scl_entry_found} == 0 ) {
-        if ($opt{missingok} || $opt{skipmissing}) {
+for ( keys %files ) {
+    if ( $files{$_}->{scl_entry_found} == 0 ) {
+        if ( $opt{missingok} || $opt{skipmissing} ) {
             $noscl{$_} = $opt{scl};
         } else {
             print STDERR "$_ has no entry in $opt{scl}.\n";
@@ -279,8 +276,8 @@ if ($exit) {
     print STDERR "Aborting...\n";
     exit 1;
 }
-if ( %noscl and $opt{skipmissing}) {
-    delete @files{keys %noscl};
+if ( %noscl and $opt{skipmissing} ) {
+    delete @files{ keys %noscl };
 }
 
 #############################################
@@ -288,9 +285,9 @@ if ( %noscl and $opt{skipmissing}) {
 #############################################
 my $sclnew;
 my $sclnewh;
-if( $opt{write} ) {
+if ( $opt{write} ) {
     $sclnew = $opt{newscl};
-    $sclnewh =  IO::File->new($sclnew, "w")
+    $sclnewh = IO::File->new( $sclnew, "w" )
       or die "Cannot open $sclnew for write:$!";
 } else {
     $sclnewh = *STDOUT;
@@ -299,14 +296,18 @@ if( $opt{write} ) {
 ###################
 ## Create output ##
 ###################
-my $renamed_re_string   = q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}[a-z ]+:\s+<PLACEHOLDER>\s->.*(?:\x{1b}\[m){0,1}$|;
-my $tracked_re_string   = q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}[a-z ]+:\s+<PLACEHOLDER>*(?:\x{1b}\[m){0,1}$|;
-my $untracked_re_string = q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}<PLACEHOLDER>(?:\x{1b}\[m){0,1}$|;
+my $renamed_re_string =
+q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}[a-z ]+:\s+<PLACEHOLDER>\s->.*(?:\x{1b}\[m){0,1}$|;
+my $tracked_re_string =
+q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}[a-z ]+:\s+<PLACEHOLDER>*(?:\x{1b}\[m){0,1}$|;
+my $untracked_re_string =
+q|(?:\x{1b}\[\(\d+;\){0,1}\d{2,2};\d{2,2}m){0,1}<PLACEHOLDER>(?:\x{1b}\[m){0,1}$|;
 my @output;
 my $format_over;
-my $ascii_red_black = ($opt{color} ne 'never' ? '[31;40m' : '' ) ;
-my $ascii_bold_red = ($opt{color} ne 'never' ? '[1;31m' : '' ) ;
-my $ascii_normal = ($opt{color} ne 'never' ? '[m' : '' );
+my $ascii_red_black = ( $opt{color} ne 'never' ? '[31;40m' : '' );
+my $ascii_bold_red  = ( $opt{color} ne 'never' ? '[1;31m'  : '' );
+my $ascii_normal    = ( $opt{color} ne 'never' ? '[m'      : '' );
+
 if (@status) {
     ##
     ## Mixing in the SourceCtrlLog entries with git status output.
@@ -318,30 +319,38 @@ if (@status) {
         push @output, $sline;
         next STATUS if $sline eq '';
       FILE: for my $file (@files) {
-            if (not defined $files{$file}->{re}) {
+            if ( not defined $files{$file}->{re} ) {
                 my $comp = $files{$file}->{local_name};
-                ($files{$file}->{re}->{renamed} = $renamed_re_string) =~ s/<PLACEHOLDER>/$comp/;
-                $files{$file}->{re}->{renamed} = qr($files{$file}->{re}->{renamed});
-                ($files{$file}->{re}->{tracked} = $tracked_re_string) =~ s/<PLACEHOLDER>/$comp/;
-                $files{$file}->{re}->{tracked} = qr($files{$file}->{re}->{tracked});
-                ($files{$file}->{re}->{untracked} = $untracked_re_string) =~ s/<PLACEHOLDER>/$comp/;
-                $files{$file}->{re}->{untracked} = qr($files{$file}->{re}->{untracked});
+                ( $files{$file}->{re}->{renamed} = $renamed_re_string ) =~
+                  s/<PLACEHOLDER>/$comp/;
+                $files{$file}->{re}->{renamed} =
+                  qr($files{$file}->{re}->{renamed});
+                ( $files{$file}->{re}->{tracked} = $tracked_re_string ) =~
+                  s/<PLACEHOLDER>/$comp/;
+                $files{$file}->{re}->{tracked} =
+                  qr($files{$file}->{re}->{tracked});
+                ( $files{$file}->{re}->{untracked} = $untracked_re_string ) =~
+                  s/<PLACEHOLDER>/$comp/;
+                $files{$file}->{re}->{untracked} =
+                  qr($files{$file}->{re}->{untracked});
             }
-            if( $sline =~ m|$files{$file}->{re}->{renamed}|
-                  or
-                  $sline =~ m|$files{$file}->{re}->{tracked}|
-                  or
-                  $sline =~ m|$files{$file}->{re}->{untracked}|) {
+            if (   $sline =~ m|$files{$file}->{re}->{renamed}|
+                or $sline =~ m|$files{$file}->{re}->{tracked}|
+                or $sline =~ m|$files{$file}->{re}->{untracked}| )
+            {
                 push_to_output($file);
                 next STATUS;
             }
         }
 
-        (my $local_name_from_sline = $sline ) =~ s|.*:\s+([a-zA-Z0-9_./-]+).*|$1|;
-        my $abs_name_from_sline = canonpath(catfile(cwd(), $local_name_from_sline) );
-        if (exists ($noscl{$abs_name_from_sline})) {
+        ( my $local_name_from_sline = $sline ) =~
+          s|.*:\s+([a-zA-Z0-9_./-]+).*|$1|;
+        my $abs_name_from_sline =
+          canonpath( catfile( cwd(), $local_name_from_sline ) );
+        if ( exists( $noscl{$abs_name_from_sline} ) ) {
             my $function = NOSCLENTRY;
-            $output{$abs_name_from_sline}->{$function}->{$entry_id++} = [ 'NE' ];
+            $output{$abs_name_from_sline}->{$function}->{ $entry_id++ } =
+              ['NE'];
             push_to_output($abs_name_from_sline);
         }
     }
@@ -350,29 +359,29 @@ if (@status) {
     ## Just write the SourceCtrlLog output.
     ##
     $format_over = '';
-    my $morethan1=-1;
-    for $file (sort keys %output) {
+    my $morethan1 = -1;
+    for $file ( sort keys %output ) {
         $morethan1++;
-        push_to_output($file, $files{$file}->{scl_name});
+        push_to_output( $file, $files{$file}->{scl_name} );
     }
     unshift @output, "SUMMARY LINE HERE"
       if ($morethan1);
 }
 
-if( $opt{filesonly}) {
-    @output = map { s/\x{1b}.*//; $_ } ## Strip the trailing text
-      map { s/^.*?:\s+//; $_} ## Strip the leading text
-      grep { /No SourceCtrlLog entry found/ } ## Get the lines with file names
+if ( $opt{filesonly} ) {
+    @output = map { s/\x{1b}.*//; $_ }    ## Strip the trailing text
+      map { s/^.*?:\s+//; $_ }            ## Strip the leading text
+      grep { /No SourceCtrlLog entry found/ }   ## Get the lines with file names
       @output;
 }
 
-$sclnewh->print(join("\n", @output))
-  if(@output);
+$sclnewh->print( join( "\n", @output ) )
+  if (@output);
 
 #####################
 ## Post processing ##
 #####################
-if( $opt{write} ) {
+if ( $opt{write} ) {
     ## Now store the unused entries back in the SourceCtrlLog.
 
     ## Close the new entries file.
@@ -380,61 +389,61 @@ if( $opt{write} ) {
 
     if (@oldput) {
         ## Reopen the SourceCtrlLog.
-        my $scloldh =  IO::File->new($opt{scl}, "w")
+        my $scloldh = IO::File->new( $opt{scl}, "w" )
           or die "Cannot open $opt{scl} for re-write:$!";
 
         my @tmpout;
         my @newout;
         for my $group (@oldput) {
-            my $non_blank_non_date_count=0;
-            my $prev='';
-          LINE: for my $line (@{$group}) {
-                if ($line =~ m/^\d{4,4}-\d{2,2}-\d{2,2}/) {
+            my $non_blank_non_date_count = 0;
+            my $prev                     = '';
+          LINE: for my $line ( @{$group} ) {
+                if ( $line =~ m/^\d{4,4}-\d{2,2}-\d{2,2}/ ) {
                     push @newout, @tmpout
-                      if( @tmpout > 2);
+                      if ( @tmpout > 2 );
                     @tmpout = ($line);
                     next LINE;
                 }
 
                 push @tmpout, $line
-                  if( $tmpout[-1] ne $line );
+                  if ( $tmpout[-1] ne $line );
             }
 
             ## Last one
             push @newout, @tmpout
-              if( @tmpout > 2);
-            @tmpout=();
+              if ( @tmpout > 2 );
+            @tmpout = ();
         }
-        if(!@newout) {
+        if ( !@newout ) {
             ## Then we have eaten all the data, no lines to write back, but we
             ## have to write SOMETHING to get an empty file.
             push @newout, '';
         }
-        $scloldh->print(join(qq(\n),@newout));
+        $scloldh->print( join( qq(\n), @newout ) );
         $scloldh->close();
     }
 }
 
 sub set_indent_from_lead {
-    return ' ' x length($_[0]);
+    return ' ' x length( $_[0] );
 }
 
 sub push_to_output {
-    my ($file, $header) = @_;
-    my $filedata = $output{$file};
+    my ( $file, $header ) = @_;
+    my $filedata         = $output{$file};
     my $functions_pushed = 0;
 
-    if ($opt{nosclonly} && $files{$file}->{scl_entry_found}) {
-        pop @output; ## Remove the filename from the output
+    if ( $opt{nosclonly} && $files{$file}->{scl_entry_found} ) {
+        pop @output;    ## Remove the filename from the output
         return;
     }
 
-    if(exists ($format_seen{$file})) {
+    if ( exists( $format_seen{$file} ) ) {
         ## then we probably have one file in multiple sections. Print a
         ## reference here and move on.
         push @output,
-          join('', $format_over, "Duplicate entry. See above."),
-          '' ;
+          join( '', $format_over, "Duplicate entry. See above." ),
+          '';
         return;
     }
     ## We compose the markers this way so that the grep does not
@@ -444,94 +453,102 @@ sub push_to_output {
       if not exists $deleted{$file};
     if (@gcs) {
         if ( $opt{write} ) {
-            if( $opt{skipgcs} ) {
-                print STDERR join('',
-                                  "Skipping $file, GCS Entries:\n",
-                                  @gcs);
+            if ( $opt{skipgcs} ) {
+                print STDERR join( '', "Skipping $file, GCS Entries:\n", @gcs );
                 return;
             } else {
-                die join('',
-                         "Cannot process commit with $file, GCS Entries:\n",
-                         @gcs);
+                die join( '',
+                    "Cannot process commit with $file, GCS Entries:\n", @gcs );
             }
         } else {
-            push @output, map{"${format_over}$_"} ("${ascii_bold_red}GCS Entries:${ascii_normal}", map{chomp;$_} @gcs), '';
+            push @output,
+              map { "${format_over}$_" } (
+                "${ascii_bold_red}GCS Entries:${ascii_normal}",
+                map { chomp; $_ } @gcs
+              ),
+              '';
         }
     }
 
     my $space_files = 0;
-    for $function (sort keys %{$filedata}) {
-        my $lead = '  o '; ## Assume indent under a function entry.
+    for $function ( sort keys %{$filedata} ) {
+        my $lead = '  o ';    ## Assume indent under a function entry.
         my $indent = set_indent_from_lead($lead);
-        if ( not exists ($format_seen{$file})
-               and
-               defined($header) ) {
-            push @output, join('', $format_over, $header);
+        if ( not exists( $format_seen{$file} )
+            and defined($header) )
+        {
+            push @output, join( '', $format_over, $header );
         }
-        if ( not exists ($format_seen{$file}->{$function}) ) {
+        if ( not exists( $format_seen{$file}->{$function} ) ) {
             push @output, ''
               if ($functions_pushed);
 
             $format_seen{$file}->{$function} = 1;
             $functions_pushed++;
-            if ( $function ne NOSCLENTRY) {
-                push @output, join('', $format_over, $function)
-                  if( $function ne NOFUNC);
-                if ($function =~ m|(.*)/$|) {
-                    substr($output[-1], length($output[-1])-1, 1) = '(env)';
-                } elsif( $function ne NOFUNC ) {
+            if ( $function ne NOSCLENTRY ) {
+                push @output, join( '', $format_over, $function )
+                  if ( $function ne NOFUNC );
+                if ( $function =~ m|(.*)/$| ) {
+                    substr( $output[-1], length( $output[-1] ) - 1, 1 ) =
+                      '(env)';
+                } elsif ( $function ne NOFUNC ) {
                     $output[-1] =~ s/,/(),/g;
-                    $output[-1] .= '():'
+                    $output[-1] .= '():';
                 }
             }
         }
-        for my $order (sort {$b <=> $a} keys %{$filedata->{$function}} ) {
-            if( $function eq NOSCLENTRY) {
-                push @output, join('', $format_over, shift @{$filedata->{$function}->{$order}});
+        for my $order ( sort { $b <=> $a } keys %{ $filedata->{$function} } ) {
+            if ( $function eq NOSCLENTRY ) {
+                push @output,
+                  join( '',
+                    $format_over, shift @{ $filedata->{$function}->{$order} } );
                 $space_files = 1;
-                if ($output[-1] eq "${format_over}NE") {
+                if ( $output[-1] eq "${format_over}NE" ) {
                     pop @output;
-                    if(not @gcs) {
-                        $output[-1] .= ": ${ascii_bold_red}No SourceCtrlLog entry found.${ascii_normal}";
+                    if ( not @gcs ) {
+                        $output[-1] .=
+": ${ascii_bold_red}No SourceCtrlLog entry found.${ascii_normal}";
                         $space_files = 0;
                     } else {
-                        push @output, "${format_over}${ascii_bold_red}No SourceCtrlLog entry found.${ascii_normal}";
+                        push @output,
+"${format_over}${ascii_bold_red}No SourceCtrlLog entry found.${ascii_normal}";
                     }
-                    @gcs=();
+                    @gcs = ();
                 }
             } else {
-                my @wrapped = split(/\n/,wrap('','',@{$filedata->{$function}->{$order}}));
+                my @wrapped = split( /\n/,
+                    wrap( '', '', @{ $filedata->{$function}->{$order} } ) );
                 my $line1 = shift(@wrapped);
-                $line1 =~ s/^\s+//; ## If the file/function line is so long
-                                    ## that the text is pushed to the next
-                                    ## line, we get spurious space between the
-                                    ## lead and the first word.
+                $line1 =~ s/^\s+//;    ## If the file/function line is so long
+                ## that the text is pushed to the next
+                ## line, we get spurious space between the
+                ## lead and the first word.
                 if ( $function eq NOFUNC ) {
-                    $lead = 'o '; ## Indent at file level; no func.
+                    $lead = 'o ';    ## Indent at file level; no func.
                     $indent = set_indent_from_lead($lead);
                 }
-                $line1 = join('', $format_over, $lead, $line1 );
-                push @output,
-                  $line1,
+                $line1 = join( '', $format_over, $lead, $line1 );
+                push @output, $line1,
                   ## Line 2+
                   map { join( '', $format_over, $indent, $_ ) } @wrapped;
                 $space_files = 1;
             }
         }
     }
-    push @output, '' if($space_files);
+    push @output, '' if ($space_files);
 
-    if (exists($diff{$file})) {
-        push @output, (map { join( '', $format_over, $_ ) } @{$diff{$file}}), '';
+    if ( exists( $diff{$file} ) ) {
+        push @output,
+          ( map { join( '', $format_over, $_ ) } @{ $diff{$file} } ), '';
     }
 }
 
 sub init_file_info {
-    return  {
+    return {
         scl_entry_found => 0,
-        local_name => abs2rel($_[0], $cwd),
-        abs_name => $_[0],
-        scl_name => abs2rel($_[0], $scldir)
+        local_name      => abs2rel( $_[0], $cwd ),
+        abs_name        => $_[0],
+        scl_name        => abs2rel( $_[0], $scldir )
     };
 }
 

@@ -6,43 +6,36 @@ use warnings;
 # find-dpkg-perl-modules
 use Getopt::Long qw(:config auto_abbrev);
 
-my %more_than_once_exceptions = map { $_ => 1 }
-  qw( constant
-      lib
+my %more_than_once_exceptions = map { $_ => 1 } qw( constant
+  lib
 );
 
 my %opt = (
     distribution => 'unstable',
-    maintainer => 'UNKNOWN',
-    description => 'UNKNOWN'
+    maintainer   => 'UNKNOWN',
+    description  => 'UNKNOWN'
 );
 
-GetOptions(\%opt,
-           'distribution=s',
-           'maintainer=s',
-           'description=s',
-           'bdeps|build-depends=s@',
-           'deps|depends=s@',
-       )
+GetOptions( \%opt, 'distribution=s', 'maintainer=s', 'description=s',
+    'bdeps|build-depends=s@', 'deps|depends=s@', )
   or die "$@";
 
-$opt{deps} = [ map {split(/,/,$_)} @{$opt{deps}} ];
+$opt{deps} = [ map { split( /,/, $_ ) } @{ $opt{deps} } ];
 
-my $current_package = (
-    map { chomp; s|.*/||; $_} qx(git config --list | grep remote.origin.url)
-)[0];
+my $current_package =
+  ( map { chomp; s|.*/||; $_ } qx(git config --list | grep remote.origin.url) )
+  [0];
 my %package_file_map;
 my %package_module_map;
 
 ##
 ## Get list of 'use' statements and in what files they are used.
 ##
-my @file_use_data = map {chomp; $_}
-  qx(git grep -e '^use ' );
+my @file_use_data = map { chomp; $_ } qx(git grep -e '^use ' );
 
 ## For each file/use statement pair...
 for my $pair (@file_use_data) {
-    my ($file, $module) = split(/:use /,$pair);
+    my ( $file, $module ) = split( /:use /, $pair );
 
     ## Strip off module arguments or the end ;
     $module =~ s/(\s+.*|;.*)//;
@@ -55,38 +48,35 @@ for my $pair (@file_use_data) {
     ## Package mappings
     $package_module_map{$package} = $module;
 
-    not defined($package_file_map{$package})
+    not defined( $package_file_map{$package} )
       and $package_file_map{$package} = {};
     $package_file_map{$package}->{$file}++;
 
     warn "Warning: $module 'use'd more than once in $file\n"
-      if($package_file_map{$package}->{$file} == 2
-         and not exists $more_than_once_exceptions{$module});
+      if ( $package_file_map{$package}->{$file} == 2
+        and not exists $more_than_once_exceptions{$module} );
 }
 
 ##
 ## Get the list of packages in the distro.
 ##
-my %distro_package_list = map { chomp; split(/\s+/,$_) }
-  qx( dpkg-distro-list --packages-root="https://blp-dpkg.dev.bloomberg.com" $opt{distribution});
+my %distro_package_list = map { chomp; split( /\s+/, $_ ) }
+qx( dpkg-distro-list --packages-root="https://blp-dpkg.dev.bloomberg.com" $opt{distribution});
 
 ##
 ## Find those modules that are dpkged
 ##
 my %found =
-  map { $_ => $package_file_map{$_}}
-  grep {$package_module_map{$_}}
-  keys (%distro_package_list);
+  map { $_ => $package_file_map{$_} }
+  grep { $package_module_map{$_} }
+  keys(%distro_package_list);
 
 ##
 ## Add those requested from the command line.
 ##
-$found{$_}->{"$_.fakefile"} = 1
-  for (@{$opt{deps}});
+$found{$_}->{"$_.fakefile"} = 1 for ( @{ $opt{deps} } );
 
-$found{$_}->{"t/$_.fakefile"} = 1
-  for (@{$opt{bdeps}},
-       @{$opt{deps}});
+$found{$_}->{"t/$_.fakefile"} = 1 for ( @{ $opt{bdeps} }, @{ $opt{deps} } );
 
 my %build_deps;
 my %deps;
@@ -94,22 +84,22 @@ my %deps;
 ##
 ## Add packages to the appropriate sections
 ##
-for my $package (keys %found) {
-    for my $file ( keys(%{$found{$package}})) {
+for my $package ( keys %found ) {
+    for my $file ( keys( %{ $found{$package} } ) ) {
         ## Safest thing to do is add all packages to BuildDepends, but only the
         ## non test ones to depends.
-        $build_deps{$package}=$package;
-        if (substr($file, 0, 2) ne 't/') {
-            $deps{$package}=$package;
+        $build_deps{$package} = $package;
+        if ( substr( $file, 0, 2 ) ne 't/' ) {
+            $deps{$package} = $package;
         }
     }
 }
 
-$build_deps{'perl-debhelper'}='perl-debhelper';
-$deps{'-perl'} = '-perl'; ## This one gets us ${perl:Version}
+$build_deps{'perl-debhelper'} = 'perl-debhelper';
+$deps{'-perl'} = '-perl';    ## This one gets us ${perl:Version}
 my $current_binary_package = $current_package;
 
-for (values %deps, $current_binary_package) {
+for ( values %deps, $current_binary_package ) {
     $_ =~ s/^-perl$/\$\{perl:Version\}/;
     $_ =~ s/-perl$/-\$\{perl:Version\}/;
 }
@@ -142,7 +132,7 @@ Architecture: all
 Depends: ${current_binary_package}
 Description: dependency package
 EOCONTROL
-;
+  ;
 exit 0;
 
 =head1 NAME
