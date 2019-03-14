@@ -60,7 +60,7 @@ main ()
 
             wait ) synchronous=1 ;;
 
-            all | public | private | forks| sources | member )
+            all | public | private | forks| sources | member | contents )
                 scope=$option ;;
 
             pull )
@@ -122,7 +122,7 @@ main ()
     shift
 
     case $action in
-        fork | list-forks | exists | ping | pulls)
+        fork | list-forks | exists | ping | pulls | contents )
             ## Requires a repo
             if [ -z "$1" ]
             then
@@ -140,6 +140,11 @@ main ()
             [ -z "$org" ] && cmd-echo -- "No org specified" && bail=1
             [ -z "$repo" ] && cmd-echo -- "No repo specified" && bail=1
             ((bail)) && return 1
+
+            if [[ $action == 'contents' ]]
+            then
+                contents="$1"; shift
+            fi
             ;;
 
         orgs | repos )
@@ -229,6 +234,11 @@ main ()
             url="repos/$org/$repo/pulls"
             [ -n "$pullId" ] && url="${url}/$pullId"
             ;;
+
+        contents)
+            url="repos/$org/$repo/contents/$contents"
+            ;;
+
     esac
 
     declare curlheaders
@@ -274,6 +284,22 @@ main ()
         declare htmlstatus
         htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
         case $action in
+            contents)
+                case $htmlstatus in
+                    200 )
+                        # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
+                        echo '$VAR1=' > "$perldata"
+                        json_xs -t dumper < "$curldata" >> "$perldata"
+                        perl -MMIME::Base64 -e 'do $ARGV[0]; print decode_base64($VAR1->{content})' "$perldata"
+                        ;;
+                    * )
+                        cmd-echo -- "Error: HTML status $(grep "Status:" "$curlheaders")"
+                        curl-cat
+                        return 1
+                        ;;
+                esac
+                ;;
+
             exists )
                 case $htmlstatus in
                     200 )
