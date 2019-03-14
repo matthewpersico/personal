@@ -17,7 +17,7 @@ git-go ()
     local opt_mod=0
     local opt_exact=''
     local opt_size=0
-    local opt_all=0
+    local opt_brief=0
     local moreopts
     local -a limited
     moreopts=1
@@ -47,30 +47,37 @@ git-go ()
             wto* ) opt_subwt_only='-o' ;;
             stat ) opt_stat=1; opt_list=1 ;;
             dirty ) opt_stat=2; opt_list=1 ;;
+            b| brief ) opt_brief=1 ;;
             mod ) opt_mod=1;;
             limited ) limited=('--limited' "$1"); shift ;;
-            all ) opt_all=1;;
             h | help ) func-usage git-go; return 0 ;;
             -- ) moreopts=0; break ;; ## end of opts, remaining $*, if any, are args
             * ) echo "$original is an invalid option."; func-usage git-go; return 1 ;;
         esac
     done
 
+    if ((opt_stat!=2)) && ((opt_brief))
+    then
+        cmd-echo -- "Cannot specify --brief without --dirty"
+        func-usage git-go; return 1
+    fi
+
     [ -n "$opt_wt" ] && git_get_opts+=("$opt_wt")
     [ -n "$opt_subwt_only" ] && git_get_opts+=("$opt_subwt_only");
     [ -n "$opt_exact" ] && git_get_opts+=("$opt_exact")
 
     local -a tgts
+
+    ## Grab the first argument which has to be blank or a filter
     if [ -n "$1" ]
     then
-        if ((!opt_all))
-        then
-            tgts+=("$1")
-            shift;
-            ## else we want to treat $1 as an index in the whole list, using
-            ## the next block of code.
-        fi
+        tgts+=("$1")
+        shift;
     fi
+
+    ## Grab the second argument. If it is a number, it is an index to the list
+    ## returned after applying the first filter. If not then it, and any other
+    ## arguments after it, are more filters.
     local opt_repo_no=0
     local opt_repo_sel=''
     if [ -n "$1" ]
@@ -164,8 +171,18 @@ git-go ()
                     fi
                     if ((opt_stat==2))
                     then
-                        (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
-                         (( $(git status --porcelain | wc -l) )) && (echo "$rexp" && git status --porcelain && echo))
+                        (
+                            cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
+                            if (( $(git status --porcelain | wc -l) ))
+                            then
+                                echo "$rexp"
+                                if ((opt_brief==0))
+                                then
+                                    git status --porcelain
+                                    echo
+                                fi
+                            fi
+                        )
                     fi
                 fi
             done
@@ -248,9 +265,10 @@ git-go ()
 
 return 0 ## USAGE guard when sourcing
 :<<'__USAGE__'
-Usage: git-go [--list[full] [--size] [--stat|--dirty] [--update|-u] \
+Usage: git-go [--list[full] [--size] [--stat|--dirty [--brief]] [--update|-u] \
               [--roots|-r] [--mbig|-m] \
-              [--wt|--nowt|--wtonly ] [--mod] [dirmatch] [item]
+              [--wt|--nowt|--wtonly ] [--mod] \
+              [ [dirmatch [item]] | [dirmatch...]
 
        git-go [-h|--help]
 
@@ -258,8 +276,7 @@ Usage: git-go [--list[full] [--size] [--stat|--dirty] [--update|-u] \
        choose and then cd to.
 
        --list
-           Skip the choosing part and just exit, printing each repo            '~' expanded.
-dir with a
+           Skip the choosing part and just exit, printing each repo dir with a
            literal '~'.
 
        --listfull
@@ -278,6 +295,10 @@ dir with a
        --dirty
            Invoke as if --stat was specified, but only print repos and status
            where there is a non-blank status.
+
+       --brief
+           Requires --dirty, eliminated the status output, just prints the
+           dirty repos.
 
        --update
            Rescan to pick up new and deleted repos and worktrees.
@@ -308,4 +329,8 @@ dir with a
        'item' is an integer N which will pick the Nth item in the
            list of repos that would be presented if you didn't specify
            an 'item'. Useful if you are cycling between a small number of repos.
+
+       You can specify 'item' only after one 'dirmatch' filter. Otherwise you can specify
+       0 or more 'dirmatch' filters.
+
 __USAGE__
