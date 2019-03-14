@@ -151,6 +151,8 @@ fi
 
 ## Backup
 cp -f "$source_ctrl_log" "$source_ctrl_logbkp"
+
+## Do it
 $DEBUG_PARSE_SOURCE_CTRL_LOG parse-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
 status=$?
 if ((status!=0))
@@ -161,6 +163,7 @@ then
     exit $status
 fi
 
+echo "in git-process-source-ctrl-log......"
 if [ "$action" = 'commit' ]
 then
     ## We rebuild the filelist from the commit message file so that we can
@@ -177,20 +180,47 @@ then
     fi
     if [ "$resp" = 'y' ]
     then
-         if [ -z "$git_editor" ]
-         then
-             git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
-         else
-             GIT_EDITOR=$git_editor git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
-         fi
-         status=$?
-         if((status!=0))
-         then
-             ## Restore
-             cmd-echo "Rolling back $source_ctrl_log"
-             cp -f "$source_ctrl_logbkp" "$source_ctrl_log"
-             exit $status
-         fi
+        declare git_status_before
+        git_status_before=$(mktemp -t tmp.git-process-source-ctrl-log.XXXXXXXXXX)
+#        rm_on_exit "$git_status_before"
+        $REALGIT status --porcelain > "$git_status_before" 2>&1
+        if [ -z "$git_editor" ]
+        then
+            git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
+        else
+            GIT_EDITOR=$git_editor git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
+        fi
+        status=$?
+        if ((status==0))
+        then
+            ## PROBLEM - it appears that if a git commit is aborted due to a
+            ## hook failure, we don't get an error return, which means we don't
+            ## rollback the $source_ctrl_log. Sooooo, we defensively try to
+            ## ferret out that problem by looking at git status before and
+            ## after the commit - if they are the same, it probably failed the
+            ## hook.
+            declare git_status_after
+            git_status_after=$(mktemp -t tmp.git-process-source-ctrl-log.XXXXXXXXXX)
+#            rm_on_exit "$git_status_after"
+            $REALGIT status --porcelain > "$git_status_after" 2>&1
+            diff -q "$git_status_before" "$git_status_after"
+            diffstatus=$?
+            if ((diffstatus==0))
+            then
+                cmd-echo "git commit exited successfully, but with no change in git status," \
+                         "we are assuming the pre-commit hook failed. As a precaution," \
+                         "we will roll back $source_ctrl_log"
+                status=1
+            fi
+        fi
+
+        if((status!=0))
+        then
+            ## Restore
+            cmd-echo "Rolling back $source_ctrl_log"
+            cp -f "$source_ctrl_logbkp" "$source_ctrl_log"
+            exit $status
+        fi
     else
         cmd-echo "Commit aborted"
     fi
