@@ -7,22 +7,6 @@ then
     exit 1
 fi
 
-cmd_echo_id='git-worktree'
-
-## Before we even start, make sure that the underlying client hasn't changed
-## under us. Otherwise we can have issues with the passthough options, either
-## new ones we don't handle or deprecated ones we have not removed.
-
-realgit_verified_version_string='git version 2.19.2'
-if [ ! "$($REALGIT --version)" = "$realgit_verified_version_string" ]
-then
-    cmd-echo -id "$cmd_echo_id" -e -- \
-             "Verified to $realgit_verified_version_string," \
-             "but $($REALGIT --version) is installed." \
-             "Please investigate."
-    exit 1
-fi
-
 usage ()
 {
     (
@@ -719,23 +703,41 @@ git-worktree-mark-merged ()
     # shellcheck disable=SC2119
     if ! git-worktree-ina
     then
-        cmd-echo -- "Must be in a wt"
+        cmd-echo -- "Must be in a worktree"
         return 1;
     fi
 
-    local wtname
-    wtname="$(basename "$(pwd)")"
+    local worktreename
+    worktreename="$(basename "$(pwd)")"
+    local worktreekey="worktree.$worktreename.em-markedmerged"
 
     local branchname
     branchname="$(git branch get-current)"
+    local branchkey="branch.$branchname.em-markedmerged"
 
     local markdate
     markdate="$(date "$GIT_EXT_META_DATE_FMT")"
 
-    git config --replace-all "worktree.$wtname.em-markedmerged" "$markdate" || exit $?
-    git config --replace-all "branch.$branchname.em-markedmerged" "$markdate" || exit $?
+    git config --replace-all "$worktreekey" "$markdate" || exit $?
+    git config --replace-all "$branchkey" "$markdate" || exit $?
 
-    cmd-echo "Worktree $wtname, branch $branchname marked merged at $markdate"
+    cmd-echo "Worktree $worktreename, branch $branchname marked merged at $markdate"
+}
+
+git-worktree-comment ()
+{
+    # shellcheck disable=SC2119
+    if ! git-worktree-ina
+    then
+        cmd-echo -- "Must be in a worktree"
+        return 1;
+    fi
+    if [[ $1 =~ -(show|get) ]]
+    then
+        git comment --get --worktree
+    else
+        git comment --branch --worktree "$@"
+    fi
 }
 
 main ()
@@ -786,6 +788,7 @@ git-worktree - git extention of git worktree
  git-worktree diff-to-root
  git-worktree ina
  git-worktree mark-merged|mm
+ git-worktree comment
 
 =head1 DESCRIPTION
 
@@ -901,7 +904,16 @@ Write configs 'worktree.<worktreename>.em-markmerged' and
 'branch.<branchname>.em-markmerged' as the current date and time. Use this if
 the worktree has been merged and can be deleted by some periodic sweep process.
 
+=item comment
+
+Add a comment that can be retrieved later. The current time is added to the end
+of the comment when written.
+
+ git worktree comment "some text explaining where you left off, maybe?"
+ git worktree comment -[get|show]
+
 =back
+
 
 =cut
 
