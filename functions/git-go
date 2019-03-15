@@ -37,6 +37,8 @@ git-go ()
             et | exact-tail ) opt_exact='--exact-tail';;
             eh | exact-head ) opt_exact='--exact-head';;
             l | list ) opt_list=1 ;;
+            comment-o* | with-comment-o* \
+                | comments-o* | with-comments-o*) opt_comments=2 ;;
             comment* | with-comment*) opt_comments=1 ;;
             listfull ) opt_list=2 ;;
             size ) opt_size=1; opt_list=1 ;;
@@ -161,17 +163,17 @@ git-go ()
                 else
                     local rexp
                     ((opt_list==1)) && rexp="~/${r}" || rexp="${TILDAE:-$HOME}/${r}"
-                    if ((opt_stat==0))
-                    then
-                        echo "$rexp"
-                    elif ((opt_stat==1))
+#                    if ((opt_stat==0))
+#                    then
+#                        echo "$rexp"
+#                    el
+                    if ((opt_stat==1))
                     then
                         echo "$rexp"
                         (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
                          git status --porcelain)
                         echo
-                    fi
-                    if ((opt_stat==2))
+                    elif ((opt_stat==2))
                     then
                         (
                             cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
@@ -185,15 +187,21 @@ git-go ()
                                 fi
                             fi
                         )
-                    fi
-                    if ((opt_comments))
+                    elif ((opt_comments))
                     then
                         (
                             cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
                             local output
                             output="$(git comment --show --hi)"
+                            if ((opt_comments==1)) || \
+                                   ( ((opt_comments==2)) && [[ -n $output ]] )
+                            then
+                                echo "$rexp"
+                            fi
                             [[ -n $output ]] && echo "    $output" && echo
                         )
+                    else
+                        echo "$rexp"
                     fi
                 fi
             done
