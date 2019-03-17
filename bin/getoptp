@@ -8,34 +8,28 @@ use strict;
 use warnings;
 
 use Getopt::Long qw(:config
-                    pass_through
-               );
+  pass_through
+);
 
 ## Options to getoptp
-my %metaopt =
-  ( 'o' => '',
+my %metaopt = (
+    'o' => '',
     'l' => '',
     'n' => 'getoptp',
     ## These control the behavior of the parsing for the caller's
     ## options. These defaults are either getopt behavior or this scripts
     ## default from creation.
-    'permute' => 1,
+    'permute'     => 1,
     'auto_abbrev' => 1,
     'ignore_case' => 1
 );
 
-GetOptions (\%metaopt,
-            'o=s',
-            'l|long=s',
-            'n=s',
-            'permute!',
-            'auto_abbrev!',
-            'ignore_case!'
-        );
+GetOptions( \%metaopt, 'o=s', 'l|long=s', 'n=s', 'permute!', 'auto_abbrev!',
+    'ignore_case!' );
 
-shift @ARGV if ($ARGV[0] and $ARGV[0] eq '--' ); ## This should be the end of
-                                                 ## getoptp's options
-                                                 ## indicator.
+shift @ARGV if ( $ARGV[0] and $ARGV[0] eq '--' );   ## This should be the end of
+## getoptp's options
+## indicator.
 
 ## The options to the caller's program
 my %optshort;
@@ -44,61 +38,62 @@ my @optctrl;
 my %opt;
 
 for my $opt (qw(permute auto_abbrev ignore_case)) {
-    Getopt::Long::Configure(($metaopt{$opt} ? '' : 'no_') . $opt);
+    Getopt::Long::Configure( ( $metaopt{$opt} ? '' : 'no_' ) . $opt );
 }
 
-if ($metaopt{o}) {
+if ( $metaopt{o} ) {
     ## No commas between short options and some can have ':' so the split is
     ## more involved.
     my @split;
-    for (split(//,$metaopt{o})) {
+    for ( split( //, $metaopt{o} ) ) {
         $_ eq ':' ? $split[-1] .= ':' : push @split, $_;
     }
-    %optshort = map { /(.*):/ ? ($1 => 's') : ($_ => 1)} @split;
-    push @optctrl, map { s/:/=s/; $_} @split;
+    %optshort = map { /(.*):/ ? ( $1 => 's' ) : ( $_ => 1 ) } @split;
+    push @optctrl, map { s/:/=s/; $_ } @split;
 }
 
-if ($metaopt{l}) {
-    %optlong = map { /(.*):/ ? ($1 => 's') : ($_ => 1)} split(/,/, $metaopt{l});
-    push @optctrl, map { s/:/=s/; $_} split(/,/, $metaopt{l});
+if ( $metaopt{l} ) {
+    %optlong =
+      map { /(.*):/ ? ( $1 => 's' ) : ( $_ => 1 ) } split( /,/, $metaopt{l} );
+    push @optctrl, map { s/:/=s/; $_ } split( /,/, $metaopt{l} );
 }
 
-GetOptions(\%opt,
-           @optctrl);
+GetOptions( \%opt, @optctrl );
 
 my @out;
-for (keys %opt) {
+for ( keys %opt ) {
     ## Special check. If the value of an option starts with - or -- and matches
     ## an entry in optctrl, odds are you're missing a value for the option and
     ## have glommed the next option as the value.
-    if ($opt{$_} =~ m/^-{1,2}/) {
-        (my $nodash = $opt{$_}) =~ s/-{1,2}//;
-        if (defined($optshort{$nodash})
-              or
-              defined($optlong{$nodash})) {
-            die join("\n",
-                     "'$opt{$_}' is the value for option '$_', yet '$opt{$_}' is itself a valid option.",
-                     "This is probably an error; perhaps you forgot the value for '$_'?.\n");
+    if ( $opt{$_} =~ m/^-{1,2}/ ) {
+        ( my $nodash = $opt{$_} ) =~ s/-{1,2}//;
+        if (   defined( $optshort{$nodash} )
+            or defined( $optlong{$nodash} ) )
+        {
+            die join( "\n",
+"'$opt{$_}' is the value for option '$_', yet '$opt{$_}' is itself a valid option.",
+"This is probably an error; perhaps you forgot the value for '$_'?.\n"
+            );
         }
     }
 
     my $optfmt;
-    if (defined($optshort{$_})) {
+    if ( defined( $optshort{$_} ) ) {
         push @out, "-$_";
         $optfmt = $optshort{$_};
-    } elsif (defined($optlong{$_})) {
+    } elsif ( defined( $optlong{$_} ) ) {
         push @out, "--$_";
         $optfmt = $optlong{$_};
     } else {
-        die "$metaopt{n}: $_ is not a short or long opt"
+        die "$metaopt{n}: $_ is not a short or long opt";
     }
-    if ($optfmt eq 's') {
+    if ( $optfmt eq 's' ) {
         push @out, "'$opt{$_}'";
     }
 }
-push @out, '--' if (@ARGV and $ARGV[0] ne '--' );
+push @out, '--' if ( @ARGV and $ARGV[0] ne '--' );
 push @out, map { "'$_'" } @ARGV;
-push @out, '--' if (!@out or !@ARGV);
+push @out, '--' if ( !@out or !@ARGV );
 print "@out";
 exit 0;
 

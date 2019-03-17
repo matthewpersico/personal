@@ -14,6 +14,7 @@ owd=$(pwd)
 declare moreopts=1
 declare quiet=0
 declare opt_repo
+declare opt_update
 declare -A repos
 declare repo
 fmt=''
@@ -34,14 +35,26 @@ do
     fi
 
     case $option in
-        repo )
+        u | update )
+            opt_update=1
+            ;;
+        r | repo )
             opt_repo=${ovalue:-$1}
             [ -z "$ovalue" ] && shift
 
-            [ "$opt_repo" = ':all' ] && opt_repo=''
-            for repo in $( git-go --listfull "$opt_repo")
+            declare -a repos_tmp
+            if [ "$opt_repo" = ':all' ]
+            then
+                repos_tmp[0]=''
+            else
+                IFS=, read -ra repos_tmp <<< "$opt_repo"
+            fi
+            for repo_pattern in "${repos_tmp[@]}"
             do
-                repos[$repo]=1
+                for repo in $( git-go --listfull "$repo_pattern")
+                do
+                    repos[$repo]=1
+                done
             done
             ;;
 
@@ -94,6 +107,7 @@ do
     fi
 
     builtin cd "$repo"
+    ((opt_update)) && git pull
     if [ -n "$fmt" ]
     then
         declare t
@@ -121,7 +135,7 @@ git mono - run a git command over a list of repos
 
 =head1 SYNOPSIS
 
- git mono --repo repo [ -repo repo ...] [--quiet] command [args...]
+ git mono -r repo[,repo...] [ --repo repo[,repo ...] ... ] [--quiet] [-u|--update] command [args...]
 
 =head1 DESCRIPTION
 
@@ -131,13 +145,17 @@ Run 'command' over each repo.
 
 =over 4
 
-=item --repo
+=item -r|--repo
 
-A repo spec that matches one or more repos via 'gitgo --listfull'. If the repo spec is ':all', we search all repos we can find.
+A repo spec that matches one or more repos via 'gitgo --listfull'. If the repo spec is ':all', we search all repos we can find. Multiple options and comma separated lists are both accepted.
 
 =item --quiet
 
 Do not print a header with each repo as it is encountered.
+
+=item -u|--update
+
+execute 'git pull' on each repo before executing the command
 
 =back
 

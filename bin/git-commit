@@ -5,19 +5,8 @@
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
-cmd_echo_id='git-commit'
-
-## Before we even start, make sure that the underlying client hasn't changed
-## under us. Otherwise we can have issues with the passthough options, either
-## new ones we don't handle or deprecated ones we have not removed.
-
-realgit_verified_version_string='git version 2.19.2'
-if [ ! "$($REALGIT --version)" = "$realgit_verified_version_string" ]
+if ! git-version-verify 'git-commit'
 then
-    cmd-echo -id "$cmd_echo_id" -e -- \
-             "Verified to $realgit_verified_version_string," \
-             "but $($REALGIT --version) is installed." \
-             "Please investigate."
     exit 1
 fi
 
@@ -46,45 +35,93 @@ main ()
     declare opt_wscl=0
     declare moreopts=1
     declare -a pass_on_args
+    declare -a opt_message
+    declare opt_extref=''
 
     ## This hunk of processing was written after git-clone and is an attempt to
     ## NOT have to duplicate all existing arg process, as is done in git-clone,
-    ## because we only need to pick out one option.
+    ## because we only need to pick specific options.
     while [ -n "$1" ] && ((moreopts))
     do
         declare original="$1"
-
+        shift
         if [[ "$original" =~ ^- ]]
         then
-            if [[ "$original" =~ -h ]]
+            declare option
+            option=$(dashstripper "$original")
+            ## This bit deals with --foo=bar instead of --foo bar
+            declare okey=''
+            declare ovalue=''
+            if [[ "$option" =~ = ]]
             then
-                usage ''
-                exit 0
+                okey=${option%%=*}
+                ovalue=${option#*=}
+                option="$okey"
             fi
 
-            if [[ "$original" =~ -wc ]]
-            then
-                cmd-echo -- "-wc is deprecated. Use -wscl"
-                original='-wscl'
-            fi
-            if [[ "$original" =~ -wscl ]]
-            then
-                ## This is what we need to pull out of the args before passing on
-                shift
-                opt_wscl=1
-                ## no pass_on_args here
-                continue
-            fi
+            case $option in
+                h | help )
+                    usage ''
+                    exit 0
+                    ;;
+                wc )
+                    cmd-echo -- "-wc is deprecated. Use -wscl"
+                    ;& ## bash fall through and unconditionally execute next case
+                wscl )
+                    opt_wscl=1
+                    ## no pass_on_args here, we use the flag as a switch later
+                    continue
+                    ;;
+                eref )
+                    opt_extref=" - ${ovalue:-$1}"
+                    [ -z "$ovalue" ] && shift
+                    ## no pass_on_args here, this is added to the message
+                    continue
+                    ;;
+                dref )
+                    opt_extref=" - $(basename "$(git root)")"
+                    ## no pass_on_args here, this is added to the message
+                    continue
+                    ;;
+                m* )
+                    message=${ovalue:-$1}
+                    [ -z "$ovalue" ] && shift
 
-            if [[ "$original" =~ -ammend ]]
-            then
-                cmd-echo "Can you please learn how to spell 'amend'?"
-                original='--amend'
-            fi
+                    ## Amend the message
+                    case $option in
+                        mnew)
+                            message="NEW: $message"
+                            ;;
+                        mimp)
+                            message="IMPROVE: $message"
+                            ;;
+                        mfix)
+                            message="FIX: $message"
+                            ;;
+                        mrel)
+                            message="RELEASE: $message"
+                            ;;
+                        mdoc)
+                            message="DOC: $message"
+                            ;;
+                        mtst)
+                            message="TEST: $message"
+                            ;;
+                    esac
+                    opt_message=('-m' "$message")
+                    ## no pass_on_args here, we'll build the message later
+                    continue
+                    ;;
+                ammend )
+                    cmd-echo "Can you please learn how to spell 'amend'?"
+                    original='--amend'
+                    ## pass this on, updated
+                    ;;
+                ## No *) - anything else just gets passed on
+            esac
         fi
 
         ## If we are here, pass it on
-        shift
         pass_on_args+=("$original")
     done
 
@@ -92,14 +129,18 @@ main ()
     then
         git-commit-wscl "${pass_on_args[@]}"
     else
-        ## Dispatch to real git commit
-        "${REALGIT}" commit "${pass_on_args[@]}"
+        if [ -n "${opt_message[1]}" ]
+        then
+            opt_message[1]="${opt_message[1]}$opt_extref"
+        fi
+        "${REALGIT}" commit "${opt_message[@]}" "${pass_on_args[@]}"
     fi
 
     return $?
 }
 
 main "$@"
+
 exit $?
 
 :<<'__PODUSAGE__'
@@ -110,6 +151,7 @@ git-commit - git extention of git commit
 =head1 SYNOPSIS
 
  git commit -wscl
+ git commit -m[emojid] "message" [-eref reference |-dref]
 
 =head1 DESCRIPTION
 
@@ -122,6 +164,35 @@ Extensions to the 'git commit' command. Any action not described here will be pa
 =item --wscl
 
 Use the local $GITFUNCS_SOURCE_CTRL_LOG_NAME file for commit messages.
+
+=item -m[emjoid]
+
+Add a text tag to the start of the commit message. There is supposed to be an
+associated emoji, but I think they are UTF 16 and the current OS settings are
+using UTF 8 at best.
+
+ mnew - NEW:
+
+ mimp - IMPROVE:
+
+ mfix - FIX:
+
+ mrel - RELEASE:
+
+ mdoc - DOC:
+
+ mtst - TEST:
+
+
+=item [-eref reference]
+
+Add the text "- reference" to the end of the commit message.
+
+=item [-dref]
+
+Add the text "- $(basename $(git root))" to the end of the commit message. Good
+if your repo dirs are worktrees whose names correspond to the workflow system
+item id related to this work.
 
 =back
 
