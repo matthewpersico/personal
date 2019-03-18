@@ -33,7 +33,18 @@ main ()
     declare opt_show=0
     declare opt_highest_only=0
     declare opt_verbose=1
+    declare opt_delete=0
+
     declare -A keys
+    keys[repo]='core.em.em-comment'
+    local branchname
+    branchname="$(git branch get-current)"
+    keys[branch]="branch.$branchname.em-comment"
+    local worktreename
+    worktreename="$(basename "$(pwd)")"
+    keys[worktree]="worktree.$worktreename.em-comment"
+
+    declare -A write_keys
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
         declare original="$1"
@@ -56,17 +67,13 @@ main ()
 
             ## Option with no arg
             r* )
-                keys[repo]='core.em.em-comment'
+                write_keys[repo]=1
                 ;;
             b* )
-                local branchname
-                branchname="$(git branch get-current)"
-                keys[branch]="branch.$branchname.em-comment"
+                write_keys[branch]=1
                 ;;
             w* )
-                local worktreename
-                worktreename="$(basename "$(pwd)")"
-                keys[worktree]="worktree.$worktreename.em-comment"
+                write_keys[worktree]=1
                 ;;
             hi* )
                 opt_highest_only=1
@@ -79,9 +86,13 @@ main ()
                 opt_show=1
                 ;;
 
+            d* )
+                opt_delete=1
+                ;;
+
             ## standard options
             h | help )
-                script_usage
+                script-usage
                 return 0
                 ;;
             v | verbose )
@@ -100,31 +111,48 @@ main ()
         esac
     done
 
-    if [[ ${#keys[*]} = '0' ]]
+    if [[ ${#write_keys[*]} = '0' ]]
     then
-        if ((opt_show))
+        if ((opt_show)) || ( (( $# == 0 )) && ((! opt_delete)) )
         then
-            exec git-comment -r -b -w "${orig_args[@]}"
+            exec git-comment -r -b -w --show "${orig_args[@]}"
         else
-            cmd-echo -- "Need at least one of --repo, --branch, --worktree to determine where to write the comment."
-            return 1
+            cmd-echo -n -- "Need at least one of --repo, --branch, --worktree to determine which comment to "
+            if ((opt_delete))
+            then
+                cmd-echo -a -- "delete."
+                return 1
+            else
+                cmd-echo -a -- "write."
+                return 1
+            fi
         fi
+    fi
+
+    if ((opt_delete || opt_show )) && (( $# > 0 ))
+    then
+        ((opt_verbose)) && cmd-echo -e -- "Cannot provide comment text with --delete or --show."
+        return 1
     fi
 
     declare -A output
     for configtype in repo branch worktree
     do
-        local configkey=${keys[$configtype]}
-        if [[ -n $configkey ]]
+        if [[ ${write_keys[$configtype]} = '1' ]]
         then
+            local configkey=${keys[$configtype]}
             if ((opt_show))
             then
                 value="$(git config --get "$configkey")"
                 [[ -n $value ]] && \
                     output[$configtype]="$(printf '%8s: %s\n' $configtype "$value")"
+            elif ((opt_delete))
+            then
+                git config --unset "$configkey" || return $?
+                ((opt_verbose)) && cmd-echo -- "Comment removed for $configtype"
             else
                 git config --replace-all "$configkey" "${commentdate}$*" || return $?
-                ((opt_verbose)) && echo "Comment added for $configtype"
+                ((opt_verbose)) && cmd-echo -- "Comment added for $configtype"
             fi
         fi
     done
@@ -161,7 +189,7 @@ git-comment - Add or show comments
 
 =head1 SYNOPSIS
 
- git commit --[r[epo]|b[ranch]|w[orktree]]... [-[no]d[ate]] [--show [--hi[ghest-only]| The message to write.]
+ git commit --[r[epo]|b[ranch]|w[orktree]]... [-[no]d[ate]] [--show [--hi[ghest-only] | --delete | The message to write.]
 
 =head1 DESCRIPTION
 
@@ -190,6 +218,12 @@ which object to search, we search all three.
 
 In conjunction with --show, print the first message found from the list of
 worktree, branch, repo, in that order.
+
+=item --delete
+
+Delete instead of write the comment. You must be in the repo, at the branch
+and worktree for which you want to delete the comment. If you do not specify
+which object to search, we delete nothing.
 
 =back
 
