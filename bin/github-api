@@ -3,12 +3,17 @@
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
+github-api-echo ()
+{
+    cmd-echo "$@" >&2
+}
+
 curl-cat ()
 {
     cmd-echo --title Headers
     cat "$curlheaders"
     cmd-echo --title Data
-    cat "$curldata"
+    cat "${curldata}"*
 }
 
 main ()
@@ -28,6 +33,7 @@ main ()
     declare pullId
     declare stream_data=0
     declare doexec=1
+    declare -a otherparams
 
     ##
     ## options parsing
@@ -60,7 +66,7 @@ main ()
 
             wait ) synchronous=1 ;;
 
-            all | public | private | forks| sources | member | contents )
+            all | public | private | list-forks | sources | member | contents )
                 scope=$option ;;
 
             pull )
@@ -92,7 +98,7 @@ main ()
                 ;;
 
             * )
-                cmd-echo -- "$original is an invalid option. See $0 --help"
+                github-api-echo -- "$original is an invalid option. See $0 --help"
                 $out_cmd 1
                 ;;
         esac
@@ -102,7 +108,7 @@ main ()
     server_url="$(kvstore get gitfuncs_git_api_urls "$server")/"
     if [ -z "$server_url" ]
     then
-        cmd-echo -- "'$server' is an in valid --server option"
+        github-api-echo -- "'$server' is an in valid --server option"
         return 1
     fi
 
@@ -111,7 +117,7 @@ main ()
 
     if [ ! -r "$token_file" ]
     then
-        cmd-echo -- "Credentials file '$token_file' not found. Do you have the right server?"
+        github-api-echo -- "Credentials file '$token_file' not found. Do you have the right server?"
         exit 1
     fi
 
@@ -126,7 +132,7 @@ main ()
             ## Requires a repo
             if [ -z "$1" ]
             then
-                cmd-echo -- "No org/repo specified"
+                github-api-echo -- "No org/repo specified"
                 return 1;
             fi
             if [[ "$1" =~ / ]]
@@ -137,8 +143,8 @@ main ()
                 org=$1; shift
                 repo=$1; shift
             fi
-            [ -z "$org" ] && cmd-echo -- "No org specified" && bail=1
-            [ -z "$repo" ] && cmd-echo -- "No repo specified" && bail=1
+            [ -z "$org" ] && github-api-echo -- "No org specified" && bail=1
+            [ -z "$repo" ] && github-api-echo -- "No repo specified" && bail=1
             ((bail)) && return 1
 
             if [[ $action == 'contents' ]]
@@ -151,20 +157,20 @@ main ()
             ## Requires an org
             if [ -z "$1" ]
             then
-                cmd-echo -- "No org specified"
+                github-api-echo -- "No org specified"
                 return 1;
             fi
             if [[ "$1" =~ / ]]
             then
                 org=${1%/*}
                 repo=${1#*/}
-                cmd-echo -- "org only, repo $repo ignored"
+                github-api-echo -- "org only, repo $repo ignored"
             else
                 org=$1; shift
                 if [ -n "$1" ]
                 then
                     repo=$1; shift
-                    cmd-echo -- "org only, repo $repo ignored"
+                    github-api-echo -- "org only, repo $repo ignored"
                 fi
             fi
             ;;
@@ -175,14 +181,18 @@ main ()
 
         filename )
             filename="$1"; shift
+            otherparams=("$@");
+            [[ -n ${otherparams[0]} ]] && \
+                [[ ! ${otherparams[0]} =~ ^\+ ]] &&
+                otherparams[0]="+${otherparams[0]}"
             ;;
 
         * )
             if [ -n "$1" ]
             then
-                cmd-echo -- "$1 is not supported"
+                github-api-echo -- "$1 is not supported"
             else
-                cmd-echo -- "No action provided"
+                github-api-echo -- "No action provided"
             fi
             return 1;
     esac
@@ -253,17 +263,17 @@ main ()
 
     if ((keep_data))
     then
-        cmd-echo -- "Header and data files are" "$curlheaders" "$curldata"
+        github-api-echo -- "Header and data files are" "$curlheaders" "$curldata"
     else
         rm_on_exit "$curlheaders" "$curldata" "$perldata"
     fi
 
     if((verbose))
     then
-        cmd-echo -- 'curl \ ' \
+        github-api-echo -- 'curl \ ' \
                  "    --header \"Authorization: <redacted>\" \\ " \
                  "    ${curlopts[*]} \\ " \
-                 "    ${server_url}${url} -s"
+                 "    ${server_url}${url}${otherparams[*]} -s"
     fi
 
     if ((doexec))
@@ -271,14 +281,52 @@ main ()
         curl \
             --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
             "${curlopts[@]}" \
-            "${server_url}${url}" -s > "$curldata" 2>&1
+            "${server_url}${url}${otherparams[*]}" -s > "$curldata" 2>&1
         declare status=$?
 
         if ((status))
         then
-            cmd-echo -- "curl returned with error :$status"
+            github-api-echo -- "curl returned with error :$status"
             curl-cat
             return $status
+        fi
+
+        declare -a pagenums
+        declare page_links
+        page_links=$(grep -E '^Link: ' "$curlheaders" )
+        if [[ -n $page_links ]]
+        then
+            # shellcheck disable=SC2207
+            pagenums=($(perl -e '$ARGV[0] =~ m/.*?page=(\d+).*?page=(\d+)/;print "$1 $2\n";' "$page_links"))
+            declare pagenum=1
+            declare pagenumfmt
+            pagenumfmt="%0${#pagenums[1]}d"
+            declare pageprint
+            # shellcheck disable=SC2059
+            pageprint="$(printf "$pagenumfmt" $pagenum)"
+            mv "$curldata" "${curldata}.${pageprint}"
+            ((pagenum+=1))
+            # shellcheck disable=SC2004
+            github-api-echo "1 of ${pagenums[1]} pages of data fetched..."
+            while (( pagenum <= "${pagenums[1]}" ))
+            do
+                github-api-echo "Page ${pagenum}..."
+                # shellcheck disable=SC2059
+                pageprint="$(printf "$pagenumfmt" $pagenum)"
+                curl \
+                    --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
+                    "${curlopts[@]}" \
+                    "${server_url}${url}${otherparams[*]}&page=$pagenum" -s > "${curldata}.${pageprint}" 2>&1
+                declare status=$?
+
+                if ((status))
+                then
+                    github-api-echo -- "curl returned with error :$status"
+                    curl-cat
+                    return $status
+                fi
+                ((pagenum+=1))
+            done
         fi
 
         declare htmlstatus
@@ -293,7 +341,7 @@ main ()
                         perl -MMIME::Base64 -e 'do $ARGV[0]; print decode_base64($VAR1->{content})' "$perldata"
                         ;;
                     * )
-                        cmd-echo -- "Error: HTML status $(grep "Status:" "$curlheaders")"
+                        github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
                         return 1
                         ;;
@@ -303,14 +351,14 @@ main ()
             exists )
                 case $htmlstatus in
                     200 )
-                        cmd-echo -- "Repo exists."
+                        github-api-echo -- "Repo exists."
                         ;;
                     404 )
-                        cmd-echo -- "Error: '${server}:$org/$repo' not found."
+                        github-api-echo -e -- "'${server}:$org/$repo' not found."
                         return 1;
                         ;;
                     * )
-                        cmd-echo -- "Error: HTML status $(grep "Status:" "$curlheaders")"
+                        github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
                         return 1
                         ;;
@@ -326,11 +374,11 @@ main ()
                         perl -e 'do $ARGV[0]; print join(qq(\n), sort map {$_->{full_name}} @$VAR1)' "$perldata"
                         ;;
                     404 )
-                        cmd-echo -- "Error: '${server}:$org/$repo' not found."
+                        github-api-echo -e -- "'${server}:$org/$repo' not found."
                         return 1;
                         ;;
                     * )
-                        cmd-echo -- "Error: HTML status $(grep "Status:" "$curlheaders")"
+                        github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
                         return 1
                         ;;
@@ -342,7 +390,7 @@ main ()
                     200 )
                     ;;
                     * )
-                        cmd-echo -- "Error: HTML status $(grep "Status:" "$curlheaders")"
+                        github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
                         return 1
                         ;;
@@ -352,17 +400,17 @@ main ()
             fork )
                 case $htmlstatus in
                     200 )
-                        cmd-echo -- "Fork created."
+                        github-api-echo -- "Fork created."
                         ;;
                     202 )
-                        cmd-echo -- "Fork found."
+                        github-api-echo -- "Fork found."
                         ;;
                     404 )
-                        cmd-echo -- "Error: either organization '$org' or repo '$repo' does not exist on '$server'."
+                        github-api-echo -e -- "either organization '$org' or repo '$repo' does not exist on '$server'."
                         return 1;
                         ;;
                     * )
-                        cmd-echo -- "Error: HTML status $(grep "Status:" "$curlheaders")"
+                        github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
                         return 1
                         ;;
@@ -374,14 +422,14 @@ main ()
                     declare remaining=60
                     while github-api --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
                     do
-                        [ -n "$waiting" ] && cmd-echo -- "'$waiting'" && waiting=''
+                        [ -n "$waiting" ] && github-api-echo -- "'$waiting'" && waiting=''
                         sleep 1
                         ((remaining-=1))
                         ((remaining)) || break
                     done
                     if github-api --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
                     then
-                        cmd-echo -- "Warning: fork not yet created"
+                        github-api-echo -w -- "Fork not yet created"
                         return 1
                     else
                         return 0
@@ -393,7 +441,7 @@ main ()
 
     if ((stream_data))
     then
-        cat "$curldata"
+        cat "${curldata}".*
     elif ((!silent))
     then
         curl-cat
@@ -401,7 +449,7 @@ main ()
 
     if ((keep_data))
     then
-        cmd-echo -- "Header and data files are" "$curlheaders" "$curldata"
+        github-api-echo -- "Header and data files are" "$curlheaders" "$curldata"
     fi
     return 0
 }
@@ -434,7 +482,8 @@ github-api - Wrapper around curl calls to the github api
 =head1 DESCRIPTION
 
 Run some specific github apis. Uses your own OAuth credentials so you may not
-be able to see everything.
+be able to see everything. Prints its messages to stderr, all data to stdout so
+you can filter the output with pipes and still see the progress messages.
 
 =head1 ARGUMENTS
 
