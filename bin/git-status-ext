@@ -22,12 +22,16 @@ usage ()
 [[ "$1" =~ -h ]] && usage && exit 0
 
 declare color
-if [ ! "$(git root)" = "$(realpath $(pwd))" ]
+declare gr
+gr="$(git root)"
+declare rpwd
+rpwd="$(realpath "$(pwd)")"
+if [[ $gr != "$rpwd" ]]
 then
     cmd-echo "Must run git status-ext from the root" \
-             "    $(git root)" \
+             "    $gr" \
              "not the current directory" \
-             "    $(realpath $(pwd))"
+             "    $rpwd"
     exit 1
 fi
 
@@ -39,13 +43,6 @@ echo "=== Latest log entry:"
 git log $color -1
 echo
 echo "=== Status:"
-git branch info local-status
-declare gmdw
-gmdw=$(git branch info delete-worktree)
-# shellcheck disable=SC2086 # Don't want quotes around the date with @
-[ -n "$gmdw" ] && \
-    echo "Worktree scheduled for removal on or after $( date --date=@$gmdw)"
-git branch info pull-request
 declare outcmd=cat
 if [[ "$1" =~ -dif ]]
 then
@@ -75,15 +72,6 @@ A git status command enhanced as follows:
 =item Latest log entry
 
 The log entry for the latest commit in the repo (git log -1) is shown.
-
-=item Local information
-
-If the branch was annotated with a git branch info call when created, this note
-is displayed.
-
-=item Deletion information
-
-If the branch is scheduled to be deleted, that time is shown.
 
 =item Status with source-ctrl-log entries.
 

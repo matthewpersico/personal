@@ -24,6 +24,12 @@ join=0
 declare id
 id=''
 declare append=0
+
+declare opt_color=0
+declare -A colors
+colors=([WARNING]=${ANSI_BG_orange}
+        [ERROR]=${ANSI_BG_red})
+
 declare msg_status
 msg_status=''
 declare interactive=1
@@ -71,6 +77,9 @@ do
         e ) # shellcheck disable=SC2034 # see line 101
             msg_status='ERROR'
             ;;
+        color )
+            opt_color=1
+            ;;
         oii | \
             only-if-interactive )
             ((interactive==0)) && exit 0
@@ -86,16 +95,21 @@ done
 
 declare prefix
 prefix='>>> '
-declare dorev=${ANSI_reverse}
+declare docolor=${ANSI_reverse}
 declare dorest=${reset_title}
 declare doresn=${reset_normal}
 if ((! interactive ))
 then
     ## STDOUT is redirected away from the terminal, assume it's a file, don't
     ## print the colorizing sequences.
-    dorev=''
+    docolor=''
     dorest=''
     doresn=''
+else
+    if((opt_color)) && [[ -n $msg_status ]]
+    then
+        docolor=${colors[$msg_status]}
+    fi
 fi
 ((head)) && echo
 for p in "$@"
@@ -124,9 +138,9 @@ do
 
     if ((join))
     then
-        echo $nonl -e "${dorev}${prefix}$*${dorest}${doresn}"
+        echo $nonl -e "${docolor}${prefix}$*${dorest}${doresn}"
     else
-        echo $nonl -e "${dorev}${prefix}$p${dorest}${doresn}"
+        echo $nonl -e "${docolor}${prefix}$p${dorest}${doresn}"
     fi
 
     ## If there is a next line, it should be a continue line
@@ -217,6 +231,14 @@ is being passed onto some other command as a prompt.
 
 Prefix the first line of the message with this text and a ": " and indent
 subsequent lines accordingly.
+
+=item -j
+
+Join?
+
+=item -w|-e
+
+Print WARNING or ERROR before the message
 
 =back
 
