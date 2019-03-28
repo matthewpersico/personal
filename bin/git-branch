@@ -202,64 +202,6 @@ git-branch-rename ()
     return $?
 }
 
-git-branch-info ()
-{
-    local branch
-    branch=$(git rev-parse --abbrev-ref HEAD)
-    local timestamp=''
-    local delete=0
-    local OPTSARGS
-    OPTSARGS=$(getoptp -o b:tdu --long branch:,timestamp,delete,unset -n "${FUNCNAME[0]}" -- "$@")
-    local status=$?
-    ((status != 0)) && usage && return $status
-
-    eval set -- "$OPTSARGS"
-    while true
-    do
-        case "$1" in
-            --branch|-b) branch=$2; shift; shift;;
-            --timestamp|-t) timestamp="[$(date)]"; shift;;
-            --delete|-d|--unset|-u) delete=1; shift;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; usage; return 1 ;;
-        esac
-    done
-
-    local get_option='--get'
-    local full_key="branch.${branch}"
-    local key=$1
-    if [ -n "$key" ]
-    then
-        full_key="${full_key}.${key}"
-    elif ((delete))
-    then
-        echo "Cannot delete without an exact key to match on"
-        return 1
-    else
-        get_option='--get-regexp'
-    fi
-
-    shift ## $@ is now the value if writing. All spaces will be converted to
-          ## %20.
-    if [ -z "$1" ]
-    then
-        if((delete))
-        then
-            ## Remove existing key
-            git config --unset "$full_key"
-        else
-            ## Read existing key
-            git config "$get_option" "$full_key" | \
-                perl -p -e 's/%20/ /g' | \
-                sort
-        fi
-    else
-        local value
-        value=$(echo "$@" | perl -p -e 's/\s/%20/g')
-        git config "$full_key" "${timestamp}$value"
-    fi
-}
-
 git-branch-get-current ()
 {
     ( if [ -n "$1" ]
@@ -293,7 +235,6 @@ git-branch-orphan()
 
     git commit --allow-empty "${comment[@]}"
     git push --set-upstream "$remote" "$branch"
-    git branch info created "$(date "GIT_EXT_META_DATE_FMT")"
     return 0
 }
 
@@ -422,7 +363,6 @@ git-branch - git extention of git branch
 
  git branch delete oldBranch
  git branch rename currentBranch newbranch
- git branch info
  git branch get-current
  git branch orphan
  git branch track remote
@@ -446,8 +386,6 @@ of the comment when written.
 
  git branch comment "some text explaining where you left off, maybe?"
  git branch comment -[get|show]
-
-=back
 
 =back
 
