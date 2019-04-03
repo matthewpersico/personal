@@ -1,0 +1,123 @@
+#!/usr/bin/env bash
+
+# git-push
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+if ! git-version-verify 'git-push'
+then
+    exit 1
+fi
+
+# shellcheck disable=SC2034 # We'll use it eventually
+cmd_echo_id='git-push'
+
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        script-usage
+        echo
+        echo "** Standard actions **"
+        "$REALGIT" push --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+declare opt_popup=0
+declare -a git_push_args
+declare more_our_opts=1
+declare dispatch_to_real_git=1
+while [[ "$1" =~ ^- ]] && ((more_our_opts))
+do
+    declare original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift ## That way you avoid endless loops on invalid options.
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        # shellcheck disable=SC2034 # We'll use it eventually
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        ##
+        ## Our options
+        ##
+        popup )
+            opt_popup=1
+            more_our_opts=0;;
+        ##
+        ## Options to pass onto real git push
+        ##
+        * )
+            git_push_args+=("$original")
+            ;;
+    esac
+done
+
+git_push_args+=("$@")
+if ((dispatch_to_real_git))
+then
+    ## There are no options specified that make us think we want to run our
+    ## push code; go run system git push.
+    "$REALGIT" push "${git_push_args[@]}" || exit $?
+fi
+
+if ((opt_popup))
+then
+    declare remote
+    remote=$(git-get-default-remote)
+    declare svc
+    svc=${remote%:*}
+    declare repo
+    repo=${remote#*:}
+
+    declare url
+    url="$(kvstore get gitfuncs_giturls "$svc")/$repo"
+
+    if [[ -n $BROWSER ]]
+    then
+        $BROWSER "$url" &
+    else
+        cmd-echo -- "Cannot popup a browser on '$url'; envvar BROWSER not defined"
+        exit 1
+    fi
+fi
+
+exit 0
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-push - extension to git push
+
+=head1 SYNOPSIS
+
+ git-push [--popup] ...
+
+=head1 DESCRIPTION
+
+Adds a few options to git push. Without any of these options, just calls the real git push. Otherwise, calls git push with some additional actions.
+
+=head1 OPTIONS
+
+=over 4
+
+=item popup
+
+Start a browser (defined in envvar BROWSER) pointing to the target repo of the push so that you can create a PR if need be.
+
+=back
+
+__PODUSAGE__
