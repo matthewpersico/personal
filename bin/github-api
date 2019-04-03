@@ -13,7 +13,7 @@ curl-cat ()
     cmd-echo --title Headers
     cat "$curlheaders"
     cmd-echo --title Data
-    cat "${curldata}"*
+    cat -v "${curldata}"*
 }
 
 main ()
@@ -124,6 +124,7 @@ main ()
     ##
     ## action parsing
     ##
+    declare org_is_user=0
     declare action=$1
     shift
 
@@ -159,6 +160,11 @@ main ()
             then
                 github-api-echo -- "No org specified"
                 return 1;
+            fi
+            if [[ $1 =~ -user ]]
+            then
+                org_is_user=1
+                shift
             fi
             if [[ "$1" =~ / ]]
             then
@@ -228,7 +234,12 @@ main ()
             ;;
 
         repos)
-            url="orgs/$org/repos?type=$scope"
+            if ((org_is_user))
+            then
+                url="users/$org/repos?type=$scope"
+            else
+                url="orgs/$org/repos?type=$scope"
+            fi
             ;;
 
         raw)
@@ -270,10 +281,7 @@ main ()
 
     if((verbose))
     then
-        github-api-echo -- 'curl \ ' \
-                 "    --header \"Authorization: <redacted>\" \\ " \
-                 "    ${curlopts[*]} \\ " \
-                 "    ${server_url}${url}${otherparams[*]} -s"
+        github-api-echo -- "curl --header \"Authorization: token\$(grep token $token_file | cut -d= -f2)\" ${curlopts[*]} ${server_url}${url}${otherparams[*]} -s"
     fi
 
     if ((doexec))
@@ -441,7 +449,7 @@ main ()
 
     if ((stream_data))
     then
-        cat "${curldata}".*
+        cat -v "${curldata}".*
     elif ((!silent))
     then
         curl-cat
@@ -468,9 +476,9 @@ github-api - Wrapper around curl calls to the github api
 
 =head1 SYNOPSIS
 
- github-api [--server server] [--keep-data] [--wait] [--verbose|--silent--noexec] \
+ github-api [--server server] [--stream-data|--keep-data] [--wait] [--verbose|--silent|--noexec] \
      org <orgname> |
-     repos <orgname> |
+     repos [--user] <orgname> |
      exists[|ping] <orgname> <reponame> |
      list-forks <orgname> <reponame> |
      fork <orgname> <reponame> |
@@ -496,7 +504,7 @@ Runs orgs api call. Requires an orgname. Returns metadata about that org.
 =item repos
 
 Runs repos api call. Requires an orgname. Returns metadata about all the repos
-in that org.
+in that org. If the 'org' is a person, add the '--user' flag.
 
 =item exists|ping
 
@@ -533,6 +541,10 @@ Run any api call, expressed as the raw api.
 
 Default: 'github'. Also accepts 'bbgithub'.
 
+=item --stream-data
+
+All headers and titles are suppressed. Only the data structure is sent to stdout for display. Use this if you want to ingest the output in a program.
+
 =item --keep-data
 
 Header and data are sent to a file for display. This options doesn't clean up after execution allowing you to use them. Filenames will be shown.
@@ -541,11 +553,11 @@ Header and data are sent to a file for display. This options doesn't clean up af
 
 Whe creating a fork, wait for the fork to create before exiting. Default is to send off the command and exit, as the fork creation is async by default.
 
-=item [--verbose|--silent|--noexec]
+=item [--verbose|--data|--silent|--noexec]
 
 'verbose' shows steps and the full curl command, sans authentication info.
 
-'silent' represses the header and data output when you just want the return code.
+'silent' supresses the header and data output when you just want the return code.
 
 'noexec' show the full curl command, sans authentication info, but does not execute it.
 
