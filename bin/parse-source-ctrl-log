@@ -22,6 +22,8 @@ my @oldput;
 my $file;
 my $function;
 my $text;
+my @shared_text;
+
 my %current = ();
 my %output  = ();
 my %opt     = (
@@ -119,14 +121,16 @@ if ($exit) {
 }
 
 my %files = map { $_ => init_file_info($_) } @ARGV;
-my @file_list = map { $_->{local_name} } values %files;
+## "rel_" is relative to gitroot, which is how the SourceControlLog entries are
+## indexed.
+my @rel_file_list = map { $_->{local_name} } values %files;
 
 my @status;
 my %diff;
 if ( $opt{withstatus} ) {
     $opt{missingok} = 1;
     my $color = $opt{color};
-    @status = qx(git -c color.status=$color status @file_list);
+    @status = qx(git -c color.status=$color status @rel_file_list);
 }
 
 ################################
@@ -142,7 +146,7 @@ if ( $opt{diff} ) {
     my @diff_list = (
         map { chomp; substr( $_, 3 ) }
         grep { !m/^RM/ }
-        grep { !m/^[D ]{2,2}/ } qx(git status --porcelain @file_list)
+        grep { !m/^[D ]{2,2}/ } qx(git status --porcelain @rel_file_list)
     );
 
     ## Transform scl_names to local_names.
@@ -250,8 +254,30 @@ LINE: while (<$sclih>) {
             $output{$file}->{$function}->{$entry_id} = []
               if not defined $output{$file}->{$function}->{$entry_id};
 
-            ## Save the text.
+            ## Save the text
             push @{ $output{$file}->{$function}->{$entry_id} }, $text;
+            if ( $text =~ m/^>/ ) {
+                ## Text is either '>' or '>' plus the shared text. Push a ref
+                ## to the text location onto the shared list.
+                push @shared_text,
+                  \$output{$file}->{$function}->{$entry_id}->[-1];
+
+                ## Kill any whitespace
+                $text =~ s/\s+$//;    ## kill end whitespace.
+
+                if ( length($text) > 1 ) {
+                    ## Then we are the resolved text ("> The text I want to share")
+
+                    ## Dump the marker.
+                    $text =~ s/^>\s+//;
+
+                    ## Copy to all the shared locations.
+                    my $textref;
+                    while ( $textref = pop @shared_text ) {
+                        $$textref = $text;
+                    }
+                }
+            }
         } else {
             ## Not wanted. Store for push back to SourceCtrlLog.
             push @{ $oldput[-1] }, $_;
@@ -292,6 +318,19 @@ if ( $opt{write} ) {
 } else {
     $sclnewh = *STDOUT;
 }
+
+################
+## Consolidation
+################
+
+## This is where, in theory, we would try and consolidate commits by similar
+## comments. The problem is that the caller is expecting one comments file for
+## one commit, so we'd have to change this code to save multiple comments files
+## and change the caller to do multiple commits, one for each file found. All
+## the unmatched comments would end up in one catch-all file for one catch-all
+## commit. We would take the --newscl argument, use that as the catch-all, and
+## add indicies to that name for the grouped commits. The caller already
+## reworks its commit list based on what it finds in the comments file.
 
 ###################
 ## Create output ##
