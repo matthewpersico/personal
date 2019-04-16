@@ -1,7 +1,7 @@
 #!/opt/bb/bin/perl5.16 -w
 
 eval 'exec /opt/bb/bin/perl5.16 -w -S $0 ${1+"$@"}'
-    if 0; # not running under some shell
+  if 0;    # not running under some shell
 
 use strict;
 use vars qw($VERSION);
@@ -15,7 +15,7 @@ use Getopt::Long;
 my %opt;
 
 Getopt::Long::config('pass_through');
-if (!GetOptions(\%opt, "font=s", "i|ignore-case!", "encoding=s", "S")) {
+if ( !GetOptions( \%opt, "font=s", "i|ignore-case!", "encoding=s", "S" ) ) {
     require Pod::Usage;
     Pod::Usage::pod2usage(2);
 }
@@ -24,45 +24,53 @@ my $mw = tkinit;
 
 # Unhandled options left?
 Getopt::Long::config('nopass_through');
-if (!GetOptions({})) {
+if ( !GetOptions( {} ) ) {
     require Pod::Usage;
     Pod::Usage::pod2usage(2);
 }
 
 my $file = shift @ARGV;
-if (!defined $file) {
+if ( !defined $file ) {
     die "Filename is missing.\n";
 }
 
-my $more = $mw->Scrolled("More",
-			 -font => $opt{font},
-			 -scrollbars => "osoe",
-			 -searchcase => !$opt{i},
-			 ($opt{S} ? (-wrap => 'none') : ()),
-			)->pack(-fill => "both", -expand => 1);
+my $more = $mw->Scrolled(
+    "More",
+    -font       => $opt{font},
+    -scrollbars => "osoe",
+    -searchcase => !$opt{i},
+    ( $opt{S} ? ( -wrap => 'none' ) : () ),
+)->pack( -fill => "both", -expand => 1 );
 
 my $menu = $more->menu;
-my $fm = $menu->entrycget("File", -menu);
-$fm->insert("Exit", "command", -label => "Open ...", -underline => 0,
-	    -command => sub {
-		my $f = $more->getOpenFile;
-		return if !defined $f;
-		load_file($f);
-	    });
-$fm->entryconfigure("Exit", -accelerator => "Ctrl-Q");
+my $fm = $menu->entrycget( "File", -menu );
+$fm->insert(
+    "Exit",
+    "command",
+    -label     => "Open ...",
+    -underline => 0,
+    -command   => sub {
+        my $f = $more->getOpenFile;
+        return if !defined $f;
+        load_file($f);
+    }
+);
+$fm->entryconfigure( "Exit", -accelerator => "Ctrl-Q" );
 
-my $helpmenu = $menu->Menu
-    (-tearoff => 0,
-     -menuitems => [
-		    [Button => "~Usage",
-		     -command => sub {
-			 require Tk::Pod;
-			 $mw->Pod(-file => "Tk::More");
-		     }]
-		   ]
-    );
-$menu->cascade(-label => "Help", -underline => 0, -menu => $helpmenu);
-$mw->configure(-menu => $menu);
+my $helpmenu = $menu->Menu(
+    -tearoff   => 0,
+    -menuitems => [
+        [
+            Button   => "~Usage",
+            -command => sub {
+                require Tk::Pod;
+                $mw->Pod( -file => "Tk::More" );
+            }
+        ]
+    ]
+);
+$menu->cascade( -label => "Help", -underline => 0, -menu => $helpmenu );
+$mw->configure( -menu => $menu );
 
 $more->focus;
 load_file($file);
@@ -71,22 +79,22 @@ MainLoop;
 
 sub load_file {
     my $file = shift;
- LOAD_FILE: {
-	# check if it's gzipped
-	my $buf;
-	if (open(FILE, "<$file") &&
-	    read(FILE, $buf, 2) == 2 &&
-	    $buf eq "\037\213" &&
-	    eval { require PerlIO::gzip; 1 }
-	   ) {
-	    seek FILE, 0, 0 or die $!;
-	    binmode FILE, ':gzip';
-	    $more->LoadFH(\*FILE, -encoding => $opt{encoding});
-	    last LOAD_FILE;
-	}
+  LOAD_FILE: {
+        # check if it's gzipped
+        my $buf;
+        if (   open( FILE, "<$file" )
+            && read( FILE, $buf, 2 ) == 2
+            && $buf eq "\037\213"
+            && eval { require PerlIO::gzip; 1 } )
+        {
+            seek FILE, 0, 0 or die $!;
+            binmode FILE, ':gzip';
+            $more->LoadFH( \*FILE, -encoding => $opt{encoding} );
+            last LOAD_FILE;
+        }
 
-	$more->Load($file, -encoding => $opt{encoding});
-    };
+        $more->Load( $file, -encoding => $opt{encoding} );
+    }
     $mw->title("tkmore - $file");
 }
 

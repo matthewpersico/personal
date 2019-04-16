@@ -10,7 +10,6 @@ declare opt_v='' ## passed to commit
 declare status=0
 declare parsed_cl
 parsed_cl=$(mktemp -t tmp.git-process-source-ctrl-log.XXXXXXXXXX)
-rm_on_exit "$parsed_cl"
 declare -a pscl_flags
 declare git_editor
 declare opt_confirm=0
@@ -100,7 +99,7 @@ declare file
 for file in "$@"
 do
     declare absolute_file
-    absolute_file="$(realpath $(pwd))/$file"
+    absolute_file="$(realpath "$(pwd)")/$file"
     if [ -r "$absolute_file" ]
     then
         filelist+=("$absolute_file")
@@ -166,11 +165,14 @@ fi
 echo "in git-process-source-ctrl-log......"
 if [ "$action" = 'commit' ]
 then
-    ## We rebuild the filelist from the commit message file so that we can
+    #for specific_pcl_file in "$parsed_cl"*
+    #do
+    specific_pcl_file="$parsed_cl"
+    ## We rebuild the filelist from the commit message files so that we can
     ## account for having skipped files because they do not have a
     ## source_ctrl_log entry.
     declare -a filelist_refreshed
-    mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY LINE HERE|o | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$parsed_cl")
+    mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY LINE HERE|o | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$specific_pcl_file")
     cmd-echo "About to commit" "${filelist_refreshed[@]}"
     declare resp='y'
     if ((opt_confirm))
@@ -186,9 +188,9 @@ then
         $REALGIT status --porcelain > "$git_status_before" 2>&1
         if [ -z "$git_editor" ]
         then
-            git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
+            git commit -F "$specific_pcl_file" --edit $opt_v "${filelist_refreshed[@]}"
         else
-            GIT_EDITOR=$git_editor git commit -F "$parsed_cl" --edit $opt_v "${filelist_refreshed[@]}"
+            GIT_EDITOR=$git_editor git commit -F "$specific_pcl_file" --edit $opt_v "${filelist_refreshed[@]}"
         fi
         status=$?
         if ((status==0))
@@ -224,9 +226,11 @@ then
     else
         cmd-echo "Commit aborted"
     fi
+    ##done
 fi
 [ -f "$source_ctrl_logbkp" ] && \rm -f "$source_ctrl_logbkp"
-
+## If we are here, we can safely get rid of parsed cl files.
+\rm -f "$parsed_cl"*
 exit 0
 
 :<< __EOUSAGE__
