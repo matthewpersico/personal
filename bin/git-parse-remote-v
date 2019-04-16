@@ -4,18 +4,25 @@
 
 gitfuncs_remotes=()
 declare remotes
-remotes=$( git remote -v | sed -r -e 's/\(.*//' -e 's/ +$//' -e 's/\t/=/' | sort -ru)
-[ -z "$remotes" ] && exit 1
-for i in $remotes
-do
-    key=${i%=*}
-    value=${i#*=}
-    # shellcheck disable=SC2034 # Set in env for later use.
-    gitfuncs_remotes["$key"]="$value"
-done
-exit 0
-## POD guard
-exit 0
+remotes=$( git remote -v 2>/dev/null | sed -r -e 's/\(.*//' -e 's/ +$//' -e 's/\t/=/' | sort -ru)
+if [ -n "$remotes" ]
+then
+    for i in $remotes
+    do
+        key=${i%=*}
+        value=${i#*=}
+        # shellcheck disable=SC2034 # Set in env for later use.
+        gitfuncs_remotes["$key"]="$value"
+    done
+fi
+declare -p gitfuncs_remotes
+
+if [ "${!gitfuncs_remotes[*]}" = '0' ]
+then
+    exit 1
+else
+    exit 0
+fi
 
 ## You can add sections with =head1, but stick to =item for section breakdowns,
 ## not =head2/3/etc/.
@@ -23,54 +30,18 @@ exit 0
 :<<'__PODUSAGE__'
 =head1 NAME
 
-git-parse-remote-v - script that does something
+git-parse-remote-v - parse 'git remote -v' for the remote url of the current repo
 
 =head1 SYNOPSIS
 
- git-parse-remote-v [--option1] [ --option2 optionarg ] arg1 [arg2 ...] 
-     [fee] [dfsdfs] [sfsdfsf]
+ eval $(git-parse-remote-v)
 
 =head1 DESCRIPTION
 
-Describe in general terms what git-parse-remote-v does.
-
-=head1 ARGUMENTS
-
-=over 4
-
-=item arg
-
-Describe what arg does, should be, etc. Add a new =item for each distinct arg.
-
-=back
-
-=head1 OPTIONS
-
-=over 4
-
-=item --option1
-
-Describe what --option1 does.
-
-=item --option2
-
-Describe what --option2 does. Describe what optionarg does.
-
-=over 2
-
-=item *
-
-A choice for optionarg
-
-=item *
-
-Another choice for optionarg
-
-=back
+Puts a list of remotes keyed on short name into an associative array and prints a declare statement on STDOUT that can be eval'ed by the caller to create the associative array in the current process space.
 
 =back
 
 =cut
 
 __PODUSAGE__
-
