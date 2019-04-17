@@ -1,0 +1,182 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2154 # shuts up all the complaints about the $ANSI_ variables.
+
+# color-echo
+
+declare nonl
+nonl=''
+declare fgname
+fgname=''
+declare fgcolor
+fgcolor=''
+declare bgname
+bgname=''
+declare bgcolor
+bgcolor=''
+declare blink
+blink=''
+declare bold
+bold=''
+declare concealed
+concealed=''
+declare reset
+reset="$ANSI_reset"
+declare reverse
+reverse=''
+declare underscore
+underscore=''
+declare moreopts
+moreopts=1
+
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original
+    original="$1"
+    shift
+    declare option
+    option=$(dashstripper "$original")
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey
+    okey=''
+    declare ovalue
+    ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        n)
+            nonl='-n' ;;
+        nr)
+            reset='' ;;
+        fg)
+            fgname="ANSI_FG_${ovalue:-$1}"
+            [ -z "$ovalue" ] && shift
+            ;;
+        black | blue | cyan | green | magenta | red | white | yellow )
+            fgname="ANSI_FG_${option}"
+            ;;
+        bg)
+            bgname="ANSI_BG_${ovalue:-$1}"
+            [ -z "$ovalue" ] && shift
+            ;;
+        bl | blink)
+            blink="$ANSI_blink" ;;
+        bo | bold)
+            bold="$ANSI_bold" ;;
+        con | concealed | \
+            hid | hidden )
+            concealed="$ANSI_concealed" ;;
+        rev | reverse )
+            reverse="$ANSI_reverse" ;;
+        under | underscore )
+            underscore="$ANSI_underscore" ;;
+        h | help )
+            script-usage
+            exit 0
+            ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            cmd-echo -- "$original is an invalid option. See $0 --help"
+            exit 1
+            ;;
+    esac
+done
+
+## Check the colors
+if [ -n "$fgname" ]
+then
+    fgcolor="${!fgname}"
+    if [ -z "$fgcolor" ]
+    then
+        cmd-echo "'$fgname' is not a valid foreground color"
+        script-usage
+        exit 1
+    fi
+fi
+if [ -n "$bgname" ]
+then
+    bgcolor="${!bgname}"
+    if [ -z "$bgcolor" ]
+    then
+        cmd-echo "'$bgname' is not a valid background color"
+        script-usage
+        exit 1
+    fi
+fi
+
+## print
+echo $nonl -e "$blink$bold$concealed$reverse$underscore$fgcolor$bgcolor$*$reset"
+
+exit 0 ## usage guard when sourcing
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+color-echo - echo in color
+
+=head1 SYNOPSIS
+
+ color-echo \
+     [-n] \
+     [--nr ] \
+     [--bl[ink]] \
+     [--bo[ld]] \
+     [--con[cealed]|hid[den]] \
+     [--rev[erse]] \
+     [--under[score]] \
+     [[--fg|--color] foregroundcolor] \
+     [--bg backgroundcolor] \
+     text to echo
+
+=head1 DESCRIPTION
+
+Print the text, adjusted using ascii escape sequences. Only adjusts the text
+requested, calls the reset sequence when done (but see --nr), so if your
+terminal is in a non-default state before calling 'color-echo', it will reset
+after it is done.
+
+=head1 OPTIONS
+
+=over 4
+
+=item -n
+
+Do not print a newline.
+
+=item -nr
+
+Do not reset formatting adjustments so the carry on to subsequent output. You
+could, if you want, use the sequence
+
+  color-echo -nr -formattingoptions
+  regular echos and other output to terminal
+  color-echo -n
+
+=item --blink, --bold, --concealed|--hidden, --reverse, --underscore
+
+Adjust with these attributes. You can use any combination of them.
+
+=item --fg color, --bg color
+
+'color' is one of black, blue, cyan, green, magenta, red, white, yellow. You
+can use --fg and --bg together.
+
+=item --'color'
+
+Alias for '--fg'.
+
+=back
+
+=head1 ARGUMENTS
+
+All other arguments are printed by passing them to 'echo'.
+
+=cut
+
+__PODUSAGE__
