@@ -1,0 +1,140 @@
+#!/usr/bin/env bash
+
+# git-grep
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+if ! git-version-verify 'git-grep'
+then
+    exit 1
+fi
+
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        script-usage
+        echo
+        echo "** Standard actions **"
+        "$REALGIT" grep --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+## Functions that encapsulate the enhanced functionality. main() is defined
+## last and called last.
+git-grep-edit()
+{
+    $EDITOR git-grep-with-source-ctrl-log-guts "$@"
+    return $?
+}
+
+main ()
+{
+    declare opt_edit=0
+    declare -a pass_on_args
+
+    while [ -n "$1" ]
+    do
+        declare original="$1"
+        shift
+        if [[ "$original" =~ ^- ]]
+        then
+            declare option
+            option=$(dashstripper "$original")
+
+            ## All of the --foo=bar processing is stripped away because we
+            ## don't need it for the limited set of optoins we are processing.
+
+            case $option in
+                h | help )
+                    usage ''
+                    exit 0
+                    ;;
+                edit )
+                    opt_edit=1
+                    continue
+                    ;;
+                ## No '*)' case needed; anything else just gets passed on
+            esac
+        fi
+
+        ## If we are here, pass it on
+        pass_on_args+=("$original")
+    done
+
+    if $REALGIT grep "${pass_on_args[@]}" && ((opt_edit))
+    then
+        declare -a files
+        readarray -t files < <($REALGIT grep -l "${pass_on_args[@]}")
+        $EDITOR "${files[@]}"
+    fi
+    return $?
+}
+
+main "$@"
+
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-grep - git extention of git commit
+
+=head1 SYNOPSIS
+
+ git commit -wscl
+ git commit -m[emojid] "message" [-eref reference |-dref]
+ git commit --no-hooks
+
+=head1 DESCRIPTION
+
+Extensions to the 'git commit' command. Any action not described here will be passed onto the actual 'git branch' command.
+
+=head1 EXTENSIONS
+
+=over 4
+
+=item --wscl
+
+Use the local $GITFUNCS_SOURCE_CTRL_LOG_NAME file for commit messages.
+
+=item -m[emjoid]
+
+Add a text tag to the start of the commit message. There is supposed to be an
+associated emoji, but I think they are UTF 16 and the current OS settings are
+using UTF 8 at best.
+
+ mnew - NEW:
+
+ mimp - IMPROVE:
+
+ mfix - FIX:
+
+ mrel - RELEASE:
+
+ mdoc - DOC:
+
+ mtst - TEST:
+
+
+=item -eref reference
+
+Add the text "- reference" to the end of the commit message.
+
+=item -dref
+
+Add the text "- $(basename $(git root))" to the end of the commit message. Good
+if your repo dirs are worktrees whose names correspond to the workflow system
+item id related to this work.
+
+=item --no-hooks
+
+Alias for --no-verify.
+[
+=back
+
+=cut
+
+__PODUSAGE__
