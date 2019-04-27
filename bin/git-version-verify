@@ -1,14 +1,21 @@
-#!/usr/bin/env bash
+#!/usr/bin/env perl
 
-## git-version-verify
+use strict;
+use warnings;
 
-if [ ! "$($REALGIT --version)" = "$REALGIT_VERIFIED_VERSION_STRING" ]
-then
-    cmd-echo -id "$1" -e -- \
-             "Verified to $REALGIT_VERIFIED_VERSION_STRING," \
-             "but $($REALGIT --version) is installed." \
-             "Please investigate."
-    exit 1
-else
-    exit 0
-fi
+my @git_version_i = split (/\s+/,qx($ENV{REALGIT} --version));
+my @git_version = split(/\./,$git_version_i[-1]);
+my @git_version_verified_i = split(/\s+/, $ENV{REALGIT_VERIFIED_VERSION_STRING});
+my @git_version_verified = split(/\./, $git_version_verified_i[-1]);
+
+for my $index (0,1,2) {
+    next if ( $git_version[$index] == $git_version_verified[$index] );
+    my $msg = "Verified to $git_version_verified_i[-1], but $git_version_i[-1] is installed.\n";
+    if ( $git_version[$index] > $git_version_verified[$index] ) {
+	die ">>> $ARGV[0]:ERROR:$msg";
+    } elsif ($git_version[$index] < $git_version_verified[$index] ) {
+	warn ">>> $ARGV[0]:WARNING:$msg";
+	exit 0;
+    }
+}
+exit 0;
