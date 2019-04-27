@@ -26,6 +26,7 @@ usage ()
 }
 
 declare opt_popup=0
+declare opt_pr=0
 declare -a git_push_args
 declare more_our_opts=1
 declare dispatch_to_real_git=1
@@ -53,6 +54,9 @@ do
         popup )
             opt_popup=1
             more_our_opts=0;;
+        pr )
+            opt_pr=1
+            more_our_opts=0;;
         ##
         ## Options to pass onto real git push
         ##
@@ -70,7 +74,7 @@ then
     "$REALGIT" push "${git_push_args[@]}" || exit $?
 fi
 
-if ((opt_popup))
+if ((opt_popup || opt_pr))
 then
     declare remote
     remote=$(git-get-default-remote)
@@ -80,13 +84,18 @@ then
     repo=${remote#*:}
 
     declare url
-    url="$(kvstore get gitfuncs_giturls "$svc")/$repo"
+    if ((opt_popup))
+    then
+        url="$(kvstore get gitfuncs_giturls "$svc")/$repo"
+    else
+        url="$(kvstore get gitfuncs_giturls "$svc")/$repo/pull/new/$(git branch get-current)"
+    fi
 
     if [[ -n $BROWSER ]]
     then
         $BROWSER "$url" &
     else
-        cmd-echo -- "Cannot popup a browser on '$url'; envvar BROWSER not defined"
+        cmd-echo -- "Cannot start a browser on '$url'; envvar BROWSER not defined"
         exit 1
     fi
 fi
@@ -104,7 +113,7 @@ git-push - extension to git push
 
 =head1 SYNOPSIS
 
- git-push [--popup] ...
+ git-push [--popup|--pr] ...
 
 =head1 DESCRIPTION
 
@@ -116,7 +125,11 @@ Adds a few options to git push. Without any of these options, just calls the rea
 
 =item popup
 
-Start a browser (defined in envvar BROWSER) pointing to the target repo of the push so that you can create a PR if need be.
+Start a browser (defined in envvar BROWSER) pointing to the URL of the origin for the current repo.
+
+=item pr
+
+Start a browser (defined in envvar BROWSER) pointing to the URL to create a new pull request.
 
 =back
 
