@@ -10,6 +10,16 @@ and use it to customize your debugger experience.
 
 =head1 FEATURES
 
+=head2 XTERM
+
+If you are debugging code that has a fork in it, and you are running in an
+'xterm', the Perl debugger has special code to automatically start up a new
+window to receive the debugger for the child process. HOWEVER, it depends on
+the value of C<$ENV{TERM}> eq 'xterm'>. In cases where the xterm is more
+specialized (in my case 'xterm-256color'), that comparison fails and oops we
+can't debug forks. So, we look for the TERM environment variable, and if it
+matches /^xterm/, we change the environment variable to just XTERM.
+
 =head2 $DB::deep
 
 This number tells the Perl debugger to automatically break at a certain
@@ -25,10 +35,10 @@ guts of Moose).
 
 =head2 {{v
 
-The C<{{> command tells the debugger to run the command that follows before
-every prompt. In this case, we use the "v"erbose command. With this, instead
-of seeing a single line of code at a time, we get a verbose window of several
-lines of code, making it much easier to see our context:
+The C<{{> command tells the debugger to run the debugger command that follows
+before every prompt. In this case, we use the "v"erbose command. With this,
+instead of seeing a single line of code at a time, we get a verbose window of
+several lines of code, making it much easier to see our context:
 
     28          );
     29:         $DB::single = 1;
@@ -92,6 +102,9 @@ source file
 
      Reads in 'file' as commands. Use to reload $cmdfile after maybe fixing up
      the breakpoints.
+
+Note that there is no debugger command to write out the existing information;
+you have to maintain the file externally to the debugger.
 
 See the following for more information:
 
@@ -221,7 +234,17 @@ my $skip;
 my @classes;
 
 BEGIN {
-    @classes = sort ( 'Catalyst',
+    if ( defined ($ENV{TERM}) && $ENV{TERM} =~ m/^xterm./ ) {
+        print STDERR <<"END";
+
+Debugger changing:
+    \$ENV{TERM} from '$ENV{TERM}' to 'xterm'
+    in order to faciliate debugging forks.
+END
+
+        $ENV{TERM}='xterm';
+    }
+    @classes = sort {$a cmp $b } ( 'Catalyst',
         'Moose',
         'DateTime::Format',
         'DBIx::Class',
@@ -248,11 +271,9 @@ BEGIN {
     print STDERR <<"END";
 
 Debugger skipping:
-
     $classes
-
-See ~/.perldb if you don't like this behavior, or set NO_DB_SKIP=1.
-
+See ~/.perldb if you don't like this skipping behavior, or set the environment
+variable NO_DB_SKIP=1.
 END
 }
 
