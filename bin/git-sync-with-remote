@@ -10,6 +10,7 @@ declare opt_remote='origin'
 declare opt_confirm='0'
 declare opt_stash='0'
 declare do_stash='0'
+declare do_push='1'
 declare resp
 
 declare OPTSARGS
@@ -25,6 +26,7 @@ do
         -r|--remote) opt_remote="$2"; shift; shift ;;
         -b|--branch) opt_branch="$2"; shift; shift ;;
         -h|--help) script-usage; exit 0 ;;
+        --nopush) do_push=0;;
         --) shift; break ;; ## end of opts, remaining $*, if any, are args
         *) cmd-echo "Internal error!"; script-usage; exit 1 ;;
     esac
@@ -258,40 +260,43 @@ newsha=$(git-log-grab-sha -1)
 cmd-echo --head 'Log after pull:'
 git-log-shas-range "$oldsha" "$newsha"
 
-## Push the merged branch back
-cmd-echo --head "pull --rebase successful. Pushing..."
-git push
-status=$?
-if [ "$status" != '0' ]
+## Push the merged branch back, if desired.
+if ((do_push))
 then
-    resp=$(cmd-yesno "'git push' complained. Shall I re-push with --force" n)
-    if [ "$resp" = 'y' ]
+    cmd-echo --head "pull --rebase successful. Pushing..."
+    git push
+    status=$?
+    if [ "$status" != '0' ]
     then
-        git push --force
-        status=$?
+        resp=$(cmd-yesno "'git push' complained. Shall I re-push with --force" n)
+        if [ "$resp" = 'y' ]
+        then
+            git push --force
+            status=$?
+        fi
     fi
-fi
 
-## Show log
-cmd-echo --head 'Log after push:'
-git-log-shas-range "$oldsha" "$newsha"
+    ## Show log
+    cmd-echo --head 'Log after push:'
+    git-log-shas-range "$oldsha" "$newsha"
 
-declare ask_pop=0
-if [ ! "$status" = '0' ]
-then
-    cmd-echo
-    cat <<EOF
-It appears that the git push was not successful and you declined to use --force,
-or the --force was also unsuccessful.
-EOF
-    if ((do_stash))
+    declare ask_pop=0
+    if [ ! "$status" = '0' ]
     then
         cmd-echo
         cat <<EOF
+It appears that the git push was not successful and you declined to use --force,
+or the --force was also unsuccessful.
+EOF
+        if ((do_stash))
+        then
+            cmd-echo
+            cat <<EOF
 It may be that you decided not to force the push since you still have work to do,
 in which case you will want to pop the latest stash.
 EOF
-        ask_pop=1
+            ask_pop=1
+        fi
     fi
 fi
 
@@ -319,10 +324,3 @@ EOF
         fi
     fi
 fi
-
-#git-sync-with-remote-usage ()
-#{
-#    echo "Usage: $1 --branch otherBranch [--remote remote] [--confirm]"
-#    echo "       Rebase your branch from another remote branch."
-#    echo "       'remote' defaults to 'origin'."
-#}
