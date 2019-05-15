@@ -83,6 +83,20 @@ then
     declare repo
     repo=${remote#*:}
 
+    declare statusdata
+    statusdata=$(mktemp -t tmp.git-web.statusdata.$$.XXXXXXXXXX)
+    rm_on_exit "$statusdata"
+    git status --porcelain -b -uno > "$statusdata"
+    declare linecount
+    linecount=$(wc -l < "$statusdata")
+    declare outofdate
+    outofdate=$(grep '##' "$statusdata" | grep '\[')
+    if ((linecount > 1)) || [ -n "$outofdate" ]
+    then
+        cmd-echo -w -- "Current status not clean:"
+        git status
+    fi
+
     declare url
     if ((opt_pr))
     then

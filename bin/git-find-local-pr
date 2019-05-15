@@ -21,11 +21,23 @@ usage ()
     ) 2>&1 | ${PAGER:-less}
 }
 
-declare upstream
-upstream=$(git config --get remote.upstream.url)
-declare upstreamsvc
-upstreamsvc=${upstream%:*}
-declare upstreamrepo=${upstream#*:}
+declare remote
+for remote in upstream origin
+do
+    remote_url=$(git config --get remote.${remote}.url)
+    if [ -n "$remote_url" ]
+    then
+        break
+    fi
+done
+if [ -z "$remote_url" ]
+then
+    cmd-echo -w -- "Cannot find a remote upstream or origin to check for pull requests"
+    exit 1
+fi
+
+declare remote_svc=${remote_url%:*}
+declare remote_repo=${remote_url#*:}
 
 declare cb
 cb="$(git branch get-current)"
@@ -34,7 +46,7 @@ declare perldata
 perldata=$(mktemp -t tmp.git-find-local-pr.perldata.$$.XXXXXXXXXX)
 rm_on_exit "$perldata"
 
-github-api --stream-data --perl-data --server "$upstreamsvc" pulls "$upstreamrepo" >> "$perldata"
+github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
 
 perl -e 'do $ARGV[0];
 for $pull (@{$VAR1}) {
