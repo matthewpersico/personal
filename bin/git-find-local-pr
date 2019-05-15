@@ -1,0 +1,66 @@
+#!/usr/bin/env bash
+
+# git-find-local-pr
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+if ! git-version-verify 'git-find-local-pr'
+then
+    exit 1
+fi
+
+# shellcheck disable=SC2034 # We'll use it eventually
+cmd_echo_id='git-find-local-pr'
+
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        script-usage
+    ) 2>&1 | ${PAGER:-less}
+}
+
+declare upstream
+upstream=$(git config --get remote.upstream.url)
+declare upstreamsvc
+upstreamsvc=${upstream%:*}
+declare upstreamrepo=${upstream#*:}
+
+declare cb
+cb="$(git branch get-current)"
+
+declare perldata
+perldata=$(mktemp -t tmp.git-find-local-pr.perldata.$$.XXXXXXXXXX)
+rm_on_exit "$perldata"
+
+github-api --stream-data --perl-data --server "$upstreamsvc" pulls "$upstreamrepo" >> "$perldata"
+
+perl -e 'do $ARGV[0];
+for $pull (@{$VAR1}) {
+    if ($pull->{head}{label} eq "$ARGV[1]:$ARGV[2]") {
+        print $pull->{html_url};
+        exit 0;
+    }
+}
+exit 1;' "$perldata" "$USER" "$cb"
+exit $?
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-find-local-pr - See if the current repo/branch is part of a pull request.
+
+=head1 SYNOPSIS
+
+ git-find-local-pr
+
+=head1 DESCRIPTION
+
+See if the current repo/branch is part of a pull request.
+
+__PODUSAGE__

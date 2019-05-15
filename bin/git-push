@@ -83,17 +83,20 @@ then
     declare repo
     repo=${remote#*:}
 
-    cmd-echo -w -- "NEED A check to see if there is a PR already open; if so, popup, if not, PR"
     declare url
     if ((opt_pr))
     then
-        ## --pr
-        declare cb
-        cb="$(git branch get-current)"
-        url="$(kvstore get gitfuncs_git_browser_urls "$svc")/$repo/pull/new/$cb"
-        if [ "$cb" = 'master' ]
+        if ! url=$(git-find-local-pr)
         then
-            cmd-echo -w -- "Using the 'master' branch can bring up the wrong PR url: $url"
+            ## no PR found, use new pr url
+            declare cb
+            cb="$(git branch get-current)"
+
+            url="$(kvstore get gitfuncs_git_browser_urls "$svc")/$repo/pull/new/$cb"
+            if [ "$cb" = 'master' ]
+            then
+                cmd-echo -w -- "Using the 'master' branch on the forked clone can bring up the wrong PR url: $url"
+            fi
         fi
     else
         url="$(kvstore get gitfuncs_git_browser_urls "$svc")/$repo"

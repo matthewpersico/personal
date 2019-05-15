@@ -32,6 +32,7 @@ main ()
     declare scope='all'
     declare pullId
     declare stream_data=0
+    declare perl_data=0
     declare doexec=1
     declare -a otherparams
 
@@ -56,6 +57,8 @@ main ()
 
         case $option in
             stream-data ) stream_data=1 ;;
+
+            perl-data ) perl_data=1 ;;
 
             keep-data ) keep_data=1 ;;
 
@@ -299,7 +302,6 @@ main ()
             "${curlopts[@]}" \
             "${server_url}${url}${otherparams[*]}" -s > "$curldata" 2>&1
         declare status=$?
-
         if ((status))
         then
             github-api-echo -- "curl returned with error :$status"
@@ -320,10 +322,9 @@ main ()
             declare pageprint
             # shellcheck disable=SC2059
             pageprint="$(printf "$pagenumfmt" $pagenum)"
-            mv "$curldata" "${curldata}.${pageprint}"
-            ((pagenum+=1))
             # shellcheck disable=SC2004
-            github-api-echo "1 of ${pagenums[1]} pages of data fetched..."
+            github-api-echo "$pagenum of ${pagenums[1]} pages of data fetched..."
+            ((pagenum+=1))
             while (( pagenum <= "${pagenums[1]}" ))
             do
                 github-api-echo "Page ${pagenum}..."
@@ -341,7 +342,26 @@ main ()
                     curl-cat
                     return $status
                 fi
-                ((pagenum+=1))
+
+                declare htmlstatus
+                htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
+                case $htmlstatus in
+                    200 )
+                        ## Consoldate paged data
+                        cat "${curldata}.${pageprint}" >> "$curldata"
+                        ;;
+                    404 )
+                        ## Sometimes even though pagination of the returned
+                        ## data is indicated, the data is not paginated. If we
+                        ## got here and got a 404, let's assume all the data is
+                        ## in the prior set of data and move on.
+
+                        ## Fake a good header
+                        echo "Status: 200 OK" > "$curlheaders"
+
+                        break ## while
+                        ;;
+                esac
             done
         fi
 
@@ -354,6 +374,7 @@ main ()
                         # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
                         echo '$VAR1=' > "$perldata"
                         json_xs -t dumper < "$curldata" >> "$perldata"
+                        echo ';'
                         perl -MMIME::Base64 -e 'do $ARGV[0]; print decode_base64($VAR1->{content})' "$perldata"
                         ;;
                     * )
@@ -388,6 +409,7 @@ main ()
                         echo '$VAR1=' > "$perldata"
                         json_xs -t dumper < "$curldata" >> "$perldata"
                         perl -e 'do $ARGV[0]; print join(qq(\n), sort map {$_->{full_name}} @$VAR1)' "$perldata"
+                        return 1;
                         ;;
                     404 )
                         github-api-echo -e -- "'${server}:$org/$repo' not found."
@@ -457,7 +479,14 @@ main ()
 
     if ((stream_data))
     then
-        cat -v "${curldata}".*
+        if((perl_data))
+        then
+            # shellcheck disable=SC2016 # We know the variable will not expand.
+            echo '$VAR1='
+            json_xs -t dumper < "${curldata}"
+        else
+            cat -v "${curldata}"
+        fi
     elif ((!silent))
     then
         curl-cat
@@ -484,7 +513,7 @@ github-api - Wrapper around curl calls to the github api
 
 =head1 SYNOPSIS
 
- github-api [--server server] [--stream-data|--keep-data] [--wait] [--verbose|--silent|--noexec] \
+ github-api [--server server] [--stream-data [--perl-data]] [--keep-data] ] [--wait] [--verbose|--silent|--noexec] \
      org <orgname> |
      repos [--user] <orgname> |
      exists[|ping] <orgname> <reponame> |
@@ -558,6 +587,14 @@ Default: 'github'. Also accepts 'bbgithub'.
 
 All headers and titles are suppressed. Only the data structure is sent to stdout for display. Use this if you want to ingest the output in a program.
 
+=item --perl-data
+
+Only applies for streamed data, convert to a Perl Data::Dumper format that should be stored to a file X so it can then used via a
+
+ do $ARGV[0];
+
+statement in a Perl script where X is the first arg to the script.
+
 =item --keep-data
 
 Header and data are sent to a file for display. This options doesn't clean up after execution allowing you to use them. Filenames will be shown.
@@ -566,7 +603,7 @@ Header and data are sent to a file for display. This options doesn't clean up af
 
 Whe creating a fork, wait for the fork to create before exiting. Default is to send off the command and exit, as the fork creation is async by default.
 
-=item [--verbose|--data|--silent|--noexec]
+=item [--verbose|--silent|--noexec]
 
 'verbose' shows steps and the full curl command, sans authentication info.
 
