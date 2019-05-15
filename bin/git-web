@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
 
-# git-push
+# git-web
 
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
-if ! git-version-verify 'git-push'
+if ! git-version-verify 'git-web'
 then
     exit 1
 fi
 
 # shellcheck disable=SC2034 # We'll use it eventually
-cmd_echo_id='git-push'
+cmd_echo_id='git-web'
 
 usage ()
 {
@@ -21,15 +21,14 @@ usage ()
         script-usage
         echo
         echo "** Standard actions **"
-        "$REALGIT" push --help
+        "$REALGIT" web--browse --help
     ) 2>&1 | ${PAGER:-less}
 }
 
-declare opt_popup=0
+declare opt_popup=1
 declare opt_pr=0
-declare -a git_push_args
+declare -a git_web__browse_args
 declare more_our_opts=1
-declare dispatch_to_real_git=1
 while [[ "$1" =~ ^- ]] && ((more_our_opts))
 do
     declare original="$1"
@@ -51,28 +50,19 @@ do
         ##
         ## Our options
         ##
-        popup )
-            opt_popup=1
-            more_our_opts=0;;
         pr )
             opt_pr=1
             more_our_opts=0;;
         ##
-        ## Options to pass onto real git push
+        ## Options to pass onto real git web--browse
         ##
         * )
-            git_push_args+=("$original")
+            git_web__browse_args+=("$original")
             ;;
     esac
 done
 
-git_push_args+=("$@")
-if ((dispatch_to_real_git))
-then
-    ## There are no options specified that make us think we want to run our
-    ## push code; go run system git push.
-    "$REALGIT" push "${git_push_args[@]}" || exit $?
-fi
+git_web__browse_args+=("$@")
 
 if ((opt_popup || opt_pr))
 then
@@ -83,11 +73,11 @@ then
     declare repo
     repo=${remote#*:}
 
-    cmd-echo -w -- "NEED A check to see if there is a PR already open; if so, popup, if not, PR"
     declare url
     if ((opt_pr))
     then
         ## --pr
+        cmd-echo -w -- "NEED A git-status-is-clean-and-pushed-check here. If not, stop." "If so, look for a relaPR an open it. If not, stop."
         declare cb
         cb="$(git branch get-current)"
         url="$(kvstore get gitfuncs_git_browser_urls "$svc")/$repo/pull/new/$cb"
@@ -99,7 +89,7 @@ then
         url="$(kvstore get gitfuncs_git_browser_urls "$svc")/$repo"
     fi
 
-    git web--browse "$url" &
+    $REALGIT web--browse "$url" &
 fi
 
 exit 0
@@ -111,27 +101,25 @@ exit 0
 :<<'__PODUSAGE__'
 =head1 NAME
 
-git-push - extension to git push
+git-web - Wrapper for 'git web--browse'
 
 =head1 SYNOPSIS
 
- git-push [--popup|--pr] ...
+ git-web [--pr] ...
 
 =head1 DESCRIPTION
 
-Adds a few options to git push. Without any of these options, just calls the real git push. Otherwise, calls git push with some additional actions.
+Start a browser (using the git web--browser rules for finding one on the
+system), pointing at the current repo's origin site at the remote git server.
 
 =head1 OPTIONS
 
 =over 4
 
-=item popup
-
-Start a browser (via git web--browser) pointing to the URL of the origin for the current repo.
-
 =item pr
 
-Start a browser (via git web--browser) pointing to the URL to create a new pull request using the current repo as the source.
+Start a browser pointing to the URL to create a new pull request using the
+current repo's origin as source.
 
 =back
 
