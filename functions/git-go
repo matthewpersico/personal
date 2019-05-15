@@ -21,6 +21,7 @@ git-go ()
     local opt_comments=0
     local moreopts
     local -a limited
+    local -a tgts
     moreopts=1
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
@@ -33,6 +34,15 @@ git-go ()
         shift ## That way you avoid endless loops on invalid options.
 
         case $option in
+            upstream) eval "$(git-parse-remote-v)"
+                      # shellcheck disable=SC2154
+                      if [ -z "${gitfuncs_remotes[upstream]}" ]
+                      then
+                          cmd-echo -e -- "No upstream for current repo ($(pwd))"
+                          return 1
+                      fi
+                      tgts=("${gitfuncs_remotes[upstream]/*:/}")
+                      ;;
             e | exact ) opt_exact='--exact';;
             et | exact-tail ) opt_exact='--exact-tail';;
             eh | exact-head ) opt_exact='--exact-head';;
@@ -69,8 +79,6 @@ git-go ()
     [ -n "$opt_wt" ] && git_get_opts+=("$opt_wt")
     [ -n "$opt_subwt_only" ] && git_get_opts+=("$opt_subwt_only");
     [ -n "$opt_exact" ] && git_get_opts+=("$opt_exact")
-
-    local -a tgts
 
     ## Grab the first argument which has to be blank or a filter
     if [ -n "$1" ]

@@ -1,0 +1,149 @@
+#!/usr/bin/env bash
+
+# shellcheck disable=SC2230
+REALCP=$(which -a cp | grep -v "$0" | head -1)
+
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        script-usage
+        echo
+        echo "** Standard actions **"
+        "$REALCP" --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+declare opt_reverse=0
+declare opt_mirror=0
+declare opt_confirm=0
+declare -a cpargs
+declare -a ourargs
+for arg in "$@"
+do
+    case $arg in
+        --reverse )
+            opt_reverse=1
+            opt_confirm=1
+            ;;
+        --mirror )
+            opt_mirror=1
+            opt_confirm=1
+            ;;
+        --help )
+            usage ''
+            exit 0
+            ;;
+        * )
+            cpargs+=("$arg")
+            ;;
+    esac
+done
+
+if ((opt_reverse))
+then
+    if ((${#cpargs[@]} != 2)) || \
+           [ ! -f "${cpargs[1]}" ] || \
+           { [ ! -f "${cpargs[0]}" ] && [ ! -d "${cpargs[0]}" ] && [ ! -d "$(dirname "${cpargs[0]}")" ] ;}
+    then
+        cmd-echo -- "--reverse requires two and only two args." \
+                 "The first (tgt) must be a file in an existing directory or just an existing directory," \
+                 "The second (src) must be a existing file."
+        exit 1
+    else
+        tmp=${cpargs[0]}
+        cpargs[0]=${cpargs[1]}
+        cpargs[1]=$tmp
+    fi
+fi
+
+if ((opt_mirror))
+then
+    if ((${#cpargs[@]} != 2)) || \
+           [ ! -f "${cpargs[0]}" ] || \
+           { [ ! -f "${cpargs[0]}" ] && [ ! -d "${cpargs[0]}" ] [ ! -d $(dirname "${cpargs[0]}") ] ; }
+    then
+        cmd-echo -- "--mirror requires two and only two args." \
+                 "The first must be an existing file, with some directory portion you want to replicate at the target." \
+                 "The second must be a existing directory."
+        exit 1
+    fi
+
+    ## Adjust the source and tgt commands
+    declare tgt
+    tgt="${cpargs[1]}"/"${cpargs[0]}"
+    cpargs[1]=$tgt
+    if ((opt_confirm))
+    then
+        ourargs+=('-v')
+        yesno --noprint "$REALCP ${ourargs[*]} ${cpargs[*]}" "n" || exit
+    fi
+    opt_confirm=0 ## Do not reconfirm
+
+    ## Make the tgt tree
+    declare tgtdir
+    tgtdir=$(dirname "${cpargs[1]}")
+    mkdir -p "$tgtdir"
+fi
+
+if ((opt_confirm))
+then
+    ourargs+=('-iv')
+    yesno --noprint "$REALCP ${ourargs[*]} ${cpargs[*]}" "n" || exit
+fi
+"$REALCP" "${ourargs[@]}" "${cpargs[@]}"
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+mycp - extensions to the cp command
+
+=head1 SYNOPSIS
+
+ mycp --reverse DEST SOURCE
+ mycp --mirror SOURCE DIRECTORY
+
+=head1 DESCRIPTION
+
+Additions to the 'cp' command.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --reverse
+
+For command 'cp DEST SOURCE', do not copy 'DEST' to 'SOURCE', which is the
+normal order of operations, but rather, copy 'SOURCE' to 'DEST'. 'DEST' is
+either a directory in which to place the source file or a file to overwrite
+with the source file. 'SOURCE' is a source file location. Use this if you are
+doing diffs and you are using the headers to construct copy commands to pick
+the righthand side of the diff as the desired file.
+
+=item --mirror
+
+For command 'cp SOURCE DIRECTORY', 'SOURCE' consists of a file and a path
+(possibly partial) to that file, 'DIRECTORY' is a target directory, and the
+copy is done such that the result is 'DIRECTORY/SOURCE'. Example:
+
+ cp foo/bar/bin/thefile ~/tmp
+
+Result:
+
+ $ ls ~/tmp/foo/bar/bin/thefile
+ /home/me/tmp/foo/bar/bin/thefile
+
+If any directory in the final result does not exist, it will be created, modulo
+permissions.  Useful for copying files between git worktrees. If SOURCE is just
+a file, then you are just doing a regular 'cp' command.
+
+=back
+
+=cut
+
+__PODUSAGE__
