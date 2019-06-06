@@ -1,0 +1,138 @@
+#!/usr/bin/env bash
+
+# git-rebase
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+if ! git-version-verify 'git-rebase'
+then
+    exit 1
+fi
+
+# shellcheck disable=SC2034 # We'll use it eventually
+cmd_echo_id='git-rebase'
+
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        script-usage
+        echo
+        echo "** Standard actions **"
+        "$REALGIT" rebase --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+_git_rebase_via_log ()
+{
+    declare rebase_sha
+    declare resp
+    if [ -z "$1" ]
+    then
+        ## Show the current commit
+        cmd-echo --head 'Current commits:'
+        $REALGIT log -2
+        ## The first one we can rebase on is the third one in the log
+        rebase_sha=$(git-log-grab-sha -3)
+    else
+        rebase_sha=$1
+    fi
+
+    cmd-echo --head 'Rebase-able commits:'
+    while ((1))
+    do
+        ## show the log
+        git-log-shas-range "$rebase_sha" "$rebase_sha"
+
+        resp=$(script-pick "Rebase on $rebase_sha" "y/n/q" 'n')
+        if [ "$resp" = 'q' ]
+        then
+            exit 0
+        fi
+        if [ "$resp" = 'y' ]
+        then
+            "$REALGIT_EXEC_PATH/git-rebase" -i "$rebase_sha"
+            declare status=$?
+            ((status)) && exit "$status"
+            cmd-echo --head 'Log is now:'
+            if(($($REALGIT log | grep -c -E '^commit') > 2))
+            then
+                # shellcheck disable=SC2086 #No need to quote $rebase_sha
+                $REALGIT log ${rebase_sha}^1..HEAD
+            else
+                ## With less than three commits, the $REALGIT log statement above won't
+                ## work; just show the whole log
+                $REALGIT log
+            fi
+            exit $status
+        fi
+
+        ## Get the next log
+        rebase_sha=$(git-log-grab-sha -2 "$rebase_sha")
+    done
+}
+
+main ()
+{
+    ## DO NOT attempt to convert this to a 'getopt' implementation; it would
+    ## require specifying and handling every existing option in 'git rebase'
+    ## and it is just not necessary.
+    declare -a pass_on
+
+    while (( $# ))
+    do
+        declare arg=$1
+        shift
+        case $arg in
+            --log )
+                _git_rebase_via_log "$@"
+                exit $?
+                ;;
+            --help | -h )
+                usage ''
+                exit 0
+                ;;
+            * )
+                ## Eventually, you call the real command with "${pass_on[@]}"
+                pass_on+=("$arg")
+                ;;
+        esac
+    done
+
+    ## If we get here, it's just a straight rebase
+    "$REALGIT_EXEC_PATH/git-rebase" "${pass_on[@]}"
+}
+
+main "$@"
+exit $?
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-rebase - extension to git rebase
+
+=head1 SYNOPSIS
+
+ git-rebase --log [commit_id]
+
+=head1 DESCRIPTION
+
+Uses the git log of the current repo to pick a starting rebase point.
+
+=head1 OPTIONS
+
+=over 4
+
+=item log
+
+Prints the git log, one entry at at time, allowing the user to pick a starting point for a rebase. If a commit id is provided, the log is started at that commit instead of at HEAD.
+
+=back
+
+__PODUSAGE__
