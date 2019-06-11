@@ -5,48 +5,48 @@
 declare diff
 declare cached
 declare nosclonly
-declare moreopts=1
 declare color
 declare -a color_opt
-while [[ "$1" =~ ^- ]] && ((moreopts))
+
+# Define the options. ':' suffix for a mandatory value to an option, '::' for
+# an optional one. Note that the long and short don't have to match up.
+declare OPTSARGS
+declare shortopts='xh'
+declare longopts='filesonly,nosclonly,diff,cached,help,debug,color:,nocolor'
+
+# Process the command line.
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+declare status=$?
+((status != 0)) && exit $status ## return $status ## in functions
+
+# Reset the command line ($@).
+eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+while true
 do
-    declare original="$1"
+    declare option=$1
     shift
-    declare option
-    option=$(dashstripper "$original")
-    ## This bit deals with --foo=bar instead of --foo bar
-    declare okey=''
-    declare ovalue=''
-    if [[ "$option" =~ = ]]
-    then
-        okey=${option%%=*}
-        ovalue=${option#*=}
-        option="$okey"
-    fi
-
-    case $option in
-        filesonly) filesonly='--filesonly';;
-        nosclonly) nosclonly='--nosclonly';;
-        diff) diff='--diff';;
-        cached) cached='--cached';;
-        h|help) script-usage; exit 0 ;;
-        debug | x ) set -x; trap 'set +x' EXIT;;
-        color)
-            color=${ovalue:-$1}
-
-            ## If $ovalue is blank, we took arg from the next command line arg;
-            ## need to shift it off.
-            [ -z "$ovalue" ] && shift
-
-            color_opt=(--color "$color")
-            ;;
-        nocolor)
+    case "$option" in
+        --filesonly) filesonly='--filesonly';;
+        --nosclonly) nosclonly='--nosclonly';;
+        --diff) diff='--diff';;
+        --cached) cached='--cached';;
+        -h|-help) script-usage; exit 0 ;;
+        --debug | -x ) set -x; trap 'set +x' EXIT;;
+        --color) color=$1
+                 shift
+                 color_opt=(--color "$color")
+                 ;;
+        --nocolor)
             color_opt=(--color "never")
             ;;
-        --) moreopts=0;;
-        * )
-            cmd-echo -- "$original is an invalid option. See $0 --help";
-            exit 1
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo -e -- "$option is an invalid option. See $0 --help"
+            exit 1 ## return 1 in functions
             ;;
     esac
 done

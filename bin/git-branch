@@ -56,21 +56,29 @@ git-branch-delete ()
     opt_yes=0
     declare do_go_set
     do_go_set=1
-    OPTSARGS=$(getoptp -o y --long yes,no-remote,declare-only,no-go-set -n "${FUNCNAME[0]}" -- "$@")
-    declare status
-    status=$?
+    declare OPTSARGS
+    declare shortopts='y'
+    declare longopts='yes,no-remote,declare-only,no-go-set'
+
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
+    declare status=$?
     ((status != 0)) && usage && return $status
 
     eval set -- "$OPTSARGS"
     while true
     do
-        case "$1" in
+        declare option=$1
+        shift
+        case "$option" in
             -y|--yes) opt_yes=1; shift ;;
             --no-remote|--declare-only) no_remote=1; shift ;;
             --no-go-set) do_go_set=0; shift ;;
             -h|--help) usage; return 0 ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) cmd-echo -- "Internal error!"; usage; return 1 ;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo -e -- "$option is an invalid option. See git-branch --help"
+                return 1 ;;
         esac
     done
 
@@ -282,20 +290,34 @@ git-branch-list ()
 {
     local strip=0
     local remote=''
-    local OPTSARGS
-    OPTSARGS=$(getoptp -o ra --long strip,nostrip,remote,all -n "${FUNCNAME[0]}" -- "$@")
-    status=$?
+    declare OPTSARGS
+    declare shortopts='ra'
+    declare longopts='strip,nostrip,remote,all'
+
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
+    declare status=$?
     ((status != 0)) && cmd-echo -- "Exiting." && return $status
+
+    # Reset the command line ($@).
     eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
     while true
     do
-        case "$1" in
-            -a | --all) remote='-a'; shift;;
-            -r | --remote) remote='-r'; shift;;
-            --strip) strip=1; shift;;
-            --nostrip) strip=0; shift;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; return 1;;
+        declare option=$1
+        shift
+        case "$option" in
+            -a | --all) remote='-a';;
+            -r | --remote) remote='-r';;
+            --strip) strip=1;;
+            --nostrip) strip=0;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                exit 1 ## return 1 in functions
+                ;;
         esac
     done
 

@@ -22,7 +22,6 @@ declare opt_confirm=0
 declare opt_verbose=0
 declare opt_new=''
 declare opt_keepscript=0
-declare OPTSARGS
 declare status
 declare arg
 declare exitstatus=0
@@ -33,45 +32,51 @@ declare f
 ## OPTS and ARGS
 ##
 
-## Read the args and options from the command line
-OPTSARGS=$(getoptp -o kcbvn: -l keepscript,confirm,backup,verbose,new: -n "$0" -- "$@")
-status=$?
-((status != 0)) && cmd-echo -- "Exiting." && exit $status
+declare OPTSARGS
+declare shortopts='kcbvn:'
+declare longopts='keepscript,confirm,backup,verbose,new:'
 
-## reset the command line ($@)
+# Process the command line.
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+declare status=$?
+((status != 0)) && exit $status
+
+# Reset the command line ($@).
 eval set -- "$OPTSARGS"
 
-## process options
-while true ; do
-    case "$1" in
-	    -c|--confirm)
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+while true
+do
+    declare option=$1
+    shift
+    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    case "$option" in
+	    c|confirm)
 	        opt_confirm=1
 	        sedopt_inplace='-i.sip'
-	        shift
 	        ;;
-	    -b|--backup)
+	    b|backup)
 	        sedopt_inplace='-i.sip'
 	        cmd-echo -- "Backups in .sip files"
-	        shift
 	        ;;
-	    -v|--verbose)
+	    v|verbose)
 	        opt_verbose=1
-	        shift
 	        ;;
-        -n|--new)
+        n|new)
 	        sedopt_inplace='-i.sip'
-	        opt_new=$2
-            shift;shift
-            ;;
-        -k|--keepscript)
-            opt_keepscript=1
+	        opt_new=$1
             shift
             ;;
-	    --)
-	        shift
-	        break
-	        ;;
-	    *) cmd-echo -- "Internal error!" ; byebye 1 ;;
+        k|keepscript)
+            opt_keepscript=1
+            ;;
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo -e -- "$option is an invalid option. See $0 --help"
+            exit 1
+            ;;
     esac
 done
 

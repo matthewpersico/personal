@@ -21,7 +21,7 @@ dirlist ()
     local do_list=0
 
     ## Have to pull off any negative numbers or ^ args, both of which signify
-    ## 'up', first so as not to confuse getoptp
+    ## 'up', first so as not to confuse getopt
     local -a negs
     local -a args
     local neg_carr #ot
@@ -40,24 +40,30 @@ dirlist ()
     ## Put back args
     eval set -- "${args[@]}"
 
-    local OPTSARGS
-    OPTSARGS=$(getoptp -o h --long nosavetarget,nosavecurrent,up:,clear,init,list,show,prune  -n 'dirlist' -- "$@")
-    status=$?
-    ((status != 0)) && echo "Exiting." && return $status
+    declare OPTSARGS
+    declare shortopts='h'
+    declare longopts='nosavetarget,nosavecurrent,up:,clear,init,list,show,prune'
+    # Process the command line
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
+    declare status=$?
+    ((status != 0)) && return $status
 
-    eval set -- "$OPTSARGS"
+    eval set -- "$OPTSARGS" # Reset the command line ($@).
     while true
     do
-        case "$1" in
-            -h|--help) func-usage dirlist; return 0 ;;
-            --up) negs+=("-$2"); shift; shift;;
-            --nosavetarget) target='--nopwd'; shift;;
-            --nosavecurrent) current='--nopwd'; shift ;;
-            --clear|--init)
+        declare option=$1
+        shift
+        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+        case "$option" in
+            h|help) func-usage dirlist; return 0 ;;
+            up) negs+=("-$1"); shift;;
+            nosavetarget) target='--nopwd' ;;
+            nosavecurrent) current='--nopwd' ;;
+            clear|init)
                 DIRLIST=''
                 return 0;;
-            --list|--show) do_list=1; shift;;
-            --prune)
+            list|show) do_list=1 ;;
+            prune)
                 local tmplist
                 tmplist=$(echo "${DIRLIST}" | tr ' ' '\n' | sort -ur)
                 local lastdir
@@ -74,8 +80,12 @@ dirlist ()
                 DIRLIST="$newlist"
                 _dirlist_set
                 return 0;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; func-usage dirlist; return 1 ;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                return 1
+                ;;
         esac
     done
 

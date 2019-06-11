@@ -5,40 +5,59 @@
 
 git-checkout ()
 {
-    local opt_m=''
-    local message=''
-    local OPTSARGS
-    OPTSARGS=$(getoptp -o m: --long message: -n "${FUNCNAME[0]}" -- "$@")
-    local status=$?
+    echo "$(date +%Y-%m-%d.%H:%M:%S): git-checkout $*" >> ~/shellaudit
+    declare opt_m=''
+    declare message=''
+
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    declare OPTSARGS
+    declare shortopts='m:'
+    declare longopts='message:'
+
+    # Process the command line.
+    OPTSARGS=$(getopt -o -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+    declare status=$?
     ((status != 0)) && func_usage && return $status
 
+    # Reset the command line ($@).
     eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into#
+    # variables.
     while true
     do
-        case "$1" in
-            -m|--message) opt_m=$1; message="$2"; shift ; shift ;;
-            -h|--help) func_usage; return 0 ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) echo "Internal error!"; func_usage; return 1 ;;
+        declare option=$1
+        shift
+        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+        case "$option" in
+            m|message) opt_m=$option; message="$1"; shift ;;
+            h|help) func_usage; return 0 ;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                return 1
+                ;;
         esac
     done
 
-    local newbranch=$1
-    local createbranch=''
+    declare newbranch=$1
+    declare createbranch=''
     if [ -z "$newbranch" ]
     then
-        local branchesa
+        declare branchesa
         readarray -t branchesa < <(git branch --list --format='%(refname)' | sed 's|.*/||' )
         if [ ${#branchesa[@]} == '0' ]
         then
             echo "No branches found. Are you in a git repo?"
             return 1
         fi
-        local current_branch
+        declare current_branch
         current_branch=$(git branch get-current)
-        local PS3="Choose by number, q to quit: "
-        local newonemsg="Create a new one from $current_branch"
-        local selected
+        declare PS3="Choose by number, q to quit: "
+        declare newonemsg="Create a new one from $current_branch"
+        declare selected
         COLUMNS=1 ## One character wide terminal, forces list to be one column
         select selected in "$newonemsg" "${branchesa[@]}"
         do
@@ -55,7 +74,7 @@ git-checkout ()
                     done
                     if [ -d './wt' ]
                     then
-                        local resp
+                        declare resp
                         resp=$(cmd-yesno "As a worktree" y)
                         if [ "$resp" == 'y' ]
                         then

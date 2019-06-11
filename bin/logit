@@ -25,9 +25,15 @@ declare isat=0
 declare -a original_argv
 original_argv+=("$0" "$@")
 
-# Read the options and args from command line.
-OPTSARGS=$(getoptp -o h -l isat,at:,tee,zenity,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help, -n 'logit' -- "$@")
-status=$?
+# Read the options and args from command line. Note that the long and short
+# don't have to match up.
+declare OPTSARGS
+declare shortopts='k'
+declare longopts='isat,at:,tee,zenity,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help'
+
+# Process the command line.
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+declare status=$?
 if ((status != 0))
 then
     echo "If the error was 'unrecognized option...'"
@@ -38,86 +44,89 @@ then
     exit $status
 fi
 
-# Reset the command line.
+# Reset the command line ($@).
 eval set -- "$OPTSARGS"
+declare opts_count=0
 
 # Reprocess the command line, extracting options and their arguments into
 # variables.
-declare opts_count=0
-while true ; do
-    case "$1" in
-        --at )
+while true
+do
+    declare option=$1
+    shift
+    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    case "$option" in
+        at )
             if ((opts_count))
             then
                 echo "--at must be first option"
                 exit 1
             fi
-            attime="$2"
-            shift 2
+            attime="$1"
+            shift
             atfile=$(mktemp -t tmp.logit.at.XXXXXXXXXX)
             echo "logit --isat $*" > "$atfile"
             chmod +x "$atfile"
             at -f "$atfile" "$attime"
             exit 0
             ;;
-        --isat)
+        isat)
             isat=1
-            shift
             ;;
-        -h|--help)
+        h|help)
             script-usage; exit 0 ;;
-        --log)
-            logfile="$2"
-            shift 2 ;;
-        --dir)
-            logdir="$2"
-            shift 2 ;;
-        --tee)
+        log)
+            logfile="$1"
+            shift ;;
+        dir)
+            logdir="$1"
+            shift ;;
+        tee)
             teeit=1
-            shift ;;
-        --zenity)
+            ;;
+        zenity)
             zenityit=1
-            shift ;;
-        --edit-echo)
+            ;;
+        edit-echo)
             edit_echo=1
             ;& ## unconditional dropthrough
-        --edit)
+        edit)
             edit="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit="$EDITOR"
-            shift
             ;;
-        --edit-on-fail)
+        edit-on-fail)
             edit_on_fail="$LOGIT_EDITOR"
             [ -z "$edit_on_fail" ] && edit_on_fail="$EDITOR"
-            shift ;;
-        --purge)
+            ;;
+        purge)
             purge=all
-            shift ;;
-        --purgeprior)
+            ;;
+        purgeprior)
             purge=prior
-            shift ;;
-        --notimestamp)
+            ;;
+        notimestamp)
             notimestamp=1
-            shift ;;
-        --tpe)
+            ;;
+        tpe)
             teeit=1
             purge=all
             edit="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit="$EDITOR"
-            shift ;;
-        --tpef)
+            ;;
+        tpef)
             teeit=1
             purge=all
             edit_on_fail="$LOGIT_EDITOR"
             [ -z "$edit_on_fail" ] && edit_on_fail="$EDITOR"
-            shift ;;
-        --ts)
+            ;;
+        ts)
             tsit=1
             shift ;;
-        --) shift ; break ;; ## VITAL!!! Exits the while loop, no more options
-        *) echo "Internal error! You probably forgot to add a -- option between the logit options and the command to run."
-           script-usage
-           exit 1 ;;
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo -e -- "$option is an invalid option; you probably forgot to add a -- option between the logit options and the command to run. See $0 --help"
+            exit 1 ;;
     esac
 done
 
