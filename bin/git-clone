@@ -26,7 +26,7 @@ usage ()
 
 _git_clone_record_created_date ()
 {
-    git config --replace-all em.git-clone.created "$(date "$GIT_EXT_META_DATE_FMT")" || exit $?
+    git config --replace-all em.git-clone.created "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
 }
 
 _git-clone-set-triangle()
@@ -41,7 +41,7 @@ _git-clone-set-triangle()
         if [ -z "$githost_url" ]
         then
             echo "No url found for githost '$1'";
-            exit 1
+            return 1
         fi
     fi
 
@@ -64,7 +64,7 @@ _git-clone-set-triangle()
     declare key
     for key in "${!triangle_workflow[@]}"
     do
-        git config --replace-all "$key" "${triangle_workflow[$key]}" || exit $?
+        git config --replace-all "$key" "${triangle_workflow[$key]}" || return $?
     done
 
     ##
@@ -72,356 +72,309 @@ _git-clone-set-triangle()
     ##
     key='remote.origin.fetch'
 
-    git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || exit $?
-    git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || exit $?
+    git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || return $?
+    git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || return $?
     ## ^ allows git checkout -b 3 pull/origin/3
 
     key='remote.upstream.fetch'
-    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" || exit $?
-    git config --add         $key "+refs/pull/*/head:refs/pull/upstream/*" || exit $?
-    git config --add         $key "+refs/notes/*:refs/notes/*" || exit $?
+    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" || return $?
+    git config --add         $key "+refs/pull/*/head:refs/pull/upstream/*" || return $?
+    git config --add         $key "+refs/notes/*:refs/notes/*" || return $?
     ## ^ allows git checkout -b 3 pull/upstream/3
 
     ## Our own metadata
-    git config --replace-all em.git-clone.triangle-remote "${origin_namespace}" || exit $?
+    git config --replace-all em.git-clone.triangle-remote "${origin_namespace}" || return $?
 
     return 0
 }
 
-declare opt_y=0
-declare opt_t=0
-declare opt_triangle_namespace=''
-declare opt_worktree=1
-declare opt_worktree_name=''
-declare opt_worktree_fetch=''
-declare opt_use_githost_dir=0
-declare opt_make_fork=0
-declare dispatch_to_real_git=1
-declare githost
-declare moreopts
-declare namespace
-declare repo
-declare -a orig_args=("$@")
-declare -a git_clone_opts
-moreopts=1
-while [[ "$1" =~ ^- ]] && ((moreopts))
-do
-    declare original="$1"
-    declare option
-    option=$(dashstripper "$original")
-    shift ## That way you avoid endless loops on invalid options.
-    ## This bit deals with --foo=bar instead of --foo bar
-    declare okey
-    declare ovalue=''
-    if [[ "$option" =~ = ]]
+main ()
+{
+    declare opt_y=0
+    declare opt_t=0
+    declare opt_triangle_namespace=''
+    declare opt_worktree=1
+    declare opt_worktree_name=''
+    declare opt_worktree_fetch=''
+    declare opt_use_githost_dir=0
+    declare opt_make_fork=0
+    declare dispatch_to_real_git=1
+    declare githost
+    declare namespace
+    declare repo
+
+    ## --------
+    ## DO NOT attempt to convert this to a 'getopt' implementation; it would
+    ## require specifying and handling every existing option in 'git clone'
+    ## and it is just not necessary.
+    declare -a pass_on
+
+    while (( $# ))
+    do
+        declare option=$1
+        shift ## That way you avoid endless loops on invalid options.
+        ## This bit deals with --foo=bar instead of --foo bar
+        declare okey
+        declare ovalue=''
+        if [[ "$option" =~ = ]]
+        then
+            okey=${option%%=*}
+            ovalue=${option#*=}
+            option="$okey"
+        fi
+        case $option in
+            ##
+            ## Our options
+            ##
+            --tree )
+                ## Use our gitgo tree. This allows us to say
+                ## git clone --tree bbgithub:/org/repo (use the gitgo tree)
+                ## instead of
+                ## git clone --githost bbgithub org/repo (oh, you have one of our options, you probably want to use the gitgo tree)
+                dispatch_to_real_git=0
+                opt_use_githost_dir=1;;
+            -y | --yes )
+                dispatch_to_real_git=0; opt_y=1;;
+            -t | --timestamp )
+                dispatch_to_real_git=0; opt_t=1;;
+            --fo | --forkof )
+                opt_make_fork=1
+                dispatch_to_real_git=0
+                opt_use_githost_dir=1 ## if we are using triangle, we must want trees too
+                opt_worktree=1 ## and worktrees.
+                declare tmp_otn=${ovalue:-$1}
+                [ -z "$ovalue" ] && shift ## If ovalue is blank, we used $1
+                if [[ "$tmp_otn" =~ ^- ]]
+                then
+                    ## we got the next option, not an arg to this one
+                    cmd-echo -id "$cmd_echo_id" -e -- "Fork org ($tmp_otn) cannot start with a '-'."
+                    return 1
+                fi
+                opt_triangle_namespace=${tmp_otn%/*}
+                if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
+                then
+                    cmd-echo -id "$cmd_echo_id" -w -- \
+                             "--$option takes an upstream namespace specification," \
+                             "not a full upstream repo specification." \
+                             "We will use" \
+                             "    $opt_triangle_namespace" \
+                             "not" \
+                             "    $tmp_otn"
+                fi
+                ;;
+            --wt | --worktree | --wtf | --worktree-fetch )
+                dispatch_to_real_git=0
+                opt_worktree=1
+                opt_worktree_name="${ovalue:-$1}"
+                [ -z "$ovalue" ] && shift ## If ovalue is blank, we used $1
+                if [[ "$opt_worktree_name" =~ ^- ]]
+                then
+                    ## we got the next option, not an arg to this one
+                    cmd-echo -id "$cmd_echo_id" -e -- "Worktree name ($opt_worktree_name) cannot start with a '-'."
+                    return 1
+                fi
+                if [[ "$option" =~ f ]]
+                then
+                    opt_worktree_fetch='--fetch'
+                fi
+                ;;
+            --help | -h )
+                usage; return 0 ;;
+            --debug | -x )
+                dispatch_to_real_git=0; set -x; add_on_exit set +x;;
+            * )
+                ## Eventually, you call the real command with "${pass_on[@]}"
+                pass_on+=("$option");
+                [ -n "$ovalue" ] && pass_on+=("$ovalue")
+                ;;
+        esac
+    done
+
+    if ((dispatch_to_real_git))
     then
-        okey=${option%%=*}
-        ovalue=${option#*=}
-        option="$okey"
+        ## There are no options specified that make us think we want to run our
+        ## clone code; go run system git clone.
+        "$REALGIT" clone "${pass_on[@]}"
+        return $?
     fi
 
-    case $option in
-        ##
-        ## Our options
-        ##
-        tree )
-            ## Use our gitgo tree. This allows us to say
-            ## git clone --tree bbgithub:/org/repo (use the gitgo tree)
-            ## instead of
-            ## git clone --githost bbgithub org/repo (oh, you have one of our options, you probably want to use the gitgo tree)
-            dispatch_to_real_git=0
-            opt_use_githost_dir=1;;
-        y | yes )
-            dispatch_to_real_git=0; opt_y=1;;
-        t | timestamp )
-            dispatch_to_real_git=0; opt_t=1;;
-        forkof | fo)
-            opt_make_fork=1
-            dispatch_to_real_git=0
-            opt_use_githost_dir=1 ## if we are using triangle, we most want trees too
-            opt_worktree=1 ## and worktrees.
-            declare tmp_otn=${ovalue:-$1}
-            [ -z "$ovalue" ] && shift ## If ovalue is blank, we used $1
-            if [[ "$tmp_otn" =~ ^- ]]
-            then
-                ## we got the next option, not an arg to this one
-                cmd-echo -id "$cmd_echo_id" -e -- "Fork org ($tmp_otn) cannot start with a '-'."
-                exit 1
-            fi
-            opt_triangle_namespace=${tmp_otn%/*}
-            if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]
-            then
-                cmd-echo -id "$cmd_echo_id" -w -- \
-                    "--$option takes an upstream namespace specification," \
-                    "not a full upstream repo specification." \
-                    "We will use" \
-                    "    $opt_triangle_namespace" \
-                    "not" \
-                    "    $tmp_otn"
-            fi
-            ;;
-        wt | worktree | wtf | worktree-fetch )
-            dispatch_to_real_git=0
-            opt_worktree=1
-            opt_worktree_name="${ovalue:-$1}"
-            [ -z "$ovalue" ] && shift ## If ovalue is blank, we used $1
-            if [[ "$opt_worktree_name" =~ ^- ]]
-            then
-                ## we got the next option, not an arg to this one
-                cmd-echo -id "$cmd_echo_id" -e -- "Worktree name ($opt_worktree_name) cannot start with a '-'."
-                exit 1
+    cmd-echo -- "Extended git clone functionality..."
 
-            fi
-            if [[ "$option" =~ f ]]
-            then
-                opt_worktree_fetch='--fetch'
-            fi
+    [ -z "${pass_on[0]}" ] && usage "Missing arguments" && return 1
 
-            ;;
-        h | help )
-            usage; exit 0 ;;
-        debug | x )
-            dispatch_to_real_git=0; set -x; add_on_exit set +x;;
-        --)
-            moreopts=0 ;;
-        ##
-        ## Options to pass onto real git clone
-        ##
-        l | s | q | n \
-            | no-hardlinks \
-            | bare \
-            | mirror \
-            | no-tags \
-            | dissociate \
-            | *single-branch \
-            | *shallow-submodules \
-            | quiet )
-            ## Options that do not take args
-            git_clone_opts+=("$option")
-            ;;
+    if [ -z "${githost}" ]
+    then
+        declare -a tmpa
+        asplit tmpa : "${pass_on[0]}"
+        if [ "${tmpa[0]}" = "${pass_on[0]}" ]
+        then
+            cmd-echo -id "$cmd_echo_id" -e -- "githost specified and no 'githost:' found in '${pass_on[0]}'"
+            return 1
+        fi
+        githost="${tmpa[0]}"
+        namespace="${tmpa[1]}"
+    else
+        namespace=${pass_on[0]}
+    fi
+    ashift -q pass_on
 
-        template \
-            | o \
-            | b \
-            | u \
-            | reference \
-            | separate-git-dir \
-            | depth \
-            | jobs \
-            | shallow-since)
-            git_clone_opts+=("$option")
-            ## Options taking mandatory args. If we don't have one with
-            ## --foo=bar syntax, then we just assume the next arg is for this
-            ## option and let the real 'git clone' sort it out.
-            if [ -n "$ovalue" ]
-            then
-                ovalue="$1"
-                shift
-            fi
-            git_clone_opts+=("$ovalue")
-            ;;
+    declare githost_url
+    githost_url="$(kvstore get gitfuncs_giturls "$githost")"
+    if [ -z "$githost_url" ]
+    then
+        cmd-echo -id "$cmd_echo_id" -- "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_git_svcs)"
+        return 1
+    fi
 
-        recurse-submodules )
-            git_clone_opts+=("$original")
-            ## Options taking optional args. If we don't have one with
-            ## --foo=bar syntax, then we just take the next arg IFF it does not
-            ## look like an option.
-            if [ -z "$ovalue" ]
+    if [[ "$namespace" == */* ]]
+    then
+        declare -a tmpa
+        asplit tmpa / "$namespace"
+        namespace=${tmpa[0]}
+        repo=${tmpa[1]}
+    else
+        repo=${pass_on[0]};ashift -q pass_on
+    fi
+
+    declare cwpath
+    cwpath="$(realpath "$(pwd)")"
+    declare local_githost
+    local_githost="$(basename "$cwpath")"
+    if [ "$local_githost" != "$githost" ]
+    then
+        if ((opt_use_githost_dir == 1))
+        then
+            cmd-echo -- "You must be in a directory path ending in"\
+                     "   $githost" \
+                     "You are in $cwpath"
+            # gitfuncs_root set externally
+            # shellcheck disable=SC2154
+            declare shouldbein="$gitfuncs_gitroot/$githost"
+            if [ ! -d "$shouldbein" ]
             then
-                if [[ ! "$1" =~ ^- ]]
+                cmd-echo -e -- "Cannot find '$shouldbein'." "Correct and re-execute."
+                return 1
+            else
+                declare resp
+                if ((opt_y))
                 then
-                    ovalue="$1"
-                    shift
+                    cmd-echo -- "Going to $shouldbein"
+                    resp='y'
+                else
+                    resp=$(cmd-yesno "cd to $shouldbein")
+                fi
+                if [ "$resp" = 'n' ]
+                then
+                    cmd-echo -- "Correct and re-execute."
+                    return 1
+                else
+                    _git-cd-to "$shouldbein"
                 fi
             fi
-            [ -n "$ovalue" ] && git_clone_opts+=("$ovalue")
-            ;;
-        * )
-            cmd-echo -id "$cmd_echo_id" -e -- "$original is an invalid option. Also, we have disabled option ganging. See $0 --help"
-            exit 1
-    esac
-done
-
-if ((dispatch_to_real_git))
-then
-    ## There are no options specified that make us think we want to run our
-    ## clone code; go run system git clone.
-    "$REALGIT" clone "${orig_args[@]}"
-    exit $?
-fi
-
-cmd-echo -- "Extended git clone functionality..."
-
-[ -z "$1" ] && usage "Missing arguments" && exit 1
-
-if [ -z "${githost}" ]
-then
-    declare -a tmpa
-    asplit tmpa : "$1"
-    if [ "${tmpa[0]}" = "$1" ]
-    then
-        cmd-echo -id "$cmd_echo_id" -e -- "githost specified and no 'githost:' found in '$1'"
-        exit 1
-    fi
-    githost="${tmpa[0]}"
-    namespace="${tmpa[1]}"
-else
-    namespace=$1
-fi
-shift
-
-declare githost_url
-githost_url="$(kvstore get gitfuncs_giturls "$githost")"
-if [ -z "$githost_url" ]
-then
-    cmd-echo -id "$cmd_echo_id" -- "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_git_svcs)"
-    exit 1
-fi
-
-if [[ "$namespace" == */* ]]
-then
-    declare -a tmpa
-    asplit tmpa / "$namespace"
-    namespace=${tmpa[0]}
-    repo=${tmpa[1]}
-else
-    repo=$1;shift
-fi
-
-declare cwpath
-cwpath="$(realpath "$(pwd)")"
-declare local_githost
-local_githost="$(basename "$cwpath")"
-if [ "$local_githost" != "$githost" ]
-then
-    if ((opt_use_githost_dir == 1))
-    then
-        cmd-echo -- "You must be in a directory path ending in"\
-                    "   $githost" \
-                    "You are in $cwpath"
-        # gitfuncs_root set externally
-        # shellcheck disable=SC2154
-        declare shouldbein="$gitfuncs_gitroot/$githost"
-        if [ ! -d "$shouldbein" ]
-        then
-            cmd-echo -e -- "Cannot find '$shouldbein'." "Correct and re-execute."
-            exit 1
         else
-            declare resp
-            if ((opt_y))
-            then
-                cmd-echo -- "Going to $shouldbein"
-                resp='y'
-            else
-                resp=$(cmd-yesno "cd to $shouldbein")
-            fi
-            if [ "$resp" = 'n' ]
-            then
-                cmd-echo -- "Correct and re-execute."
-                exit 1
-            else
-                _git-cd-to "$shouldbein"
-            fi
+            cmd-echo  -id "$cmd_echo_id" -- "Neither --githost nor --tree were specified. Cloning right here ($(pwd)/$repo)"
         fi
-    else
-        cmd-echo  -id "$cmd_echo_id" -- "Neither --githost nor --tree were specified. Cloning right here ($(pwd)/$repo)"
     fi
-fi
 
-declare tgt="$namespace/$repo"
-if [ -e "$tgt" ]
-then
-    declare resp
-    if ((opt_y))
+    declare tgt="$namespace/$repo"
+    if [ -e "$tgt" ]
     then
-        resp='y'
-        ##resp='r'
-    else
-        resp=$(cmd-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
-        ##resp=$(cmd-pick "'$tgt' exists. Will not clone over it. Remove it, keep it, abort" "r/k/a" "a")
-    fi
-    [ "$resp" = 'n' ] && exit 1
-    rm -rf "$tgt"
-    ##[ "$resp" = 'a' ] && exit 1
-    ##[ "$resp" = 'r' ] && rm -rf "$tgt"
-fi
+        declare resp
+        if ((opt_y))
+        then
+            resp='y'
+            ##resp='r'
+        else
+            resp=$(cmd-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
+        fi
+        if [ "$resp" = 'n' ]
+        then
+            cmd-echo -- "Keeping. Execute" "    gitgo $namespace/$repo" "to use."
+            return 1
+        fi
 
-if ((opt_make_fork))
-then
-    cmd-echo -- "github-api --server $githost --wait fork $opt_triangle_namespace $repo..."
-    if ! github-api --server "$githost" --wait fork "$opt_triangle_namespace" "$repo"
+        rm -rf "$tgt"
+        ##[ "$resp" = 'a' ] && return 1
+        ##[ "$resp" = 'r' ] && rm -rf "$tgt"
+    fi
+
+    if ((opt_make_fork))
     then
-        exit $?
+        cmd-echo -- "github-api --server $githost --wait fork $opt_triangle_namespace $repo..."
+        if ! github-api --server "$githost" --wait fork "$opt_triangle_namespace" "$repo"
+        then
+            return $?
+        fi
     fi
-fi
-cmd-echo -- "$REALGIT clone ${git_clone_opts[*]} ${githost_url}$namespace/$repo $namespace/$repo ..."
-if ! $REALGIT clone "${git_clone_opts[@]}" "${githost_url}$namespace/$repo" "$namespace/$repo"
-then
-    exit $?
-fi
+    cmd-echo -- "$REALGIT clone ${pass_on[*]} ${githost_url}$namespace/$repo $namespace/$repo ..."
+    if ! $REALGIT clone "${pass_on[@]}" "${githost_url}$namespace/$repo" "$namespace/$repo"
+    then
+        return $?
+    fi
 
-(
-    builtin cd "$namespace/$repo" || exit $?
-    _git_clone_record_created_date
-)
-
-if ((opt_t))
-then
-    cmd-echo -- 'Setting timestamps...'
     (
-        if builtin cd "$namespace/$repo"
-        then
-            git-retimestamp
-        else
-            cmd-echo -id "$cmd_echo_id" -e -- "Cannot cd $namespace/$repo" && return 1
-        fi
+        builtin cd "$namespace/$repo" || exit $?
+        _git_clone_record_created_date
     )
-    cmd-echo -- 'Done'
-fi
 
-## dirlist, not builtin cd, to take advantage this cd enhancement
-dirlist "$namespace/$repo"
-if [ -n "$opt_triangle_namespace" ]
-then
-    cmd-echo -- "Setting up triangle workflow with ${githost_url}$opt_triangle_namespace/${repo}..."
-    _git-clone-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo"
-    git pull # To refresh from the upstream
-else
-    declare key='remote.origin.fetch'
-    git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || exit $?
-    git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || exit $?
-    ## ^ allows git checkout -b 3 pull/origin/3
-fi
-git remote -v
+    if ((opt_t))
+    then
+        cmd-echo -- 'Setting timestamps...'
+        (
+            if builtin cd "$namespace/$repo"
+            then
+                git-retimestamp
+            else
+                cmd-echo -id "$cmd_echo_id" -e -- "Cannot cd $namespace/$repo" && return 1
+            fi
+        )
+        cmd-echo -- 'Done'
+    fi
 
-if ((opt_worktree))
-then
-    cmd-echo -- "Setting up for worktrees..."
-    mkdir wt
-    ls -ld "$(pwd)/wt"
-fi
+    ## dirlist, not builtin cd, to take advantage this cd enhancement
+    dirlist "$namespace/$repo"
+    if [ -n "$opt_triangle_namespace" ]
+    then
+        cmd-echo -- "Setting up triangle workflow with ${githost_url}$opt_triangle_namespace/${repo}..."
+        _git-clone-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo" || return $?
+        git pull || return $? # To refresh from the upstream
+    else
+        declare key='remote.origin.fetch'
+        git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || return $?
+        git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || return $?
+        ## ^ allows git checkout -b 3 pull/origin/3
+    fi
+    git remote -v
 
-if ((opt_use_githost_dir))
-then
-    ## Add this repo to the list
-    git-go-set
-fi
+    if ((opt_worktree))
+    then
+        cmd-echo -- "Setting up for worktrees..."
+        mkdir wt
+        ls -ld "$(pwd)/wt"
+    fi
 
-if [ -n "$opt_worktree_name" ]
-then
-    git-go "$namespace/$repo"
-    git worktree create $opt_worktree_fetch "$opt_worktree_name"
-else
     if ((opt_use_githost_dir))
     then
-        cmd-echo -- "Done. Execute" "    gitgo $namespace/$repo" "to use."
-    else
-        cmd-echo -- "Done."
-        echo
+        ## Add this repo to the list
+        git-go-set
     fi
-fi
 
-exit 0
+    if [ -n "$opt_worktree_name" ]
+    then
+        git-go "$namespace/$repo"
+        git worktree create $opt_worktree_fetch "$opt_worktree_name"
+    else
+        if ((opt_use_githost_dir))
+        then
+            cmd-echo -- "Done. Execute" "    gitgo $namespace/$repo" "to use."
+        else
+            cmd-echo -- "Done."
+            echo
+        fi
+    fi
+}
+main "$@"
+exit $?
 
 ## You can add sections with =head1, but stick to =item for section breakdowns,
 ## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the

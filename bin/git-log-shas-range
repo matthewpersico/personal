@@ -10,22 +10,34 @@ opt_inclusive=1
 declare opt_add_names
 opt_add_names=''
 declare OPTSARGS
-OPTSARGS=$(getoptp -o f:ienh --long highlightfirst:,inclusive,exclusive,name-only,help -n "${FUNCNAME[0]}" -- "$@")
-declare status
-status=$?
+declare shortopts='f:ienh'
+declare longopts='highlightfirst:,inclusive,exclusive,name-only,help'
+
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
+declare status=$?
 ((status != 0)) && script-usage && exit $status
 
+# Reset the command line ($@).
 eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
 while true
 do
-    case "$1" in
-        -f|--higlightfirst)  opt_inclusive=1; opt_hf="$2"; shift; shift ;;
-        -i|--inclusive) opt_inclusive=1; shift ;;
-        -e|--exclusive) opt_inclusive=0; shift ;;
-        -n|--name-only) opt_add_names='--name-only'; shift ;;
+    declare option=$1
+    shift
+    case "$option" in
+        -f|--higlightfirst)  opt_inclusive=1; opt_hf="$1"; shift ;;
+        -i|--inclusive) opt_inclusive=1 ;;
+        -e|--exclusive) opt_inclusive=0 ;;
+        -n|--name-only) opt_add_names='--name-only' ;;
         -h|--help) script-usage; exit 0 ;;
-        --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) echo "Internal error!"; script-usage; exit 1 ;;
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo -e -- "$option is an invalid option. See $0 --help"
+            exit 1 ## return 1 in functions
+            ;;
     esac
 done
 
@@ -49,7 +61,7 @@ git-log-shas-range - script that does something
 
 =head1 SYNOPSIS
 
- git-log-shas-range [--option1] [ --option2 optionarg ] arg1 [arg2 ...] 
+ git-log-shas-range [--option1] [ --option2 optionarg ] arg1 [arg2 ...]
      [fee] [dfsdfs] [sfsdfsf]
 
 =head1 DESCRIPTION
@@ -95,4 +107,3 @@ Another choice for optionarg
 =cut
 
 __PODUSAGE__
-

@@ -194,7 +194,7 @@ LINE: while (<>) {
       if $_ =~ m/^:<<'__PODUSAGE__'/;
 
     ## Fix up the name used to id the program in getopt
-    s/(getoptp.*)\$FUNCNAME/${1}"\$0"/;
+    s/(getopt.*)\$\{{0,1}FUNCNAME\[0\]\}/${1}\$0/;
 
     ## Now that we are here, we want it.
     push @funclines, $_;

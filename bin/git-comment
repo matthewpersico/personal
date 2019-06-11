@@ -20,76 +20,75 @@ usage ()
 
 main ()
 {
-    local commentdate
-    commentdate="$(date "$GIT_EXT_META_DATE_FMT") - "
-
     declare -a orig_args
     orig_args=("$@")
 
     ## If there's any chance that this will be in a script that will be dotted in,
     ## remove the explicit out_cmd calls.
-    declare out_cmd="exit"
-    declare moreopts=1
     declare opt_show=0
     declare opt_highest_only=0
     declare opt_verbose=1
     declare opt_delete=0
+    declare opt_date=1
 
     declare -A keys
     keys[repo]='core.em.em-comment'
-    local branchname
+    declare branchname
     branchname="$(git branch get-current)"
     keys[branch]="branch.$branchname.em-comment"
-    local worktreename
+    declare worktreename
     worktreename="$(basename "$(pwd)")"
     keys[worktree]="worktree.$worktreename.em-comment"
 
     declare -A write_keys
-    while [[ "$1" =~ ^- ]] && ((moreopts))
+
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    declare OPTSARGS
+    declare shortopts='rbwdhvq'
+    declare longopts='repo,branch,worktree,highest,nodate,date,show,get,delete,help,verbose,quiet'
+
+    # Process the command line.
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+    declare status=$?
+    ((status != 0)) && exit $status ## return $status ## in functions
+
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    while true
     do
-        declare original="$1"
+        declare option=$1
         shift
-        declare option
-        option=$(dashstripper "$original")
-        ## This bit deals with --foo=bar instead of --foo bar
-        declare okey=''
-        declare ovalue=''
-        if [[ "$option" =~ = ]]
-        then
-            okey=${option%%=*}
-            # shellcheck disable=SC2034 # Remove this directive if we ever have
-            # an option with a value
-            ovalue=${option#*=}
-            option="$okey"
-        fi
-
-        case $option in
-
+        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+        case "$option" in
             ## Option with no arg
-            r* )
+            r | repo )
                 write_keys[repo]=1
                 ;;
-            b* )
+            b | branch )
                 write_keys[branch]=1
                 ;;
-            w* )
+            w | worktree )
                 write_keys[worktree]=1
                 ;;
-            hi* )
+            highest )
                 opt_highest_only=1
                 ;;
-            nod* )
-                commentdate=''
+            nodate )
+                opt_date=0
                 ;;
-
+            date )
+                opt_date=1
+                ;;
             show | get )
                 opt_show=1
                 ;;
-
-            d* )
+            d | delete )
                 opt_delete=1
                 ;;
-
             ## standard options
             h | help )
                 script-usage
@@ -101,20 +100,23 @@ main ()
             q | quiet )
                 opt_verbose=0
                 ;;
-            --)
-                moreopts=0
-                ;;
-            * )
-                cmd-echo -- "$original is an invalid option. See $0 --help"
-                $out_cmd 1
+            --)  break ;; ## VITAL!!! Exits the while loop, no more options,
+                          ## remaining $*, if any, are args
+            *)
+                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                return 1
                 ;;
         esac
     done
+
+    declare commentdate
+    ((opt_date)) && commentdate="$(date "$GIT_EXT_META_DATE_FMT") - "
 
     if [[ ${#write_keys[*]} = '0' ]]
     then
         if ((opt_show)) || ( (( $# == 0 )) && ((! opt_delete)) )
         then
+            ## With no args, no options, just show all keys.
             exec git-comment -r -b -w --show "${orig_args[@]}"
         else
             cmd-echo -n -- "Need at least one of --repo, --branch, --worktree to determine which comment to "
@@ -140,7 +142,7 @@ main ()
     do
         if [[ ${write_keys[$configtype]} = '1' ]]
         then
-            local configkey=${keys[$configtype]}
+            declare configkey=${keys[$configtype]}
             if ((opt_show))
             then
                 value="$(git config --get "$configkey")"
@@ -179,7 +181,6 @@ main ()
 }
 
 main "$@"
-set +x
 exit $?
 
 :<<'__PODUSAGE__'

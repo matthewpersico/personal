@@ -25,7 +25,7 @@ usage ()
     ) 2>&1 | ${PAGER:-less}
 }
 
-_git_rebase_via_log ()
+_git_rebase_via_ilog ()
 {
     declare rebase_sha
     declare resp
@@ -40,11 +40,26 @@ _git_rebase_via_log ()
         rebase_sha=$1
     fi
 
+    if(($($REALGIT log "${rebase_sha}..HEAD" | grep -c -E '^commit') <= 2))
+    then
+        cmd-echo -e -- "Not enough commits to rebase on"
+        exit 1
+    fi
+
     cmd-echo --head 'Rebase-able commits:'
-    while ((1))
+    declare prev_rebase_sha=-1
+    while [ "$prev_rebase_sha" != "$rebase_sha" ]
     do
+
         ## show the log
         git-log-shas-range "$rebase_sha" "$rebase_sha"
+
+        ## check the log
+        if(($($REALGIT log "${rebase_sha}..HEAD" | grep -c -E '^commit') <= 2))
+        then
+            cmd-echo -e -- "Not enough commits remaining to rebase on"
+            exit 1
+        fi
 
         resp=$(script-pick "Rebase on $rebase_sha" "y/n/q" 'n')
         if [ "$resp" = 'q' ]
@@ -53,7 +68,7 @@ _git_rebase_via_log ()
         fi
         if [ "$resp" = 'y' ]
         then
-            "$REALGIT_EXEC_PATH/git-rebase" -i "$rebase_sha"
+            "$REALGIT" rebase -i "$rebase_sha"
             declare status=$?
             ((status)) && exit "$status"
             cmd-echo --head 'Log is now:'
@@ -70,6 +85,7 @@ _git_rebase_via_log ()
         fi
 
         ## Get the next log
+        prev_rebase_sha=$rebase_sha
         rebase_sha=$(git-log-grab-sha -2 "$rebase_sha")
     done
 }
@@ -86,8 +102,8 @@ main ()
         declare arg=$1
         shift
         case $arg in
-            --log )
-                _git_rebase_via_log "$@"
+            --ilog | --log )
+                _git_rebase_via_ilog "$@"
                 exit $?
                 ;;
             --help | -h )
@@ -103,6 +119,12 @@ main ()
 
     ## If we get here, it's just a straight rebase
     "$REALGIT_EXEC_PATH/git-rebase" "${pass_on[@]}"
+    declare status=$?
+    if ((status==129))
+    then
+        usage ''
+        exit $status
+    fi
 }
 
 main "$@"
@@ -119,20 +141,22 @@ git-rebase - extension to git rebase
 
 =head1 SYNOPSIS
 
- git-rebase --log [commit_id]
+git-rebase --ilog [commit_id]
 
 =head1 DESCRIPTION
 
-Uses the git log of the current repo to pick a starting rebase point.
+Uses the git log of the current repo to pick a starting interactive rebase point.
 
 =head1 OPTIONS
 
 =over 4
 
-=item log
+=item ilog
 
-Prints the git log, one entry at at time, allowing the user to pick a starting point for a rebase. If a commit id is provided, the log is started at that commit instead of at HEAD.
+Prints the git log, one entry at at time, allowing the user to pick a starting point for an interactive rebase. If a commit id is provided, the log is started at that commit instead of at HEAD.
 
 =back
+
+=cut
 
 __PODUSAGE__

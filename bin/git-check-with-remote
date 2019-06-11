@@ -5,26 +5,37 @@
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
-declare iam
-iam=$(func-name-spoof)
-
 declare opt_branch=''
 declare opt_remote='origin'
 declare opt_bail_on_dirty='0'
 declare OPTSARGS
-OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,bail_on_dirty -n "$iam" -- "$@")
-status=$?
-((status != 0)) && exit $status
+declare shortopts='hb:r:c'
+declare longopts='help,branch:,remote:,bail_on_dirty'
+
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+declare status=$?
+((status != 0)) && exit $status ## return $status ## in functions
+
+# Reset the command line ($@).
 eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
 while true
 do
-    case "$1" in
-        --bail_on_dirty) opt_bail_on_dirty=1; shift;;
-        -r|--remote) opt_remote="$2"; shift; shift ;;
-        -b|--branch) opt_branch="$2"; shift; shift ;;
+    declare option=$1
+    shift
+    case "$option" in
+        --bail_on_dirty) opt_bail_on_dirty=1 ;;
+        -r|--remote) opt_remote="$1"; shift ;;
+        -b|--branch) opt_branch="$1"; shift ;;
         -h|--help) script-usage "$0"; exit 0 ;;
-        --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) cmd-echo "Internal error!"; script-usage "$0"; exit 1 ;;
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo -e -- "$option is an invalid option. See $0 --help"
+            exit 1 ## return 1 in functions
+            ;;
     esac
 done
 
@@ -45,11 +56,11 @@ then
     # shellcheck disable=SC2154
     cat <<EOF
 
-$iam is used to check your current git repo DEVELOPMENT branch in your declare
-clone against changes in
+You are trying to check your current git repo DEVELOPMENT branch in your clone
+against changes in
 
 branch "${opt_branch}"
-  repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
+  repo "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
 
 However, you do not appear to even be in a repo. I'm exiting. Try again in a
 proper repo.
@@ -62,11 +73,11 @@ if [ "$cb" == "$opt_branch" ]
 then
     cat <<EOF
 
-$iam is used to check your current git repo DEVELOPMENT branch in your declare
-clone against changes in
+You are trying to check your current git repo DEVELOPMENT branch in your clone
+against changes in
 
 branch "${opt_branch}"
-repo   "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
+  repo "${opt_remote}" (${gitfuncs_remotes[$opt_remote]})
 
 However, you appear to be on branch "${opt_branch}", the branch you want to
 sync with. I'm exiting. Get off the branch "${opt_branch}" and onto another

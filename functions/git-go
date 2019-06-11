@@ -8,32 +8,48 @@ git-go ()
     # shellcheck disable=SC1090
     source "$BASH_INC_DIR/on_exit.binc"
 
-    local PS3="Choose by number, /string to rematch, q to quit: "
-    local -a git_get_opts
-    local opt_list=0
-    local opt_wt='-w'
-    local opt_subwt_only=''
-    local opt_stat=0
-    local opt_mod=0
-    local opt_exact=''
-    local opt_size=0
-    local opt_brief=0
-    local opt_comments=0
-    local moreopts
-    local -a limited
-    local -a tgts
-    moreopts=1
-    while [[ "$1" =~ ^- ]] && ((moreopts))
+    declare PS3="Choose by number, /string to rematch, q to quit: "
+    declare -a git_get_opts
+    declare opt_list=0
+    declare opt_wt='-w'
+    declare opt_subwt_only=''
+    declare opt_stat=0
+    declare opt_mod=0
+    declare opt_exact=''
+    declare opt_size=0
+    declare opt_brief=0
+    declare opt_comments=0
+    declare opt_repo_no=0
+    declare opt_comma=0
+    declare -a limited
+    declare -a tgts
+
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    declare OPTSARGS
+    declare shortopts='elmrubhi:'
+    declare longopts='upstream,exact,et,exact-tail,eh,exact-head'
+    longopts="$longopts,wc,with-comments,wco,with-comments-only"
+    longopts="$longopts,list,lf,listfull,size,mbig,roots,update"
+    longopts="$longopts,wt,nowt,subwt,wto"
+    longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
+
+    # Process the command line.
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
+    declare status=$?
+    ((status != 0)) && return $status ## return $status ## in functions
+
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    while true
     do
-        ## Strip all leading dashes here so that -foo and --foo can both
-        ## be processed as 'foo'.
-        declare original="$1"
-        declare option
-
-        option=$(dashstripper "$original")
-        shift ## That way you avoid endless loops on invalid options.
-
-        case $option in
+        declare option=$1
+        shift
+        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+        case "$option" in
             upstream) eval "$(git-parse-remote-v)"
                       # shellcheck disable=SC2154
                       if [ -z "${gitfuncs_remotes[upstream]}" ]
@@ -46,11 +62,11 @@ git-go ()
             e | exact ) opt_exact='--exact';;
             et | exact-tail ) opt_exact='--exact-tail';;
             eh | exact-head ) opt_exact='--exact-head';;
+            wc | with-comments ) opt_comments=1; opt_list=1 ;;
+            wco | with-comments-only ) opt_comments=2; opt_list=1 ;;
             l | list ) opt_list=1 ;;
-            comment-o* | with-comment-o* \
-                | comments-o* | with-comments-o*) opt_comments=2 ;;
-            comment* | with-comment*) opt_comments=1 ;;
-            listfull ) opt_list=2 ;;
+            lf | listfull ) opt_list=2 ;;
+            comma ) opt_comma=1 ;;
             size ) opt_size=1; opt_list=1 ;;
             m | mbig ) git_get_opts+=('-m') ;;
             r | roots ) git_get_opts+=('-r') ;;
@@ -58,21 +74,25 @@ git-go ()
             wt ) opt_wt='-w' ;;
             nowt ) opt_wt='' ;;
             subwt ) opt_subwt_only='-o' ;;
-            wto* ) opt_subwt_only='-o' ;;
+            wto ) opt_subwt_only='-o' ;;
             stat ) opt_stat=1; opt_list=1 ;;
             dirty ) opt_stat=2; opt_list=1 ;;
             b| brief ) opt_brief=1 ;;
             mod ) opt_mod=1;;
+            i | index ) opt_repo_no=$1; shift ;;
             limited ) limited=('--limited' "$1"); shift ;;
             h | help ) func-usage git-go; return 0 ;;
-            -- ) moreopts=0; break ;; ## end of opts, remaining $*, if any, are args
-            * ) echo "$original is an invalid option."; func-usage git-go; return 1 ;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                return 1
+                ;;
         esac
     done
-
     if ((opt_stat!=2)) && ((opt_brief))
     then
-        cmd-echo -- "Cannot specify --brief without --dirty"
+        cmd-echo -e -- "Cannot specify --brief without --dirty"
         func-usage git-go; return 1
     fi
 
@@ -80,61 +100,52 @@ git-go ()
     [ -n "$opt_subwt_only" ] && git_get_opts+=("$opt_subwt_only");
     [ -n "$opt_exact" ] && git_get_opts+=("$opt_exact")
 
-    ## Grab the first argument which has to be blank or a filter
-    if [ -n "$1" ]
-    then
-        tgts+=("$1")
-        shift;
-    fi
+    declare -a REPOS
+    declare -a origtgts
 
-    ## Grab the second argument. If it is a number, it is an index to the list
-    ## returned after applying the first filter. If not then it, and any other
-    ## arguments after it, are more filters. The reasoning is that with one
-    ## filter you might remember the derived number of your desired item, but
-    ## with multiple filters, you don't save time remembering a number if you
-    ## have to multiple filters or sit on the up arrow to recall the command.
-    local opt_repo_no=0
-    local opt_repo_sel=''
-    if [ -n "$1" ]
-    then
-        if is-int "$1"
-        then
-            opt_repo_no=$1
-            shift
-        else
-            tgts+=("$@")
-        fi
-    fi
-
-    declare tgtilast
-    tgtilast=$((${#tgts[@]}-1 ))
-    for i in $(seq 0 $tgtilast )
+    ## Grab all arguments; these are filters. We let the code drop through if
+    ## there are no arguments instead of bypassing with an explicit check for
+    ## arguments in order not to complicate the interplay with --limited.
+    for tgt in "$@"
     do
-        if [[ "${tgts[$i]}" =~ /$ ]]
-        then
-            tgts[$i]="$(dirname "${tgts[$i]}")/$(basename "${tgts[$i]}")"
-        fi
+        ## Strip trailing slashes. Not sure why we need to do this.
+        tgts+=("${tgt%%/}")
     done
-    local -a origtgts
     origtgts=("${tgts[@]}")
 
-    local -a REPOS
+    ## First call has no REPOS to feed back and may be using a --limited
+    ## option. Do it separately.
     if ((${#limited[@]}))
     then
         git_get_opts=()
     fi
     readarray -t REPOS < <(_git-go-get "${git_get_opts[@]}" "${limited[@]}" "${tgts[0]}")
+
+    ## Shift off the first array member so we can iterate over the rest.
     tgts=("${tgts[@]:1}")
-    while((${#tgts[@]}))
+
+    ## The rest need the REPOS feedback.
+    for tgt in "${tgts[@]}"
     do
-        # shellcheck disable=SC2046
-        readarray -t REPOS < <(_git-go-get --limited $(ajoin , $(tail_number_strip "${REPOS[@]}")) "${tgts[0]}")
-    tgts=("${tgts[@]:1}")
+        readarray -t tns < <(tail_number_strip "${REPOS[@]}")
+        readarray -t REPOS < <(_git-go-get --limited "$(ajoin , "${tns[@]}")" "$tgt")
+        if ((${#REPOS[@]}==0))
+        then
+            break
+        fi
     done
 
     if ((${#REPOS[@]}==0))
     then
-        echo Filter "${origtgts[@]}" does not match any repo
+        if (( ${#origtgts[@]} == 0 ))
+        then
+            cmd-echo -e -- "No repos available."
+        elif (( ${#origtgts[@]} == 1 ))
+        then
+            cmd-echo -e -- "Filter '${origtgts[*]}' does not match any repo"
+        else
+            cmd-echo -e -- "Filters '$(ajoin , "${origtgts[@]}")' do not match any repo"
+        fi
         return 1
     else
         if ((opt_mod))
@@ -151,7 +162,7 @@ git-go ()
             done
         elif ((opt_list))
         then
-            local r
+            declare r
             if ((opt_size))
             then
                 ## Re-sort the list of repos by size descending using
@@ -172,7 +183,7 @@ git-go ()
                 then
                     du -hs --exclude wt "${r}"
                 else
-                    local rexp
+                    declare rexp
                     ((opt_list==1)) && rexp="~/${r}" || rexp="${TILDAE:-$HOME}/${r}"
 #                    if ((opt_stat==0))
 #                    then
@@ -181,13 +192,13 @@ git-go ()
                     if ((opt_stat==1))
                     then
                         echo "$rexp"
-                        (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
+                        (cd "${TILDAE:-$HOME}/$r" || (cmd-echo -e -- "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
                          git status --porcelain)
                         echo
                     elif ((opt_stat==2))
                     then
                         (
-                            cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
+                            cd "${TILDAE:-$HOME}/$r" || (cmd-echo -e -- "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
                             if (( $(git status --porcelain | wc -l) ))
                             then
                                 echo "$rexp"
@@ -201,8 +212,8 @@ git-go ()
                     elif ((opt_comments))
                     then
                         (
-                            cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
-                            local output
+                            cd "${TILDAE:-$HOME}/$r" || (cmd-echo -e -- "Cannot cd ${TILDAE:-$HOME}/$r" && return 1);
+                            declare output
                             output="$(git comment --show --hi)"
                             if ((opt_comments==1)) || \
                                    ( ((opt_comments==2)) && [[ -n $output ]] )
@@ -212,22 +223,29 @@ git-go ()
                             [[ -n $output ]] && echo "    $output" && echo
                         )
                     else
-                        echo "$rexp"
+                        echo -n "$rexp"
+                        if ((opt_comma)) && [ "$r" != "${REPOS[-1]}" ] ## and not the last rexp
+                        then
+                            echo -n ,
+                        else
+                            echo
+                        fi
+
                     fi
                 fi
             done
             return
         elif ((${#REPOS[@]}==1))
         then
-            echo "Matches only ${REPOS[0]}. Going there."
+            cmd-echo -- "Matches only ${REPOS[0]}. Going there."
             REPO=${REPOS[0]}
         else
-            local REPO
+            declare REPO
 
             if ((opt_repo_no))
             then
-                local r
-                local ri=1
+                declare r
+                declare ri=1
                 for r in "${REPOS[@]}"
                 do
                     if ((ri==opt_repo_no))
@@ -237,22 +255,13 @@ git-go ()
                     fi
                     ((ri+=1))
                 done
-            elif [ -n "$opt_repo_sel" ]
-            then
-                local -a REPOSTMP
-                local r
-                for r in "${REPOS[@]}"
-                do
-                    [[ "$r" =~ $opt_repo_sel ]] && REPOSTMP+=("$r")
-                done
-                REPOS=("${REPOSTMP[@]}")
             fi
 
             if ((${#REPOS[@]}==1))
             then
                 ## Re-check singlematch condition in case we modified REPOS
                 ## above.
-                echo "Matches only ${REPOS[0]}. Going there."
+                cmd-echo -- "Matches only ${REPOS[0]}. Going there."
                 REPO=${REPOS[0]}
             else
                 readarray -t REPOS < <(tail_number_add "${REPOS[@]}")
@@ -278,7 +287,7 @@ git-go ()
                         git-go --limited $(ajoin , $(tail_number_strip "${REPOS[@]}")) "${REPLY#/}"
                         return $?
                     else
-                        echo "'$REPLY' is an invalid choice"
+                        cmd-echo -e -- "'$REPLY' is an invalid choice"
                     fi
                 done
             fi
@@ -295,23 +304,48 @@ git-go ()
 
 return 0 ## USAGE guard when sourcing
 :<<'__USAGE__'
-Usage: git-go [--list[full] [--size] [--stat|--dirty [--brief]] [--update|-u] \
-              [--roots|-r] [--mbig|-m] \
-              [--wt|--nowt|--wtonly ] [--mod] \
-              [ [dirmatch [item]] | [dirmatch...]
+Usage: git-go [options] [ filter [filter...] ]
+
+       git-go --upstream
 
        git-go [-h|--help]
 
        Presents a list of all git repos in ${TILDAE:-$HOME}/gits for you to
        choose and then cd to.
 
-       --list
+       Undocumented, yet:
+       --exact|--exact-head|--exact-tail
+
+       -i n | --item n
+           'n' is an integer which will pick the nth item in the
+           list of repos that would be presented if you didn't specify
+           '--item'. Useful if you are cycling between a small number of repos.
+
+       --upstream Determine the upstream repo of the current repo and if we
+           have a clone of it, go there. This is primarily used to get there
+           for a 'dpkg-debchange' call.
+
+       --wc|--with-comments
+           Print the repo and any comments on the repo.
+
+       --wco|--with-comments-only
+           Print only repos with comments on the repo and any comments on the repo.
+
+       --help
+           Print this help text.
+
+       --list|-l
            Skip the choosing part and just exit, printing each repo dir with a
            literal '~'.
 
-       --listfull
+       --listfull|--lf
            Skip the choosing part and just exit, printing each repo dir with
            '~' expanded.
+
+       --comma
+           Using any of the --list options, print the entries in one
+           comma-separated string instead of each entry on its own
+           line. Silently ignored if specified without a --list* option.
 
        --size
            Skip the choosing part and just exit, printing each repo dir with
@@ -348,19 +382,17 @@ Usage: git-go [--list[full] [--size] [--stat|--dirty [--brief]] [--update|-u] \
            Override the default and do not include the worktree subdirectories
            in repos as choices.
 
-       --wto[nly]
+       --wto
            Include only the worktrees as choices.
 
        --mod
            Show status of repos that have mods outstanding.
 
-       'dirmatch' will filter the list using grep.
+       'filter' will filter the list using grep.
 
-       'item' is an integer N which will pick the Nth item in the
-           list of repos that would be presented if you didn't specify
-           an 'item'. Useful if you are cycling between a small number of repos.
-
-       You can specify 'item' only after one 'dirmatch' filter. Otherwise you can specify
-       0 or more 'dirmatch' filters.
+       You can specify 'item' only after one 'dirmatch' filter. Otherwise you
+       can specify 0 or more 'dirmatch' filters. If the first 'dirmatch' filter
+       is a number (i.e., it looks like it could be an 'item'), prefix it with
+       a '/',
 
 __USAGE__
