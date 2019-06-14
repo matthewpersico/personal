@@ -24,7 +24,7 @@ do
     case $option in
         i ) opt_grep_opts+=(-"$option");;
         l | n ) opt_grep_opts_v=-"$option";;
-        e) opt_edit=1;;
+        e | edit) opt_edit=1;;
         untracked_only|u) opt_untracked_only=1;;
         all|a) opt_all=1;;
         conflict*) opt_conflicts=1;;
@@ -180,7 +180,17 @@ do
     done
 done
 
-cmd-echo -p '' -- "${output[@]}" | sort -u
+if (( opt_edit ))
+then
+    if [ -z "$EDITOR" ]
+    then
+        cmd-echo -- "No EDITOR env variable found"
+        exit 1
+    fi
+    $EDITOR "${output[@]}"
+else
+    cmd-echo -p '' -- "${output[@]}" | sort -u
+fi
 
 exit 0
 
@@ -191,8 +201,8 @@ git-find - run a 'find'-like command on the current repo
 
 =head1 SYNOPSIS
 
- git-find [-i] [--untracked_only|-u] [--all|-a] pattern [pattern...]
- git-find --conflicts [-n|-l] [-e]
+ git-find [-i] [--untracked_only|-u] [--all|-a] [--edit|-e] pattern [pattern...]
+ git-find --conflicts [-n|-l] [--edit|-e]
  git-find [--deleted|--last-existed] file
  git-find --git-dir
  git-find --newer markerfile [--abspath]
@@ -231,9 +241,9 @@ Case insensitive matching.
 Print matches with line number or just print filename containing a
 match. Mutually exclusive.
 
-=item -e
+=item --edit|-e
 
-For conflicts, edit the files with conflicts using the editor defined in $EDITOR.
+For searches or conflicts, edit the files found using the editor defined in $EDITOR.
 
 =item --untracked-only
 

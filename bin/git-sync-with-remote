@@ -14,21 +14,27 @@ declare do_push='1'
 declare resp
 
 declare OPTSARGS
-OPTSARGS=$(getoptp -o hb:r:c --long help,branch:,remote:,confirm -n git-sync-with-remote -- "$@")
+OPTSARGS=$(getopt -a -o hb:r:c -l help,branch:,remote:,confirm -n git-sync-with-remote -- "$@")
 status=$?
 ((status != 0)) && script-usage && exit $status
 eval set -- "$OPTSARGS"
 while true
 do
-    case "$1" in
-        -s|--stash) opt_stash=1; shift;;
-        -c|--confirm) opt_confirm=1; shift;;
-        -r|--remote) opt_remote="$2"; shift; shift ;;
-        -b|--branch) opt_branch="$2"; shift; shift ;;
-        -h|--help) script-usage; exit 0 ;;
-        --nopush) do_push=0;;
-        --) shift; break ;; ## end of opts, remaining $*, if any, are args
-        *) cmd-echo "Internal error!"; script-usage; exit 1 ;;
+    declare option=$1
+    shift
+    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    case "$option" in
+        s|stash) opt_stash=1 ;;
+        c|confirm) opt_confirm=1 ;;
+        r|remote) opt_remote="$1"; shift ;;
+        b|branch) opt_branch="$1"; shift ;;
+        h|help) script-usage; exit 0 ;;
+        nopush) do_push=0 ;;
+        --) break ;; ## end of opts, remaining $*, if any, are args
+        *) cmd-echo -- "'$option' is an invalid option."
+           script-usage
+           exit 1
+           ;;
     esac
 done
 

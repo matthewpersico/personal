@@ -14,6 +14,11 @@ kvstore_usage () {
   echo "    List kv stores (namespaces)."
   echo "  lsinfo"
   echo "    List kv stores (namespaces) and other information."
+  echo "  lsfiles"
+  echo "    List file filenames of stores (namespaces)."
+  echo "  grep pattern"
+  echo "    List any key/value pair in any store (namespace) where either"
+  echo "    the key or the value matches the pattern."
   echo "  keys <namespace>"
   echo "    List keys in a namespace."
   echo "  vals <namespace>"
@@ -187,7 +192,7 @@ _kvstore_nonatomic_rm () {
 kvstore_ls () {
   local dir
   dir=$(_kvstore_path)
-  for file in $dir/*; do
+  for file in "$dir"/*; do
     [[ -f "$file" ]] && \
       ! [[ "$file" =~ \.lock$ ]] && \
       basename "$file"
@@ -197,7 +202,7 @@ kvstore_ls () {
 kvstore_lsinfo () {
   local dir
   dir=$(_kvstore_path)
-  for file in $dir/*; do
+  for file in "$dir"/*; do
     if ! [[ "$file" =~ \.lock$ ]] && \
         ! [[ "$file" =~ \.tmp\.k.*$ ]] ;then
       basename "$file"
@@ -206,6 +211,17 @@ kvstore_lsinfo () {
         stat --printf=' bytes:%-5s Last updated:%y' "$file"
       fi
       echo
+    fi
+  done
+}
+
+kvstore_lsfiles () {
+  local dir
+  dir=$(_kvstore_path)
+  for file in "$dir"/*; do
+    if ! [[ "$file" =~ \.lock$ ]] && \
+        ! [[ "$file" =~ \.tmp\.k.*$ ]] ;then
+      echo "$file"
     fi
   done
 }
@@ -348,7 +364,7 @@ kvstore_shellinit() {
   fi
   # echo \"ns=\$ns,pos=\$pos,comp=\${COMP_WORDS[@]}\"
   if (( pos == $cpos )); then
-    COMPREPLY=( \$( compgen -W \"load ls list lsinfo keys vals get set rm mv shellinit drop dump\" -- \$cw) )
+    COMPREPLY=( \$( compgen -W \"load ls list lsinfo lsfiles grep keys vals get set rm mv shellinit drop dump\" -- \$cw) )
   else
     local OLDIFS=\$IFS
     IFS=\$'\\n'
@@ -433,6 +449,12 @@ kvstore_dump () {
   return $?
 }
 
+kvstore_grep () {
+    declare -a namespacefiles
+    readarray -t namespacefiles < <(kvstore lsfiles)
+    grep "$@" "${namespacefiles[@]}"
+}
+
 kvstore () {
   local cmd="$1"
   if [[ -z "$cmd" ]]; then
@@ -468,11 +490,15 @@ kvstore () {
       fi
       ;;
     ls | list)
-      kvstore_ls "$@"        ## namespace
+      kvstore_ls "$@"
       return $?
       ;;
     lsinfo)
-      kvstore_lsinfo "$@"    ## namespace
+      kvstore_lsinfo "$@"
+      return $?
+      ;;
+    lsfiles)
+      kvstore_lsfiles "$@"
       return $?
       ;;
     keys)
@@ -509,6 +535,10 @@ kvstore () {
       ;;
     dump)
       kvstore_dump "$@"      ## [-v] [-r] namespace
+      return $?
+      ;;
+    grep)
+      kvstore_grep "$@"      ## grep args
       return $?
       ;;
     *)

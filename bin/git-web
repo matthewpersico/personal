@@ -1,0 +1,141 @@
+#!/usr/bin/env bash
+
+# git-web
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+if ! git-version-verify 'git-web'
+then
+    exit 1
+fi
+
+# shellcheck disable=SC2034 # We'll use it eventually
+cmd_echo_id='git-web'
+
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        script-usage
+        echo
+        echo "** Standard actions **"
+        "$REALGIT" web--browse --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+declare opt_popup=1
+declare opt_pr=0
+declare -a git_web__browse_args
+declare more_our_opts=1
+while [[ "$1" =~ ^- ]] && ((more_our_opts))
+do
+    declare original="$1"
+    declare option
+    option=$(dashstripper "$original")
+    shift ## That way you avoid endless loops on invalid options.
+    ## This bit deals with --foo=bar instead of --foo bar
+    declare okey
+    declare ovalue=''
+    if [[ "$option" =~ = ]]
+    then
+        okey=${option%%=*}
+        # shellcheck disable=SC2034 # We'll use it eventually
+        ovalue=${option#*=}
+        option="$okey"
+    fi
+
+    case $option in
+        ##
+        ## Our options
+        ##
+        pr )
+            opt_pr=1
+            more_our_opts=0;;
+        ##
+        ## Options to pass onto real git web--browse
+        ##
+        * )
+            git_web__browse_args+=("$original")
+            ;;
+    esac
+done
+
+git_web__browse_args+=("$@")
+
+if ((opt_popup || opt_pr))
+then
+    declare remote
+    remote=$(git-get-default-remote)
+    declare svc
+    svc=${remote%:*}
+    declare repo
+    repo=${remote#*:}
+
+    declare url
+    if ((opt_pr))
+    then
+        declare statusdata
+        statusdata=$(mktemp -t tmp.git-web.statusdata.$$.XXXXXXXXXX)
+        rm_on_exit "$statusdata"
+        git status --porcelain -b -uno > "$statusdata"
+        declare linecount
+        linecount=$(wc -l < "$statusdata")
+        declare outofdate
+        outofdate=$(grep '##' "$statusdata" | grep '\[')
+        if ((linecount > 1)) || [ -n "$outofdate" ]
+        then
+            cmd-echo -w -- "Current status not clean:"
+            git status
+        fi
+
+        declare url
+        if ! url=$(git-find-local-pr)
+        then
+            cb="$(git branch get-current)"
+            url="$(kvstore get gitfuncs_git_browser_urls "$svc")/$repo/pull/new/$cb"
+            if [ "$cb" = 'master' ]
+            then
+                cmd-echo -w -- "Using the 'master' branch can bring up the wrong PR url: $url"
+            fi
+        fi
+    else
+        url="$(kvstore get gitfuncs_git_browser_urls "$svc")/$repo"
+    fi
+
+    $REALGIT web--browse "$url" &
+fi
+
+exit 0
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-web - Wrapper for 'git web--browse'
+
+=head1 SYNOPSIS
+
+ git-web [--pr] ...
+
+=head1 DESCRIPTION
+
+Start a browser (using the git web--browser rules for finding one on the
+system), pointing at the current repo's origin site at the remote git server.
+
+=head1 OPTIONS
+
+=over 4
+
+=item pr
+
+Start a browser pointing to the URL for the existing pull request for this
+branch. If none is found, use the URL to create a new pull request.
+
+=back
+
+__PODUSAGE__

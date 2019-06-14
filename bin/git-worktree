@@ -45,10 +45,33 @@ _git_worktree_record_created_date ()
 # shellcheck disable=SC2120
 git-worktree-ina ()
 {
-    local v
-    v=$(git rev-parse --is-inside-work-tree 2>/dev/null)
-    [ "$v" = "true" ] && return 0
-    return 1
+    status=1 ## Not in a worktree
+    wtroot=$(git worktree get-root)
+    if [ -n "$wtroot" ]
+    then
+        (
+            while [ "$(pwd)" != "$wtroot" ]
+            do
+                if [ -f .git ] && grep -q '/worktrees/' .git
+                then
+                    if [ "$1" = '-v' ]
+                    then
+                        grep  '/worktrees/' .git | sed 's|.*worktrees/||'
+                    fi
+                    exit 0
+                fi
+            done
+            exit 1
+        )
+        status=$?
+    fi
+    return $status
+}
+
+git-worktree-get-name ()
+{
+    git-worktree-ina -v
+    return $?
 }
 
 git-worktree-cre ()
@@ -332,21 +355,40 @@ git-worktree-delete ()
     local opt_force=0
     local opt_reset=1
     local opt_keep_branch=0
-    OPTSARGS=$(getoptp -o yfs:h --long yes,force,help,no-reset,skip-reset -n "${FUNCNAME[0]}" -- "$@")
-    local status=$?
-    ((status != 0)) && usage && return $status
 
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    declare OPTSARGS
+    declare shortopts='yfhk'
+    declare longopts='no-reset,skip-reset,yes,force,help,keep-branch'
+
+    # Process the command line.
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
+    declare status=$?
+    ((status != 0)) && return $status
+
+    # Reset the command line ($@).
     eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
     while true
     do
-        case "$1" in
-            --no-reset | --skip-reset) opt_reset=0; shift ;;
-            -y|--yes) opt_yes=1; opt_yes_string='--yes'; shift ;;
-            -f|--force) opt_force=1; shift ;;
-            -h|--help) usage; return 0 ;;
-            -k|--keep-branch) opt_keep_branch=1 ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args
-            *) usage "Internal error!"; return 1 ;;
+        declare option=$1
+        shift
+        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+        case "$option" in
+            no-reset | skip-reset) opt_reset=0; ;;
+            y|yes) opt_yes=1; opt_yes_string='--yes'; ;;
+            f|force) opt_force=1; ;;
+            h|help) usage; return 0 ;;
+            k|keep-branch) opt_keep_branch=1 ;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                return 1
+                ;;
         esac
     done
 
@@ -620,7 +662,7 @@ git-worktree-diff-to-root ()
     opt_reverse=0
     declare opt_color
     opt_color='always'
-    declare diff_opts
+    declare -a diff_opts
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
         ## Strip all leading dashes here so that -foo and --foo can both
@@ -633,7 +675,7 @@ git-worktree-diff-to-root ()
         case $option in
             reverse   ) opt_reverse=1 ;;
             color     ) opt_color=$1; shift ;;
-            w         ) diff_opts="$diff_opts -w" ;;
+            w         ) diff_opts+=('-w') ;; ## note: where are the other opts set?????
             help      ) echo "No documentation yet. Sorry."; return 0 ;;
             debug | x ) set -x ;;
             --        ) moreopts=0 ;;
@@ -663,7 +705,7 @@ git-worktree-diff-to-root ()
         then
             comp=("$i" "${root}/$i")
         fi
-        git --no-pager diff --no-index --color=$opt_color "$diff_opts" "${comp[@]}" 2>&1
+        git --no-pager diff --no-index --color=$opt_color "${diff_opts[@]}" "${comp[@]}" 2>&1
     done | less -RE
 }
 
@@ -680,8 +722,7 @@ git-worktree-get-root ()
     local wtr
     wtr=$($REALGIT worktree list | \
               grep '\[master\]' | \
-              sed 's/....... \[master\]//' | \
-              sed 's/\s\{1,\}$//')
+              sed -E 's/\s+[0-9a-z ]+\[master\]//')
     for i in "${PIPESTATUS[@]}"
     do
         ((i>status)) && status=$i
@@ -791,6 +832,7 @@ git-worktree - git extention of git worktree
  git-worktree diff-from-root
  git-worktree diff-to-root
  git-worktree ina
+ git-worktree get-name
  git-worktree mark-merged|mm
  git-worktree comment
 
@@ -901,6 +943,17 @@ set of files or all the git-known files in the current worktree. A synonymn for
 
 Is the current working directory in a worktree? Adding the -p option will print
 the worktree root.
+
+<B>Note</B>: This is NOT the same as <C>git rev-parse --in-a-work-tree</C>.
+That command tells you if you are in a working tree (with code) as opposed to a
+bare repo (no code). Our command tells you if you are in a directory created
+with 'git worktree'.
+
+=item get-name
+
+If the current working directory is in a worktree, print the name of the
+worktree and exit 0. Otherwise print nothing and exit non-0. Really, this is a
+synonym for <C>get worktree ina -v</C>.
 
 =item mark-merged
 

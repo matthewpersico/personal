@@ -38,7 +38,7 @@ do
         u | update )
             opt_update=1
             ;;
-        r | repo )
+        r | rp | repo | repopatt )
             opt_repo=${ovalue:-$1}
             [ -z "$ovalue" ] && shift
 
@@ -49,13 +49,22 @@ do
             else
                 IFS=, read -ra repos_tmp <<< "$opt_repo"
             fi
-            for repo_pattern in "${repos_tmp[@]}"
-            do
-                for repo in $( git-go --listfull "$repo_pattern")
+
+            if [[ "$option" =~ r(p|epop) ]]
+            then
+                for repo_pattern in "${repos_tmp[@]}"
+                do
+                    for repo in $( git-go --listfull "$repo_pattern")
+                    do
+                        repos[$repo]=1
+                    done
+                done
+            else
+                for repo in "${repos_tmp[@]}"
                 do
                     repos[$repo]=1
                 done
-            done
+            fi
             ;;
 
         ## standard options
@@ -103,7 +112,7 @@ do
     if (( !quiet ))
     then
         echo
-        echo "*** $repo"
+        cmd-echo -- "*** $repo"
     fi
 
     builtin cd "$repo"
@@ -136,6 +145,7 @@ git mono - run a git command over a list of repos
 =head1 SYNOPSIS
 
  git mono -r repo[,repo...] [ --repo repo[,repo ...] ... ] [--quiet] [-u|--update] command [args...]
+ git mono --rp repopatt[,repopatt...] [ --rp repopatt[,repopatt ...] ... ] [--quiet] [-u|--update] command [args...]
 
 =head1 DESCRIPTION
 
@@ -146,6 +156,10 @@ Run 'command' over each repo.
 =over 4
 
 =item -r|--repo
+
+An exact path to an existing repo. If the repo spec is ':all', we search all repos we can find. Multiple options and comma separated lists are both accepted.
+
+=item --rp|--repopatt
 
 A repo spec that matches one or more repos via 'gitgo --listfull'. If the repo spec is ':all', we search all repos we can find. Multiple options and comma separated lists are both accepted.
 
