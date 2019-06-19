@@ -9,7 +9,8 @@ declare opt_deleted=0
 declare opt_last_existed=0
 declare opt_git_dir=0
 declare -a opt_grep_opts=("-E")
-declare opt_grep_opts_v=''
+declare opt_grep_opts_verbose=''
+declare -a opt_grep_opts_exclude
 declare opt_edit=0
 declare opt_abspath=0
 declare timecompfile=''
@@ -23,8 +24,9 @@ do
 
     case $option in
         i ) opt_grep_opts+=(-"$option");;
-        l | n ) opt_grep_opts_v=-"$option";;
+        l | n ) opt_grep_opts_verbose=-"$option";;
         e | edit) opt_edit=1;;
+        x ) opt_grep_opts_exclude+=('-x' "$1"); shift;;
         untracked_only|u) opt_untracked_only=1;;
         all|a) opt_all=1;;
         conflict*) opt_conflicts=1;;
@@ -75,12 +77,12 @@ then
     declare cf
     for cf in "${conflict_files[@]}"
     do
-        if [ "$opt_grep_opts_v" = '-l' ]
+        if [ "$opt_grep_opts_verbose" = '-l' ]
         then
             echo "$cf"
         else
             cmd-echo -head -- "Conflicts in $cf"
-            # shellcheck disable=SC2086 # we want $opt_grep_opts_v to "disappear" if empty.
+            # shellcheck disable=SC2086 # we want $opt_grep_opts_verbose to "disappear" if empty.
             perl -ne '
 BEGIN{
 $n=0;
@@ -180,6 +182,26 @@ do
     done
 done
 
+if [ -n "${opt_grep_opts_exclude[0]}" ]
+then
+    mapfile -t output < <(perl -e '
+$res=0;
+$re=0;
+for ($i=0; $i<@ARGV; $i++) {
+    if ($ARGV[$i] eq q(-x) ) {
+        push @x, split(/,/,$ARGV[++$i])
+    } else {
+        if(!$res) {
+            $res = join(q(|), @x);
+            $re = qr($res);
+        }
+        $ARGV[$i] !~ m/$re/ && print qq($ARGV[$i]\n);
+    }
+}
+' -- "${opt_grep_opts_exclude[@]}" "${output[@]}"
+                         )
+fi
+
 if (( opt_edit ))
 then
     if [ -z "$EDITOR" ]
@@ -201,7 +223,8 @@ git-find - run a 'find'-like command on the current repo
 
 =head1 SYNOPSIS
 
- git-find [-i] [--untracked_only|-u] [--all|-a] [--edit|-e] pattern [pattern...]
+ git-find [-i] [-x exclude_pattern[,exclude_pattern...] \
+          [--untracked_only|-u] [--all|-a] [--edit|-e] pattern [pattern...]
  git-find --conflicts [-n|-l] [--edit|-e]
  git-find [--deleted|--last-existed] file
  git-find --git-dir
@@ -240,6 +263,11 @@ Case insensitive matching.
 
 Print matches with line number or just print filename containing a
 match. Mutually exclusive.
+
+=item -x exclude_pattern
+
+Files that match the regular expression given are excluded. Multiple patterns
+can be comma separated and multiple -x options can be specified.
 
 =item --edit|-e
 
