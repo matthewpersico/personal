@@ -1,0 +1,89 @@
+#!/usr/bin/env bash
+
+# git-log
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+if ! git-version-verify 'git-log'
+then
+    exit 1
+fi
+
+# shellcheck disable=SC2034 # We'll use it eventually
+cmd_echo_id='git-log'
+
+# shellcheck disable=SC2120
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        script-usage
+        echo
+        echo "** Standard actions **"
+        "$REALGIT" log --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+declare dispatch_to_real_git=1
+
+declare -a pass_on
+
+## DO NOT attempt to convert this to a 'getopt' implementation; it would
+## require specifying and handling every existing option in 'git log',
+## and it is just not necessary.
+while (( $# ))
+do
+    declare arg=$1
+    shift
+    case "$arg" in
+        --h )
+            # shellcheck disable=SC2119
+            usage
+            exit 0
+            ;;
+        --names-only)
+            pass_on+=("--name-only")
+            ;;
+        * )
+            pass_on+=("$arg")
+            ;;
+    esac
+done
+
+if ((dispatch_to_real_git))
+then
+    ## Currently, we ALWAYS run the real git log, unless we exec-out or exit
+    ## above.
+    "$REALGIT" log "${pass_on[@]}" || exit $?
+fi
+
+exit 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-log - extensions to git log
+
+=head1 SYNOPSIS
+
+ git-log --names-only
+
+=head1 DESCRIPTION
+
+Additions and documentations for 'git log'.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --names-only
+
+Synonym for --name-only.
+
+=back
+
+=cut
+
+__PODUSAGE__
