@@ -37,6 +37,8 @@ main ()
     declare -a pass_on_args
     declare -a opt_message
     declare opt_extref=''
+    declare do_push=0
+    declare opt_pr=''
 
     ## This hunk of processing was written after git-clone and is an attempt to
     ## NOT have to duplicate all existing arg process, as is done in git-clone,
@@ -130,6 +132,17 @@ ${message:$limidx} - $(git worktree get-name)"
                     original='--no-verify'
                     ## pass this on, updated
                     ;;
+                push )
+                    do_push=1
+                    ## no pass_on_args here, processed after commit
+                    continue
+                    ;;
+                pr )
+                    do_push=1
+                    opt_pr='--pr'
+                    ## no pass_on_args here, processed after commit
+                    continue
+                    ;;
                 ## No '*)' case needed; anything else just gets passed on
             esac
         fi
@@ -138,6 +151,7 @@ ${message:$limidx} - $(git worktree get-name)"
         pass_on_args+=("$original")
     done
 
+    ((do_push)) && cmd-echo -- 'Committing...'
     if ((opt_wscl))
     then
         git-commit-wscl "${pass_on_args[@]}"
@@ -148,8 +162,16 @@ ${message:$limidx} - $(git worktree get-name)"
         fi
         "${REALGIT}" commit "${opt_message[@]}" "${pass_on_args[@]}"
     fi
+    status=$?
 
-    return $?
+    if ((status== 0 && do_push))
+    then
+        cmd-echo -- 'Pushing...'
+        git push $opt_pr
+        status=$?
+    fi
+
+    return $status
 }
 
 main "$@"
@@ -166,6 +188,7 @@ git-commit - git extention of git commit
  git commit -wscl
  git commit -m[emojid] "message" [-eref reference |-dref]
  git commit --no-hooks
+ git commit --push
 
 =head1 DESCRIPTION
 
@@ -211,6 +234,11 @@ item id related to this work.
 =item --no-hooks
 
 Alias for --no-verify.
+
+=item --push
+
+After a successful commit, run 'git push' using all the defaults for remote and
+other push options.
 
 =back
 
