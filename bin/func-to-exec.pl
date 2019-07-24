@@ -4,6 +4,15 @@ use strict;
 use warnings;
 
 use File::Basename;
+our $force;
+
+BEGIN {
+    no warnings 'uninitialized';
+    if ( $ARGV[0] eq '--force' ) {
+        $force = 1;
+        shift;
+    }
+}
 
 ## This only does the physical transform. The complete set of steps for function X is:
 ##
@@ -85,7 +94,7 @@ LINE: while (<>) {
         next LINE;
     };
     m/# <Function Justification:\s+(.*)>/i && do {
-        next LINE if $1 =~ m/^none*/;
+        next LINE if $1 =~ m/^none*/ or $force;
         die "Function appears to have justification: $1\n";
     };
 
