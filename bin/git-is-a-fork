@@ -1,0 +1,102 @@
+#!/usr/bin/env bash
+
+usage ()
+{
+    (
+        script-usage ## or func-usage
+    ) 2>&1 | ${PAGER:-less}
+}
+
+# Define the options. ':' suffix for a mandatory value to an option, '::' for
+# an optional one. Note that the long and short don't have to match up.
+declare OPTSARGS
+# Single letter options. No separator.
+declare shortopts='vr:h'
+# Word options. Comma separator.
+declare longopts='remote:,help'
+
+# Process the command line.
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+declare status=$?
+((status != 0)) && exit $status ## return $status ## in functions
+
+# Reset the command line ($@).
+eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+declare opt_verbose=0
+declare opt_remote=upstream
+while true
+do
+    declare option=$1
+    shift
+    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    case "$option" in
+        r | remote ) opt_remote=$1; shift;;
+        v) opt_verbose=1;;
+        h | help ) usage; exit 0;;
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo -e -- "$option is an invalid option. See $0 --help"
+            exit 1 ## return 1 in functions
+            ;;
+    esac
+done
+
+eval "$(git-parse-remote-v)"
+# shellcheck disable=SC2154 # gitfunc_remotes defined in eval above
+declare remote="${gitfuncs_remotes[$opt_remote]}"
+if [ -z "$remote" ]
+then
+    exit 1
+fi
+
+if ((opt_verbose))
+then
+    echo "$remote"
+fi
+exit 0
+
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-is-a-fork - is the current git repo a fork
+
+=head1 SYNOPSIS
+
+ git-is-a-fork [-v] [[--remote|-r] remotetag]
+ git-is-a-fork [--help | -h ]
+
+=head1 DESCRIPTION
+
+Is the current git repo a fork? Examines its remotes looking for 'upstream'. Returns UNIX logic - 0 if so, 1 if not.
+
+=head1 OPTIONS
+
+=over 4
+
+=item -v
+
+If it is a fork, print the URI of the source repo. Otherwise, prints nothing.
+
+=item --remote remotetag
+
+If the fork is not known as the 'upstream' remote reference, give the reference here.
+
+=back
+
+=item --help
+
+Print this help page.
+
+=back
+
+=cut
+
+__PODUSAGE__
