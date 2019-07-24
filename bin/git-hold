@@ -16,6 +16,7 @@ declare diff=0
 declare overwrite=0
 declare verbose_flag
 declare verbose=0
+declare drop=0
 
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
@@ -38,7 +39,7 @@ do
             [ -z "$ovalue" ] && ovalue=$1 && shift
             repo=$(realpath "$ovalue")
             ;;
-        restore | confirm | diff | overwrite)
+        restore | confirm | diff | overwrite | drop)
             eval "$option"=1;;
         v | verbose )
             verbose=1
@@ -78,7 +79,22 @@ fi
     exit 0
 ) || exit 1
 
-if (( restore ))
+if (( drop ))
+then
+    if [ ! -d "$holddir" ]
+    then
+        cmd-echo -- "'$holddir' not found, cannot drop"
+        exit 1;
+    else
+        builtin cd "$holddir"/.. || exit 1 ## cd command will spit out an error message
+        resp=$(yesnoquit "About to remove $holddir. OK")
+        if [ "$resp" = 'y' ]
+        then
+            rm -rf "$holddir"
+            exit $?
+        fi
+    fi
+elif (( restore ))
 then
     if [ ! -d "$holddir" ]
     then
@@ -249,7 +265,7 @@ git-hold - Copy files between a repo and a temp directory
 
  git hold /tmp/some/tgt
 
- git hold [-v] [--restore ] [--confirm]] [--diff] [--repo some/repo] /tmp/some/tgt
+ git hold [-v] [--restore [--confirm]] [--diff] [--drop] [--repo some/repo] /tmp/some/tgt
 
 =head1 DESCRIPTION
 
@@ -289,6 +305,10 @@ Ask before every copy.
 =item --diff
 
 Show a diff before each copy, direction relevent.
+
+=item --drop
+
+When no longer needed remove the copy.
 
 =item --repo
 
