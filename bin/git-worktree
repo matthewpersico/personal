@@ -7,6 +7,9 @@ then
     exit 1
 fi
 
+## Global used to control 'cd'ing around
+doandcdfile=''
+
 usage ()
 {
     (
@@ -21,12 +24,16 @@ usage ()
 
 _git_worktree_record_check_pwd ()
 {
+    local opt_current_ok=$1
     ## Make sure pwd ends in wt
     if [[ ! "$(pwd)" =~ /wt$ ]]
     then
         if [ -d ./wt ]
         then
             builtin cd ./wt || ( cmd-echo -- "Cannot cd ./wt" && return 1)
+        elif [ -d ../../wt ] && ((opt_current_ok))
+        then
+            builtin cd .. || ( cmd-echo -- "Cannot cd .. (wt)" && return 1)
         else
             cmd-echo -- "Current directory is $(pwd)." \
                       'No wt subdir.' \
@@ -89,6 +96,7 @@ git-worktree-create ()
     local remote=origin
     local localbranchname
     local pull_request=''
+    local wtfullpath
     declare moreopts
     moreopts=1
     declare verbose
@@ -256,7 +264,7 @@ git-worktree-create ()
         if ((fetch_existing==1)) && [ -n "$exists" ]
         then
             ## Fetch it, Dear Henry...
-            ##                          branch             path
+            ##                               branch             path
             $REALGIT worktree add --track -b "$localbranchname" "$localbranchname" "$exists"
             status=$?
             if ((status))
@@ -295,11 +303,34 @@ git-worktree-create ()
 
             ## Let's practice a little hygiene here and keep the origin master up
             ## to date with the upstream master.
-            #### - WARNING - This should only be used if the repo is YOUR FORK of a
-            #### - canonical repo. If you are working in a CLONE of the CANONICAL,
-            #### - you do NOT want to do this. Until we can tell the difference,
-            #### - we won't automajically do this.
-            #### git push origin master
+
+            #### - WARNING - This should only be used if the current repo is a
+            #### - clone of YOUR FORK of a canonical repo. If you are working
+            #### - in a CLONE of the CANONICAL, you do NOT want to do this. Now
+            #### - that think we can tell the difference, we will cautiously do
+            #### - this.
+            local upstream
+            upstream=$(git-is-a-fork -v)
+            if [ -n "$upstream" ]
+            then
+                eval "$(git-parse-remote-v)"
+                # shellcheck disable=SC2154
+                cmd-echo -- "We think that this base repo $(git-worktree-get-root)" \
+                         "is a clone of ${gitfuncs_remotes[origin]},"\
+                         "which is, in turn, a fork of $(git-is-a-fork -v)" \
+                         "so that we can safely do a 'git push origin $asmaster'."
+                resp=$(cmd-yesno Ok n)
+                if [ "$resp" = 'y' ]
+                then
+                    git push origin "$asmaster"
+                else
+                    cmd-echo -- "Skipping..."
+                fi
+            else
+                cmd-echo -- "We think that this base repo $(git-worktree-get-root)" \
+                         "is not a clone of a fork, so we won't be" \
+                         "doing 'git push origin $asmaster' here."
+            fi
 
             ## Now create the worktree and the branch.
             ((verbose)) && cmd-echo -- "$REALGIT worktree add -b ${wtsubdir} ${wtbranch}"
@@ -314,6 +345,8 @@ git-worktree-create ()
             ((verbose)) && cmd-echo -- "cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "${wtsubdir}"
+            wtfullpath=$(pwd)
+
             _git_worktree_record_created_date "${wtbranch}"
 
             ## Finally push the branch upstream as a tracking branch
@@ -343,7 +376,16 @@ git-worktree-create ()
         cmd-echo -- "--skip-reset. Run 'git-go-set' at some point."
     fi
 
-    cmd-echo -- "Done. Execute" "    gitgo $repo/wt/${wtsubdir}" "to use."
+    if [ -z "$doandcdfile" ]
+    then
+        cmd-echo -- \
+                 "Done. Execute" \
+                 "    git go $repo/wt/${wtsubdir}" \
+                 "to use."
+    else
+        echo "go $wtfullpath" > "$doandcdfile"
+        cmd-echo -n -- "Done. "
+    fi
 
     return 0
 }
@@ -355,12 +397,14 @@ git-worktree-delete ()
     local opt_force=0
     local opt_reset=1
     local opt_keep_branch=0
+    local opt_current=0
+    local wtname=''
 
     # Read the options and args from command line. Note that the long and short
     # don't have to match up.
     declare OPTSARGS
     declare shortopts='yfhk'
-    declare longopts='no-reset,skip-reset,yes,force,help,keep-branch'
+    declare longopts='no-reset,skip-reset,yes,force,help,keep-branch,current'
 
     # Process the command line.
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
@@ -378,6 +422,7 @@ git-worktree-delete ()
         shift
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
+            current) opt_current=1; wtname="$(basename "$(pwd)")" ;;
             no-reset | skip-reset) opt_reset=0; ;;
             y|yes) opt_yes=1; opt_yes_string='--yes'; ;;
             f|force) opt_force=1; ;;
@@ -398,11 +443,18 @@ git-worktree-delete ()
         return 1
     fi
 
-    ! _git_worktree_record_check_pwd && return 1
+    ! _git_worktree_record_check_pwd $opt_current && return 1
     local wtroot
     wtroot="$(pwd)"
 
-    local wtname="$1"; shift;
+    if [ -z "$wtname" ]
+    then
+        wtname="$1"; shift
+    elif [ -n "$1" ]
+    then
+        cmd-echo -- "Cannot specify a worktree and --current"
+        return 1
+    fi
 
     if [ -z "$wtname" ]
     then
@@ -524,6 +576,8 @@ $(ls -la)"
     else
         cmd-echo -- "--skip-reset. Run 'git-go-set' at some point."
     fi
+
+    [ -n "$doandcdfile" ] && echo "cd $wtroot" > "$doandcdfile"
 
     cmd-echo -- "Done."
 
@@ -795,6 +849,13 @@ main ()
         return  0
     fi
 
+    if [[ "$action" =~ --doandcd ]]
+    then
+        doandcdfile=$2
+        shift; shift;
+        action=$1
+    fi
+
     action_func_name="git-worktree-${action}"
     if declare -F "$action_func_name" >/dev/null
     then
@@ -847,7 +908,7 @@ o We create a worktree for each feature branch.
 
 o We locate the worktree in the 'wt' subdir of the corresponding repo.
 
-o We add the worktree location to the list of repos reachable by the 'git-go'
+o We add the worktree location to the list of repos reachable by the 'git go'
   command.
 
 We now have a consistent environment to execute multiple lines of development
