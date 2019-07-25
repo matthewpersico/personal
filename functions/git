@@ -27,6 +27,8 @@
 # The variables REALGIT and REALGIT_EXEC_PATH are defined in git.env
 git ()
 {
+    # shellcheck disable=SC2034
+    declare DEBUG__this_function=${FUNCNAME[0]}
     if [ -z "$REALGIT" ]
     then
         echo "ERROR: git wrapper function 'git' can't find system git because envvar REALGIT is not defined. Bailing..."
@@ -35,6 +37,7 @@ git ()
 
     declare doandcdfile
     declare -A doandcdlist
+    doandcdlist[clone]=1
     doandcdlist[go]=1
     doandcdlist[worktree]=1
     doandcdlist[wt]=1
@@ -43,7 +46,7 @@ git ()
     declare -a args
     if [ -n "${doandcdlist[$command]}" ]
     then
-        doandcdfile=$(mktemp -t tmp.git.doandcd.XXXXXXXXXX)
+        doandcdfile=$(mktemp -t "tmp.git.doandcd.$command.XXXXXXXXXX")
         args+=('--doandcd' "$doandcdfile")
     fi
     args+=("$@")
@@ -67,12 +70,13 @@ git ()
     then
         declare -a cdcmd
         read -r -a cdcmd < "$doandcdfile"
+        \rm "$doandcdfile"
         if [ -n "${cdcmd[0]}" ] && [[ "${cdcmd[0]}" =~ ^(go|cd|git go)$ ]]
         then
             "${cdcmd[@]}"
             status=$?
         else
-            cmd-echo -e -- "Cannot '${cdcmd[*]}' - only cd,go,git go"
+            cmd-echo -e -- "Cannot '${cdcmd[*]}' - only 'cd', 'go', and 'git go' are supported"
             status=1
         fi
     fi
