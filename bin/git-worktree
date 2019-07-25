@@ -19,7 +19,7 @@ usage ()
     ) 2>&1 | ${PAGER:-less}
 }
 
-_git_worktree_record_check_pwd ()
+_git_worktree_check_set_pwd ()
 {
     local opt_current_ok=$1
     ## Make sure pwd ends in wt
@@ -132,7 +132,7 @@ git-worktree-create ()
         esac
     done
 
-    ! _git_worktree_record_check_pwd && return 1
+    ! _git_worktree_check_set_pwd && return 1
     local wtroot
     wtroot="$(pwd)"
 
@@ -440,7 +440,7 @@ git-worktree-delete ()
         return 1
     fi
 
-    ! _git_worktree_record_check_pwd $opt_current && return 1
+    ! _git_worktree_check_set_pwd $opt_current && return 1
     local wtroot
     wtroot="$(pwd)"
 
@@ -591,31 +591,50 @@ git-worktree-rename ()
     declare moreopts
     moreopts=1
     local opt_reset=1
-    while [[ "$1" =~ ^- ]] && ((moreopts))
+    local opt_current=0
+    local old_wtname=''
+
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    declare OPTSARGS
+    declare shortopts='h'
+    declare longopts='no-reset,skip-reset,help,current'
+
+    # Process the command line.
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
+    declare status=$?
+    ((status != 0)) && return $status
+
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    while true
     do
-        ## Strip all leading dashes here so that -foo and --foo can both
-        ## be processed as 'foo'.
-        declare original="$1"
-        declare option
-
-        option=$(dashstripper "$original")
-        shift ## That way you avoid endless loops on invalid options.
-
-        case $option in
+        declare option=$1
+        shift
+        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+        case "$option" in
+            current) opt_current=1; old_wtname="$(basename "$(pwd)")" ;;
             no-reset | skip-reset) opt_reset=0;;
             h|help) usage; return 0 ;;
-            --) moreopts=0 ;; ## end of opts, remaining $*, if any, are args
-            *) usage "Error getting options!"; return 1 ;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                return 1
+                ;;
         esac
     done
 
-    if (($#<2))
+    if (( $# == 0 )) || ( (( $# == 1 )) && [ -z "$wtname" ] )
     then
         usage "Missing arguments"
         return 1
     fi
 
-    if (($#>2))
+    if (( $# > 2 ))  || ( (( $# == 2 )) && [ -n "$wtname" ] )
     then
         usage "Too many arguments"
         return 1
@@ -623,11 +642,16 @@ git-worktree-rename ()
 
     local status
 
-    ! _git_worktree_record_check_pwd && return 1
+    ! _git_worktree_check_set_pwd $opt_current && return 1
     local wtroot
     wtroot="$(pwd)"
 
-    local old_wtname="$1" ; shift
+    if [ -z "$old_wtname" ]
+    then
+        old_wtname="$1"
+        shift
+    fi
+
     if [ ! -d "$old_wtname" ]
     then
         cmd-echo -- "Cannot find worktree $old_wtname
@@ -877,8 +901,9 @@ git-worktree - git extention of git worktree
 =head1 SYNOPSIS
 
  git-worktree create
- git-worktree delete
- git-worktree rename
+ git-worktree delete [--current]
+ git-worktree rename [--current]
+
  git-worktree get-root
  git-worktree diff-from-root
  git-worktree diff-to-root
@@ -956,15 +981,22 @@ flag, the worktree name will be 'pull-<remote>-<ID>'.
 
 A synonymn 'remove' but one that respects our conventions.
 
- git worktree delete [-y] [-f] worktree-name
+ git worktree delete [-y] [-f] [--current | worktree-name ]
        -y|--yes     - Assume 'yes' to all prompts
        -f|--force   - Delete even if the repo is not 'clean'
+       --current    - delete the worktree that is the current directory.
+                      Otherwise, the current directory should be 'wt/'
+                      and specify the worktree sub directory to delete.
 
 =item rename
 
 Changes the worktree name and the corresponding directory and branch.
 
- git worktree rename current-worktree-name new-worktree-name
+ git worktree rename [--current | current-worktree-name] new-worktree-name
+       --current    - rename the worktree that is the current directory.
+                      Otherwise, the current directory should be 'wt/'
+                      and specify the worktree sub directory to rename.
+
 
 =item get-root
 
