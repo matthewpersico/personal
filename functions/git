@@ -35,7 +35,6 @@ git ()
         return 1
     fi
 
-    declare doandcdfile
     declare -A doandcdlist
     doandcdlist[clone]=1
     doandcdlist[go]=1
@@ -46,9 +45,12 @@ git ()
     declare -a args
     if [ -n "${doandcdlist[$command]}" ]
     then
-        doandcdfile=$(mktemp -t "tmp.git.doandcd.$command.XXXXXXXXXX")
-        args+=('--doandcd' "$doandcdfile")
+        DOANDCDFILE=$(mktemp -t "tmp.git.doandcd.$command.XXXXXXXXXX")
+        export DOANDCDFILE
+    else
+        export DOANDCDFILE=''
     fi
+
     args+=("$@")
 
     [ -n "$GIT_DISPATCHER_VERBOSE" ] && echo GIT WRAPPER sees command as "$command" and args as "${args[@]}" >&2
@@ -65,12 +67,12 @@ git ()
     declare status=$?
 
     if ((status == 0)) \
-           && [ -n "$doandcdfile" ] \
-           && (( $(wc -l < "$doandcdfile") > 0 ))
+           && [ -n "$DOANDCDFILE" ] \
+           && (( $(wc -l < "$DOANDCDFILE") > 0 ))
     then
         declare -a cdcmd
-        read -r -a cdcmd < "$doandcdfile"
-        \rm "$doandcdfile"
+        read -r -a cdcmd < "$DOANDCDFILE"
+        \rm "$DOANDCDFILE"
         if [ -n "${cdcmd[0]}" ] && [[ "${cdcmd[0]}" =~ ^(go|cd|git go)$ ]]
         then
             "${cdcmd[@]}"
