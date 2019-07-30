@@ -161,11 +161,10 @@ open( IH, '-|', "$ps" );
 my $striplead = -1;
 my $printed;
 my $startedcol = $map{START}{idx};
-my $etimecol = $map{ETIME}{idx};
-my $etimescol = $map{ETIMES}{idx};
-my $pidcol    = $map{PID}{idx};
-my $ppidcol   = $map{PPID}{idx};
-my $cmdcol    = $map{COMMAND}{idx};
+my $etimecol   = $map{ETIME}{idx};
+my $pidcol     = $map{PID}{idx};
+my $ppidcol    = $map{PPID}{idx};
+my $cmdcol     = $map{COMMAND}{idx};
 my $packfmt;
 my $ascii_bold_red = '[1;31m';
 my $ascii_normal   = '[m';
@@ -222,16 +221,12 @@ while (<IH>) {
         next LINE;
     }
 
-    my @f      = unpack( $packfmt, $l );
-    my $pid    = $f[$pidcol] + 0;
-    my $ppid   = $f[$ppidcol];
+    my @f    = unpack( $packfmt, $l );
+    my $pid  = $f[$pidcol] + 0;
+    my $ppid = $f[$ppidcol];
     $ppid += 0 if $ppid =~ m/^[0-9]+$/;
-    my $cmd    = $f[$cmdcol];
-    my $etimes = calc_elapsed_seconds($f[$etimecol]);
-
-    ## Now that we have read the line, get rid of the first column in the
-    ## output - we only have it for sorting purposes.
-    $l = substr( $l, $col1read );
+    my $cmd        = $f[$cmdcol];
+    my $etimesec   = calc_elapsed_seconds( $f[$etimecol] );
     my $uncoloredl = $l;
 
     if ( !@{ $opt{pid} } && !$opt{expid} && !@{ $opt{cmd} } && $opt{this} ) {
@@ -299,7 +294,7 @@ while (<IH>) {
             #            print $output;
             #            $printed++;
             push @{$current_proc_group},
-              { sortval => $etimes, output => $output };
+              { sortval => $etimesec, output => $output };
         } elsif ( $opt{wrap} ) {
             my $ll =
               substr( $l, 0, $wrap_min ) . substr( $l, $wrap_min + $striplead );
@@ -314,17 +309,17 @@ while (<IH>) {
                 $Text::Wrap::columns = $opt{wrap};
                 $output = wrap( q(), ( q( ) x ( $indent_idx + 4 ) ), $ll );
                 push @{$current_proc_group},
-                  { sortval => $etimes, output => $output };
+                  { sortval => $etimesec, output => $output };
                 #                print $output;
                 #                $printed++;
             } else {
                 push @{$current_proc_group},
-                  { sortval => $etimes, output => $l };
+                  { sortval => $etimesec, output => $l };
                 #                print $l;
                 #                $printed++;
             }
         } else {
-            push @{$current_proc_group}, { sortval => $etimes, output => $l };
+            push @{$current_proc_group}, { sortval => $etimesec, output => $l };
             #            print $l;
             #            $printed++;
         }
@@ -386,13 +381,12 @@ sub match_any {
 }
 
 sub calc_elapsed_seconds {
-    my @tmp = (0,0,0,0,split(/:|-/,$_[0]));
+    my @tmp = ( 0, 0, 0, 0, split( /:|-/, $_[0] ) );
     ## From right to left
-    return
-      $tmp[-1] ## seconds
-      + $tmp[-2] * 60 ## minutes
-      + $tmp[-3] * 3600 ## hours
-      + $tmp[-4] * 86400## days
+    return $tmp[-1]         ## seconds
+      + $tmp[-2] * 60       ## minutes
+      + $tmp[-3] * 3600     ## hours
+      + $tmp[-4] * 86400    ## days
       ;
 }
 
