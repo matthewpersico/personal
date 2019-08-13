@@ -46,7 +46,7 @@ _git_worktree_check_set_pwd ()
 
 _git_worktree_record_created_date ()
 {
-    git config --replace-all "worktree.$1.EMcreated" "$(date "$GIT_EXT_META_DATE_FMT")" || exit $?
+    git config --replace-all "worktree.$1.EMcreated" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
 }
 
 # shellcheck disable=SC2120
@@ -65,10 +65,10 @@ git-worktree-ina ()
                     then
                         grep  '/worktrees/' .git | sed 's|.*worktrees/||'
                     fi
-                    exit 0
+                    return 0
                 fi
             done
-            exit 1
+            return 1
         )
         status=$?
     fi
@@ -286,65 +286,69 @@ git-worktree-create ()
             cmd-echo -- "Branch '${wtname}' already exists in remote '$remote'"
             return 1
         else ## ((fetch_existing==0)) && [ -z "$exists" ]
-            ## Since this worktree is going to create a branch of the local
-            ## $asmaster, make sure the local $asmaster (where we should be right
-            ## now) it is up to date.
-            if [ "$(git branch get-current)" != "$asmaster" ]
+            # shellcheck disable=SC2050 #https://github.com/koalaman/shellcheck/wiki/SC2050
+            if [[ "we need the master to be the source" = 'true' ]]
             then
-                cmd-echo -- "Cannot create branch and worktree because the current branch '$(git branch get-current)' is not the master branch '$asmaster'."
-                return 1
-            fi
-            cmd-echo -- "Checking local '$asmaster', starting point for branch."
-            git pull
-            status=$?
-            ## We can return here with no other notice, assuming the error message
-            ## from the pull would have been printed to stderr.
-            ((status)) && return 1
-
-            ## Let's practice a little hygiene here and keep the origin master up
-            ## to date with the upstream master.
-
-            #### - WARNING - This should only be used if the current repo is a
-            #### - clone of YOUR FORK of a canonical repo. If you are working
-            #### - in a CLONE of the CANONICAL, you do NOT want to do this. Now
-            #### - that think we can tell the difference, we will cautiously do
-            #### - this.
-            local upstream
-            upstream=$(git-is-a-fork -v)
-            if [ -n "$upstream" ]
-            then
-                eval "$(git-parse-remote-v)"
-                # shellcheck disable=SC2154
-                cmd-echo -- \
-                         "We think that the local repo" \
-                         "    $(git-worktree-get-root)" \
-                         "is a clone of the remote repo" \
-                         "    ${gitfuncs_remotes[origin]}"\
-                         "which is, in turn, a fork of" \
-                         "    $(git-is-a-fork -v)" \
-                         "meaning that we think we can safely execute" \
-                         "    git push origin $asmaster"
-                resp=$(cmd-yesno Ok n)
-                if [ "$resp" = 'y' ]
+                ## Since this worktree is going to create a branch of the local
+                ## $asmaster, make sure the local $asmaster (where we should be right
+                ## now) it is up to date.
+                if [ "$(git branch get-current)" != "$asmaster" ]
                 then
-                    git push origin "$asmaster"
-                else
-                    cmd-echo -- "Skipping..."
+                    cmd-echo -- "Cannot create branch and worktree because the current branch '$(git branch get-current)' is not the master branch '$asmaster'."
+                    return 1
                 fi
-            else
-                cmd-echo -- \
-                         "We think that the local repo" \
-                         "    $(git-worktree-get-root)" \
-                         "is a clone of the remote repo" \
-                         "    ${gitfuncs_remotes[origin]}"\
-                         "which is NOT a fork of any repo," \
-                         "meaning that we WILL NOT BE executing" \
-                         "    git push origin $asmaster"
-            fi
+                cmd-echo -- "Checking local '$asmaster', starting point for branch."
+                git pull
+                status=$?
+                ## We can return here with no other notice, assuming the error message
+                ## from the pull would have been printed to stderr.
+                ((status)) && return 1
+
+                ## Let's practice a little hygiene here and keep the origin master up
+                ## to date with the upstream master.
+
+                #### - WARNING - This should only be used if the current repo is a
+                #### - clone of YOUR FORK of a canonical repo. If you are working
+                #### - in a CLONE of the CANONICAL, you do NOT want to do this. Now
+                #### - that think we can tell the difference, we will cautiously do
+                #### - this.
+                local upstream
+                upstream=$(git-is-a-fork -v)
+                if [ -n "$upstream" ]
+                then
+                    eval "$(git-parse-remote-v)"
+                    # shellcheck disable=SC2154
+                    cmd-echo -- \
+                             "We think that the local repo" \
+                             "    $(git-worktree-get-root)" \
+                             "is a clone of the remote repo" \
+                             "    ${gitfuncs_remotes[origin]}"\
+                             "which is, in turn, a fork of" \
+                             "    $(git-is-a-fork -v)" \
+                             "meaning that we think we can safely execute" \
+                             "    git push origin $asmaster"
+                    resp=$(cmd-yesno Ok n)
+                    if [ "$resp" = 'y' ]
+                    then
+                        git push origin "$asmaster"
+                    else
+                        cmd-echo -- "Skipping..."
+                    fi
+                else
+                    cmd-echo -- \
+                             "We think that the local repo" \
+                             "    $(git-worktree-get-root)" \
+                             "is a clone of the remote repo" \
+                             "    ${gitfuncs_remotes[origin]}"\
+                             "which is NOT a fork of any repo," \
+                             "meaning that we WILL NOT BE executing" \
+                             "    git push origin $asmaster"
+                fi
+            fi ## if [ "we need the master to be the source" = 'true' ]
 
             ## Now create the worktree and the branch.
             ((verbose)) && cmd-echo -- "$REALGIT worktree add -b ${wtsubdir} ${wtbranch}"
-            $REALGIT worktree add $create_branch "${wtsubdir}" "${wtbranch}"
+            $REALGIT worktree add $create_branch "${wtsubdir}" "${wtbranch}" "$asmaster"
             status=$?
             if ((status))
             then
@@ -641,13 +645,13 @@ git-worktree-rename ()
         esac
     done
 
-    if (( $# == 0 )) || ( (( $# == 1 )) && [ -z "$wtname" ] )
+    if (( $# == 0 )) || ( (( $# == 1 )) && [ -z "$old_wtname" ] )
     then
         usage "Missing arguments"
         return 1
     fi
 
-    if (( $# > 2 ))  || ( (( $# == 2 )) && [ -n "$wtname" ] )
+    if (( $# > 2 ))
     then
         usage "Too many arguments"
         return 1
@@ -726,6 +730,10 @@ $(ls -la)"
     then
         cmd-echo -- "Resetting git list..."
         git-go-set
+        if ((opt_current))
+        then
+            git go  "$new_wtpath"
+        fi
     else
         cmd-echo -- "--skip-reset. Run 'git-go-set' at some point."
     fi
@@ -851,8 +859,8 @@ git-worktree-mark-merged ()
     local markdate
     markdate="$(date "$GIT_EXT_META_DATE_FMT")"
 
-    git config --replace-all "$worktreekey" "$markdate" || exit $?
-    git config --replace-all "$branchkey" "$markdate" || exit $?
+    git config --replace-all "$worktreekey" "$markdate" || return $?
+    git config --replace-all "$branchkey" "$markdate" || return $?
 
     cmd-echo "Worktree $worktreename, branch $branchname marked merged at $markdate"
 }

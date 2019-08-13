@@ -44,10 +44,16 @@ do
             exit 0
             ;;
         --terms )
-            pass_on+=("--term-old=${arg%%/*}" "--term-new=${arg##*/}")
-            shift
+            declare ovalue=''
+            if [[ "$arg" =~ = ]]
+            then
+                ovalue=${arg#*=}
+            else
+                ovalue=$1; shift
+            fi
+            pass_on+=("--term-old=${ovalue%%/*}" "--term-new=${ovalue##*/}")
             ;;
-        end )
+        end | exit | quit | abort )
             exec git bisect "${pass_on[@]}" reset "$@"
             ;;
         * )
@@ -56,6 +62,7 @@ do
     esac
 done
 
+set -x
 if ((dispatch_to_real_git))
 then
     ## Currently, we ALWAYS run the real git bisect, unless we exec-out or exit
@@ -72,7 +79,7 @@ git-bisect - extensions to git bisect
 
 =head1 SYNOPSIS
 
- git-bisect end
+ git-bisect end|exit|quit|abort
  git-bisect start --terms=oldterm/newterm
 
 =head1 DESCRIPTION
@@ -83,9 +90,9 @@ Additions and documentations for 'git bisect'.
 
 =over 4
 
-=item end
+=item end|exit|quit|abort
 
-A synonym for 'reset' with no commit argument. Restores the repo to the
+Synonyms for 'reset' with no commit argument. Restores the repo to the
 condition it was in before starting, especially reseting the commit that is
 checked out.
 
@@ -144,6 +151,21 @@ Of course, if you want to find where a file disappears:
     thissha=$(git rev-parse --verify HEAD)
   done
   [ -f TheFileIAmLookingFor ] && echo still exists || echo found the sha where it disappeared
+
+**Note:** The '=' is required; --terms missing/exists will fail due to the
+  simple parsing we are wrapping around this git command.
+
+**Note:** You cannot reassign the word 'good', i.e; you cannot do this:
+
+  git bisect start --term-old=bad --term-new=good
+
+which essenially swaps the typical usage (was good, is now bad). Use
+
+  git bisect start --term-old=broken --term-new=fixed
+
+instead. In fact, the typical usage could be redefined as
+
+  git bisect start --term-old=fixed --term-new=broken
 
 =back
 
