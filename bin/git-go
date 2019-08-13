@@ -12,14 +12,10 @@ declare opt_list
 opt_list=0
 declare opt_wt
 opt_wt='-w'
-declare opt_subwt_only
-opt_subwt_only=''
 declare opt_stat
 opt_stat=0
 declare opt_mod
 opt_mod=0
-declare opt_exact
-opt_exact=''
 declare opt_size
 opt_size=0
 declare opt_brief
@@ -40,12 +36,12 @@ declare OPTSARGS
 declare shortopts
 shortopts='elmrubhi:'
 declare longopts
-longopts='upstream,exact,et,exact-tail,eh,exact-head'
+longopts="upstream,exact,et,exact-tail,eh,exact-head"
 longopts="$longopts,wc,with-comments,wco,with-comments-only"
 longopts="$longopts,list,lf,listfull,size,mbig,roots,update"
 longopts="$longopts,wt,nowt,subwt,wto"
 longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
-longopts="$longopts,doandcd:"
+longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr"
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$0" -- "$@")
@@ -74,11 +70,13 @@ do
                   fi
                   tgts=("${gitfuncs_remotes[upstream]/*:/}")
                   ;;
-        e | exact ) opt_exact='--exact';;
-        et | exact-tail ) opt_exact='--exact-tail';;
-        eh | exact-head ) opt_exact='--exact-head';;
+        e | exact ) git_get_opts+=('--exact');;
+        et | exact-tail ) git_get_opts+=('--exact-tail');;
+        eh | exact-head ) git_get_opts+=('--exact-head');;
         wc | with-comments ) opt_comments=1; opt_list=1 ;;
         wco | with-comments-only ) opt_comments=2; opt_list=1 ;;
+        wpr | with-pr ) git_get_opts+=('--with-pr');;
+        npr | no-pr ) git_get_opts+=('--no-pr');;
         l | list ) opt_list=1 ;;
         lf | listfull ) opt_list=2 ;;
         comma ) opt_comma=1 ;;
@@ -88,8 +86,7 @@ do
         u | update ) git_get_opts+=('-u') ;;
         wt ) opt_wt='-w' ;;
         nowt ) opt_wt='' ;;
-        subwt ) opt_subwt_only='-o' ;;
-        wto ) opt_subwt_only='-o' ;;
+        subwt | wto ) git_get_opts+=('--wto');;
         stat ) opt_stat=1; opt_list=1 ;;
         dirty ) opt_stat=2; opt_list=1 ;;
         b| brief ) opt_brief=1 ;;
@@ -112,9 +109,9 @@ then
     script-usage git-go; exit 1
 fi
 
+## These settings are here and not in the case above where they are set because
+## they have non-blank defaults.
 [ -n "$opt_wt" ] && git_get_opts+=("$opt_wt")
-[ -n "$opt_subwt_only" ] && git_get_opts+=("$opt_subwt_only");
-[ -n "$opt_exact" ] && git_get_opts+=("$opt_exact")
 
 declare -a REPOS
 declare -a origtgts
