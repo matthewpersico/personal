@@ -20,6 +20,11 @@ usage ()
     ) 2>&1 | ${PAGER:-less}
 }
 
+_git_branch_is_a_pull ()
+{
+    [[ $1 =~ ^pull ]]
+}
+
 git-branch-checkout ()
 {
     declare tgt_branch=$1
@@ -128,12 +133,22 @@ git-branch-delete ()
             return 1
         fi
 
+        declare -a delarg
+        if _git_branch_is_a_pull "$branch"
+        then
+            delarg=('-D')
+        else
+            delarg=('-d')
+        fi
         declare brdelstat
-        git branch -d "$branch"
+        cmd-echo -d -- "Normal deletes use -d, we want to use -D for pulls." \
+                 "We are about to 'git branch ${delarg[*]} $branch'." \
+                 "Once you see a -D on a pull, you can remove this diagnostic."
+        git branch "${delarg[@]}" "$branch"
         brdelstat=$?
         if ((brdelstat))
         then
-            cmd-echo -- "ERROR: git branch -d $branch failed. Returning $brdelstat."
+            cmd-echo -- "ERROR: git branch ${delarg[*]} $branch failed. Returning $brdelstat."
             return $brdelstat
         fi
         cmd-echo -- "Branch deleted locally."
@@ -155,6 +170,12 @@ git-branch-delete ()
                 then
                     resp='y'
                 else
+                    declare fetched
+                    fetched=$(git config --get "worktree.$branch.EMfetched")
+                    if [[ -n $fetched ]]
+                    then
+                        cmd-echo -w -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
+                    fi
                     resp=$(cmd-yesno "Try deleting in remote '$remote'" n)
                 fi
                 if [ "$resp" == 'y' ]

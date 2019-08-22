@@ -44,9 +44,29 @@ _git_worktree_check_set_pwd ()
     return 0
 }
 
-_git_worktree_record_created_date ()
+_git_worktree_info_remove ()
+{
+    git config --remove-section "worktree.$1" || return $?
+}
+
+_git_worktree_info_add_created_date ()
 {
     git config --replace-all "worktree.$1.EMcreated" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+}
+
+_git_worktree_info_add_fetched_date ()
+{
+    git config --replace-all "worktree.$1.EMfetched" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+}
+
+_git_worktree_was_fetched ()
+{
+    [[ -n $(git config --get "worktree.$1.EMfetched") ]]
+}
+
+_git_worktree_is_a_pull ()
+{
+    [[ $(git branch get-current) =~ ^pull ]]
 }
 
 # shellcheck disable=SC2120
@@ -115,8 +135,8 @@ git-worktree-create ()
         case $option in
             pr | pull )
                 pull_request="$1"; shift
-                ## Not going to create a pull request via a worktree
-                ## create, force a fetch.
+                ## Not going to create a pull request via a worktree.
+                ## Rather create, force a fetch.
                 fetch_existing=1;;
             no-reset | skip-reset) opt_reset=0 ;;
             f|fetch) fetch_existing=1 ;;
@@ -144,6 +164,7 @@ git-worktree-create ()
 
     local wtname="$1"
     shift
+    local pull_ref
     if [ -z "${wtname}" ]
     then
         if [ -z "$pull_request" ]
@@ -151,7 +172,8 @@ git-worktree-create ()
             usage "Need a branch name to use for the worktree spec."
             return 1
         else
-            wtname="pull/$remote/$pull_request"
+            pull_ref="pull/$pull_request/head"
+            wtname="pull-$remote-$pull_request"
         fi
     else
         if [ -n "$pull_request" ]
@@ -161,14 +183,6 @@ git-worktree-create ()
         fi
     fi
     [ -z "$localbranchname" ] && localbranchname="${wtname}"
-
-    ## If the requested branch is a pull request, do some work on the local
-    ## branch name.
-    if [[ "$localbranchname" =~ pull/ ]]
-    then
-        ## Swap all / for - to give us a usable name for the branch
-        localbranchname=${localbranchname//\//-}
-    fi
 
     ## Check remote. Must be fetchable and pushable.
     local exists
@@ -246,38 +260,19 @@ git-worktree-create ()
                          done
                   )
         else
-            ## Find the pull
-            exists=$(git show-ref | sed 's|.*refs/||' | grep pull/ | \
-                         while read -r line
-                         do
-                             if [ "$line" == "${wtname}" ]
-                             then
-                                 echo "refs/${wtname}"
-                                 break
-                             fi
-                         done
-                  )
+            ## Here, the existence check also fetches and creates the branch,
+            ## so we don't need to do that below.
+            exists="$localbranchname"
+            if ! git fetch "$remote" "$pull_ref:$localbranchname"
+            then
+                cmd-echo -e -- "Pull $pull_ref not found in $remote"
+                return 1
+            fi
         fi
 
         ## Yes, I could nest conditions instead of repeating them. I prefer to
         ## be explicit here.
-        if ((fetch_existing==1)) && [ -n "$exists" ]
-        then
-            ## Fetch it, Dear Henry...
-            ##                               branch             path
-            $REALGIT worktree add --track -b "$localbranchname" "$localbranchname" "$exists"
-            status=$?
-            if ((status))
-            then
-                cmd-echo -- "Aborting."
-                return 1
-            fi
-            ((verbose)) && cmd-echo -- "cd ${wtsubdir}"
-
-            ## dirlist, not builtin cd, to take advantage this cd enhancement
-            dirlist "$localbranchname"
-            _git_worktree_record_created_date "$localbranchname"
-        elif ((fetch_existing==1)) && [ -z "$exists" ]
+        if ((fetch_existing==1)) && [ -z "$exists" ]
         then
             cmd-echo -- "Cannot find '$remote/${wtname}' to fetch"
             return 1
@@ -285,6 +280,25 @@ git-worktree-create ()
         then
             cmd-echo -- "Branch '${wtname}' already exists in remote '$remote'"
             return 1
+        elif ((fetch_existing==1)) && [ -n "$exists" ]
+        then
+            ## Fetch it, Dear Henry...
+            declare -a wtargs
+            [[ -z "$pull_request" ]] && wtargs=('--track' '-b' "$localbranchname" )
+            $REALGIT worktree add "${wtargs[@]}" "$localbranchname" "$exists"
+            status=$?
+            if ((status))
+            then
+                cmd-echo -- "Aborting."
+                return 1
+            fi
+
+            ((verbose)) && cmd-echo -- "cd ${wtsubdir}"
+            ## dirlist, not builtin cd, to take advantage this cd enhancement
+            dirlist "${wtsubdir}"
+            wtfullpath=$(pwd)
+
+            _git_worktree_info_add_fetched_date "$localbranchname"
         else ## ((fetch_existing==0)) && [ -z "$exists" ]
             # shellcheck disable=SC2050 #https://github.com/koalaman/shellcheck/wiki/SC2050
             if [[ "we need the master to be the source" = 'true' ]]
@@ -359,9 +373,10 @@ git-worktree-create ()
             ((verbose)) && cmd-echo -- "cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "${wtsubdir}"
+
             wtfullpath=$(pwd)
 
-            _git_worktree_record_created_date "${wtbranch}"
+            _git_worktree_info_add_created_date "${wtbranch}"
 
             ## Finally push the branch upstream as a tracking branch
             ((verbose)) && cmd-echo -- "git push --set-upstream $remote ${wtbranch}"
@@ -582,6 +597,9 @@ $(ls -la)"
             git-branch delete --no-go-set $opt_yes_string "$current_branch"
         fi
     fi
+
+    ## Cleanup
+    _git_worktree_info_remove "${wtname%/}"
 
     if ((opt_reset))
     then
