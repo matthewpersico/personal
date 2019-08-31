@@ -41,7 +41,7 @@ longopts="$longopts,wc,with-comments,wco,with-comments-only"
 longopts="$longopts,list,lf,listfull,size,mbig,roots,update"
 longopts="$longopts,wt,nowt,subwt,wto"
 longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
-longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr"
+longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,set"
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$0" -- "$@")
@@ -65,7 +65,7 @@ do
                   # shellcheck disable=SC2154
                   if [ -z "${gitfuncs_remotes[upstream]}" ]
                   then
-                      cmd-echo -e -- "No upstream for current repo ($(pwd))"
+                      cmd-echo -ec -- "No upstream for current repo ($(pwd))"
                       exit 1
                   fi
                   tgts=("${gitfuncs_remotes[upstream]/*:/}")
@@ -94,18 +94,20 @@ do
         i | index ) opt_repo_no=$1; shift ;;
         limited ) limited=('--limited' "$1"); shift ;;
         doandcd ) doandcdfile=$1; shift;;
+        set ) cmd-echo -- Working...
+              git-go-set; exit 0;;
         h | help ) script-usage git-go; exit 0 ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
-            cmd-echo -e -- "$option is an invalid option. See $0 --help"
+            cmd-echo -ec -- "$option is an invalid option. See $0 --help"
             exit 1
             ;;
     esac
 done
 if ((opt_stat!=2)) && ((opt_brief))
 then
-    cmd-echo -e -- "Cannot specify --brief without --dirty"
+    cmd-echo -ec -- "Cannot specify --brief without --dirty"
     script-usage git-go; exit 1
 fi
 
@@ -152,12 +154,12 @@ if ((${#REPOS[@]}==0))
 then
     if (( ${#origtgts[@]} == 0 ))
     then
-        cmd-echo -e -- "No repos available."
+        cmd-echo -ec -- "No repos available."
     elif (( ${#origtgts[@]} == 1 ))
     then
-        cmd-echo -e -- "Filter '${origtgts[*]}' does not match any repo"
+        cmd-echo -ec -- "Filter '${origtgts[*]}' does not match any repo"
     else
-        cmd-echo -e -- "Filters '$(ajoin , "${origtgts[@]}")' do not match any repo"
+        cmd-echo -ec -- "Filters '$(ajoin , "${origtgts[@]}")' do not match any repo"
     fi
     exit 1
 else
@@ -198,20 +200,16 @@ else
             else
                 declare rexp
                 ((opt_list==1)) && rexp="~/${r}" || rexp="${TILDAE:-$HOME}/${r}"
-#                    if ((opt_stat==0))
-#                    then
-#                        echo "$rexp"
-#                    el
                 if ((opt_stat==1))
                 then
                     echo "$rexp"
-                    (cd "${TILDAE:-$HOME}/$r" || (cmd-echo -e -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
+                    (cd "${TILDAE:-$HOME}/$r" || (cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
                      git status --porcelain)
                     echo
                 elif ((opt_stat==2))
                 then
                     (
-                        cd "${TILDAE:-$HOME}/$r" || (cmd-echo -e -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
+                        cd "${TILDAE:-$HOME}/$r" || (cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
                         if (( $(git status --porcelain | wc -l) ))
                         then
                             echo "$rexp"
@@ -225,7 +223,7 @@ else
                 elif ((opt_comments))
                 then
                     (
-                        cd "${TILDAE:-$HOME}/$r" || (cmd-echo -e -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
+                        cd "${TILDAE:-$HOME}/$r" || (cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
                         declare output
                         output="$(git comment --show --hi)"
                         if ((opt_comments==1)) || \
@@ -297,11 +295,14 @@ else
                     exit
                 elif [[ "$REPLY" =~ ^/ ]]
                 then
-                    # shellcheck disable=SC2046
-                    git go --limited $(ajoin , $(tail_number_strip "${REPOS[@]}")) "${REPLY#/}"
-                    exit $?
+                    # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
+                    # Wants to quote "$(trail_number_strip...), but we need the
+                    # output to be individual items so that ajoin works. Will
+                    # be an issue if a path has a space in it.
+                    git go --limited "$(ajoin , $(tail_number_strip "${REPOS[@]}"))" "${REPLY#/}"
+                    break
                 else
-                    cmd-echo -e -- "'$REPLY' is an invalid choice"
+                    cmd-echo -ec -- "'$REPLY' is an invalid choice"
                 fi
             done
         fi
@@ -402,6 +403,10 @@ Usage: git-go [options] [ filter [filter...] ]
 
    --mod
        Show status of repos that have mods outstanding.
+
+   --set
+       Don't go anywhere but reset the list of repos. Use this after file
+       system surgery.
 
    'filter' will filter the list using grep.
 

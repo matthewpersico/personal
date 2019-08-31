@@ -139,6 +139,25 @@ main ()
         fmt='${repo}/'
     fi
 
+    declare -a execmel
+    declare -a execmer
+    declare -a lsfiles
+    declare need_lsfiles=0
+    for arg in "$@"
+    do
+        if [[ $arg != 'LSFILES' ]]
+        then
+            if ((need_lsfiles == 1))
+            then
+                execmer+=("$arg")
+            else
+                execmel+=("$arg")
+            fi
+        else
+            need_lsfiles=1
+        fi
+    done
+
     for repo in "${!repos[@]}"
     do
         builtin cd "$repo"
@@ -147,7 +166,13 @@ main ()
         t=$(mktemp -t tmp.dpkgrefrepos.XXXXXXXXXX)
         rm_on_exit "$t"
         declare status
-        "$@" > "$t" 2>&1
+        if ((need_lsfiles))
+        then
+            mapfile -t lsfiles < <(git ls-files)
+        else
+            lsfiles=()
+        fi
+        "${execmel[@]}" "${lsfiles[@]}" "${execmer[@]}" > "$t" 2>&1
         status=$?
         if (( opt_rcge > -1 ))
         then
@@ -244,11 +269,14 @@ execute 'git pull' on each repo before executing the command
 
 =over 4
 
-=item command [args...]
+=item command ["LSFILES"] [args...]
 
 The command and its arguments are run in each repo specified, cd'ing to the
 repo before running. If command is a git command, you need to specify the 'git'
 part.
+
+If the command needs the files of a repo as arguments, the string LSFILES will
+be replaced with the output of '$(git ls-files)' before being executed.
 
 =back
 

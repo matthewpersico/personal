@@ -1,0 +1,417 @@
+#!/usr/bin/env bash
+
+# git-repo
+
+if ! git-version-verify 'git-repo'
+then
+    exit 1
+fi
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+## Global used to control 'cd'ing around
+doandcdfile=''
+
+git-repo-is ()
+{
+    declare verbose=0
+    if [[ "$1" =~ -v ]]
+    then
+        verbose=1
+        shift
+    fi
+    [[ "$1" ]] && [[ $1 != . ]] && (cd "$1" || return 1)
+    git rev-parse --show-toplevel 2>/dev/null 1>&2
+    status=$?
+    [[ "$1" ]] && [[ $1 != . ]] && (cd - || return 1)
+    (( verbose )) && ( (( status )) && echo false || echo true )
+    return $status
+}
+
+git-repo-isa () { git-repo-is "$@"; }
+git-repo-ina () { git-repo-is "$@"; }
+
+git-repo-name ()
+{
+    [[ "$1" ]] && [[ $1 != . ]] && (cd "$1" || return 1)
+    name=$(git remote -v 2>/dev/null | grep origin | sed 's|.*/||' | sed 's/ .*//' | sort -u)
+    [[ "$1" ]] && [[ $1 != . ]] && (cd - || return 1)
+    [ -z "$name" ] && return 1
+    echo "$name"
+    return 0
+}
+
+git-repo-diff ()
+{
+    declare moreopts=1
+    declare nocolor=0
+    declare name_only=0
+    declare exclude=''
+    declare side_by_side='-u'
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        declare original="$1"
+        shift
+        declare option
+        option=$(dashstripper "$original")
+        ## This bit deals with --foo=bar instead of --foo bar
+        declare okey=''
+        declare ovalue=''
+        if [[ "$option" =~ = ]]
+        then
+            okey=${option%%=*}
+            ovalue=${option#*=}
+            option="$okey"
+        fi
+
+        case $option in
+            nocolor)
+                nocolor=1 ;;
+            exclude)
+                exclude=${ovalue:-$1}; [ -z "$ovalue" ] && shift ;;
+            side-by-side)
+                side_by_side='-y --suppress-common-lines';;
+            name-only)
+                name_only=1;;
+            --)
+                moreopts=0
+                ;;
+            * )
+                cmd-echo -- "$original is an invalid option. See $0 --help"
+                return 1
+                ;;
+        esac
+    done
+
+    declare -A repo
+    if [ -n "$2" ]
+    then
+        repo[left]=$(realpath "$1")
+        repo[right]=$(realpath "$2")
+    elif [ -n "$1" ]
+    then
+        repo[left]=$(pwd)
+        repo[right]=$(realpath "$1")
+    else
+        cmd-echo -- "Need at least one directory"
+        script-usage; return 1 ;
+    fi
+
+    if [ "${repo[left]}" = "${repo[right]}" ]
+    then
+        cmd-echo -- "Other dir is this dir. Whoops! Bye."
+        return 1
+    fi
+
+    declare -A list
+    list[left]=$(mktemp -t tmp.git-diff-two-repos-on-disk.left.XXXXXXXXXX)
+    list[right]=$(mktemp -t tmp.git-diff-two-repos-on-disk.right.XXXXXXXXXX)
+    rm_on_exit "${list[left]}" "${list[right]}"
+
+    # Get lists of files from each repo
+    declare which
+    declare -A leftfiles
+    declare -A rightfiles
+    for which in left right
+    do
+        perl -e 'chdir $ARGV[0];
+             print qx(git ls-files)' "${repo[$which]}" > "${list[$which]}"
+        if [ -n "$exclude" ]
+        then
+            grep -v "$exclude" "${list[$which]}" > "${list[$which]}.filt"
+            mv "${list[$which]}.filt" "${list[$which]}"
+        fi
+        declare line
+        declare key
+        while IFS='' read -r line || [[ -n "$line" ]]
+        do
+            ## Because for some unknown reason a directory spec with a '/' in it
+            ## was giving me some weird error.
+            key=${line//\//%2F}
+
+            ## Yes, there's some indirect referencing here. Not my fault there are
+            ## no multi-level arrays/hashes in bash.
+            eval "${which}files[$key]=${repo[$which]}/$line"
+        done < "${list[$which]}"
+    done
+
+    declare -A missingright
+    for key in "${!leftfiles[@]}"
+    do
+        if [ -z "${rightfiles[$key]}" ]
+        then
+            missingright[$key]=${key//%2F/\/}
+            unset leftfiles["$key"]
+        fi
+    done
+    if [ "${#missingright[@]}" != '0' ]
+    then
+        if ((name_only))
+        then
+            cmd-echo -- "These files do not exist in ${repo[right]}" "${missingright[@]}" >&2
+        else
+            cmd-echo -- "These files do not exist in ${repo[right]}" "${missingright[@]}"
+        fi
+    fi
+
+    declare -A missingleft
+    for key in "${!rightfiles[@]}"
+    do
+        if [ -z "${leftfiles[$key]}" ]
+        then
+            missingleft[$key]=${key//%2F/\/}
+            unset rightfiles["$key"]
+        fi
+    done
+    if [ "${#missingleft[@]}" != '0' ]
+    then
+        if ((name_only))
+        then
+            cmd-echo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}" >&2
+        else
+            cmd-echo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}"
+        fi
+    fi
+
+    for key in "${!leftfiles[@]}"
+    do
+        declare output
+        declare leftf
+        leftf=${leftfiles["$key"]}
+        declare rightf=${rightfiles["$key"]}
+        output=$(diff -q "$leftf" "$rightf" 2>&1 | grep -v 'Common subdirectories')
+        if [ -n "$output" ]
+        then
+            if ((name_only))
+            then
+                echo "$leftf" "$rightf"
+            else
+                cmd-echo -- '-----'
+                declare diffcmd
+                # shellcheck disable=SC2230
+                diffcmd=$(which colordiff 2>/dev/null)
+                # shellcheck disable=SC2209 # We don't want to run diff, just
+                # prepare the command
+                ( [ -z "$diffcmd" ] || ((nocolor)) ) && diffcmd=diff
+                $diffcmd "$side_by_side" "${leftf}" "${rightf}"
+                echo
+            fi
+        fi
+    done
+
+    return 0
+}
+
+git-repo-delete ()
+{
+    declare current=0
+    declare dirmode=''
+    [ -z "$1" ] && func-usage && return 1
+    if [ "$1" = '--pwdmode' ] || [ "$1" = '--current' ]
+    then
+        current=1
+        shift
+    elif [ "$1" = '--dirmode' ]
+    then
+        dirmode=$2
+        shift
+        shift
+    elif [ -n "$1" ]
+    then
+        dirmode=$1
+        shift
+    fi
+
+    # If we were given '.', then we are really doing --current.
+    if [[ $(pwd) = $(realpath "$dirmode") ]]
+    then
+        current=1
+        dirmode=''
+    fi
+
+    declare repo
+    declare returnpath
+    returnpath=$(realpath "$(pwd)")
+
+    if [ -n "$dirmode" ]
+    then
+        ## We were given the directory containing the repo
+        builtin cd "$dirmode" || ( cmd-echo "Cannot cd $dirmode" && return 1 )
+        declare root_or_err
+        root_or_err="$(git root 2>&1)"
+        declare status=$?
+        if ((status))
+        then
+            cmd-echo -- "$root_or_err"
+            builtin cd "$returnpath" || ( cmd-echo "Cannot cd $returnpath" && return 1)
+            return $status
+        else
+            builtin cd "$root_or_err" || ( cmd-echo "Cannot cd $root_or_err" && return 1)
+        fi
+    elif ((!current))
+    then
+        ## Then we were given a local repo URL; find it and go there
+        declare githost=$1;shift
+        declare namespace=$1;shift
+        repo=$1;shift
+
+        declare githost_url
+        githost_url=$(kvstore get gitfuncs_git_svcs "$githost")
+        if [ -z "$githost_url" ]
+        then
+            cmd-echo -- "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_git_svcs)"
+            return 1
+        fi
+
+        ## Go to what we want to whack, to make sure it's there.
+        git go "$githost/$namespace/$repo"
+        status=$?
+        ((status != 0)) && return 1; ## If the git go fails, we should
+        ## see error messages, no need to
+        ## add more.
+    ## else - we were told to delete the directory/repo we are currently in
+    fi
+
+    ## At this point, we are in the directory we are going to delete. We can
+    ## determine the repo.
+    repo=$(basename "$(realpath "$(pwd)")")
+
+    (
+        ## Subshell to allow cding around to be handled gracefully at the end
+
+        ## Make sure it's clean
+        if [ -d wt ] && (($(find wt | wc -l) > 1))
+        then
+            cmd-echo "worktrees found:"
+            ls -la wt
+            cmd-echo
+            cmd-echo "Will not delete repo"
+            return 1
+        fi
+
+        dirty=$(git status --porcelain)
+        if [ -n "$dirty" ]
+        then
+            git status
+            cmd-echo
+            cmd-echo "Will not delete current repo"
+            return 1
+        fi
+
+        builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
+        \rm -rf "$repo"
+        status=$?
+        ((status != 0)) && return 1; ## If the rm fails, we should see error
+                                     ## messages, no need to add more.
+
+        cmd-echo "Done. Not touching remote repo. Resetting git list..."
+        ## Remove the just-deleted repo from the list of local git repos.
+        git-go-set
+
+        return 0
+    )
+
+    status=$?
+
+    ## We were in some dir or the deleted repo. If the latter, then go up the
+    ## tree until we find someplace to return to.
+    while [ ! -d "$returnpath" ] && [ ! "$returnpath" = '/' ]
+    do
+        returnpath="$(dirname "$returnpath")"
+    done
+
+    ## Go there.
+    if [ ! "$returnpath" = '/' ]
+    then
+        builtin cd "$returnpath" || ( cmd-echo "Cannot cd $returnpath" && return 1)
+    else
+        builtin cd ~ || ( cmd-echo "Cannot cd ~" && return 1)
+    fi
+
+    ## Feed "there" back to the git function to make it stick.
+    if [[ -n "$doandcdfile" ]]
+    then
+        echo "go $(pwd)" > "$doandcdfile"
+        cmd-echo -n -- "Done. "
+    fi
+
+    return $status
+}
+
+main()
+{
+    declare action=$1
+
+    if [[ "$action" =~ ^-+h ]]
+    then
+        usage
+        return  0
+    fi
+
+    if [[ "$action" =~ --doandcd ]]
+    then
+        doandcdfile=$2
+        shift; shift;
+        action=$1
+    fi
+
+    action_func_name="git-repo-${action}"
+    if declare -F "$action_func_name" >/dev/null
+    then
+        shift ## the $action
+        "$action_func_name" "$@"
+    else
+        case $action in
+            * )
+                usage "Error: unknown git repo action '$action'"
+                return 1
+                ;;
+        esac
+    fi
+    return $?
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-repo - stuff
+
+=head1 SYNOPSIS
+
+ git-repo delete
+ git-repo diff
+ git-repo is
+ git-repo name
+
+=head1 DESCRIPTION
+
+TBD
+
+=head1 ACTIONS
+
+=over 4
+
+=item delete
+
+=item diff
+
+  git repo diff [--nocolor] [--name-only] \
+                [--exclude path/to/exclude] \
+                [src] tgt
+
+Compare two repos on disk. If only one repo is specified, 'src' is taken as the
+current directory, which should be a repo root.
+
+=item is
+
+=item name
+
+=back
+
+=cut
+
+__PODUSAGE__
