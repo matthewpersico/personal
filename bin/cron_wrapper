@@ -3,14 +3,15 @@
 
 ## Control when cron jobs mail output
 
-mailtype=''
-mailto=$MAILTO
-mailsubject=''
-checkkinit=0
-setx=0
-setv=0
-keeplog=0
-endofopts=0
+declare mailtype=''
+declare mailto=$MAILTO
+declare -a mailfrom
+declare mailsubject=''
+declare checkkinit=0
+declare setx=0
+declare setv=0
+declare keeplog=0
+declare endofopts=0
 while [[ "$1" =~ ^- ]] && ((!endofopts))
 do
     ## Strip all leading dashes here so that -foo and --foo can both
@@ -39,6 +40,10 @@ do
         to)
             mailto="$1"
             MAILTO=$mailto; export MAILTO
+            shift
+            ;;
+        from)
+            mailfrom=('-S' "'from=$1'")
             shift
             ;;
         keeplog)
@@ -255,7 +260,8 @@ if ((mailthelog))
 then
     if [ -n "$mailto" ]
     then
-        mailx -s "$subsubject - $mailsubject" \
+        mailx "${mailfrom[@]}" \
+              -s "$subsubject - $mailsubject" \
               "$mailto" \
               <<EOM
 $subsubject
