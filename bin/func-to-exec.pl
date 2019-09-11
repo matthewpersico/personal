@@ -175,18 +175,6 @@ LINE: while (<>) {
         ##    here, but we have to exception check for _git-cd-return.
     };
 
-    ## *echo -i gets removed
-    $_ =~ m/func-echo\s+-i\s/ && next LINE;
-
-    ## func-X becomes script-X...
-    $_ =~ s/func-(yesno|pick|usage)/script-$1/g;
-
-    ## ...except that func-echo becomes cmd-echo
-    $_ =~ s/func-echo/cmd-echo/g;
-
-    ## usage_func transform
-    $_ =~ s/\$usage_func/script-usage/;
-
     ## SC2155
     ## This regexp really should be in Regexp::Common
     m/^(\s*)(declare\s+)($RE{lvarname})(=.*)/ && do {
