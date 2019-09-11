@@ -1,0 +1,133 @@
+#!/usr/bin/env bash
+
+# bash-usage
+
+_guts-usage ()
+{
+    declare tgt="$1"
+    if grep -q -E "^:<<'__PODUSAGE" "$tgt"
+    then
+        pod2text "$tgt" | ${PAGER:cat}
+    elif grep -q -E "^:<<'__USAGE" "$tgt"
+    then
+        printf '%s'   "$( sed -e "0,/^:<<'__USAGE__/d" -e '/^__USAGE__/,$d' "$tgt" )" | ${PAGER:cat}
+        ## If your script is a wrapper around another script, and you do not
+        ## want to repeat all of the wrapped help text in the wrapper help,
+        ## just put a bash-usage command in your help between __USAGE_CHAIN
+        ## markers and we will execute that, pulling in that help too. We
+        ## assume that the chained help comes after your help. TODO: Allow for
+        ## embedded help in the above text.
+        declare chain
+        chain="$(sed -e "0,/^:<<'__USAGE_CHAIN/d" -e '/^__USAGE_CHAIN/,$d' "$tgt")"
+        [ -n "$chain" ] && $chain | ${PAGER:cat}
+    else
+        echo "No usage text found for $tgt" >&2
+    fi
+}
+
+_script-usage ()
+{
+    declare tgt
+    tgt="$1"
+    if [ ! -r "$tgt" ]
+    then
+        declare newtgt
+        newtgt=$(type -P "$tgt" 2>/dev/null)
+        if [ ! -r "$newtgt" ]
+        then
+            cmd-echo -w --id bash-usage -- "Cannot find $tgt on PATH to get usage text"
+            exit 1
+        else
+            tgt="$newtgt"
+        fi
+    fi
+    ## And once we have a filename, we just call _guts-usage on it.
+    _guts-usage "$tgt"
+}
+
+_func-usage()
+{
+    declare tgt
+    tgt="$1"
+    declare newtgt
+    newtgt=$(autoload -w "$tgt") ## A personally modified version of the
+                                 ## autoload demo script that comes with
+                                 ## bash. -w is "where" and it locates the file
+                                 ## in which the function was defined
+                                 ## (effectively a find command on FPATH).
+    if [ ! -r "$newtgt" ]
+    then
+        cmd-echo -w --id bash-usage -- "Cannot find $tgt on FPATH to get usage text"
+        exit 1
+    else
+        tgt="$newtgt"
+    fi
+    ## And once we have a filename, we just call _guts-usage on it.
+    _guts-usage "$tgt"
+}
+
+main() {
+    declare tgt
+    tgt=$1
+    [ -z "$tgt" ] && cmd-echo -w --id bash-usage -- "Missing argument to read for usage text" && exit 1
+    [[ "$1" =~ ^-+h ]] && bash-usage "$0" && exit 0
+
+    declare type
+    type=$(type "$tgt" 2>&1 | head -1 | grep -v 'not found')
+    if [ -z "$type" ]
+    then
+        echo "$tgt not found"
+    elif [[ "$type" =~ 'is a function' ]]
+    then
+        _func-usage "$tgt"
+    else
+        tgt=${type##$tgt is }
+        _script-usage "$tgt"
+    fi
+}
+
+main "$@"
+
+exit 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+bash-usage - print the usage text of a script or function
+
+=head1 SYNOPSIS
+
+ bash-usage name
+ bash-usage -h
+
+=head1 DESCRIPTION
+
+Given 'name', go figure out where the defining script for 'name' is and read
+the usage information out of it.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item name
+
+'name' must be either:
+ - the full path to a script
+ - script that is on $PATH
+ - a function name that has been loaded with 'autoload'
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -h
+
+Print this help
+
+=back
+
+=cut
+
+__PODUSAGE__

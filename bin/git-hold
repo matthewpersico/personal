@@ -3,13 +3,9 @@
 # git-hold - Copy/restore a git repo to/from some other directory. Kind of like
 # a stash, but in file-system space, not git space.
 
-declare usage_cmd="script-usage"
-## If there's any chance that this will be in a script that will be dotted in,
-## remove the explicit out_cmd calls.
-declare out_cmd="exit"
 declare moreopts=1
 declare repo
-repo=$(pwd)
+repo=${PWD}
 declare restore=0
 declare confirm=0
 declare diff=0
@@ -45,15 +41,15 @@ do
             verbose=1
             verbose_flag='-v';;
         h | help )
-            $usage_cmd
-            $out_cmd 0
+            bash-usage "$0"
+            exit 0
             ;;
         --)
             moreopts=0
             ;;
         * )
             cmd-echo -- "$original is an invalid option. See $0 --help"
-            $out_cmd 1
+            exit 1
             ;;
     esac
 done
@@ -87,7 +83,7 @@ then
         exit 1;
     else
         builtin cd "$holddir"/.. || exit 1 ## cd command will spit out an error message
-        resp=$(yesnoquit "About to remove $holddir. OK")
+        resp=$(yesno "About to remove $holddir. OK")
         if [ "$resp" = 'y' ]
         then
             rm -rf "$holddir"
@@ -103,14 +99,14 @@ then
     else
         repo=$(realpath "$repo") ## in case we stupidly specified a relative
                                  ## path and we're about to cd to $holdir that
-                                 ## != $(pwd)
+                                 ## != ${PWD}
         (
             builtin cd "$holddir" || exit 1 ## cd command will spit out an error message
             declare -a files
             mapfile -t files < <(find . -type f) ## we can't do while IFS= read
                                                  ## ...done < <() because we
                                                  ## need to keep stdin clear
-                                                 ## for yesnoquit
+                                                 ## for yesno
             for file in "${files[@]}"
             do
                 declare fullfile
@@ -133,7 +129,7 @@ then
                 declare resp=y
                 if (( confirm ))
                 then
-                    resp=$(yesnoquit "cp $verbose_flag $fullfile $repo/$file")
+                    resp=$(yesno -q "cp $verbose_flag $fullfile $repo/$file")
                 fi
                 if [ "$resp" = 'y' ]
                 then
@@ -181,7 +177,7 @@ else
         declare -a files
         mapfile -t files < <(git ls-files) ## we can't do while IFS= read
                                            ## ...done < <() because we need to
-                                           ## keep stdin clear for yesnoquit
+                                           ## keep stdin clear for yesno
         for file in "${files[@]}"
         do
             if ((git_is_deleted[$file]))
@@ -230,7 +226,7 @@ else
             declare resp=y
             if (( confirm ))
             then
-                resp=$(yesnoquit "cp $verbose_flag $cprecurse_flag $fullfile $holddir/$file")
+                resp=$(yesno -q "cp $verbose_flag $cprecurse_flag $fullfile $holddir/$file")
             fi
             if [ "$resp" = 'y' ]
             then
@@ -247,9 +243,7 @@ else
     )
 fi
 cmd-echo -- 'Done.'
-
-## The End, to make sure we never eval the usage statement
-$out_cmd 0
+exit 0
 
 ## Go grab the usage template the file USAGE
 ## You can add sections with =head1, but stick to =item for section breakdowns,

@@ -15,7 +15,7 @@ usage ()
     (
         [ -n "$*" ] && cmd-echo -- "$@"
         echo "** Extended actions **"
-        script-usage
+        bash-usage "$0"
         echo
         echo "** Standard actions **"
         "${REALGIT}" worktree --help
@@ -26,7 +26,7 @@ _git_worktree_check_set_pwd ()
 {
     local opt_current_ok=$1
     ## Make sure pwd ends in wt
-    if [[ ! "$(pwd)" =~ /wt$ ]]
+    if [[ ! "${PWD}" =~ /wt$ ]]
     then
         if [ -d ./wt ]
         then
@@ -35,7 +35,7 @@ _git_worktree_check_set_pwd ()
         then
             builtin cd .. || ( cmd-echo -- "Cannot cd .. (wt)" && return 1)
         else
-            cmd-echo -- "Current directory is $(pwd)." \
+            cmd-echo -- "Current directory is ${PWD}." \
                       'No wt subdir.' \
                       'Will not manipulate worktrees outside of wt dir. Aborting.'
             return 1
@@ -66,7 +66,7 @@ _git_worktree_was_fetched ()
 
 _git_worktree_is_a_pull ()
 {
-    [[ $(git branch get-current) =~ ^pull ]]
+    [[ $(git branch --show-current) =~ ^pull ]]
 }
 
 # shellcheck disable=SC2120
@@ -77,7 +77,7 @@ git-worktree-ina ()
     if [ -n "$wtroot" ]
     then
         (
-            while [ "$(pwd)" != "$wtroot" ]
+            while [ "${PWD}" != "$wtroot" ]
             do
                 if [ -f .git ] && grep -q '/worktrees/' .git
                 then
@@ -157,10 +157,10 @@ git-worktree-create ()
 
     ! _git_worktree_check_set_pwd && return 1
     local wtroot
-    wtroot="$(pwd)"
+    wtroot="${PWD}"
 
     declare repo
-    repo="$(basename "$(dirname "$(pwd)")")" ## we are in /wt by now.
+    repo="$(basename "$(dirname "${PWD}")")" ## we are in /wt by now.
 
     local wtname="$1"
     shift
@@ -202,7 +202,7 @@ git-worktree-create ()
     ## Check worktree dir
     ((verbose)) && cmd-echo -- "Check for existing worktrees with same name."
     local wtdir
-    wtdir="$(pwd)/$localbranchname"
+    wtdir="${PWD}/$localbranchname"
     if [ -e "${wtdir}" ]
     then
         cmd-echo -- "${wtdir} already exists. Aborting."
@@ -296,7 +296,7 @@ git-worktree-create ()
             ((verbose)) && cmd-echo -- "cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "${wtsubdir}"
-            wtfullpath=$(pwd)
+            wtfullpath=${PWD}
 
             _git_worktree_info_add_fetched_date "$localbranchname"
         else ## ((fetch_existing==0)) && [ -z "$exists" ]
@@ -306,9 +306,9 @@ git-worktree-create ()
                 ## Since this worktree is going to create a branch of the local
                 ## $asmaster, make sure the local $asmaster (where we should be right
                 ## now) it is up to date.
-                if [ "$(git branch get-current)" != "$asmaster" ]
+                if [ "$(git branch --show-current)" != "$asmaster" ]
                 then
-                    cmd-echo -- "Cannot create branch and worktree because the current branch '$(git branch get-current)' is not the master branch '$asmaster'."
+                    cmd-echo -- "Cannot create branch and worktree because the current branch '$(git branch --show-current)' is not the master branch '$asmaster'."
                     return 1
                 fi
                 cmd-echo -- "Checking local '$asmaster', starting point for branch."
@@ -374,7 +374,7 @@ git-worktree-create ()
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "${wtsubdir}"
 
-            wtfullpath=$(pwd)
+            wtfullpath=${PWD}
 
             _git_worktree_info_add_created_date "${wtbranch}"
 
@@ -451,7 +451,7 @@ git-worktree-delete ()
         shift
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
-            current) opt_current=1; wtname="$(basename "$(pwd)")" ;;
+            current) opt_current=1; wtname="$(basename "${PWD}")" ;;
             no-reset | skip-reset) opt_reset=0; ;;
             y|yes) opt_yes=1; opt_yes_string='--yes'; ;;
             f|force) opt_force=1; ;;
@@ -474,7 +474,7 @@ git-worktree-delete ()
 
     ! _git_worktree_check_set_pwd $opt_current && return 1
     local wtroot
-    wtroot="$(pwd)"
+    wtroot="${PWD}"
 
     if [ -z "$wtname" ]
     then
@@ -523,11 +523,11 @@ $(ls -la)"
 
     ## Current branch
     local current_branch
-    current_branch=$(git branch get-current)
+    current_branch=$(git branch --show-current)
 
     ## Checking cleanliness and consistency
     local current_dir
-    current_dir=$(basename "$(pwd)")
+    current_dir=$(basename "${PWD}")
     if [ "$current_branch" != "$current_dir" ]
     then
         cmd-echo -- "Branch name '$current_branch' does not match current subdir name '$current_dir'." \
@@ -545,24 +545,24 @@ $(ls -la)"
 
     ## Whack it. Start with the current dir, which is the worktree.
     local delit
-    delit=$(basename "$(pwd)")
+    delit=$(basename "${PWD}")
     builtin cd .. || ( cmd-echo -- "Cannot cd .." && return 1)
     if ! rm -rf "$delit"
     then
-        cmd-echo -- "Bad rm of ./$delit (from $(pwd)). Aborting."
+        cmd-echo -- "Bad rm of ./$delit (from ${PWD}). Aborting."
         return 1;
     fi
 
     ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
     ## get to first, and stop deleting.
-    while [ "$(basename "$(pwd)")" != 'wt' ]
+    while [ "$(basename "${PWD}")" != 'wt' ]
     do
-        if [ -z "$(ls -A "$(pwd)")" ]
+        if [ -z "$(ls -A "${PWD}")" ]
         then
             #it's empty
-            delit=$(basename "$(pwd)")
+            delit=$(basename "${PWD}")
             builtin cd .. || ( cmd-echo -- "Cannot cd .." && return 1)
-            \rm -rf "$delit" || cmd-echo -- "Bad rm of ./$delit (from $(pwd)). Aborting." && return 1;
+            \rm -rf "$delit" || cmd-echo -- "Bad rm of ./$delit (from ${PWD}). Aborting." && return 1;
         fi
     done
 
@@ -587,7 +587,7 @@ $(ls -la)"
         cmd-echo -- "If you change your mind: git-branch delete $current_branch"
     else
         ## Have to be in the git repo that the basis for the worktree.
-        while [ "$(basename "$(pwd)")" != 'wt' ]
+        while [ "$(basename "${PWD}")" != 'wt' ]
         do
             builtin cd .. || ( cmd-echo -- "Cannot cd .." && return 1)
         done
@@ -651,7 +651,7 @@ git-worktree-rename ()
         shift
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
-            current) opt_current=1; old_wtname="$(basename "$(pwd)")" ;;
+            current) opt_current=1; old_wtname="$(basename "${PWD}")" ;;
             no-reset | skip-reset) opt_reset=0;;
             h|help) usage; return 0 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
@@ -679,7 +679,7 @@ git-worktree-rename ()
 
     ! _git_worktree_check_set_pwd $opt_current && return 1
     local wtroot
-    wtroot="$(pwd)"
+    wtroot="${PWD}"
 
     if [ -z "$old_wtname" ]
     then
@@ -706,7 +706,7 @@ $(ls -la)"
 
     builtin cd "$old_wtpath" || ( cmd-echo -- "Cannot cd $old_wtpath" && return 1)
     local cb
-    cb="$(git branch get-current)"
+    cb="$(git branch --show-current)"
     if [ "$cb" = "$old_wtname" ]
     then
         cmd-echo -- "Renaming the branch..."
@@ -725,7 +725,7 @@ $(ls -la)"
 
     ## Get the metadata files for this worktree
     local heregit
-    heregit=$(pwd)/.git
+    heregit=${PWD}/.git
     local theregit
     theregit=${metadatadir}/gitdir
 
@@ -803,13 +803,13 @@ git-worktree-diff-to-root ()
         mapfile -t files < <(git ls-files)
         if ((${#files[@]}==0))
         then
-            cmd-echo -- "No git files found. Is current dir '$(pwd)' a git repo?"
+            cmd-echo -- "No git files found. Is current dir '${PWD}' a git repo?"
             return 1;
         fi
     fi
 
     declare root
-    root=$(pwd);
+    root=${PWD};
     root=${root%%/wt*}
     [ -t "$STDOUT" ] && opt_color=never ## No color if output redirected to a file.
     for i in "${files[@]}"
@@ -867,11 +867,11 @@ git-worktree-mark-merged ()
     fi
 
     local worktreename
-    worktreename="$(basename "$(pwd)")"
+    worktreename="$(basename "${PWD}")"
     local worktreekey="worktree.$worktreename.em-markedmerged"
 
     local branchname
-    branchname="$(git branch get-current)"
+    branchname="$(git branch --show-current)"
     local branchkey="branch.$branchname.em-markedmerged"
 
     local markdate
@@ -903,17 +903,17 @@ main ()
 {
     declare action=$1
 
-    if [[ "$action" =~ ^-+h ]]
-    then
-        usage
-        return  0
-    fi
-
     if [[ "$action" =~ --doandcd ]]
     then
         doandcdfile=$2
         shift; shift;
         action=$1
+    fi
+
+    if [[ "$action" =~ ^-+h ]]
+    then
+        usage
+        return  0
     fi
 
     action_func_name="git-worktree-${action}"
