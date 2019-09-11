@@ -20,6 +20,8 @@ declare purge=''
 declare notimestamp=''
 declare attime=''
 declare isat=0
+declare -a noctrlfilter=(cat)
+
 declare -a original_argv
 original_argv+=("$0" "$@")
 
@@ -107,6 +109,9 @@ do
             ;;
         notimestamp)
             notimestamp=1
+            ;;
+        noctrl)
+            noctrlfilter=(tr -cd '\11\12\40-\176')
             ;;
         tpe)
             teeit=1
@@ -354,7 +359,7 @@ fi
     echo "end time: $(date)"
     echo "********************"
     exit "$status"
-) >> "$logspec" 2>&1
+) | "${noctrlfilter[@]}" >> "$logspec" 2>&1
 status=$?
 if (( !isat))
 then
@@ -403,6 +408,7 @@ logit [--at time] \\
       [ --tee | --zenity ] \\
       [ --log log_basename ] \\
       [ --notimestamp ] \\
+      [ --noctrl ] \\
       [ --dir log_directory ] \\
       [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
       [ --purge | --purgeprior ] \\
@@ -445,10 +451,14 @@ OPTIONS:
                  log name.  Use if the log name provided by --log is unique or
                  you don't care about overwriting logs.
 
-      --dir    - Put the logs in specifed directory, not
-                 current working directory. If not specified
-                 and there is a 'logit' subdir of the current
-                 working directory, logs will be placed in './logit'.
+      --noctrl
+               - Filter out all the coloring and other control characters. Makes
+                 a log easier to read after the fact.
+
+      --dir    - Put the logs in specifed directory. If not
+                 specfied, logs will be placed in the './logit' subdir,
+                 if it exists. Otherwise, logs will be placed in the current
+                 directory.
 
       --edit   - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
                  \$EDITOR ($EDITOR). Run the first one found in order
