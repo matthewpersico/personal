@@ -21,6 +21,7 @@ declare notimestamp=''
 declare attime=''
 declare isat=0
 declare -a noctrlfilter=(cat)
+declare opt_logonly=0
 
 declare -a original_argv
 original_argv+=("$0" "$@")
@@ -29,7 +30,7 @@ original_argv+=("$0" "$@")
 # don't have to match up.
 declare OPTSARGS
 declare shortopts='k'
-declare longopts='isat,at:,tee,zenity,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help'
+declare longopts='isat,at:,tee,zenity,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help,logonly'
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
@@ -71,6 +72,9 @@ do
             chmod +x "$atfile"
             at -f "$atfile" "$attime"
             exit 0
+            ;;
+        logonly )
+            opt_logonly=1
             ;;
         isat)
             isat=1
@@ -238,6 +242,14 @@ then
     echo "Working..."
 fi
 
+if ((opt_logonly))
+then
+    echo '--logonly specified. Run these commands:'
+    # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+    echo "${envs[*]} $command ${cmdargs[*]}" '2>&1 | tee ' "$logspec"
+    exit 0
+fi
+
 if ((teeit || zenityit))
 then
     declare termer=''
@@ -279,11 +291,20 @@ then
                 -e tail -f "$logspec" \
             &
     fi
-    sleep 2 ## Give the terminal a chance to come up and start tailing so we
+    sleep 2 ## Give the $termer a chance to come up and start tailing so we
             ## see the whole log in the tail
 
     tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
     termerpid=$(pstree | grep "$termer" | grep "$logspec" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+    if [[ $termer =~ zenity ]]
+    then
+        ## Ending the zenity process doesn't end the tail and exiting this
+        ## program doesn't end the tail either. We must arrange for it to
+        ## explicitly end when this program exits. Otherwise, the tails pile up
+        ## in the process table. Also make sure that we flush the log and wait
+        ## before we kill that tail so that all the output ends up in the log.
+        do-on-exit "echo >> $logspec;sleep 2;kill $tailpid"
+    fi
 fi
 
 (
@@ -313,7 +334,7 @@ fi
         echo
 
         tmpf=$(mktemp -t tmp.logit.XXXXXXXXXX)
-        rm_on_exit "$tmpf"
+        rm-on-exit "$tmpf"
         git stash list >"$tmpf" 2>&1
         if [ -s "$tmpf" ]
         then
@@ -340,6 +361,8 @@ fi
     echo "start time: $(date)"
     eval "${envs[@]}"
     echo "********************"
+    ##) >> "$logspec" 2>&1
+
     if((tsit))
     then
         $command "${cmdargs[@]}" | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
@@ -347,19 +370,21 @@ fi
                     select((select(STDERR), $| = 1)[0]);
                     ($s,$ms)=gettimeofday();
                     $ms=substr(q(000000) . $ms,-6);
-                    print strftime "[%Y-%m-%d %H:%M:%S.$ms]", localtime($s)'
+                    print strftime "[%Y-%m-%d %H:%M:%S.$ms]", localtime($s)' ##>> "$logspec" 2>&1
     else
-        $command "${cmdargs[@]}"
+        $command "${cmdargs[@]}" ##>> "$logspec" 2>&1
     fi
     status=${PIPESTATUS[0]}
 
+##(
     echo "********************"
     echo "$logmsg"
     echo "exit status: $status"
     echo "end time: $(date)"
     echo "********************"
     exit "$status"
-) | "${noctrlfilter[@]}" >> "$logspec" 2>&1
+    ###) | "${noctrlfilter[@]}" >> "$logspec" 2>&1
+) >> "$logspec" 2>&1
 status=$?
 if (( !isat))
 then
