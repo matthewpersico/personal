@@ -1,0 +1,85 @@
+#!/usr/bin/env bash
+
+# nfssnapshot-diff
+
+declare tgt
+tgt=$1
+shift
+if [[ -z $tgt ]]
+then
+    bash-usage "$0"
+    exit 1
+fi
+if [[ $tgt =~ ^-+h ]]
+then
+    bash-usage "$0"
+    exit 1
+fi
+
+declare tgtdir
+# shellcheck disable=SC2164
+tgtdir=$(builtin cd "$(dirname "$tgt")";pwd)
+declare tgtspec
+tgtspec=$tgtdir/$(basename "$tgt")
+tgtspec=${tgtspec#$HOME}
+tgtspec=${tgtspec#/}
+
+declare nfssnapmirrors
+nfssnapmirrors=$(nfssnapshot-get-mirrors)
+declare PS3
+PS3='Pick an NFS nfssnapshot dir: '
+select nfssnapmirror in $nfssnapmirrors "'q' to quit"
+do
+    if [ "$REPLY" = 'q' ]
+    then
+        exit
+    fi
+
+    if [ -n "$nfssnapmirror" ]
+    then
+        diff -s "$@" "${nfssnapmirror}/$tgtspec" "${TILDAE:-$HOME}/$tgtspec"
+    fi
+done
+
+exit 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+nfssnapshot-diff - diff file against a backup in an NFS snapshot copy
+
+=head1 SYNOPSIS
+
+ nfssnapshot-diff [-h] [diffargs] /full/path/to/file/needing/restoration
+
+ nfssnapshot-diff [-h] [diffargs] file-in-pwd-needing-restoration
+
+=head1 DESCRIPTION
+
+Find the file in question in an NFS snapshot directory and diff it against the
+copy in the snapshot directory. The list of available snapshot dirs is
+presented in a menu for you to pick from.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item file-to-diff
+
+Either the full path to the file to compare or a file in the current directory.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -h
+
+Print this help.
+
+=back
+
+=cut
+
+__PODUSAGE__

@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+
+# nfssnapshot-restore
+
+declare tgt
+tgt=$1
+shift
+if [[ -z $tgt ]]
+then
+    bash-usage "$0"
+    exit 1
+fi
+if [[ $tgt =~ ^-+h ]]
+then
+    bash-usage "$0"
+    exit 1
+fi
+
+declare tgtdir
+# shellcheck disable=SC2164
+tgtdir=$(builtin cd "$(dirname "$tgt")";pwd)
+declare tgtspec
+tgtspec=$tgtdir/$(basename "$tgt")
+tgtspec=${tgtspec#$HOME}
+tgtspec=${tgtspec#/}
+
+declare nfssnapmirrors
+nfssnapmirrors=$(nfssnapshot-get-mirrors)
+declare PS3
+PS3='Pick an NFS nfssnapshot dir: '
+select nfssnapmirror in $nfssnapmirrors  "'q' to quit"
+do
+    if [ "$REPLY" = 'q' ]
+    then
+        exit
+    fi
+
+    if [ -n "$nfssnapmirror" ]
+    then
+        declare mirrorfile
+        mirrorfile=${nfssnapmirror}/$tgtspec
+        declare -a lsfiles
+        declare -a difffiles
+        declare -a catfiles
+
+        if [ ! -e "$mirrorfile" ]
+        then
+            echo "No $tgtspec found in this NFS snapshot"
+        else
+            lsfiles+=("$mirrorfile")
+            difffiles+=("$mirrorfile")
+        fi
+
+        if [ ! -e "$tgtspec" ]
+        then
+            echo "$tgtspec is gone."
+            catfiles+=("$mirrorfile")
+        else
+            lsfiles+=("$tgtspec")
+            difffiles+=("$tgtspec")
+        fi
+
+        ls -la "${lsfiles[@]}"
+        resp=$(yesno "Continue" n)
+        if [ "$resp" == 'y' ]
+        then
+            if [ -n "${catfiles[0]}" ]
+            then
+                cat "${catfiles[@]}"
+            else
+                diff -s "$@" "${difffiles[@]}"
+            fi
+            resp=$(yesno "Restore from NFS snapshot" n)
+            if [ "$resp" == 'y' ]
+            then
+                cp -v "${nfssnapmirror}/$tgtspec" "${TILDAE:-$HOME}/$tgtspec"
+                break
+            fi
+        fi
+    fi
+done
+
+exit 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+nfssnapshot-restore - restore file from an NFS snapshot copy
+
+=head1 SYNOPSIS
+
+ nfssnapshot-restore [-h] /full/path/to/file/needing/restoration
+
+ nfssnapshot-restore [-h] file-in-pwd-needing-restoration
+
+=head1 DESCRIPTION
+
+Find the file in question in an NFS snapshot directory and copy it from the
+snapshot directory. The list of available snapshot dirs is presented in a menu
+for you to pick from.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item file-to-restore
+
+Either the full path to the file to recover or a file in the current directory.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -h
+
+Print this help.
+
+=back
+
+=cut
+
+__PODUSAGE__

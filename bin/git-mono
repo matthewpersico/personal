@@ -143,9 +143,12 @@ main ()
     declare -a execmer
     declare -a lsfiles
     declare need_lsfiles=0
+    declare use_repo_dir=0
+    declare use_repo_idx=0
+    declare use_repo_loc=''
     for arg in "$@"
     do
-        if [[ $arg != 'LSFILES' ]]
+        if [[ $arg != '{LSFILES}' ]]
         then
             if ((need_lsfiles == 1))
             then
@@ -155,6 +158,18 @@ main ()
             fi
         else
             need_lsfiles=1
+        fi
+        if [[ $arg == '{REPO}' ]]
+        then
+            use_repo_dir=1
+            if [[ ${execmel[-1]} == '{REPO}' ]]
+            then
+                use_repo_loc='l'
+                use_repo_idx=$((${#execmel[@]}-1))
+            else
+                use_repo_loc='r'
+                use_repo_idx=$((${#execmer[@]}-1))
+            fi
         fi
     done
 
@@ -171,6 +186,10 @@ main ()
             mapfile -t lsfiles < <(git ls-files)
         else
             lsfiles=()
+        fi
+        if ((use_repo_dir))
+        then
+            eval execme${use_repo_loc}[${use_repo_idx}]="${PWD}"
         fi
         "${execmel[@]}" "${lsfiles[@]}" "${execmer[@]}" > "$t" 2>&1
         status=$?
@@ -219,10 +238,10 @@ git mono - run a git command over a list of repos
 =head1 SYNOPSIS
 
  git mono [-r repo[,repo...] [ --repo repo[,repo ...] ... ] ] \
-          [--quiet|--silent|--rcge n] [-u|--update] command [args...]
+          [--quiet|--silent|--rcge n] [-u|--update] command [arg|'{LSFILES}'|'{REPO}']...
 
  git mono [--rp repopatt[,repopatt...] [ --rp repopatt[,repopatt ...] ... ] ] \
-          [--quiet|--silent--rcge n] [-u|--update] command [args...]
+          [--quiet|--silent--rcge n] [-u|--update] command [arg|'{LSFILES}'|'{REPO}']...
 
 =head1 DESCRIPTION
 
@@ -269,7 +288,7 @@ execute 'git pull' on each repo before executing the command
 
 =over 4
 
-=item command ["LSFILES"] [args...]
+=item command ["{LSFILES}"] [arg|"{REPO}"]...
 
 The command and its arguments are run in each repo specified, cd'ing to the
 repo before running. If command is a git command, you need to specify the 'git'
@@ -279,8 +298,6 @@ If the command needs the files of a repo as arguments, the string LSFILES will
 be replaced with the output of '$(git ls-files)' before being executed.
 
 =back
-
-
 
 =cut
 
