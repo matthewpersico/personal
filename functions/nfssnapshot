@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+##echo "****** NFSSNAPSHOT WRAPPER ENTERED!!!!!******" >&2
+# nfssnapshot
+
+# A wrapper around some nfs snapshot convenience functions. The reason that we
+# use a bash function is that one of the convenience functions allows us to cd
+# to the snapshot directory, so that has to be done in a function.
+
+nfssnapshot ()
+{
+    # shellcheck disable=SC2034
+    declare DEBUG__this_function=${FUNCNAME[0]}
+
+    declare doandcdfile
+    declare -A doandcdlist
+    doandcdlist[go]=1
+
+    declare command=$1; shift
+    declare -a args
+    if [ -n "${doandcdlist[$command]}" ]
+    then
+        doandcdfile=$(mktemp -t "tmp.nfssnapshot.doandcd.$command.XXXXXXXXXX")
+        args+=('--doandcd' "$doandcdfile")
+    fi
+    args+=("$@")
+
+    [ -n "$NFSSNAPSHOT_DISPATCHER_VERBOSE" ] && echo NFSSNAPSHOT WRAPPER sees command as "$command" and args as "${args[@]}" >&2
+    declare extend_script="nfssnapshot-${command}"
+    if type -P "$extend_script" 1>/dev/null 2>/dev/null
+    then
+        [ -n "$NFSSNAPSHOT_DISPATCHER_VERBOSE" ] && echo NFSSNAPSHOT WRAPPER calling "$extend_script" "${args[@]}" >&2
+        "$extend_script" "${args[@]}"
+    else
+        echo "${command} not an nfssnapshot function"
+        return 1
+    fi
+    declare status=$?
+
+    if ((status == 0)) \
+           && [ -n "$doandcdfile" ] \
+           && (( $(wc -l < "$doandcdfile") > 0 ))
+    then
+        declare -a cdcmd
+        read -r -a cdcmd < "$doandcdfile"
+        if [ -n "${cdcmd[0]}" ] && [[ "${cdcmd[0]}" =~ ^(go|cd)$ ]]
+        then
+            "${cdcmd[@]}"
+            status=$?
+        else
+            cmd-echo -ec -- "Cannot '${cdcmd[*]}' - only 'go' and 'cd' are supported"
+            status=1
+        fi
+    fi
+    [[ -n $doandcdfile ]] && \rm -f "$doandcdfile"
+    return $status
+}
