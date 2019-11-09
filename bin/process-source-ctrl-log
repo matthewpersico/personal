@@ -22,6 +22,7 @@ my $gcs_exclusion_marker    = join( '', qw( < G C S L I T E R A L > ) );
 my $gcs_exclusion_marker_re = qr/$gcs_exclusion_marker/;
 
 my %entries;             # Holds all the comments, per file.
+my %diffs;               # diff output, per file.
 my %files_to_process;    # If you want to process all in the directory, they
                          # must all be passed. Passed files should be in
                          # absolute paths.
@@ -34,15 +35,11 @@ my %opt = (
     'for-commit' => undef,
     'color'      => 'always',
     'diff'       => 0,
+    'sclonly'    => 0,
+    'nosclonly'  => 0,
     'cached'     => 0,
 );
 my @obsolete = qw(withstatus);
-
-# Used to format the scl text
-my $format_over     = ' ' x 8;
-my $ascii_red_black = ( $opt{color} ne 'never' ? '[31;40m' : '' );
-my $ascii_bold_red  = ( $opt{color} ne 'never' ? '[1;31m' : '' );
-my $ascii_normal    = ( $opt{color} ne 'never' ? '[m' : '' );
 
 sub main {
 
@@ -59,6 +56,13 @@ sub main {
         'color=s',    # Same as the git values.
         'diff',       # Include git diff output mixed in with the status and
                       # changelog info.
+
+        'sclonly',    # Only process files with a changelog entry.
+        'nosclonly',  # Only process files without a changelog entry.
+                      # If neither of these are set, then files without a
+                      # changelog entry will fail a commit, but will not fail a
+                      # status print.
+
         'cached',     # Controls the diff output.
 
         # Options we need to get rid of. We absorb them here so that we don't
@@ -83,7 +87,7 @@ sub main {
     $opt{scl} = rel2abs( $opt{scl} );
     $scldir = dirname( $opt{scl} );
 
-    %files_to_process = map { $_ => 1 } @ARGV;
+    %files_to_process = map { $_ => 0 } @ARGV;
 
     if ( $opt{cached} ) {
         die "--cached has no effect without --diff\n"
@@ -91,6 +95,8 @@ sub main {
 
         # Transform for use with the git diff command;
         $opt{cached} = '--cached';
+    } else {
+        $opt{cached} = '';
     }
 
     #
@@ -102,7 +108,7 @@ sub main {
     # Process the data
     #
     if ( $opt{'for-commit'} ) {
-        create_commit_scl();
+        create_commit_scl( $opt{'for-commit'} );
     } else {
         format_scl();
     }
@@ -197,6 +203,7 @@ sub parse_scl {
         if ( exists( $files_to_process{ $current{filespec} } ) ) {
             # Save off current info.
             stash( \%current );
+            $files_to_process{ $current{filespec} } = 1;
         } elsif ( $opt{'for-commit'} ) {
             push @retain, @{ $current{orig_text} };
         }
@@ -220,35 +227,25 @@ sub create_commit_scl {
     open my $retain_h, ">", $retain_f
       or die "Cannot open $retain_f for write:$!\n";
 
-    my @errors;
-    my %c_entries;
-    for my $ftc ( sort keys %files_to_process ) {
-        if ( $entries{$ftc} ) {
-            $c_entries{$ftc} = $entries{$ftc};
-            delete $entries{$ftc};
-        } else {
-            my $short = $ftc;
-            $short =~ s|$scldir||o;
-            $short =~ s|^/||o;
-            push @errors, $short;
-        }
-    }
+    my @errors = map { file_git_abs_to_rel($_) }
+      grep { $files_to_process{$_} == 0 }
+      keys %files_to_process;
     if (@errors) {
         die "Error: Files with no entries: " . join( q(, ), @errors ) . qq(\n);
     }
-    write_commit_message( $commit_h, \%c_entries );
-    write_retained_log( $retain_h, \%entries );
+    write_commit_message($commit_h);
+    write_retained_log($retain_h);
 }
 
 sub write_commit_message {
-    my ( $oh, $entries ) = @_;
-    my $iam = ( caller(0) )[3];
+    my ($oh) = @_;
 
     my @output;
-    for my $filename ( sort keys %{$entries} ) {
+    for my $filename ( sort keys %entries ) {
         push_scl_to_output(
-            file   => $filename,
-            output => \@output
+            file        => $filename,
+            output      => \@output,
+            format_over => ''
         );
     }
     $oh->write(@output);
@@ -266,13 +263,12 @@ sub format_scl {
     #
     # Get diffs if asked.
     #
-    my %diffs;    # By file
-    my @diffs;
+    my @diff_text;
     if ( $opt{diff} ) {
-        @diffs =
+        @diff_text =
           map { chomp; $_ } qx(git -c color.diff=$opt{color} diff $opt{cached});
         my $entry;
-        for my $line (@diffs) {
+        for my $line (@diff_text) {
             if ( $line =~ m/^....diff --git a/ ) {
                 $entry = $line;
                 $entry =~ s|.*b/||;
@@ -312,12 +308,10 @@ qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_o
     # putting the line onto the output, then parsing it. We print its scl text,
     # or a warning if there is none, and then we add any diff output.
 
+    $DB::single = 1;
   STATUS: for my $sline (@status) {
-
-        # Add line to output
         chomp $sline;
-        push @output, $sline;
-        next STATUS if $sline eq '';
+        my $input = $sline;
 
         $sline =~ s/^\s+//;
         $sline =~ s/\s+$//;
@@ -329,11 +323,15 @@ qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_o
         {
             # Add in scl data.
             push_scl_to_output(
+                input        => $input,
                 output       => \@output,
                 file         => $+{file},
                 status       => $+{status} ||= 'untracked',
                 renamed_file => $+{renamed_file}
             );
+        } else {
+            # just another line
+            push @output, $input;
         }
     }
 
@@ -348,6 +346,11 @@ qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_o
     print join( qq(\n), @output, q() );
 }
 
+# Used to format the scl text
+my $ascii_red_black = ( $opt{color} ne 'never' ? '[31;40m' : '' );
+my $ascii_bold_red  = ( $opt{color} ne 'never' ? '[1;31m'  : '' );
+my $ascii_normal    = ( $opt{color} ne 'never' ? '[m'      : '' );
+
 # Track which scl entries we have already printed. If we see them again, it's
 # probably because there is a cached and a non-cached entry. The second time
 # around, we print a dupe entry message.
@@ -359,27 +362,53 @@ sub push_scl_to_output {
         file         => undef,
         status       => undef,
         renamed_file => undef,
+        format_over  => ' ' x 8,
         @_
     );
 
-    my ( $filespec, $renamed_filespec ) = (
-        catfile( $scldir, $args{file} ),
-        defined( $args{renamed_file} )
-        ? catfile( $scldir, $args{renamed_file} )
-        : undef
+    my ( $filespec, $renamed_filespec, $status ) = (
+        $args{file},
+        (
+            defined( $args{renamed_file} ) ? $args{renamed_file}
+            : ''
+        ),
+        (
+            defined( $args{status} ) ? $args{status}
+            : ''
+        ),
     );
 
+    $filespec = catfile( $scldir, $args{file} )
+      if ( $args{file} !~ m|^$scldir| );
+    $renamed_filespec = catfile( $scldir, $args{renamed_file} )
+      if ( defined $args{renamed_file}
+        and $args{renamed_file} !~ m|^$scldir| );
     my $need_a_blank;
     if ( !$opt{'for-commit'} ) {
-        #
-        # We only run these checks if we are not writing a commit message file.
-        #
+        ##
+        ## We only run these checks if we are not writing a commit message
+        ## file.
+        ##
 
+        if (    not defined $entries{$filespec}
+            and $args{status} ne 'untracked'
+            and $opt{sclonly} )
+        {
+            return;
+        }
+
+        if ( defined $entries{$filespec}
+            and $opt{nosclonly} )
+        {
+            return;
+        }
+
+        push @{ $args{output} }, $args{input};
         if ( exists( $scl_seen{$filespec} ) ) {
             # then we probably have one file in multiple sections. Print a
             # reference here and move on.
             push @{ $args{output} },
-              join( '', $format_over, "Duplicate entry. See above." ),
+              join( '', $args{format_over}, "Duplicate entry. See above." ),
               '';
             return;
         } else {
@@ -387,8 +416,10 @@ sub push_scl_to_output {
         }
 
         # Do we have an scl entry? If not, we note it here. If so, we print
-        # below. The split is to allow the GCS info to be above the scl info.
-        if ( not defined $entries{$filespec} and $args{status} ne 'untracked' )
+        # below. We test here in addition to below so as to allow the GCS info
+        # to be above the scl info.
+        if ( not defined $entries{$filespec}
+            and $args{status} ne 'untracked' )
         {
             $args{output}[-1] .=
               ": ${ascii_bold_red}No SourceCtrlLog entry found.${ascii_normal}";
@@ -396,7 +427,7 @@ sub push_scl_to_output {
         }
     }
 
-    if ( not exists $deleted{$filespec} ) {
+    if ( $status ne 'deleted' ) {
         # Check for any GCS entries in the code.
         open my $ih, '<', $filespec
           or die "Cannot open '$filespec' for read:$!";
@@ -414,7 +445,7 @@ sub push_scl_to_output {
                     @gcs );
             } else {
                 push @{ $args{output} },
-                  map { "${format_over}$_" } (
+                  map { "$args{format_over}$_" } (
                     "${ascii_bold_red}GCS Entries:[${ascii_normal}",
                     ( map { chomp; $_ } @gcs ),
                     "${ascii_bold_red}]${ascii_normal}",
@@ -440,7 +471,8 @@ sub push_scl_to_output {
                 $lead = 'o ';
             } else {
                 $lead = '  o ';
-                push @{ $args{output} }, join( '', $format_over, $func, '():' );
+                push @{ $args{output} },
+                  join( '', $args{format_over}, $func, '():' );
             }
             my $indent = set_indent_from_lead($lead);
 
@@ -457,10 +489,11 @@ sub push_scl_to_output {
                                        # that the text is pushed to the next
                                        # line, we get spurious space between
                                        # the lead and the first word.
-                $line1 = join( '', $format_over, $lead, $line1 );
+                $line1 = join( '', $args{format_over}, $lead, $line1 );
                 push @{ $args{output} }, $line1,
                   ## Line 2+
-                  ( map { join( '', $format_over, $indent, $_ ) } @wrapped ),
+                  ( map { join( '', $args{format_over}, $indent, $_ ) }
+                      @wrapped ),
                   '';
             }
         }
@@ -468,6 +501,8 @@ sub push_scl_to_output {
 
     my $dummy = 6;
     ## Diffs here
+    push @{ $args{output} }, @{ $diffs{$filespec} }
+      if ( $diffs{$filespec} );
     push @{ $args{output} }, '' if $need_a_blank;
 }
 
