@@ -96,55 +96,124 @@ for my $search_arg (@ARGV) {
 }
 
 ## 'idx' are all even because the "separator" columns are between them.
-my %map = (
-    START => {
-        idx     => 0,
-        justify => q(right),
-        header  => 'STARTED'
+## The keys are the headers of the ps command. The 'std' entries are used to normalize columns over different OSes with different headers.
+my %master_map = (
+    'Linux' => {
+        STARTED => {
+            fmtcol  => 'start',
+            idx     => 0,
+            justify => q(right),
+            std     => 'STARTED',
+        },
+        ELAPSED => {
+            fmtcol  => 'etime',
+            idx     => 2,
+            justify => q(right),
+            std     => 'ELAPSED',
+        },
+        UID => {
+            fmtcol  => 'uid',
+            idx     => 4,
+            justify => q(right),
+            std     => 'UID',
+        },
+        PID => {
+            fmtcol  => 'pid',
+            idx     => 6,
+            justify => q(right),
+            std     => 'PID',
+        },
+        PPID => {
+            fmtcol  => 'ppid',
+            idx     => 8,
+            justify => q(right),
+            std     => 'PPID',
+        },
+        TT => {
+            fmtcol  => 'tty',
+            idx     => 10,
+            justify => q(left),
+            std     => 'TT',
+        },
+        COMMAND => {
+            fmtcol  => 'command',
+            idx     => 12,
+            justify => q(left),
+            std     => 'COMMAND',
+        },
     },
-    ETIME => {
-        idx     => 2,
-        justify => q(right),
-        header  => 'ELAPSED'
-    },
-    UID => {
-        idx     => 4,
-        justify => q(right),
-        header  => 'UID'
-    },
-    PID => {
-        idx     => 6,
-        justify => q(right),
-        header  => 'PID'
-    },
-    PPID => {
-        idx     => 8,
-        justify => q(right),
-        header  => 'PPID'
-    },
-    TTY => {
-        idx     => 10,
-        justify => q(left),
-        header  => 'TT'
-    },
-    COMMAND => {
-        idx     => 12,
-        justify => q(left),
-        header  => 'COMMAND'
-    },
+    'SunOS' => {
+        STIME => {
+            fmtcol  => 'stime',
+            idx     => 0,
+            justify => q(right),
+            std     => 'STARTED',
+        },
+        ELAPSED => {
+            fmtcol  => 'etime',
+            idx     => 2,
+            justify => q(right),
+            std     => 'ELAPSED',
+        },
+        UID => {
+            fmtcol  => 'uid',
+            idx     => 4,
+            justify => q(right),
+            std     => 'UID',
+        },
+        PID => {
+            fmtcol  => 'pid',
+            idx     => 6,
+            justify => q(right),
+            std     => 'PID',
+        },
+        PPID => {
+            fmtcol  => 'ppid',
+            idx     => 8,
+            justify => q(right),
+            std     => 'PPID',
+        },
+        TT => {
+            fmtcol  => 'tty',
+            idx     => 10,
+            justify => q(left),
+            std     => 'TT',
+        },
+        COMMAND => {
+            fmtcol  => 'args',
+            idx     => 12,
+            justify => q(left),
+            std     => 'COMMAND',
+        },
+    }
 );
 
-my @headcols =
-  map  { $_->[1] }
-  sort { $a->[0] <=> $b->[0] }
-  map  { [ $map{$_}{idx}, $_ ] }
+$ENV{OS_O} ||= 'Linux';
+
+my %map      = %{ $master_map{ $ENV{OS_O} } };
+my @headcols = (
+    map    { $_->[1] }
+      sort { $a->[0] <=> $b->[0] }
+      map  { [ $map{$_}{idx}, $_ ] }
+      keys %map
+);
+
+my $fmtcols = join( ',',
+    map    { $_->[1] }
+      sort { $a->[0] <=> $b->[0] }
+      map  { [ $map{$_}{idx}, $map{$_}{fmtcol}, ] }
+      keys %map );
+my %std_head_map =
+  map { $map{$_}{std}, $_ }
   keys %map;
 
-my $fmtcols = join( ',', map { lc } @headcols );
-
+## $ENV{OS_O}=Linux is default
 my $ps = "ps --forest -o $fmtcols $opt{user}";
 for ( $ENV{OS_O} || '' ) {
-
+    /SunOS/ && do {
+        $ps = "ps -o $fmtcols $opt{user}";
+        last;
+    };
     /Cygwin/ && do {
         $ps = "ps $opt{user}";
         last;
@@ -160,11 +229,13 @@ open( IH, '-|', "$ps" );
 
 my $striplead = -1;
 my $printed;
-my $startedcol = $map{START}{idx};
-my $etimecol   = $map{ETIME}{idx};
-my $pidcol     = $map{PID}{idx};
-my $ppidcol    = $map{PPID}{idx};
-my $cmdcol     = $map{COMMAND}{idx};
+my $startedcol = $map{ $std_head_map{STARTED} }{idx};
+my $etimecol   = $map{ $std_head_map{ELAPSED} }{idx};
+my $uidcol     = $map{ $std_head_map{UID} }{idx};
+my $pidcol     = $map{ $std_head_map{PID} }{idx};
+my $ppidcol    = $map{ $std_head_map{PPID} }{idx};
+my $ttcol      = $map{ $std_head_map{TT} }{idx};
+my $cmdcol     = $map{ $std_head_map{COMMAND} }{idx};
 my $packfmt;
 my $ascii_bold_red = '[1;31m';
 my $ascii_normal   = '[m';
@@ -191,10 +262,10 @@ while (<IH>) {
         for my $colname (@headcols) {
             my $headfield;
             if ( $map{$colname}{justify} eq 'right' ) {
-                $ll =~ m/(\s*(?:$colname|$map{$colname}{header}))\s/;
+                $ll =~ m/(\s*(?:$colname))\s/;
                 $headfield = $1;
             } else {
-                $ll =~ m/((?:$colname|$map{$colname}{header})\s*)/;
+                $ll =~ m/((?:$colname)\s*)/;
                 $headfield = $1;
             }
             next if not defined $headfield;
