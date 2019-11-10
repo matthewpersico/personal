@@ -3,12 +3,14 @@
 use strict;
 use warnings;
 
+use Cwd 'abs_path';
 use Data::Dumper;    # for debugging.
 use File::Basename;
 use File::Spec::Functions qw(catfile rel2abs);
 use File::Slurp;
 use Getopt::Long;
 use IO::File;
+use Path::Tiny;
 use Text::Wrap qw(wrap);
 $Text::Wrap::columns = 72;
 
@@ -40,7 +42,7 @@ my %opt = (
     'cached'     => 0,
 );
 my @obsolete = qw(withstatus
-             skip-no-source-ctrl-log);
+  skip-no-source-ctrl-log);
 
 sub main {
 
@@ -88,7 +90,7 @@ sub main {
     $opt{scl} = rel2abs( $opt{scl} );
     $scldir = dirname( $opt{scl} );
 
-    %files_to_process = map { $_ => 0 } @ARGV;
+    %files_to_process = map { abs_path($_) => 0 } @ARGV;
 
     if ( $opt{cached} ) {
         die "--cached has no effect without --diff\n"
@@ -109,7 +111,7 @@ sub main {
     # Process the data
     #
     if ( $opt{'for-commit'} ) {
-        create_commit_scl($opt{'for-commit'});
+        create_commit_scl( $opt{'for-commit'} );
     } else {
         format_scl();
     }
@@ -223,11 +225,9 @@ sub create_commit_scl {
 
     my ( $commit_f, $retain_f ) =
       ( "${new_scl_root}.commit", "${new_scl_root}.retain" );
-    ( open my $commit_h, ">", $commit_f
-        and print "DEBUG - $commit_f\n" )
+    ( open my $commit_h, ">", $commit_f and print "DEBUG - $commit_f\n" )
       or die "Cannot open $commit_f for write:$!\n";
-    ( open my $retain_h, ">", $retain_f
-        and print "DEBUG - $retain_f\n" )
+    ( open my $retain_h, ">", $retain_f and print "DEBUG - $retain_f\n" )
       or die "Cannot open $retain_f for write:$!\n";
 
     ## Checking for files with/without comments.
@@ -235,17 +235,21 @@ sub create_commit_scl {
       grep { $files_to_process{$_} == 0 }
       keys %files_to_process;
     if (@no_scl_keys) {
-        if($opt{sclonly}) {
-            warn scalar(@no_scl_keys), " file(s) have no entries; --sclonly specified so they will be skipped and the commit will continue.\n";
+        if ( $opt{sclonly} ) {
+            warn scalar(@no_scl_keys),
+" file(s) have no entries; --sclonly specified so they will be skipped and the commit will continue.\n";
             delete @files_to_process{@no_scl_keys};
-        } elsif($opt{nosclonly}) {
-            warn scalar(@no_scl_keys), " file(s) have no entries; --nosclonly specified so they will be the ones processed and the commit will continue.\n";
+        } elsif ( $opt{nosclonly} ) {
+            warn scalar(@no_scl_keys),
+" file(s) have no entries; --nosclonly specified so they will be the ones processed and the commit will continue.\n";
             my %have_scl_keys = %files_to_process;
             delete @have_scl_keys{@no_scl_keys};
-            retain_entries(keys %have_scl_keys);
-            delete @files_to_process{keys %have_scl_keys};
-        } else  {
-            die "Error: Files with no entries:\n    " . join( qq(\n    ), map { file_abs_to_git_rel($_) } @no_scl_keys ) . qq(\n);
+            retain_entries( keys %have_scl_keys );
+            delete @files_to_process{ keys %have_scl_keys };
+        } else {
+            die "Error: Files with no entries:\n    "
+              . join( qq(\n    ), map { file_abs_to_git_rel($_) } @no_scl_keys )
+              . qq(\n);
         }
     }
     write_commit_message($commit_h);
@@ -255,27 +259,27 @@ sub create_commit_scl {
 sub write_commit_message {
     my ($oh) = @_;
 
-    my %status = map { $_->[-1], $_->[-2]  }
-      map { [ split(/\s+/) ]}
-      qx(git diff-index HEAD) , qx(git diff-index --cached HEAD);
-    my @output=('SUMMARY TEXT HERE', '');
+    my %status = map { $_->[-1], $_->[-2] }
+      map { [ split(/\s+/) ] } qx(git diff-index HEAD),
+      qx(git diff-index --cached HEAD);
+    my @output = ( 'SUMMARY TEXT HERE', '' );
     for my $filename ( sort keys %files_to_process ) {
         push_scl_to_output(
             is_commit   => 1,
-            status      => $status{file_abs_to_git_rel($filename)},
+            status      => $status{ file_abs_to_git_rel($filename) },
             input       => file_abs_to_scl_commit_entry($filename),
             file        => $filename,
             output      => \@output,
             format_over => ''
         );
     }
-    $oh->print(join(qq(\n), @output, q()));
+    $oh->print( join( qq(\n), @output, q() ) );
 }
 
 sub write_retained_log {
     my ( $oh, $entries ) = @_;
     my $iam = ( caller(0) )[3];
-    $oh->print(join(qq(\n), @retain, q()));
+    $oh->print( join( qq(\n), @retain, q() ) );
 }
 
 sub format_scl {
@@ -322,7 +326,8 @@ qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_o
 
     # At this point we want to get the current git status output and combine it
     # with the scl data and maybe the git diff data.
-    my @files = map { file_abs_to_git_rel($_) } keys(%files_to_process);
+    #my @files = map { file_abs_to_git_rel($_) } keys(%files_to_process);
+    my @files = map { file_abs_to_pwd_rel($_) } keys(%files_to_process);
     my @status = qx(git -c color.status=$opt{color} status @files);
 
     # Start processing. We go line by line over the status output, always first
@@ -379,8 +384,8 @@ my %scl_seen;
 
 sub push_scl_to_output {
     my %args = (
-        input => undef,
-        is_commit => 0,
+        input        => undef,
+        is_commit    => 0,
         output       => [],
         file         => undef,
         status       => undef,
@@ -389,8 +394,8 @@ sub push_scl_to_output {
         @_
     );
 
-# <GCS>    $ascii_red_black = $ascii_bold_red = $ascii_normal = ''
-# <GCS>      if($args{is_commit});
+    # <GCS>    $ascii_red_black = $ascii_bold_red = $ascii_normal = ''
+    # <GCS>      if($args{is_commit});
 
     my ( $filespec, $renamed_filespec, $status ) = (
         $args{file},
@@ -404,32 +409,30 @@ sub push_scl_to_output {
         ),
     );
 
-    $filespec = catfile( $scldir, $args{file} )
-      if ( $args{file} !~ m|^$scldir| );
-    $renamed_filespec = catfile( $scldir, $args{renamed_file} )
-      if ( defined $args{renamed_file}
-        and $args{renamed_file} !~ m|^$scldir| );
+    $filespec         = file_pwd_rel_to_abs( $args{file} );
+    $renamed_filespec = file_pwd_rel_to_abs( $args{renamed_file} )
+      if defined $args{renamed_file};
     my $need_a_blank;
 
     if (    not defined $entries{$filespec}
-            and $args{status} ne 'untracked'
-            and $opt{sclonly} )
-        {
-            return;
-        }
+        and $args{status} ne 'untracked'
+        and $opt{sclonly} )
+    {
+        return;
+    }
 
     if ( defined $entries{$filespec}
-           and $opt{nosclonly} )
-      {
-          return;
-      }
+        and $opt{nosclonly} )
+    {
+        return;
+    }
 
     push @{ $args{output} }, $args{input}
-      if (defined($args{input}));
+      if ( defined( $args{input} ) );
     if ( exists( $scl_seen{$filespec} ) ) {
         # then we probably have one file in multiple sections. Print a
         # reference here and move on.
-        if( ! $args{is_commit} ) {
+        if ( !$args{is_commit} ) {
             push @{ $args{output} },
               join( '', $args{format_over}, "Duplicate entry. See above." ),
               '';
@@ -442,13 +445,14 @@ sub push_scl_to_output {
     # Do we have an scl entry? If not, we note it here. If so, we print
     # below. We test here in addition to below so as to allow the GCS info
     # to be above the scl info.
-    if ( not defined $entries{$filespec}
-           and $args{status} ne 'untracked'
-           and not $args{is_commit} ) {
-          $args{output}[-1] .=
-            ": ${ascii_bold_red}No SourceCtrlLog entry found.${ascii_normal}";
-          $need_a_blank = 1;
-      }
+    if (    not defined $entries{$filespec}
+        and $args{status} ne 'untracked'
+        and not $args{is_commit} )
+    {
+        $args{output}[-1] .=
+          ": ${ascii_bold_red}No SourceCtrlLog entry found.${ascii_normal}";
+        $need_a_blank = 1;
+    }
 
     if ( $status !~ m /^(?:D|deleted)$/ ) {
         # Check for any GCS entries in the code.
@@ -517,10 +521,9 @@ sub push_scl_to_output {
                   ## Line 2+
                   ( map { join( '', $args{format_over}, $indent, $_ ) }
                       @wrapped ),
-                  ($args{is_commit} ? () : '');
+                  ( $args{is_commit} ? () : '' );
             }
-            push @{ $args{output} },
-              ($args{is_commit} ? '' : ());
+            push @{ $args{output} }, ( $args{is_commit} ? '' : () );
         }
     }
 
@@ -532,26 +535,41 @@ sub push_scl_to_output {
 }
 
 sub file_git_rel_to_abs {
-    return catfile( $scldir, $_[0] );
+    if ( $_[0] =~ m|^$scldir| ) {
+        return ( $_[0] );
+    } else {
+        my $intermediate = "@{[path($_[0])->absolute($scldir)]}";
+        return ("@{[path($intermediate)->realpath()]}");
+    }
 }
 
 sub file_abs_to_git_rel {
-    my $rel = $_[0];
-    $rel =~ s/$scldir//o;
-    $rel =~ s|^/||o;
-    return $rel;
+    return ("@{[path($_[0])->relative($scldir)]}");
+}
+
+sub file_pwd_rel_to_abs {
+    if ( $_[0] =~ m|^$ENV{PWD}| ) {
+        return ( $_[0] );
+    } else {
+        my $intermediate = "@{[path($_[0])->absolute($ENV{PWD})]}";
+        return ("@{[path($intermediate)->realpath()]}");
+    }
+}
+
+sub file_abs_to_pwd_rel {
+    return ("@{[path($_[0])->relative($ENV{PWD})]}");
 }
 
 sub file_abs_to_scl_main_entry {
-    return "\t* " . file_abs_to_git_rel($_[0]) . ":";
+    return "\t* " . file_abs_to_git_rel( $_[0] ) . ":";
 }
 
 sub file_abs_to_scl_func_entry {
-    return "\t* " . file_abs_to_git_rel($_[0]) . " ($_[1]):";
+    return "\t* " . file_abs_to_git_rel( $_[0] ) . " ($_[1]):";
 }
 
 sub file_abs_to_scl_commit_entry {
-    return file_abs_to_git_rel($_[0]);
+    return file_abs_to_git_rel( $_[0] );
 }
 
 sub set_indent_from_lead {
@@ -561,19 +579,21 @@ sub set_indent_from_lead {
 sub retain_entries {
     for my $retain_key (@_) {
         my $entry = delete $entries{$retain_key};
-        for my $scope (sort keys %$entry) {
+        for my $scope ( sort keys %$entry ) {
             my $log_entry_header;
-            if ($scope eq '!File Scope' ) {
+            if ( $scope eq '!File Scope' ) {
                 $log_entry_header = file_abs_to_scl_main_entry($retain_key);
             } else {
-                $log_entry_header = file_abs_to_scl_func_entry($retain_key,
-                                                               $scope);
+                $log_entry_header =
+                  file_abs_to_scl_func_entry( $retain_key, $scope );
             }
             for my $line (
-                map { $_->[1] }
-                  sort { $a->[0] <=> $b->[0] }
-                  map { [ $_ => $entry->{$scope}->{$_} ] }
-                  keys %{$entry->{$scope}} ) {
+                map  { $_->[1] }
+                sort { $a->[0] <=> $b->[0] }
+                map  { [ $_ => $entry->{$scope}->{$_} ] }
+                keys %{ $entry->{$scope} }
+              )
+            {
                 push @retain, "$log_entry_header $line", q();
             }
         }
