@@ -33,13 +33,15 @@ my %deleted;             # Files that are being deleted, the won't be in the
                          # directory, but still need to have scl entries.
 my @retain;              # The text for files not being committed.
 my %opt = (
-    'scl'        => undef,
-    'for-commit' => undef,
-    'color'      => 'always',
-    'diff'       => 0,
-    'sclonly'    => 0,
-    'nosclonly'  => 0,
-    'cached'     => 0,
+    'scl'         => undef,
+    'for-commit'  => undef,
+    'color'       => 'always',
+    'diff'        => 0,
+    'sclonly'     => 0,
+    'nosclonly'   => 0,
+    'cached'      => 0,
+    'namesonly'   => 0,
+    'nountracked' => 0,
 );
 my @obsolete = qw(withstatus
   skip-no-source-ctrl-log);
@@ -54,22 +56,27 @@ sub main {
                            # messages will go in .commit. The messages for
                            # those files not yet committing will go in .retain.
 
-        # These options are for formatting and will be ignored if --for-commit
-        # is used.
-        'color=s',    # Same as the git values.
-        'diff',       # Include git diff output mixed in with the status and
-                      # changelog info.
+        # These three options are for formatting and will be ignored if
+        # --for-commit or --namesonly are set.
+        'color=s',     # Same as the git values.
+        'diff',        # Include git diff output mixed in with the status and
+                       # changelog info.
+        'cached',      # Controls the diff output.
 
-        'sclonly',    # Only process files with a changelog entry.
-        'nosclonly',  # Only process files without a changelog entry.
-                      # If neither of these are set, then files without a
-                      # changelog entry will fail a commit, but will not fail a
-                      # status print.
+        'sclonly',     # Only process files with a changelog entry.
+        'nosclonly',   # Only process files without a changelog entry.
+                       # If neither of these are set, then files without a
+                       # changelog entry will fail a commit, but will not fail a
+                       # status print.
 
-        'cached',     # Controls the diff output.
+        'namesonly',   # Just print the filenames; no status and comments. Used
+                       # primarily with --nosclonly to get a list of files that
+                       # need SourceCtrlLog entries Options we need to get rid
+                       # of. We absorb them here so that we don't fall over
+                       # until we can remove them upstream.
 
-        # Options we need to get rid of. We absorb them here so that we don't
-        # fall over until we can remove them upstream.
+        'nountracked', # Do not print anything for untracked files.
+
         @obsolete
     ) or die "Bad options";
 
@@ -112,6 +119,8 @@ sub main {
     #
     if ( $opt{'for-commit'} ) {
         create_commit_scl( $opt{'for-commit'} );
+    } elsif ( $opt{'namesonly'} ) {
+        names_only();
     } else {
         format_scl();
     }
@@ -349,6 +358,9 @@ qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_o
         {
             # Add in scl data.
             my $status = ( $+{status} || 'untracked' );
+            if ($opt{nountracked} and $status eq 'untracked' ) {
+                next STATUS;
+            }
             push_scl_to_output(
                 input        => $input,
                 output       => \@output,
@@ -533,6 +545,45 @@ sub push_scl_to_output {
     push @{ $args{output} }, @{ $diffs{$filespec} }
       if ( $diffs{$filespec} );
     push @{ $args{output} }, '' if $need_a_blank;
+}
+
+sub names_only {
+
+    ## Checking for files with/without comments.
+    my @no_scl_keys =
+      grep { $files_to_process{$_} == 0 }
+      keys %files_to_process;
+    my %no_scl_keys;
+    if (@no_scl_keys) {
+        %no_scl_keys = map { $_ => 1 } @no_scl_keys;
+        if ( $opt{sclonly} ) {
+            delete @files_to_process{@no_scl_keys};
+        } elsif ( $opt{nosclonly} ) {
+            my %have_scl_keys = %files_to_process;
+            delete @have_scl_keys{@no_scl_keys};
+            retain_entries( keys %have_scl_keys );
+            delete @files_to_process{ keys %have_scl_keys };
+        }
+    }
+    my %status = map { $_->[-1], $_->[-2] }
+      map { [ split(/\s+/) ] } qx(git diff-index HEAD),
+      qx(git diff-index --cached HEAD);
+    my @output;
+    FILE: for my $filename ( sort keys %files_to_process ) {
+        my $git_rel_filename = file_abs_to_git_rel($filename);
+        my $status = $status{$git_rel_filename} || 'U';
+        if ($opt{nountracked} and $status eq 'U' ) {
+            next FILE;
+        }
+        push @output,
+          join(':',
+               $git_rel_filename,
+               $status,
+               (defined ($no_scl_keys{$filename})
+                  ? 'No SourceCtrlLog entry found'
+                  : () ) );
+    }
+    print join(qq(\n), @output);
 }
 
 sub file_git_rel_to_abs {
