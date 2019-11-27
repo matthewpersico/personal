@@ -22,7 +22,9 @@ our %opt = (
     cmd      => [],
     color    => 1,
     time     => 0,
-    rtime    => 0
+    rtime    => 0,
+    filter   => 0,
+    quiet    => 0
 );
 my %print;
 my %noprint;
@@ -39,6 +41,8 @@ GetOptions(
       wrap
       trunc
       color!
+      filter
+      quiet!
 
       head!
       this!
@@ -78,12 +82,20 @@ if ( $opt{time} + $opt{rtime} == 2 ) {
     die "--time and --rtime are mutex\n";
 }
 
-$opt{$ui} = `tput cols` + 0;
+$opt{$ui} = 0;
+if ( -t STDOUT ) {
+    $opt{$ui} += `tput cols`;
+}
+
 if ( $opt{me} ) {
     $opt{user} = $ENV{USER};
 }
 if ( $opt{user} ne '-e' ) {
     $opt{user} = "-U $opt{user}";
+}
+
+if ( $opt{color} && $opt{filter} ) {
+    $opt{color} = 0;
 }
 
 for my $search_arg (@ARGV) {
@@ -116,18 +128,21 @@ my %master_map = (
             idx     => 4,
             justify => q(right),
             std     => 'UID',
+            wid     => 12,
         },
         PID => {
             fmtcol  => 'pid',
             idx     => 6,
             justify => q(right),
             std     => 'PID',
+            wid     => 8,
         },
         PPID => {
             fmtcol  => 'ppid',
             idx     => 8,
             justify => q(right),
             std     => 'PPID',
+            wid     => 8,
         },
         TT => {
             fmtcol  => 'tty',
@@ -198,11 +213,20 @@ my @headcols = (
       keys %map
 );
 
-my $fmtcols = join( ',',
-    map    { $_->[1] }
+my $fmtcols = join(
+    ',',
+    map    { "$_->[1]$_->[2]" }
       sort { $a->[0] <=> $b->[0] }
-      map  { [ $map{$_}{idx}, $map{$_}{fmtcol}, ] }
-      keys %map );
+      map {
+        [
+            $map{$_}{idx}, $map{$_}{fmtcol},
+            exists( $map{$_}{wid} )
+            ? ":$map{$_}{wid}"
+            : ''
+        ]
+      }
+      keys %map
+);
 my %std_head_map =
   map { $map{$_}{std}, $_ }
   keys %map;
@@ -286,7 +310,7 @@ while (<IH>) {
         }
         $wrap_min = index( $l, q(COMMAND) );
         $striplead = 0;
-        if ( not $opt{nohead} ) {
+        if ( $opt{head} ) {
             push @{$current_proc_group}, { sortval => 0, output => $l };
         }
         next LINE;
@@ -334,8 +358,11 @@ while (<IH>) {
         } else {
             ## We didn't match it. See if we printed its parent or we didn't
             ## not print its parent. If so then print this one.
-            if ( defined $print{$ppid}
-                or not defined $noprint{$ppid} )
+            if (
+                !$opt{filter}
+                and ( defined $print{$ppid}
+                    or not defined $noprint{$ppid} )
+              )
             {
                 $print{$pid} = 1;
             }
@@ -412,7 +439,8 @@ push @proc_groups,
             q(<) . ( q(-) x ( $wrap_min - 12 ) ) . q(>)
         )
     }
-  ];
+  ]
+  if ( not $opt{filter} );
 
 if ( $opt{time} ) {
     ## newest at the top
@@ -426,7 +454,8 @@ if ( $opt{time} ) {
 }
 
 if ( !@proc_groups ) {
-    print "No process found for given filters\n";
+    print "No process found for given filters\n"
+      if ( not $opt{quiet} );
     exit 1;
 } else {
     for my $proc_group (@proc_groups) {
