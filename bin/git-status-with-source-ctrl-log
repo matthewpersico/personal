@@ -1,18 +1,22 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-status-with-source-ctrl-log" >> "$HOME/.gitaudit"
+
 # git-status-with-source-ctrl-log
 
 declare diff
 declare cached
-declare nosclonly
+declare sclonly
+declare gcsonly
 declare color
 declare -a color_opt
+declare -a untracked_opt
 
 # Define the options. ':' suffix for a mandatory value to an option, '::' for
 # an optional one. Note that the long and short don't have to match up.
 declare OPTSARGS
 declare shortopts='xh'
-declare longopts='filesonly,nosclonly,diff,cached,help,debug,color:,nocolor'
+declare longopts='filesonly,sclonly,nosclonly,gcsonly,nogcsonly,diff,cached,help,debug,color:,nocolor,edit,noun,nountracked'
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
@@ -29,11 +33,15 @@ do
     declare option=$1
     shift
     case "$option" in
+        --edit) edit='--edit';;
         --filesonly) filesonly='--filesonly';;
-        --nosclonly) nosclonly='--nosclonly';;
+        --sclonly) sclonly='--sclonly';;
+        --nosclonly) sclonly='--nosclonly';;
+        --gcsonly) gcsonly='--gcsonly' ;;
+        --nogcsonly) gcsonly='--nogcsonly' ;;
         --diff) diff='--diff';;
         --cached) cached='--cached';;
-        -h|--help) bash-usage "$0"; exit 0 ;;
+        -h|--help) bash-usage git-status-ext; exit 0 ;;
         --debug | -x ) set -x; trap 'set +x' EXIT;;
         --color) color=$1
                  shift
@@ -41,6 +49,9 @@ do
                  ;;
         --nocolor)
             color_opt=(--color "never")
+            ;;
+        --noun|nountracked)
+            untracked_opt=('--nountracked')
             ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
@@ -61,49 +72,4 @@ else
     mapfile -t filenames < <(git what is edited)
 fi
 
-git-process-source-ctrl-log --withstatus $diff $cached "${color_opt[@]}" $nosclonly $filesonly "${filenames[@]}"
-
-exit 0
-
-:<<'__PODUSAGE__'
-=head1 NAME
-
-git-status-with-source-ctrl-log - merge a SourceCrtlLog file with git status
-
-=head1 SYNOPSIS
-
-    git-status-with-source-ctrl-log [--nosclonly] [--diff [--cached]] [--color [always|never] | --nocolor]
-    git-status-with-source-ctrl-log [--help] [--diff] [--cached] [--color [always|never]]
-
-=head1 DESCRIPTION
-
-Run a 'git status' and interleave the entries from SourceCrtlLog in.
-
-=head1 OPTIONS
-
-=over 4
-
-=item nosclonly
-
-Only print status for items that have no entry in SourceCrtlLog.
-
-=item diff
-
-Also mix in the git diff of the item.
-
-=item cached
-
-Do the git diff with the --cached flag.
-
-=item color
-
-Specify if coloring the output or not.
-
-=item nocolor
-
-Alias for --color never
-
-=back
-
-=cut
-__PODUSAGE__
+git-process-source-ctrl-log $diff $cached "${color_opt[@]}" "${untracked_opt[@]}" $sclonly $gcsonly $filesonly $edit "${filenames[@]}"

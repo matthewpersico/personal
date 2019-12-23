@@ -7,18 +7,32 @@
 if [[ $1 =~ -z ]]
 then
     shift
-    tail -n +1 -f "$@" |  \
-        zenity --text-info --auto-scroll \
-               --width=1320 --height=800 \
-               --title "cattail $*" &
-else
-    tail -n +1 -f "$@"
+    # shellcheck disable=SC2230 #https://github.com/koalaman/shellcheck/wiki/SC2230
+    if which zenity
+    then
+        tail -n +1 -f "$@" | \
+            zenity --text-info --auto-scroll \
+                   --width=1320 --height=800 \
+                   --title "read from cattail $*" &
+        ## Get the zenity and tail process pids
+        declare zenitypid
+        zenitypid=$(pgrep --parent $$ zenity)
+        declare tailpid
+        tailpid=$(pgrep --parent $$ tail)
+        while ps -p "$zenitypid" > /dev/null
+        do
+            :
+        done
+        ## zenity box is gone, kill the tail. Otherwise tail never gets a
+        ## signal and it never goes away.
+        kill "$tailpid"
+        exit 0
+    else
+        echo "Cannot find 'zenity' in path, falling back to plain old 'tail'..."
+    fi
 fi
-
+tail -n +1 -f "$@"
 exit $?
-
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/.
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -28,7 +42,7 @@ cattail - cat the file from the start, then continue to tail -f it
 =head1 SYNOPSIS
 
  cattail [-z] file
- cattail [-h] file
+ cattail -h
 
 =head1 DESCRIPTION
 
@@ -50,7 +64,8 @@ File to track.
 
 =item -z
 
-Send the output to a zenity box.
+Send the output to a zenity text box. If 'zenity' is not found on path, fail
+back to 'tail'.
 
 =item -h
 

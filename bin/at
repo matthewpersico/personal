@@ -1,0 +1,45 @@
+#!/usr/bin/env bash
+
+# at
+
+if (($#==0))
+then
+    cmd-echo 'Enhanced atq...'
+    declare -a atqs
+    readarray -t atqs < <(atq)
+    echo Job count: "${#atqs[@]}"
+    declare i
+    for i in "${atqs[@]}"
+    do
+        declare -a jobinfo
+        read -r -a jobinfo < <(echo "$i")
+        unset "jobinfo[-1]"
+        unset "jobinfo[-1]"
+        if ! grep "${jobinfo[*]}" ~/.atqlist
+        then
+            echo "${jobinfo[*]}"
+        fi
+    done
+    exit 0
+fi
+
+declare system_at
+# shellcheck disable=SC2230 #https://github.com/koalaman/shellcheck/wiki/SC2230
+system_at=$(which -a at | tail -1)
+declare -a jobinfo
+export AT_RUN=1
+$system_at "$@" > /tmp/at.$$ 2>&1
+status=$?
+cat /tmp/at.$$
+read -r -a jobinfo < <(cat /tmp/at.$$)
+if ((status == 0))
+then
+    # Unset does not REMOVE, but for the purposes of string printing setting to
+    # 'undef' works just fine.
+    unset "jobinfo[0]"
+    unset "jobinfo[2]"
+    declare -a args=("$@")
+    ( flock -w 5 9 || exit 1
+      echo "${jobinfo[*]} ? $USER ${args[*]}" >> ~/.atqlist
+    ) 9>~/.atqlock
+fi

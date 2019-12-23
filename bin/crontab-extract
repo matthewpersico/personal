@@ -1,0 +1,54 @@
+#!/usr/bin/env bash
+
+# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+declare crontab_file
+crontab_file=$(mktemp -t tmp.crontab-extract.crontab.XXXXXXXXX)
+rm-on-exit "$crontab_file"
+
+crontab -l > "$crontab_file"
+
+if [[ $1 == '--list' ]]
+then
+    grep -E '^CW_command' "$crontab_file"
+    exit 0
+fi
+
+declare -a elements
+elements[0]="$( grep -E '^MAILTO=' "$crontab_file")"
+
+declare command=$1
+readarray -t -O 1 elements < <(grep -C 4 -E "^CW_command=.*${command}" "$crontab_file")
+
+declare i=0
+while (( i < ${#elements[@]} ))
+do
+    if [[ ${elements[$i]} =~ cron_wrapper ]]
+    then
+        declare -a tmp
+        asplit elements[$i] -a tmp
+        while [[ ! ${tmp[0]} =~ cron_wrapper ]]; do ashift tmp; done
+        declare j
+        ajoin j "${tmp[@]}"
+        elements[$i]="$j"
+        break
+    else
+        ((i+=1))
+    fi
+done
+
+declare e
+for e in "${elements[@]}"
+do
+    echo "$e"
+done
+
+declare resp
+resp=$(yesno "Ok to run" 'n')
+[[ $resp == 'n' ]] && exit 0
+
+for e in "${elements[@]}"
+do
+    eval "$e"
+done

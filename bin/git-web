@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-web" >> "$HOME/.gitaudit"
+
 # git-web
 
 # shellcheck disable=SC1090
@@ -39,12 +41,18 @@ do
     ## This bit deals with --foo=bar instead of --foo bar
     declare okey
     declare ovalue=''
-    if [[ "$option" =~ = ]]
+    ## but only deal with it if we really have an option. Otherwise you
+    ## misinterpret items like this git clone option: --config
+    ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
+    if [[ $option =~ ^- ]]
     then
-        okey=${option%%=*}
-        # shellcheck disable=SC2034 # We'll use it eventually
-        ovalue=${option#*=}
-        option="$okey"
+        if [[ "$option" =~ = ]]
+        then
+            okey=${option%%=*}
+            # shellcheck disable=SC2034 # We'll use it eventually
+            ovalue=${option#*=}
+            option="$okey"
+        fi
     fi
 
     case $option in
@@ -106,7 +114,7 @@ then
         fi
 
         declare url
-        if ! url=$(git-find-local-pr)
+        if ! url=$(git repo pr --get)
         then
             cb="$(git branch --show-current)"
             url="$(kvstore get gitfuncs_git_browser_urls "$svc")/$repo/pull/new/$cb"

@@ -1,0 +1,110 @@
+#!/usr/bin/env perl
+
+# atqmon
+
+use strict;
+use warnings;
+
+use File::Slurp;
+use Fcntl qw(:flock SEEK_END);    # import LOCK_* and SEEK_END constants
+
+sub lock {
+    my ($fh) = @_;
+    flock( $fh, LOCK_EX ) or die "Cannot lock metafile - $!\n";
+}
+
+sub unlock {
+    my ($fh) = @_;
+    flock( $fh, LOCK_UN ) or die "Cannot unlock metafile - $!\n";
+}
+
+my $metaf = "$ENV{HOME}/.atqlist";
+
+## Read the live queue
+my %input =
+  map {
+    $_->[0] => {
+        id      => $_->[0],
+        started => "@{$_}[1..5]",
+        queue   => $_->[6],
+        owner   => $_->[7]
+      }
+  } map {
+    [ split( /\s+/, $_ ) ]
+  } qx(atq);
+
+## If given a job to look for, do so.
+if ( $ARGV[0] ) {
+    if ( exists( $input{ $ARGV[0] } ) ) {
+        print
+qx(grep -E '^$ARGV[0]' $metaf | sed 's/\?/$input{$ARGV[0]}->{queue}/');
+        exit 0;
+    } else {
+        print "Job $ARGV[0] not found";
+        exit 1;
+    }
+}
+
+## Otherwise sync the joblist with the metadata.
+
+## Read the metadata
+open( my $metar, "<", $metaf )
+  or die "Can't open $metaf: $!";
+lock($metar);
+my @lines = map { [ split( /\s+/, $_ ) ] } <$metar>;
+my %data =
+  map {
+    $_->[0] => {
+        id      => $_->[0],
+        started => "@{$_}[1..5]",
+        queue   => $_->[6],
+        owner   => $_->[7],
+        args    => (
+            defined( $_->[8] )
+            ? join( ' ', splice( @{$_}, 8 ) )
+            : ''
+        )
+      }
+  } @lines;
+unlock($metar);
+
+## Keep only the metadata of current jobs
+my @mail;
+my @tmpmail;
+
+@tmpmail = ("These 'at' jobs are no longer running\n");
+for ( keys %data ) {
+    if ( not exists $input{$_} ) {
+        push @tmpmail, "@{$data{$_}}{qw(id started queue owner args)}\n";
+        delete $data{$_};
+    }
+}
+if ( @tmpmail > 1 ) {
+    push @mail, @tmpmail, qq(\n);
+}
+
+@tmpmail = ("These 'at' jobs had no metadata so we generated some\n");
+for ( keys %input ) {
+    if ( not exists $data{$_} ) {
+        $data{$_} = $input{$_};
+        $data{$_}->{args} = '?';
+        push @tmpmail, "@{$data{$_}}{qw(id started queue owner args)}\n";
+    }
+}
+if ( @tmpmail > 1 ) {
+    push @mail, @tmpmail, qq(\n);
+}
+
+my @output = map { "@{$data{$_}}{qw(id started queue owner args)}\n" }
+  sort { $a <=> $b }
+  keys %data;
+open( my $metaw, ">", $metaf )
+  or die "Can't open $metaf: $!";
+lock($metaw);
+print $metaw @output;
+unlock($metaw);
+
+if (@mail) {
+    write_file( "/tmp/atmon.$$", @mail );
+    qx(bbmsg -to $ENV{USER} --subject "at jobs check" --body /tmp/atmon.$$);
+}

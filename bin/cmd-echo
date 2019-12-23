@@ -5,9 +5,10 @@
 ## ANSI_reset is in the env, variable is not all caps, so shellcheck
 ## complains.
 # shellcheck disable=SC2154
-declare reset_normal="${ANSI_reset}"
+declare reset_normal="${ANSI_RESET}"
 declare reset_title=''
 declare nonl=''
+declare local_nonl=''
 declare continueline=0
 declare head=0
 declare title=0
@@ -16,10 +17,30 @@ declare id=''
 declare append=0
 declare prefix='>>> '
 declare opt_color=0
+declare opt_reverse=1
+declare color=REVERSE
 declare -A colors
-colors=([WARNING]="${ANSI_BG_orange}${ANSI_FG_black}"
-        [ERROR]="${ANSI_BG_red}${ANSI_FG_white}"
-        [DEBUG]="${ANSI_BG_blue}${ANSI_FG_white}")
+colors=(
+    [RED]="${ANSI_FG_RED}"
+    [REVRED]="${ANSI_FG_RED}${ANSI_REVERSE}"
+
+    [YELLOW]="${ANSI_FG_YELLOW}"
+    [REVYELLOW]="${ANSI_FG_YELLOW}${ANSI_REVERSE}"
+
+    [ORANGE]="${ANSI_FG_ORANGE}"
+    [REVORANGE]="${ANSI_FG_ORANGE}${ANSI_REVERSE}"
+
+    [BLUE]="${ANSI_FG_BLUE}"
+    [REVBLUE]="${ANSI_FG_BLUE}${ANSI_REVERSE}"
+)
+## Add the status colors and control sequence
+colors+=(
+    [REVERSE]="${ANSI_REVERSE}"
+    [WARNING]="${colors[REVORANGE]}"
+    [ERROR]="${colors[REVRED]}"
+    [DEBUG]="${colors[REVBLUE]}"
+)
+
 declare msg_status=''
 declare interactive=1
 [ ! -t 1 ] && interactive=0
@@ -28,10 +49,10 @@ declare interactive=1
 # don't have to match up.
 declare OPTSARGS
 declare shortopts='inachfsojwedp::x'
-declare longopts='head,title,id:,help,wc,ec,dc,color,oii'
+declare longopts='head,title,id:,help,wc,ec,dc,color:,oii,noreverse'
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 declare status=$?
-((status != 0)) && exit $status ## return $status ## in functions
+((status != 0)) && echo "cmd-echo: getopt failure" && exit $status ## return $status ## in functions
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -86,7 +107,23 @@ do
         d )
             msg_status='DEBUG' ;;
         color )
-            echo "cmd-echo: --color is no longer used. Ignored..." ;;
+            opt_color=1
+            color="${1^^}"; shift
+            declare norev=${color#REV}
+            case "$norev" in
+                BLACK | BLUE | CYAN | GREEN | MAGENTA | ORANGE| RED | WHITE | YELLOW )
+                    declare fgvar="$ANSI_FG_${option}"
+                    colors+=(["$option"]="${!fgvar}"
+                             ["REV${option}"]="${!fgvar}${ANSI_REVERSE}")
+                    ;;
+                * )
+                    echo "cmd-echo: $color is not one of BLACK, BLUE, CYAN, GREEN, MAGENTA, ORANGE, RED, WHITE, or YELLOW"
+                    exit 1
+                    ;;
+            esac
+            ;;
+        norev* )
+            opt_reverse=0 ;;
         oii | only-if-interactive )
             ((interactive==0)) && exit 0 ;;
         p )
@@ -102,10 +139,10 @@ do
     esac
 done
 
-declare docolor=${ANSI_reverse}
+declare docolor=${colors[$color]}
 declare dorest=${reset_title}
 declare doresn=${reset_normal}
-if ((! interactive ))
+if ((! interactive )) || (( ! opt_reverse ))
 then
     ## then STDOUT is being redirected away from the terminal, let's assume
     ## it's a file, don't print the colorizing sequences.
@@ -119,6 +156,7 @@ else
     fi
 fi
 ((head)) && echo
+declare argcnt="$#"
 for arg in "$@"
 do
     if [ -n "${id}" ]
@@ -149,7 +187,12 @@ do
     then
         echo $nonl -e "${docolor}${prefix}$*${dorest}${doresn}"
     else
-        echo $nonl -e "${docolor}${prefix}${arg}${dorest}${doresn}"
+        if((argcnt==1))
+        then
+            local_nonl=$nonl
+        fi
+        ((argcnt-=1))
+        echo $local_nonl -e "${docolor}${prefix}${arg}${dorest}${doresn}"
     fi
 
     ## If there is a next line, it should be a continue line
@@ -178,7 +221,7 @@ exit 0 ## USAGE guard during sourcing this file.
 =head1 SYNOPSIS
 
 cmd-echo [--oii] [--head] [--title] [-n] [-a] [-c] [-i] [-id "id" ] \
-         [j] [ [-w[c]|-e[c]|-d[c]] [-p 'prefix' ] -- "text" ["text"...]
+         [j] [ [-w[c]|-e[c]|-d[c]|--color [REV]COLOR] [-p 'prefix' ] -- "text" ["text"...]
 
 =head1 DESCRIPTION
 
@@ -189,8 +232,11 @@ difficult get it right with a mixture of functions and scripts at different
 nesting levels. It is sufficient just to be able to pick out our messages vs
 those printed by the utilities we call.
 
-The reverse coloring is skipped if the output is not a terminal; i.e., a log
-file.
+The reversed and color adornments are is skipped if we think the output is not
+a terminal; i.e., a log file.
+
+The text is echo'ed to STDOUT. Redirect the command yourself if you want to put
+the output on a different discriptor.
 
 =head1 OPTIONS
 
@@ -220,7 +266,7 @@ entire first text line as reversed, not just the prefix.
 
 =item -n
 
-Do not print a new line at the end of each line.
+Do not print a new line after printing the last argument.
 
 -item -a
 
@@ -237,10 +283,15 @@ Print the first "text" element as a continuation line.
 Force interactive mode to force the colorization strings. Used when the output
 is being passed onto some other command as a prompt.
 
-=item -id
+=item -id "text"
 
 Prefix the first line of the message with this text and a ": " and indent
 subsequent lines accordingly.
+
+=item --color [REV]COLOR
+
+COLOR is one of BLACK, BLUE, CYAN, GREEN, MAGENTA, ORANGE, RED, WHITE, or
+YELLOW. Adding the 'REV' prefix prints in reverse.
 
 =item -j
 
@@ -256,10 +307,11 @@ Print the string 'WARNING', 'ERROR', or 'DEBUG' before the message.
 Print the string 'WARNING', 'ERROR', or 'DEBUG' before the message with an
 orange (easier to read than yellow), red or blue background, respectively.
 
+=item --color
 =item -p
 
 Instead of '>>> ' printed before each line, print this instead. A blank prefix
-('') does what you'd expect.
+(''') does what you'd expect.
 
 =back
 
@@ -267,4 +319,5 @@ Instead of '>>> ' printed before each line, print this instead. A blank prefix
 
 __PODUSAGE__
 
-#  LocalWords:  funcname shellcheck util func
+#  LocalWords:  funcname shellcheck util func PODUSAGE STDOUT cmd args usr
+#  LocalWords:  LocalWords

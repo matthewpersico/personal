@@ -2,6 +2,8 @@
 
 # grep_history
 
+echo "$(date) grep_history" >> ~/audithiststuff
+
 declare moreopts
 moreopts=1
 declare -a hostfilt
@@ -21,11 +23,17 @@ do
     ## This bit deals with --foo=bar instead of --foo bar
     declare okey=''
     declare ovalue=''
-    if [[ "$option" =~ = ]]
+    ## but only deal with it if we really have an option. Otherwise you
+    ## misinterpret items like this git clone option: --config
+    ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
+    if [[ $option =~ ^- ]]
     then
-        okey=${option%%=*}
-        ovalue=${option#*=}
-        option="$okey"
+        if [[ "$option" =~ = ]]
+        then
+            okey=${option%%=*}
+            ovalue=${option#*=}
+            option="$okey"
+        fi
     fi
 
     case $option in
@@ -91,4 +99,4 @@ done
 
 pattern_to_match="${1:-.*}"
 ##perl -d:ptkdb -S
-parse_bash_hist "${opt_epoch_ago[@]}" "${hostfilt[@]}" $dodir $dofile "${matchdir[@]}" "${grepopts[@]}" -- "$pattern_to_match" "$(dirname "$HISTFILE")"/*
+parse_bash_hist "${opt_epoch_ago[@]}" "${hostfilt[@]}" $dodir $dofile "${matchdir[@]}" "${grepopts[@]}" -- "$pattern_to_match" "$HISTDIR"/*

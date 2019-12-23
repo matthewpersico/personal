@@ -5,8 +5,114 @@
 
 apop ()
 {
-    declare -n arr="$1";shift
-    ((${#arr[@]} == 0)) && return
-    echo "${arr[-1]}"
-    unset "arr[-1]"
+    if [[ $1 == -h ]]; then bash-usage apop; return 0; fi
+
+    declare -n array=$1
+    shift
+    declare _i=0
+    if [[ $1 =~ ^- ]]
+    then
+        declare -n output
+        declare c=''
+        while (($#))
+        do
+            [[ $1 = '-n' ]] && c=$2      && shift && shift && continue
+            [[ $1 = '-a' ]] && output=$2 && shift && shift && continue
+            [[ $1 =~ ^- ]] && echo "$1 is an invalid option" && return 1
+            echo "When using -n (and optionally -a), you cannot specify target variables for popped items."
+            return 1
+        done
+
+        while ((_i<c))
+        do
+            output+=("${array[-_i]}")
+            ((_i+=1))
+            ((_i == ${#array[@]} )) && break
+        done
+    else
+        for _v ; do
+            declare -n _var=$_v
+            ((_i+=1))
+            # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+            _var=${array[-_i]}
+            ((_i == ${#array[@]} )) && break
+        done
+    fi
+    array=("${array[@]:0:$((${#array[@]}-_i))}")
 }
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+apop - treat a bash array like a stack and remove one or more elements from the end
+
+=head1 SYNOPSIS
+
+ apop source <list of variables>
+ apop source -n int [-a array]
+ apop -h
+
+=head1 DESCRIPTION
+
+Best described by example:
+
+  $ declare -a source
+  $ source=('foo' 'bar' 'baz' 'boingo' 'eek' 'ork' 'ook' 'a-hah')
+
+  $ declare v=''
+  $ declare w=''
+  $ apop source v w
+  $ echo "v=$v w=$w"
+  v=a-hah w=ook
+  $ set | grep -E '^source='
+  source=([0]="foo" [1]="bar" [2]="baz" [3]="boingo" [4]="eek" [5]="ork")
+
+  $ declare -a target=()
+  $ apop source -a target -n 3
+  $ set | grep -E "^target="
+  target=([0]="ork" [1]="eek" [2]="boingo")
+  $ set | grep -E '^source='
+  source=([0]="foo" [1]="bar" [2]="baz")
+
+Attempting to remove more elements than exist is not an error. The function
+just stops removing when there are no more elements.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item source
+
+The array from which to remove items. No reference syntax or sigil ($) needed;
+the function has a 'declare -n' statement that does referencing-by-name.
+
+=item list of variables
+
+One or more variable names (no sigils), into which the popped items are placed
+when removed from 'source'. Also handled via 'declare -n' reference-creating
+syntax. The number of variables determines the number of items popped.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -n int
+
+The number of items to remove from the end of the array. Use this alone if you
+just want to remove items without storing them. Use with '-a' (described below)
+if you want to save the popped items. It is an error to provide variables to
+receive popped items when using '-n'.
+
+=item -a array
+
+An array name (no sigil) to accept popped items, in conjunction with -n. Also
+handled via 'declare -n' reference-creating syntax. If not specified, items are
+still popped, but they are not assigned to any variables.
+
+=back
+
+=cut
+
+__PODUSAGE__
