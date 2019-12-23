@@ -1,0 +1,118 @@
+#!/usr/bin/env perl
+
+use strict;
+no strict 'refs';
+use warnings;
+use Lingua::EN::Inflect;
+use Pod::Usage;
+
+my $nl = '';
+if ( @ARGV == 0 ) {
+    pod2usage( -verbose => 2 );
+    exit 1;
+} elsif ( $ARGV[0] eq '-h' ) {
+    pod2usage( -verbose => 2 );
+    exit 0;
+} elsif ( $ARGV[0] eq '--pd' ) {
+    exec qw(perldoc Lingua::EN::Inflect);
+} elsif ( $ARGV[0] eq '--nl' ) {
+    $nl = qq(\n);
+    shift;
+}
+
+my $func = "Lingua::EN::Inflect::$ARGV[0]";
+if ( defined &{$func} ) {
+    if ( @ARGV == 1 ) {
+        die "Missing arguments for '$ARGV[0]'\n";
+        exit 1;
+    } else {
+        shift;
+        my $out = ( $func->(@ARGV) || '' );
+        $out && print("${out}${nl}");
+    }
+} elsif ( @ARGV == 1 ) {
+    my $out = ( Lingua::EN::Inflect::inflect(@ARGV) || '' );
+    $out && print("${out}${nl}");
+} else {
+    die "Cannot make heads or tails of the arguments:[ '"
+      . join( q(' '), @ARGV ) . "'\n";
+}
+
+__END__
+
+=head1 NAME
+
+inflect - a wrapper around Lingua::EN::Inflect
+
+=head1 SYNOPSIS
+
+ inflect [--nl] FUNCTION arg [arg...]
+
+ inflect [--nl] "string containing FUNCTION(arg,arg..) calls"
+
+ inflect -h|--pd
+
+=head1 DESCRIPTION
+
+Print the output of the requested Lingua::EN::Inflect function without a
+newline. Easily incorporated into shell scripts:
+
+   $ declare catcount=3
+   $ echo I have $catcount $(inflect PL cat $catcount) in my house.
+   I have 3 cats in my house.
+
+For the list of functions and the arguments they take, see
+
+   $ perldoc Lingua::EN::Inflect.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item FUNCTION
+
+One of the Lingua::EN::Inflect functions.
+
+=item "string..."
+
+If there is only one argument, it is assumed to be a string that contains text
+and one or more of the Lingua::EN::Inflect functions. The string is passed to
+L::E::I function 'inflect' which interpolates L::E::I functions in strings.
+
+    $ declare catcount=3
+    $ inflect "I have $catcount PL_N(cat,$catcount) in my house."
+    I have 3 cats in my house.
+
+When forming the function calls inside an interpolated string, do not leave any
+space between the arguments, the parens and the commas. The L::E::I:inflect()'s
+parser fails with extra whitespace in some circumstances.
+
+
+=item args
+
+The arguments for the function.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --nl
+
+Add a newline to the output only if there is output. A failed translation with
+no text result will not print just the newl line.
+
+=item -h
+
+Print this help text.
+
+=item --pd
+
+Run 'perldoc Lingua::EN::Inflect'.
+
+=back
+
+=cut
+
+__PODUSAGE__

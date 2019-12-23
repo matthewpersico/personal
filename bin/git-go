@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
-#
+
+echo "$(date): git-go" >> "$HOME/.gitaudit"
+
 # git-go
 
 # shellcheck disable=SC1090
@@ -61,14 +63,15 @@ do
     shift
     [ "$option" != '--' ] && option=${option##-} && option=${option##-}
     case "$option" in
-        upstream) eval "$(git-parse-remote-v)"
+        upstream) declare tmp
+                  tmp=$(git remote get-url upstream 2>/dev/null)
                   # shellcheck disable=SC2154
-                  if [ -z "${gitfuncs_remotes[upstream]}" ]
+                  if [[ -z $tmp ]]
                   then
                       cmd-echo -ec -- "No upstream for current repo (${PWD})"
                       exit 1
                   fi
-                  tgts=("${gitfuncs_remotes[upstream]/*:/}")
+                  tgts=("${tmp/*:/}")
                   ;;
         e | exact ) git_get_opts+=('--exact');;
         et | exact-tail ) git_get_opts+=('--exact-tail');;
@@ -143,7 +146,9 @@ tgts=("${tgts[@]:1}")
 for tgt in "${tgts[@]}"
 do
     readarray -t tns < <(tail_number_strip "${REPOS[@]}")
-    readarray -t REPOS < <(git-go-get --limited "$(ajoin , "${tns[@]}")" "$tgt")
+    declare alltgts
+    ajoin alltgts -s ',' "${tns[@]}"
+    readarray -t REPOS < <(git-go-get --limited "$alltgts" "$tgt")
     if ((${#REPOS[@]}==0))
     then
         break
@@ -159,7 +164,9 @@ then
     then
         cmd-echo -ec -- "Filter '${origtgts[*]}' does not match any repo"
     else
-        cmd-echo -ec -- "Filters '$(ajoin , "${origtgts[@]}")' do not match any repo"
+        declare allfilts
+        ajoin allfilts -s ',' "${origtgts[@]}"
+        cmd-echo -ec -- "Filters '$allfilts' do not match any repo"
     fi
     exit 1
 else
@@ -295,11 +302,15 @@ else
                     exit
                 elif [[ "$REPLY" =~ ^/ ]]
                 then
+                    declare repolist
                     # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
                     # Wants to quote "$(trail_number_strip...), but we need the
                     # output to be individual items so that ajoin works. Will
                     # be an issue if a path has a space in it.
-                    git go --limited "$(ajoin , $(tail_number_strip "${REPOS[@]}"))" "${REPLY#/}"
+                    ## TODO - tail_number_strip should take an array as a target and not
+                    ## use 'echo' to return its output.
+                    ajoin repolist -s ',' $(tail_number_strip "${REPOS[@]}")
+                    git go --limited "$repolist" "${REPLY#/}"
                     break
                 else
                     cmd-echo -ec -- "'$REPLY' is an invalid choice"

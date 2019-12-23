@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-worktree" >> "$HOME/.gitaudit"
+
 # git-worktree
 
 if ! git-version-verify 'git-worktree'
@@ -72,25 +74,22 @@ _git_worktree_is_a_pull ()
 # shellcheck disable=SC2120
 git-worktree-ina ()
 {
-    status=1 ## Not in a worktree
-    wtroot=$(git worktree get-root)
-    if [ -n "$wtroot" ]
+    declare status=1 ## Not in a worktree
+    declare git_root
+    if git_root=$(git root 2>/dev/null)
     then
-        (
-            while [ "${PWD}" != "$wtroot" ]
-            do
-                if [ -f .git ] && grep -q '/worktrees/' .git
-                then
-                    if [ "$1" = '-v' ]
-                    then
-                        grep  '/worktrees/' .git | sed 's|.*worktrees/||'
-                    fi
-                    return 0
-                fi
-            done
-            return 1
-        )
-        status=$?
+        ## We are at least in a git repo
+        declare git_meta="${git_root}/.git"
+        if [ -f "$git_meta" ] && grep -q '/worktrees/' "$git_meta"
+        then
+            ## Then the repo root has a .git file with a worktree statement in
+            ## it. Therefore we are in a worktree.
+            status=0
+            if [ "$1" = '-v' ]
+            then
+                grep  '/worktrees/' "$git_meta" | sed 's|.*worktrees/||'
+            fi
+        fi
     fi
     return $status
 }
@@ -238,6 +237,8 @@ git-worktree-create ()
                 ((verbose)) && cmd-echo -- "cd ${wtsubdir}"
                 ## dirlist, not builtin cd, to take advantage this cd enhancement
                 dirlist "$localbranchname"
+                wtfullpath=${PWD}
+                cmd-echo -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
             else
                 return $?
             fi
@@ -284,7 +285,19 @@ git-worktree-create ()
         then
             ## Fetch it, Dear Henry...
             declare -a wtargs
-            [[ -z "$pull_request" ]] && wtargs=('--track' '-b' "$localbranchname" )
+            if [[ -z "$pull_request" ]]
+            then
+                wtargs=('--track' '-b' "$localbranchname" )
+            else
+                cmd-echo -wc -- \
+                         "Pulling a PR directly will leave you with a branch that will not" \
+                         "track the remote PR (and cannot be 'git pull'ed to update it)." \
+                         "If you think you're going to want to update the PR, you're better" \
+                         "off cloning the repo where the PR occurred, checking out the" \
+                         "source branch of the repo and working with that. Make sure that" \
+                         "if the PR source is a fork of a canonical, that you establish a" \
+                         "remote to the canonical."
+            fi
             $REALGIT worktree add "${wtargs[@]}" "$localbranchname" "$exists"
             status=$?
             if ((status))
@@ -292,11 +305,13 @@ git-worktree-create ()
                 cmd-echo -- "Aborting."
                 return 1
             fi
-
+            declare respdbg=$(yesno "Continue" "n")
+            [[ $respdbg == 'n' ]] && exit
             ((verbose)) && cmd-echo -- "cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "${wtsubdir}"
             wtfullpath=${PWD}
+            cmd-echo -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
 
             _git_worktree_info_add_fetched_date "$localbranchname"
         else ## ((fetch_existing==0)) && [ -z "$exists" ]
@@ -327,18 +342,17 @@ git-worktree-create ()
                 #### - that think we can tell the difference, we will cautiously do
                 #### - this.
                 local upstream
-                upstream=$(git-is-a-fork -v)
+                upstream=$(git repo is a-fork-of)
                 if [ -n "$upstream" ]
                 then
-                    eval "$(git-parse-remote-v)"
                     # shellcheck disable=SC2154
                     cmd-echo -- \
                              "We think that the local repo" \
                              "    $(git-worktree-get-root)" \
                              "is a clone of the remote repo" \
-                             "    ${gitfuncs_remotes[origin]}"\
+                             "    $(git remote get-url origin)"\
                              "which is, in turn, a fork of" \
-                             "    $(git-is-a-fork -v)" \
+                             "    $(git repo is a-fork-of)" \
                              "meaning that we think we can safely execute" \
                              "    git push origin $asmaster"
                     resp=$(cmd-yesno Ok n)
@@ -349,6 +363,8 @@ git-worktree-create ()
                         cmd-echo -- "Skipping..."
                     fi
                 else
+                    # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
+                    #     ${gitfuncs_remotes[origin]} initialized elsewhere
                     cmd-echo -- \
                              "We think that the local repo" \
                              "    $(git-worktree-get-root)" \
@@ -373,8 +389,8 @@ git-worktree-create ()
             ((verbose)) && cmd-echo -- "cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "${wtsubdir}"
-
             wtfullpath=${PWD}
+            cmd-echo -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
 
             _git_worktree_info_add_created_date "${wtbranch}"
 
@@ -412,6 +428,7 @@ git-worktree-create ()
                  "    git go $repo/wt/${wtsubdir}" \
                  "to use."
     else
+        cmd-echo -dc -- "writting wtfullpath '$wtfullpath' into '$doandcdfile' at line $((LINENO+1)) in $0, func ${FUNCNAME[0]}"
         echo "go $wtfullpath" > "$doandcdfile"
         cmd-echo -n -- "Done. "
     fi
@@ -432,7 +449,7 @@ git-worktree-delete ()
     # Read the options and args from command line. Note that the long and short
     # don't have to match up.
     declare OPTSARGS
-    declare shortopts='yfhk'
+    declare shortopts='yfhkc'
     declare longopts='no-reset,skip-reset,yes,force,help,keep-branch,current'
 
     # Process the command line.
@@ -451,7 +468,7 @@ git-worktree-delete ()
         shift
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
-            current) opt_current=1; wtname="$(basename "${PWD}")" ;;
+            c | current) opt_current=1; wtname="$(basename "${PWD}")" ;;
             no-reset | skip-reset) opt_reset=0; ;;
             y|yes) opt_yes=1; opt_yes_string='--yes'; ;;
             f|force) opt_force=1; ;;
@@ -599,8 +616,6 @@ $(ls -la)"
     fi
 
     ## Cleanup
-    _git_worktree_info_remove "${wtname%/}"
-
     if ((opt_reset))
     then
         cmd-echo -- "Resetting git list..."
@@ -750,15 +765,29 @@ $(ls -la)"
         git-go-set
         if ((opt_current))
         then
-            git go  "$new_wtpath"
+            git go "$new_wtpath"
         fi
     else
         cmd-echo -- "--skip-reset. Run 'git-go-set' at some point."
     fi
 
-    cmd-echo -- "Done."
+    if ((opt_current))
+    then
+        if [ -z "$doandcdfile" ]
+        then
+            cmd-echo -- \
+                     "Done. Execute" \
+                     "    git go $repo/wt/$(basename "$new_wtpath")" \
+                     "to use."
+        else
+            echo "go $new_wtpath" > "$doandcdfile"
+            cmd-echo -n -- "Done. "
+        fi
+    else
+        cmd-echo -- "Done. "
+    fi
 
-    return $?
+    return 0
 }
 
 git-worktree-diff-to-root ()
@@ -812,6 +841,7 @@ git-worktree-diff-to-root ()
     root=${PWD};
     root=${root%%/wt*}
     [ -t "$STDOUT" ] && opt_color=never ## No color if output redirected to a file.
+    declare i
     for i in "${files[@]}"
     do
         declare -a comp=("${root}/$i" "$i")
@@ -837,6 +867,7 @@ git-worktree-get-root ()
     wtr=$($REALGIT worktree list | \
               grep '\[master\]' | \
               sed -E 's/\s+[0-9a-z ]+\[master\]//')
+    declare i
     for i in "${PIPESTATUS[@]}"
     do
         ((i>status)) && status=$i
@@ -881,6 +912,37 @@ git-worktree-mark-merged ()
     git config --replace-all "$branchkey" "$markdate" || return $?
 
     cmd-echo "Worktree $worktreename, branch $branchname marked merged at $markdate"
+}
+
+git-worktree-purge()
+{
+    declare -a wts
+    wts=("$@")
+    [[ -z ${wts[0]} ]] && readarray -t wts < <(git go --listfull --wto)
+    declare wt
+    for wt in "${wts[@]}"
+    do
+        (
+            declare -a msg
+            cd "$wt" || exit 0;
+            cmd-echo -- "$wt"
+            declare ok_to_purge=1
+            if git repo pr -g
+            then
+                ok_to_purge=0
+            fi
+            if ! git repo is pristine -v
+            then
+                ok_to_purge=0
+            fi
+            if ((ok_to_purge))
+            then
+                resp=$(cmd-yesno -dc "Worktree is pristine. Delete it" n)
+                [[ $resp == 'y' ]] && git wt del --current --yes
+            fi
+            echo
+        )
+    done
 }
 
 git-worktree-comment ()
@@ -957,6 +1019,8 @@ git-worktree - git extention of git worktree
  git-worktree get-name
  git-worktree mark-merged|mm
  git-worktree comment
+
+ git-worktree purge [worktree-dir [worktree-dir]... ]
 
 =head1 DESCRIPTION
 
@@ -1097,6 +1161,15 @@ of the comment when written.
 
  git worktree comment "some text explaining where you left off, maybe?"
  git worktree comment -[get|show]
+
+=item purge
+
+This command is different. It does not work on the current worktree. It loops
+over a list of worktrees or, if no list is provided, all the worktrees. If a
+worktree has no open pulls and is completely clean (as determined by 'git repo
+is pristine') then it prompts to accept deleting the worktree.
+
+**NOTE:** Need 'worktrees' command or make this an offshoot of 'git repos'.
 
 =back
 

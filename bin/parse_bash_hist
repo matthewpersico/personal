@@ -3,6 +3,8 @@
 use strict;
 use warnings;
 
+qx(echo \$(date) parse_bash_hist >> ~/audithiststuff);
+
 use Getopt::Long;
 use POSIX qw(strftime);
 use File::Basename;
@@ -29,9 +31,20 @@ my $entry;
 my @files;
 
 if ( $opt{'epoch-ago'} ) {
-    my $index_file = dirname("$ENV{HISTFILE}") . '/.histindex';
+    my $index_file = "$ENV{HISTDIR}/.histindex";
     do $index_file;
-    @files = grep { $index{$_}->{start} >= $opt{'epoch-ago'} } keys %index;
+    @files = grep { $index{$_}->{start} >= $opt{'epoch-ago'} }
+      map {
+        if (   $index{$_}->{start} =~ m/^\d+$/
+            && $index{$_}->{start} =~ m/^\d+$/ )
+        {
+            $_;
+        } else {
+            print STDERR
+              "$_ has bad start and/or end indexing in $index_file\n";
+            ();
+        }
+      } keys %index;
 } else {
     @files = @ARGV;
 }

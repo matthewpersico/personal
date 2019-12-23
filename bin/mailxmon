@@ -1,47 +1,49 @@
 #!/usr/bin/env bash
 
-# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
-source "$BASH_INC_DIR/on_exit.binc"
+(
+    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+    source "$BASH_INC_DIR/on_exit.binc"
 
-do-on-exit END
+    do-on-exit END
 
-END()
-{
-    kill "$tailpid" 2>/dev/null
-    kill "$zenitypid" 2>/dev/null
-}
+    END()
+    {
+        kill "$tailpid" 2>/dev/null
+        kill "$zenitypid" 2>/dev/null
+    }
 
-declare old=/tmp/mailxmon.$$.old
-touch $old
-declare new=/tmp/mailxmon.$$.new
-mailx -H >$new 2>&1
-declare feed=/tmp/mailxmon.$$.feed
-touch $feed
-
-rm-on-exit $old $new $feed
-
-tail -f $feed 2>/dev/null | zenity --text-info --auto-scroll \
-                                   --width=640 --height=200 \
-                                   --title mailxmon.$$ 2>/dev/null &
-sleep 1
-declare zenitypid
-zenitypid=$(pgrep -a zenity | grep mailxmon.$$ | sed 's/ .*//')
-declare alive=$zenitypid
-
-declare tailpid
-tailpid=$(pgrep -P "$$" -a | grep tail | sed 's/ .*//')
-
-while(( alive == zenitypid ))
-do
+    declare old=/tmp/mailxmon.$$.old
+    touch $old
+    declare new=/tmp/mailxmon.$$.new
     mailx -H >$new 2>&1
-    if diff $old $new 1>/dev/null 2>&1 ## success (0) is no diffs
-    then
-        echo >/dev/null
-    else
-        (date && cat $new && echo) >$feed
-        cp $new $old
-    fi
+    declare feed=/tmp/mailxmon.$$.feed
+    touch $feed
+
+    rm-on-exit $old $new $feed
+
+    tail -f $feed 2>/dev/null | zenity --text-info --auto-scroll \
+                                       --width=640 --height=200 \
+                                       --title mailxmon.$$ 2>/dev/null &
     sleep 1
-    alive=$(pgrep -a zenity | grep mailxmon.$$ | sed 's/ .*//')
-done
-echo
+    declare zenitypid
+    zenitypid=$(pgrep -a zenity | grep mailxmon.$$ | sed 's/ .*//')
+    declare alive=$zenitypid
+
+    declare tailpid
+    tailpid=$(pgrep -P "$$" -a | grep tail | sed 's/ .*//')
+
+    while(( alive == zenitypid ))
+    do
+        mailx -H >$new 2>&1
+        if diff $old $new 1>/dev/null 2>&1 ## success (0) is no diffs
+        then
+            echo >/dev/null
+        else
+            (date && cat $new && echo) >$feed
+            cp $new $old
+        fi
+        sleep 1
+        alive=$(pgrep -a zenity | grep mailxmon.$$ | sed 's/ .*//')
+    done
+    echo
+) &

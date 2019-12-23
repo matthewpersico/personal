@@ -1,6 +1,9 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-find" >> "$HOME/.gitaudit"
+
 # git-find
+
 # shellcheck disable=SC2034
 declare DEBUG__this_script=$0
 
@@ -15,7 +18,8 @@ declare opt_grep_opts_verbose=''
 declare -a opt_grep_opts_exclude
 declare opt_edit=0
 declare opt_abspath=0
-declare opt_la=0
+declare opt_ls=0
+declare opt_files_only=0
 declare timecompfile=''
 declare timecomp=''
 declare moreopts=1
@@ -40,7 +44,8 @@ do
         newer) timecomp='-nt';timecompfile=$1;shift ;;
         older) timecomp='-ot';timecompfile=$1;shift ;;
         abspath) opt_abspath=1 ;;
-        la) opt_la=1 ;;
+        ls) opt_ls=1 ;;
+        files-only | fo ) opt_files_only=1 ;;
         --) moreopts=0;;
         *) cmd-echo -- "$original is an invalid option. See $0 --help"
            exit 1 ;;
@@ -58,6 +63,11 @@ then
     declare exitval=1 ## bad - no files found
     for gitfile in $(git ls-files)
     do
+
+        if ((opt_files_only)) && [[ ! -f $gitfile ]]
+        then
+            continue
+        fi
         declare timecompstat
         test  "$gitfile" "$timecomp" "$timecompfile"; timecompstat=$?
         if ((timecompstat==0))
@@ -65,7 +75,9 @@ then
             exitval=0 ## good - at least one file found
             if (( opt_abspath ))
             then
-                realpath "$gitfile"
+                ## Preserve symlinks; do not resolve through to the underlying
+                ## file.
+                realpath -s "$gitfile"
             else
                 echo "$gitfile"
             fi
@@ -178,6 +190,11 @@ for f in "${to_find[@]}"
 do
     for ff in $(git ls-files "${ls_files_opts[@]}" "$(git rev-parse --show-toplevel)" | grep "${opt_grep_opts[@]}" "$f" | sort -u )
     do
+        if ((opt_files_only)) && [[ ! -f $gitfile ]]
+        then
+            continue
+        fi
+
         ffb=$(basename "$ff")
         if [[ $ffb =~ $f ]]
         then
@@ -215,13 +232,13 @@ then
     fi
     $EDITOR "${output[@]}"
 else
-    declare i
-    if ((opt_la))
+    if ((opt_ls))
     then
         # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
         # we want an ls here, not a find
         ls -la "${output[@]}" | uniq
     else
+        declare i
         for i in  "${output[@]}"
         do
             echo "$i"
@@ -244,13 +261,15 @@ git-find - run a 'find'-like command on the current repo
 
 =head1 SYNOPSIS
 
- git-find [-i] [-x exclude_pattern[,exclude_pattern...] \
-          [--untracked_only|-u] [--all|-a] [--edit|-e] pattern [pattern...]
+ git-find [-ls] [-i] [-x exclude_pattern[,exclude_pattern...] \
+          [--untracked_only|-u] [--all|-a] [--edit|-e] [--files-only] \
+          pattern [pattern...] \
+
  git-find --conflicts [-n|-l] [--edit|-e]
  git-find [--deleted|--last-existed] file
  git-find --git-dir
- git-find --newer markerfile [--abspath]
- git-find --older markerfile [--abspath]
+ git-find --newer markerfile [--abspath] [--files-only]
+ git-find --older markerfile [--abspath] [--files-only]
  git-find [--help|-h]
 
 =head1 DESCRIPTION
@@ -276,6 +295,10 @@ match and matched the directory.
 
 =over 4
 
+=item -ls
+
+Run ls -la on the found items instead of just printing them.
+
 =item -i
 
 Case insensitive matching.
@@ -290,10 +313,6 @@ match. Mutually exclusive.
 Files that match the regular expression given are excluded. Multiple patterns
 can be comma separated and multiple -x options can be specified.
 
-=item --edit|-e
-
-For searches or conflicts, edit the files found using the editor defined in $EDITOR.
-
 =item --untracked-only
 
 Consider only those files that are NOT objects in the repo.
@@ -301,6 +320,14 @@ Consider only those files that are NOT objects in the repo.
 =item --all
 
 Look at all files; those that are repo objects and those that are not (untracked).
+
+=item --edit|-e
+
+For searches or conflicts, edit the files found using the editor defined in $EDITOR.
+
+=item --files-only | -fo
+
+For searches, only show files. Sometimes 'git ls-files' will show directories too.
 
 =item --conflicts
 
