@@ -26,7 +26,7 @@ usage ()
 
 ## Functions that encapsulate the enhanced functionality. main() is defined
 ## last and called last.
-git-commit-wscl()
+git-commit-scl()
 {
     git-commit-with-source-ctrl-log-guts "$@"
     return $?
@@ -34,7 +34,7 @@ git-commit-wscl()
 
 main ()
 {
-    declare opt_wscl=0
+    declare opt_scl=0
     declare moreopts=1
     declare -a pass_on_args
     declare -a opt_message
@@ -74,13 +74,17 @@ main ()
                     usage ''
                     exit 0
                     ;;
-                wc )
-                    cmd-echo -- "-wc is deprecated. Use -wscl"
+                wc | wscl )
+                    cmd-echo -- "--$option is deprecated. Use --scl in the future."
                     ;& ## bash fall through and unconditionally execute next case
-                wscl )
-                    opt_wscl=1
+                scl )
+                    opt_scl=1
                     ## no pass_on_args here, we use the flag as a switch later
                     continue
+                    ;;
+                sclonly )
+                    opt_scl=1
+                    ## We DO pass this arg on
                     ;;
                 eref )
                     opt_extref=" - ${ovalue:-$1}"
@@ -160,9 +164,9 @@ ${message:$limidx} - $(git worktree get-name)"
     done
 
     ((do_push)) && cmd-echo -- 'Committing...'
-    if ((opt_wscl))
+    if ((opt_scl))
     then
-        git-commit-wscl "${pass_on_args[@]}"
+        git-commit-scl "${pass_on_args[@]}"
     else
         if [ -n "${opt_message[1]}" ]
         then
@@ -193,7 +197,8 @@ git-commit - git extention of git commit
 
 =head1 SYNOPSIS
 
- git commit -wscl
+ git commit -scl
+ git commit -sclonly
  git commit -m[emojid] "message" [-eref reference |-dref]
  git commit --no-hooks
  git commit --push
@@ -206,9 +211,19 @@ Extensions to the 'git commit' command. Any action not described here will be pa
 
 =over 4
 
-=item --wscl
+=item --scl
 
-Use the local $GITFUNCS_SOURCE_CTRL_LOG_NAME file for commit messages.
+Use the local $GITFUNCS_SOURCE_CTRL_LOG_NAME file for commit
+messages.
+
+=item --sclonly
+
+Only process files that have entries in $GITFUNCS_SOURCE_CTRL_LOG_NAME. The
+default is to fail if a file to be considered is missing an entry in
+$GITFUNCS_SOURCE_CTRL_LOG_NAME. In general, do not specify particlar files when
+using this flag. Let the contents of the file determine which files to
+commit. **Note** - you still need to use the '-a' flag to consider files that
+have been modifed but not yet added to the index.
 
 =item -m[emjoid]
 
