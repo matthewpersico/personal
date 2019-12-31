@@ -222,10 +222,21 @@ fi
 
 ## Backup
 source_ctrl_logbkp="${source_ctrl_log}.bkp"
-[[ -f "$source_ctrl_log" ]] && cp -f "$source_ctrl_log" "$source_ctrl_logbkp"
+if [[ -f "$source_ctrl_log" ]]
+then
+    cp "$source_ctrl_log" "$source_ctrl_logbkp"
+    status=$?
+    if ((status != 0))
+    then
+        cmd-echo --ec -- "Error backing up $source_ctrl_log"
+        exit 1
+    fi
+fi
 
 ## Parse
-if ! process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
+process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
+status=$?
+if ((status != 0))
 then
     rollback
     exit $status
@@ -233,8 +244,10 @@ fi
 
 ## We rebuild the filelist from the commit message file so that we can account
 ## for having changed the file list in process-source-control-log.
+## NOTE: If you change the lead character for items in process-source-control-log,
+## make sure you also change it here -------------------------------------------v
 declare -a filelist_refreshed
-mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY TEXT HERE|o | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$parsed_cl_commit")
+mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY TEXT HERE|- | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$parsed_cl_commit")
 cmd-echo "About to commit" "${filelist_refreshed[@]}"
 if ((opt_confirm))
 then
