@@ -519,9 +519,9 @@ $(ls -la)"
     builtin cd "$wtpath" || ( cmd-echo -- "Cannot cd $wtpath" && return 1)
 
     ## Make sure we are in a proper worktree.
-    if [ ! -f .git ]
+    if ! git-worktree-ina
     then
-        cmd-echo -- "$wtname is not a proper worktree for deletion, missing '.git' file"
+        cmd-echo -- "$wtname is not a proper worktree for deletion"
         return 1
     fi
 
@@ -816,13 +816,14 @@ git-worktree-diff-to-root ()
         shift ## That way you avoid endless loops on invalid options.
 
         case $option in
-            reverse   ) opt_reverse=1 ;;
-            color     ) opt_color=$1; shift ;;
-            w         ) diff_opts+=('-w') ;; ## note: where are the other opts set?????
-            help      ) echo "No documentation yet. Sorry."; return 0 ;;
-            debug | x ) set -x ;;
-            --        ) moreopts=0 ;;
-            *         ) echo "$original is an invalid option. See $0 --help"; return 1;;
+            reverse     ) opt_reverse=1 ;;
+            color       ) opt_color=$1; shift ;;
+            w|name-only ) diff_opts+=("$option") ;;
+            l           ) diff_opts+=('--name-only') ;;
+            help        ) echo "No documentation yet. Sorry."; return 0 ;;
+            debug | x   ) set -x ;;
+            --          ) moreopts=0 ;;
+            *           ) echo "$original is an invalid option. See $0 --help"; return 1;;
         esac
     done
 
@@ -883,6 +884,11 @@ git-worktree-get-root ()
     fi
 }
 
+git-worktree-show-merged ()
+{
+    git config --get-regexp em-markedmerged
+}
+
 git-worktree-mm ()
 {
     git-worktree-mark-merged "$@"
@@ -890,10 +896,72 @@ git-worktree-mm ()
 
 git-worktree-mark-merged ()
 {
+    local opt_current=0
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    declare OPTSARGS
+    declare shortopts='c'
+    declare longopts='current'
+
+    # Process the command line.
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
+    declare status=$?
+    ((status != 0)) && return $status
+
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    while true
+    do
+        declare option=$1
+        shift
+        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+        case "$option" in
+            c | current) opt_current=1; wtname="$(basename "${PWD}")" ;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo -ec -- "$option is an invalid option. See $0 --help"
+                return 1
+                ;;
+        esac
+    done
+
+    ! _git_worktree_check_set_pwd $opt_current && return 1
+    local wtroot
+    wtroot="${PWD}"
+
+    if [ -z "$wtname" ]
+    then
+        wtname="$1"; shift
+    elif [ -n "$1" ]
+    then
+        cmd-echo -- "Cannot specify a worktree and --current"
+        return 1
+    fi
+
+    if [ -z "$wtname" ]
+    then
+        cmd-echo -- "Worktree not specified"
+        return 1
+    fi
+    if [ ! -d "$wtname" ]
+    then
+        cmd-echo -- "Cannot find worktree $wtname
+$(ls -la)"
+        return 1
+    fi
+    local wtpath
+    wtpath="$wtroot/$wtname"
+
+    builtin cd "$wtpath" || ( cmd-echo -- "Cannot cd $wtpath" && return 1)
+
     # shellcheck disable=SC2119
     if ! git-worktree-ina
     then
-        cmd-echo -- "Must be in a worktree"
+        cmd-echo -- "$wtname is not a proper worktree for marking merged"
         return 1;
     fi
 
@@ -1018,6 +1086,7 @@ git-worktree - git extention of git worktree
  git-worktree ina
  git-worktree get-name
  git-worktree mark-merged|mm
+ git-worktree show-merged
  git-worktree comment
 
  git-worktree purge [worktree-dir [worktree-dir]... ]
@@ -1153,6 +1222,10 @@ synonym for <C>get worktree ina -v</C>.
 Write configs 'worktree.<worktreename>.em-markmerged' and
 'branch.<branchname>.em-markmerged' as the current date and time. Use this if
 the worktree has been merged and can be deleted by some periodic sweep process.
+
+=item show-merged
+
+Show the 'em-markmerged' entries for the current repo.
 
 =item comment
 

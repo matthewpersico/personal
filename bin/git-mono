@@ -21,7 +21,7 @@ set_repos ()
 {
     declare repo=$1
     declare option=$2
-    declare nowt=$3
+    declare opt_wt=$3
 
     declare -a repos_tmp
     if [ "$repo" = ':all' ]
@@ -36,7 +36,7 @@ set_repos ()
     then
         for repo_pattern in "${repos_tmp[@]}"
         do
-            for repo in $( git go --listfull "$nowt" "$repo_pattern")
+            for repo in $( git go --listfull "$opt_wt" "$repo_pattern")
             do
                 repos[$repo]=1
             done
@@ -60,7 +60,7 @@ main ()
     declare opt_pause=0
     declare repo
     declare opt_rcge=-1
-    declare opt_nowt=''
+    declare opt_wt=''
     fmt=''
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
@@ -88,8 +88,8 @@ main ()
             u | update )
                 opt_update=1
                 ;;
-            nowt )
-                opt_nowt='--nowt'
+            nowt | wto )
+                opt_wt="--$option"
                 ;& # unconditional drop-through
             all )
                 option=r
@@ -98,7 +98,7 @@ main ()
             r | rp | repo | repopatt )
                 opt_repo=${ovalue:-$1}
                 [ -z "$ovalue" ] && shift
-                set_repos "$opt_repo" "$option" "$opt_nowt"
+                set_repos "$opt_repo" "$option" "$opt_wt"
                 ;;
             p | pause )
                 opt_pause=1
@@ -254,11 +254,12 @@ git mono - run a git command over a list of repos
 
 =head1 SYNOPSIS
 
- git mono [-r repo[,repo...] [ --repo repo[,repo ...] ... ] ] \
+ git mono [ [-r repo[,repo...] [ --repo repo[,repo ...] ... ] ] \
+            [--rp repopatt[,repopatt...] [ --rp repopatt[,repopatt ...] ... ] ] \
+            | \
+            [--wto|--nowt|--all] \
+          ] \
           [--quiet|--silent|--rcge n] [-u|--update] command [arg|'{LSFILES}'|'{REPO}']...
-
- git mono [--rp repopatt[,repopatt...] [ --rp repopatt[,repopatt ...] ... ] ] \
-          [--quiet|--silent--rcge n] [-u|--update] command [arg|'{LSFILES}'|'{REPO}']...
 
 =head1 DESCRIPTION
 
@@ -281,6 +282,10 @@ A repo spec that matches one or more repos via 'gitgo --listfull'. If the repo
 spec is ':all', we search all repos we can find. Multiple options and comma
 separated lists are both accepted. If neither --repo or --repopatt are
 specified, we will execute over all repos found via 'gitgo --listfull'.
+
+=item --all
+
+Same as -r :all
 
 =item --quiet
 

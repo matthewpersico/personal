@@ -36,17 +36,18 @@ _git-clone-set-triangle()
     declare githost_url
     githost_url=$1
     declare githostkeycheck
-    githostkeycheck=$(kvstore keys gitfuncs_git_svcs | grep -E "^$githost_url$")
+    # "kvstore replacement: githostkeycheck=\$(kvstore keys gitfuncs_git_svcs | grep -E \"^$githost_url\$\""
+    githostkeycheck=$( git kv --key-only --section svcs | grep -E "^$githost_url$")
     if [ -n "$githostkeycheck" ] ; then
         echo "Supposed to provide a URL, not a service name. Converting..."
-        githost_url=$(kvstore get gitfuncs_git_svcs "$githostkeycheck")
+        # "kvstore replacement: githost_url=\$(kvstore get gitfuncs_git_svcs \"$githostkeycheck\""
+        githost_url=$(git kv --get "svcs.githostkeycheck")
         if [ -z "$githost_url" ]
         then
             echo "No url found for githost '$1'";
             return 1
         fi
     fi
-
     declare upstream_namespace
     upstream_namespace=$2
     declare origin_namespace
@@ -237,13 +238,15 @@ main ()
     ashift pass_on
 
     declare githost_url
-    githost_url="$(kvstore get gitfuncs_git_urls "$githost")"
+    ## "kvstore replacement: githost_url=\"\$(kvstore get gitfuncs_git_urls \"$githost\")"
+    githost_url="$(git kv --get "urls.${githost}")"
     if [ -z "$githost_url" ]
     then
-        cmd-echo -id "$cmd_echo_id" -- "$githost is unknown. Valid githosts are:$(kvstore vals gitfuncs_git_svcs)"
+        ## "kvstore replacement: Valid githosts are:\$(kvstore vals gitfuncs_git_svcs)"
+        cmd-echo -id "$cmd_echo_id" -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
         return 1
     fi
-
+set +x
     if [[ "$namespace" == */* ]]
     then
         declare -a tmpa
@@ -415,6 +418,7 @@ main ()
         fi
     fi
 
+    set -x
     ## dirlist, not builtin cd, to take advantage this cd enhancement
     dirlist "$namespace/$repo"
     if [ -n "$opt_triangle_namespace" ]
@@ -428,6 +432,7 @@ main ()
         git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || return $?
         ## ^ allows git checkout -b 3 pull/origin/3
     fi
+    set +x
     git remote -v
 
     if ((opt_worktree))
