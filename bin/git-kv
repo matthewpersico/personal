@@ -1,0 +1,127 @@
+#!/usr/bin/env bash
+
+echo "$(date): git-kv" >> "$HOME/.gitaudit"
+
+# git-kv
+
+[[ $1 =~ -h ]] && bash-usage "$0" && exit 0
+[[ $1 =~ --(raw|cat) ]] && cat ~/.gitfuncs.kv && exit 0
+
+declare -a args
+declare arg
+declare opt_key_only=0
+declare opt_val_only=0
+declare opt_pair_only=0
+declare opt_section=0
+
+for arg in "$@"
+do
+    if [[ $arg =~ --key ]]
+    then
+        opt_key_only=1
+        args+=(--name-only)
+    elif [[ $arg =~ --val ]]
+    then
+        opt_val_only=1
+    elif [[ $arg == '--add-idne' ]]
+    then
+        args+=(--replace-all)
+    elif [[ $arg == '--section' ]]
+    then
+        opt_section=1
+        opt_pair_only=1
+        args+=(--get-r)
+    else
+        args+=("$arg")
+    fi
+done
+
+if ((opt_section))
+then
+    args[-1]="^${args[-1]}\\."
+fi
+
+declare -a outcmd=('cat')
+if ((opt_key_only))
+then
+    outcmd=('sed' 's/.*\.//')
+elif ((opt_val_only))
+then
+    outcmd=('sed' 's/.* //')
+elif ((opt_pair_only))
+then
+    outcmd=('sed' 's/.*\.//')
+fi
+
+"$REALGIT" config -f ~/.gitfuncs.kv "${args[@]}" | "${outcmd[@]}"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-kv - Access to key/value pairs for my git utilities
+
+=head1 SYNOPSIS
+
+ git kv --get section.name
+ git kv [--key[-only]|--val[-only]] --section section
+ git kv --add-idne completekey value
+ git kv --raw|--cat
+
+ git kv [--key[-only]|--val[-only]] --get-r partialkey
+
+=head1 DESCRIPTION
+
+Shortcut for 'git config -f ~/.gitfuncs.kv'. The store is organized into
+sections for key value pairs.
+
+[section]
+  key = value
+
+=head1 OPTIONS
+
+All the options for 'git config' can be used here. The most applicable ones are
+below.
+
+=over 4
+
+=item --get
+
+Treat the argument as an exact string 'section.key'. Prints the one value that
+matches.
+
+=item --section
+
+Assumes the argument it is a complete section specifier, converts it to
+'^section\\.' and performs a --get-r on the result to look up all the entries
+of one section. Prints 'key value', one per line.
+
+=item --key[-only], --val[-only]
+
+Default output prints 'section.key value' or 'key value' depending on other options. We add
+
+ --key-only to print just the key (no section or value)
+ --val-only to print just the value (no section or key)
+
+=item --add-idne
+
+'idne' is short for 'if does not exist'. The 'git config' command will happily
+let you duplicate exact keys and values. Using this flag instead of '--add'
+ensures that you have only one key value pair in your file.
+
+=item --raw|--cat
+
+Print the contents of ~/.gitfuncs.kv as is, no lookups, filters or formats.
+
+=item --get-r[egexp]
+
+Treat the argument as a regular expression when looking up the key. Assumes a
+'.*' at start and end of key expression. Most useful when looking up all the
+key values in a particular section, using '^section\\.'. Prints 'section.key
+value', one per line.
+
+=back
+
+=cut
+
+__PODUSAGE__

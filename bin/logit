@@ -31,13 +31,13 @@ original_argv+=("$0" "$@")
 # don't have to match up.
 declare OPTSARGS
 declare shortopts='kz'
-declare longopts #='isat,at:,tee,zenity,zw:,zh:log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprev,purgeyesterday,notimestamp,tpye,tppe,tpae,tpe,ts,help,logonly,env:'
+declare longopts #='isat,at:,tee,zenity,zw:,zh:log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprev,purgeyesterday,notimestamp,tpye,tppe,tpae,tpe,zpe,ts,help,logonly,env:'
 
 ajoin longopts -s , \
       isat at: tee zenity zw: zh: log: dir: \
       edit edit-on-fail edit-echo \
       purge purgeprev purgeyesterday \
-      notimestamp tpye tppe tpae tpe ts help logonly \
+      notimestamp tpye tppe tpae tpe zpe ts help logonly \
       env:
 
 # Process the command line.
@@ -101,7 +101,20 @@ do
         tee)
             teeit=1
             ;;
-        z* )
+        zpe | zpae | zppe | zpye )
+            purge=all
+            case "$option" in
+                zppe)
+                    purge=prev
+                    ;;
+                zpye)
+                    purge=yesterday
+                    ;;
+            esac
+            edit="$LOGIT_EDITOR"
+            [ -z "$edit" ] && edit="$EDITOR"
+            ;& ## unconditional dropthrough
+        z | zenity )
             zenityit=1
             zenity_geo=(--width 1320 --height 800)
             case "$option" in
@@ -133,23 +146,19 @@ do
         notimestamp)
             notimestamp=1
             ;;
-        tpe | tpae )
+        tpe | tpae | tppe | tpye )
             teeit=1
+            edit="$LOGIT_EDITOR"
+            [ -z "$edit" ] && edit="$EDITOR"
             purge=all
-            edit="$LOGIT_EDITOR"
-            [ -z "$edit" ] && edit="$EDITOR"
-            ;;
-        tppe)
-            teeit=1
-            purge=prev
-            edit="$LOGIT_EDITOR"
-            [ -z "$edit" ] && edit="$EDITOR"
-            ;;
-        tpye)
-            teeit=1
-            purge=yesterday
-            edit="$LOGIT_EDITOR"
-            [ -z "$edit" ] && edit="$EDITOR"
+            case "$option" in
+                tppe)
+                    purge=prev
+                    ;;
+                tpye)
+                    purge=yesterday
+                    ;;
+            esac
             ;;
         ts)
             tsit=1
@@ -561,6 +570,14 @@ OPTIONS:
       --tppe   - A shortcut for --tee --purgeprev --edit.
 
       --tpye   - A shortcut for --tee --purgeyesterday --edit.
+
+      --zpe|zpae
+               - A shortcut for --zenity --purge --edit, the three most commonly
+                 used switches. 'pa' is purge all, which is the default.
+
+      --zppe   - A shortcut for --zenity --purgeprev --edit.
+
+      --zpye   - A shortcut for --zenity --purgeyesterday --edit.
 
       --ts     - Use the 'ts' command to prepend a time stamp to each
                  output line.
