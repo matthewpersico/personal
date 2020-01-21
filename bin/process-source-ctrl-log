@@ -195,20 +195,24 @@ sub parse_scl {
     }
 
     my @chunks;
-
+    my $in_chunk = 0;
     # First we chunk the file
   LINE: while (<$sclih>) {
         chomp;
-        if ( $_ =~ /^\d{4,4}-\d{2,2}-\d{2,2}/ ) {
-            push @chunks,
-              {
-                entry_id => $entry_id++,
-                text     => [$_]
-              };
-            next LINE;    # ignore
-        } else {
-            push @{ $chunks[-1]->{text} }, $_;
+        if ( $_ eq '' ) {
+            $in_chunk = 0;
+            next LINE;
         }
+        if ($in_chunk) {
+            push @{ $chunks[-1]->{text} }, $_;
+            next LINE;
+        }
+        push @chunks,
+          {
+            entry_id => $entry_id++,
+            text     => [$_]
+          };
+        $in_chunk = 1;
     }
     $sclih->close();
 
