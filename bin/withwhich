@@ -3,6 +3,7 @@
 declare moreopts=1
 declare o_verbose=0
 declare o_exec=1
+declare o_all=''
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
     declare original="$1"
@@ -17,6 +18,8 @@ do
         noexec | n )
             o_exec=0
             o_verbose=1
+            ;;
+        a ) o_all='a'
             ;;
         --)
             moreopts=0
@@ -36,31 +39,40 @@ then
     exit
 fi
 
+
 declare found
-found=$(type -P "$lookfor")
-if [ -n "$found" ]
-then
-    declare -a run
-    declare i=-1
-    declare r
-    for r in "$@"
-    do
-        if [ "$r" = '%' ]
-        then
-            run[((i+=1))]="$found"
-            found=''
-        else
-            run[((i+=1))]="$r"
-        fi
-    done
-    ((o_verbose)) && echo "${run[*]} $found"
-    if((o_exec))
+declare -a lookfors
+readarray -t lookfors < <(type -P"$o_all" "$lookfor")
+case ${#lookfors[@]} in
+    0 ) ((o_verbose)) && cmd-echo --ec -- "$lookfor not found"
+        exit 1;;
+    1 ) found=${lookfors[0]}
+        ;;
+    * ) select found in "${lookfors[@]}" "quit"
+        do
+            [[ $found = 'quit' ]] && exit 0
+            [[ -n $found ]] && break
+        done
+esac
+
+declare -a run
+declare i=-1
+declare r
+for r in "$@"
+do
+    if [ "$r" = '%' ]
     then
-        "${run[@]}" $found
+        run[((i+=1))]="$found"
+        found=''
     else
-        echo "no-exec mode"
+        run[((i+=1))]="$r"
     fi
-    exit $?
+done
+((o_verbose)) && echo "${run[*]} $found"
+if((o_exec))
+then
+    "${run[@]}" $found
 else
-    exit 1
+    echo "no-exec mode"
 fi
+exit $?

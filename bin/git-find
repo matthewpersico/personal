@@ -20,6 +20,8 @@ declare opt_edit=0
 declare opt_abspath=0
 declare opt_ls=0
 declare opt_files_only=0
+declare opt_checkout=0
+declare opt_show=0
 declare timecompfile=''
 declare timecomp=''
 declare moreopts=1
@@ -39,6 +41,9 @@ do
         conflict*) opt_conflicts=1;;
         deleted) opt_deleted=1;;
         last-existed) opt_last_existed=1;;
+        checkout) opt_le_checkout=1;;
+        get) opt_le_get=1;;
+        show) opt_le_show=1;;
         git-dir) opt_git_dir=1;;
         h|help) bash-usage "$0"; exit 0 ;;
         newer) timecomp='-nt';timecompfile=$1;shift ;;
@@ -52,11 +57,26 @@ do
     esac
 done
 
+if (( ! opt_last_existed ))
+then
+    declare local_e=0
+    (( opt_le_checkout )) && cmd-echo --ec "Option --checkout only applies to --last-existed" &&  local_e=1
+    (( opt_le_get )) && cmd-echo --ec "Option --get only applies to --last-existed" &&  local_e=1
+    (( opt_le_show )) && cmd-echo --ec "Option --show only applies to --last-existed" &&  local_e=1
+    (( local_e )) && exit 1
+else
+    if (( opt_le_checkout + opt_le_get + opt_le_show > 1))
+    then
+        cmd-echo --ec "Options --checkout, --get, and --show are mutex"
+        exit 1
+    fi
+fi
+
 if [ -n "$timecomp" ]
 then
     if [ ! -f "$timecompfile" ]
     then
-        cmd-echo -- "Cannot find file '$timecompfile' for $timecomp comparison"
+        cmd-echo --ec -- "Cannot find file '$timecompfile' for $timecomp comparison"
         exit 1
     fi
 
@@ -138,8 +158,43 @@ fi
 
 if ((opt_last_existed))
 then
-    git rev-list -n 1 "$(git rev-list -n 1 HEAD -- "$1")"^ -- "$1"
-    exit $?
+    declare file=$1; shift
+    if [[ -f $file ]]
+    then
+        cmd-echo --ec -- "--last-existed does not apply; '$file' still exists"
+        exit 1
+    fi
+
+    declare le_sha
+    le_sha=$(git rev-list -n 1 "$(git rev-list -n 1 HEAD -- "$file")"^ -- "$file")
+    [[ -z $le_sha ]] && cmd-echo -- "'$file' not located history" && exit 1
+    if (( opt_le_show ))
+    then
+        git show "${le_sha}:${file}" || exit 1
+        exit 0
+    fi
+    if (( opt_le_get ))
+    then
+        declare resp
+        resp=$(cmd-yesno 'Do you want to restore the file directly with --checkout instead of --get' 'n')
+        if [[ $resp == 'n' ]]
+        then
+            git show "${le_sha}:${file}" > "$(git root)/${file}.${le_sha}" || exit $?
+            cmd-echo "Contents in ${file}.${le_sha}"
+            exit 0
+        else
+            opt_le_checkout=1
+        fi
+    fi
+    if (( opt_le_checkout ))
+    then
+        git checkout "${le_sha}" "${file}" || exit $?
+        exit 0
+    fi
+
+    ## If we get here, just print the sha
+    echo "$le_sha"
+    exit 0
 fi
 
 if ((opt_git_dir))
@@ -266,7 +321,8 @@ git-find - run a 'find'-like command on the current repo
           pattern [pattern...] \
 
  git-find --conflicts [-n|-l] [--edit|-e]
- git-find [--deleted|--last-existed] file
+ git-find [--deleted] file
+ git-find [--last-existed [ --show|--get|--checkout] file
  git-find --git-dir
  git-find --newer markerfile [--abspath] [--files-only]
  git-find --older markerfile [--abspath] [--files-only]
@@ -333,10 +389,30 @@ For searches, only show files. Sometimes 'git ls-files' will show directories to
 
 Find files with git conflict markers in them.
 
-=item --deleted|--last-existed
+=item --deleted
 
-Print the commit id in which the given file was deleted from git or last
-existed in git, respectively.
+Print the commit id in which the given file was deleted from git.
+
+=item --last-existed
+
+Print the commit id in which the given file existed in git before being deleted. Suboptions are:
+
+=over 4
+
+=item --show
+
+Print the contents of the file to stdout.
+
+=item --get
+
+Save the contents to a file with the same name, but with the commit id appended.
+
+=item --checkout
+
+Checkout that file from that commit id. TODO: Does that do a restore with the
+commit history retained?
+
+=back
 
 =item --git-dir
 
