@@ -1,0 +1,331 @@
+#!/usr/bin/env bash
+
+# toxic
+
+declare verbose=0
+[[ $1 =~ -h ]] && bash-usage "$0" && exit 0
+[[ $1 =~ -v ]] && verbose=1 && shift;
+
+start_action ()
+{
+    echo "$1" > "$rc"
+    cmd-echo -- "$2..."
+
+}
+
+end_action ()
+{
+    echo "${1}ok" > "$rc"
+    idx="${actions[$action]}"
+    ((idx+=1))
+    action="${actions_list[$idx]}"
+    ((stop_here)) && exit 1
+}
+
+ok_action ()
+{
+    idx="${actions[$action]}"
+    action="${actions_list[$idx]}"
+}
+
+## Main
+declare draacc='flake' # default_restart_action_after_code_change
+declare -a actions_list=(clean redo flake black mypy test doc end)
+declare actions_re
+ajoin actions_re -s '|' "${actions_list[@]}"
+
+declare -A actions
+declare action_idx=0
+declare action
+for action in "${actions_list[@]}"
+do
+    key="$action"
+    actions[$key]=$action_idx
+    ((action_idx+=1))
+    key="${action}ok"
+    actions[$key]=$action_idx
+done
+
+declare last_action=$draacc
+declare override_action
+
+declare rc
+rc=$(git root)/.toxic
+if [ -e "$rc" ]
+then
+    last_action=$(cat "$rc")
+else
+    touch -t 197001010000 "$rc"
+fi
+
+declare stop_here=0
+declare opt_only=0
+if [[ "$1" = '--only' ]]
+then
+    stop_here=1
+    opt_only=1
+    shift
+fi
+
+if [[ -n $1 ]] && [[ $1 =~ ^($actions_re)$ ]]
+then
+    override_action=$1
+    shift
+fi
+
+if [[ -n $override_action ]]
+then
+    override_action_int=${actions[$override_action]}
+    last_action_int=${actions[$last_action]}
+    if ((override_action_int > last_action_int )) \
+           && [[ $action != "clean" ]] \
+           && [[ $action != "redo" ]] \
+           && ((opt_only==0))
+    then
+        cmd-echo -ec -- "$override_action cannot be executed; last phase executed was '$last_action'." \
+                 "Delete .toxic if you really want to override."
+        exit 1
+    else
+        action=$override_action
+    fi
+else
+    action=$last_action
+    declare -a newer
+    mapfile -t newer < <(cd "$(git root)" && git find --abspath --newer "$rc")
+    if [ -n "${newer[0]}" ] \
+           && [[ $action != "$draacc" ]] \
+           && [[ $action != 'clean' ]] \
+           && [[ $action != 'redo' ]] \
+           && [[ $action != 'end' ]]
+    then
+        cmd-echo --wc -- "The following files have changed since the last toxic run:"
+        ls -lat "${newer[@]}"
+        if [[ -n $override_action ]]
+        then
+            cmd-echo --wc -- "Ignoring your stage override request of $override_action"
+        fi
+        cmd-echo --wc -- "Restarting at $draacc"
+        echo "$draacc" > "$rc"
+        exec "$0"
+    fi
+fi
+
+declare redo=0
+while [[ -n $action ]]
+do
+    case $action in
+        clean )
+            start_action "$action" "cleaning"
+
+            ((verbose)) && cmd-echo --color BLUE -- 'git dorealclean'
+            git dorealclean || exit $?
+
+            end_action "$action"
+            ;;
+
+
+        redo | test )
+            if [[ $action == 'redo' ]]
+            then
+                args=('-r')
+                action="test" ## to get the end status right for restart.
+                start_action "$action" "redoing"
+            else
+                args=("$@")
+                start_action "$action" "testing"
+            fi
+            if [[ -e ./wt ]]
+            then
+                args+=('--' '--ignore=wt')
+            fi
+
+            ((verbose)) && cmd-echo --color BLUE -- "tox ${args[*]} "
+            tox "${args[@]}" || exit 1
+
+            end_action "$action"
+            ;;
+
+        flake )
+            start_action "$action" "flaking"
+
+            ((verbose)) && cmd-echo --color BLUE -- 'tox -e flake8'
+            tox -e flake8 || exit 1
+
+            end_action "$action"
+            ;;
+
+        mypy )
+            start_action "$action" "mypying"
+
+            cmd-echo --dc -- 'Creating arg to mypy by looking for the path of a non-test __init__.py'
+            declare mypyarg
+            mypyarg=$(dirname "$(git find __init__.py | grep -v test)")
+            ((verbose)) && cmd-echo --color BLUE -- "tox -e mypy -- $mypyarg"
+            tox -e mypy -- "$mypyarg" || exit 1
+
+            end_action "$action"
+            ;;
+
+        black )
+            start_action "$action" "blacking"
+
+            ((verbose)) && cmd-echo --color BLUE -- 'tox -e black'
+            if ! tox -e black
+            then
+                cmd-echo -wc -- 're-blacking to fix...'
+                ((verbose)) && cmd-echo --color BLUE -- '.tox/black/bin/python -m black .'
+                .tox/black/bin/python -m black .
+            fi
+
+            end_action "$action"
+            ;;
+
+        doc )
+            start_action "$action" "doc'ing"
+
+            ((verbose)) && cmd-echo --color BLUE -- 'tox -e docs'
+            tox -e docs || exit 1
+
+            end_action "$action"
+            ;;
+
+        end )
+            start_action "$action" "end'ing..."
+
+            if ((!redo))
+            then
+                declare -a newer
+                mapfile -t newer < <(cd "$(git root)" && git find --abspath --newer "$rc")
+                if [ -n "${newer[0]}" ]
+                then
+                    cmd-echo -- "The following files have changed since the last complete, successful toxic run:"
+                    ls -lat "${newer[@]}"
+                    action='redo'
+                fi
+            fi
+
+            end_action "$action"
+            ;;
+
+        cleanok |\
+        redook  |\
+        testok  |\
+        flakeok |\
+        mypyok  |\
+        blackok |\
+        docok   |\
+        endok )
+            ok_action "$action"
+            ;;
+
+        * ) cmd-echo -ec -- "Invalid action '$action'" \
+                     "Valid actions are: ${actions_list[*]}"
+            exit 1
+            ;;
+    esac
+done
+
+declare activate_cmd
+activate_cmd=$(ls .tox/py*/bin/activate)
+cmd-echo -- \
+         "All stages complete."\
+         "For testing, source in '$activate_cmd'." \
+         "To restart, use 'toxic redo'."
+exit 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+toxic - run python lint/format/test/doc suite
+
+=head1 SYNOPSIS
+
+ toxic [--only] [clean|[red|flake]|black|test|doc]
+
+=head1 DESCRIPTION
+
+Run a python tox setup. Pick a starting point. Will restart from 'flake' on any file changes.
+
+=head1 ACTIONS
+
+Look at the SYNOPSIS
+
+=head1 OPTIONS
+
+=over 4
+
+=item --only
+
+Perform the current action and do not go onto the next one. Usually used with
+action 'clean' so that you can clean before running with logging so that
+'clean' does not blow away your logging.
+
+=back
+
+=head1 SAMPLE TOX
+
+  [tox]
+  envlist = py37
+  indexserver =
+      default = https://artprod.dev.foo.com/artifactory/api/pypi/foo-pypi/simple
+
+  [flake8]
+  exclude = foo/dpkg/builddeb/__init__.py
+
+  [testenv]
+  skipsdist = True
+  usedevelop = True
+  setenv =
+      UNITEST_XML = {toxinidir}/.unitests.{envname}.xml
+  install_command = python -m pip install --no-use-pep517 {opts} {packages}
+  whitelist_externals = rm
+  commands =
+      rm -fv {toxinidir}/.coverage.{envname}.xml
+      rm -fv {toxinidir}/.unitests.{envname}.xml
+      python -m pytest \
+          --cov-report xml:{toxinidir}/.coverage.{envname}.xml  \
+          --cov-report term --cov=foo.dpkg.builddeb \
+          --junitxml={toxinidir}/.unitests.{envname}.xml \
+          --cov-config={toxinidir}/tox.ini \
+          {posargs}
+  deps =
+      -rrequirements-dev.txt
+
+  [testenv:black]
+  whitelist_externals = black
+  skipsdist = True
+  usedevelop = True
+  basepython = python3.7
+  commands =
+      black --check .
+  deps =
+      black
+
+  [testenv:flake8]
+  whitelist_externals = flake8
+  skipsdist = true
+  basepython = python3.7
+  commands = flake8 foo/ tests/ --output-file=.flake8.out --tee
+  changedir = {toxinidir}
+  deps =
+      -rrequirements-dev.txt
+
+  [testenv:docs]
+  basepython = python3.7
+  commands = python setup.py build_sphinx
+  deps =
+      -rrequirements-dev.txt
+
+  [testenv:mypy]
+  whitelist_externals = mypy
+  basepython = python3.7
+  commands =
+      python -m pip install --index-url https://artprod.dev.foo.com/artifactory/api/pypi/foo-pypi/simple --trusted-host artprod.dev.foo.com --force-reinstall --upgrade --no-dependencies foo.dpkg.client
+      python -m pip install --index-url https://artprod.dev.foo.com/artifactory/api/pypi/foo-pypi/simple --trusted-host artprod.dev.foo.com --force-reinstall --upgrade --no-dependencies foo.dpkg.core
+      mypy --strict {posargs}
+  deps =
+      -rrequirements-dev.txt
+
+=cut
+
+__PODUSAGE__
