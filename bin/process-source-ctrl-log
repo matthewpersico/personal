@@ -271,7 +271,7 @@ sub parse_scl {
             stash( \%current );
             $files_to_process{ $current{filespec} } = 1;
         } elsif ( $opt{'for-commit'} ) {
-            push @retain, @{ $current{orig_text} };
+            push @retain, @{ $current{orig_text} }, q();
         }
         %current = ();
     }
@@ -342,6 +342,31 @@ sub write_commit_message {
 sub write_retained_log {
     my ( $oh, $entries ) = @_;
     my $iam = ( caller(0) )[3];
+
+    ## Strip out extra date lines.
+    my $i=0;
+    my $dateline_re = qr/\d{4,4}-\d{2,2}-\d{2,2}.*>/;
+    while ($i < @retain ) {
+        if (@retain - $i >= 3) {
+            if (join('', @retain[$i,$i+1,$i+2]) =~ /^${dateline_re}${dateline_re}$/) {
+                splice @retain, $i, 2;
+                next;
+            }
+        } elsif (@retain - $i == 2) {
+            if ( join('', @retain[$i,$i+1]) =~ /^${dateline_re}{1,2}$/) {
+                splice @retain, $i, 2;
+                next;
+            }
+        } elsif (@retain - $i == 1) {
+            if ( $retain[$i] =~ /^${dateline_re}{0,1}$/) {
+                splice @retain, $i, 1;
+                next;
+            }
+        }
+        $i++;
+    }
+
+    ## Print it.
     $oh->print( join( qq(\n), @retain, q() ) );
 }
 
