@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-go-set" >> "$HOME/.gitaudit"
+
 # git-go-set
 
 declare set_x
@@ -14,9 +16,9 @@ current_git_go_file=$(ls -rt "${TILDAE:-$HOME}"/gits/.git-go.* | head -1)
 
 declare -a repo_find_roots
 declare -a search_roots
-# gitfuncs_gitroot is an envvar
+# GITFUNCS_GITROOT is an envvar
 # shellcheck disable=SC2154
-search_roots=("$gitfuncs_gitroot")
+search_roots=("$GITFUNCS_GITROOT")
 declare addmbig
 addmbig="$1"
 if [ "$addmbig" = '' ]
@@ -30,10 +32,11 @@ then
 fi
 if [ "$addmbig" = '1' ]
 then
-    # gitfuncs_gitroot_MBIG is an envvar
+    # GITFUNCS_GITROOT_MBIG is an envvar
     # shellcheck disable=SC2154
-    search_roots+=("$gitfuncs_gitroot_MBIG")
+    search_roots+=("$GITFUNCS_GITROOT_MBIG")
 fi
+declare i
 for i in "${search_roots[@]}"
 do
     if [ -e "$i" ]
@@ -47,7 +50,7 @@ mapfile -t repo_tops < <(find "${repo_find_roots[@]}" -maxdepth 1 -mindepth 1 -t
 ## host/namespace/repo setup similarly for other git hosts.
 declare -a repo_tops
 declare -A finds
-for d in $(kvstore vals gitfuncs_git_locs_extra) \
+for d in $(git kv --val --section locs-extra) \
              "${repo_tops[@]}"
 do
     declare dir
@@ -87,30 +90,31 @@ done
 declare repo_tops_re
 repo_tops_re=":$(echo "${repo_tops[@]}" "${TILDAE:-$HOME}"| sed 's/ /:/g'):"
 declare -a repo_roots
-mapfile -t repo_roots < <(declare i j
-                     for i in "${repos[@]}" "${wts[@]}"
-                     do
-                         echo "$i(repo)"
-                         j=$i
-                         while [ -n "$j" ] && [ "$j" != 'done' ]
-                         do
-                             if [ "$j" != "$i" ]
-                             then
-                                 echo "$j"
-                             fi
-                             if [[ $repo_tops_re =~ :$j: ]]
-                             then
-                                 j='done'
-                             else
-                                 j=$(dirname $j)
-                             fi
-                             #for debugging:
-                             if [ "$set_x" = '1' ]
-                             then
-                                 pause 'DEBUG MODE: Hit exit to continue: '
-                             fi
-                         done
-                     done)
+mapfile -t repo_roots < <(
+    declare i j
+    for i in "${repos[@]}" "${wts[@]}"
+    do
+        echo "$i(repo)"
+        j=$i
+        while [ -n "$j" ] && [ "$j" != 'done' ]
+        do
+            if [ "$j" != "$i" ]
+            then
+                echo "$j"
+            fi
+            if [[ $repo_tops_re =~ :$j: ]]
+            then
+                j='done'
+            else
+                j=$(dirname $j)
+            fi
+            #for debugging:
+            if [ "$set_x" = '1' ]
+            then
+                pause 'DEBUG MODE: Hit exit to continue: '
+            fi
+        done
+    done)
 echo "${repo_roots[@]}" "${repo_tops[@]}" | tr ' ' '\n' | sort -u | sed "s|${TILDAE:-$HOME}/||" > "$gitfuncs_git_go_file"
 find ~/gits -maxdepth 1 -name .git-go\* | grep -v "$gitfuncs_git_go_file"  | xargs rm -f
 ## POD guard

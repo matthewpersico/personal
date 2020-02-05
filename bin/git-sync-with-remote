@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-sync-with-remote" >> "$HOME/.gitaudit"
+
 # git-sync-with-remote
 
 # shellcheck disable=SC1090
@@ -16,7 +18,7 @@ declare resp
 declare OPTSARGS
 OPTSARGS=$(getopt -a -o hb:r:c -l help,branch:,remote:,confirm -n git-sync-with-remote -- "$@")
 status=$?
-((status != 0)) && script-usage && exit $status
+((status != 0)) && bash-usage "$0" && exit $status
 eval set -- "$OPTSARGS"
 while true
 do
@@ -28,11 +30,11 @@ do
         c|confirm) opt_confirm=1 ;;
         r|remote) opt_remote="$1"; shift ;;
         b|branch) opt_branch="$1"; shift ;;
-        h|help) script-usage; exit 0 ;;
+        h|help) bash-usage "$0"; exit 0 ;;
         nopush) do_push=0 ;;
         --) break ;; ## end of opts, remaining $*, if any, are args
         *) cmd-echo -- "'$option' is an invalid option."
-           script-usage
+           bash-usage "$0"
            exit 1
            ;;
     esac
@@ -41,7 +43,7 @@ done
 if [ -z "$opt_branch" ]
 then
     cmd-echo "--branch required"
-    script-usage
+    bash-usage "$0"
     exit 1
 fi
 
@@ -140,7 +142,7 @@ git-log-shas-range "$oldsha" "$oldsha"
 ## Check the declare branch against its origin
 declare stcheck
 stcheck=$(mktemp -t tmp.git-sync-with-remote.check.XXXXXXXXXX)
-rm_on_exit "$stcheck"
+rm-on-exit "$stcheck"
 git status 1>"$stcheck" 2>&1
 grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null
 status=$?
@@ -169,7 +171,7 @@ git fetch "${opt_remote}" "${opt_branch}"
 
 declare diffoutput
 diffoutput=$(mktemp -t tmp.git-sync-with-remote.diff.XXXXXXXXXX)
-rm_on_exit "$diffoutput"
+rm-on-exit "$diffoutput"
 git diff ..."${opt_remote}" > "$diffoutput" 2>&1
 declare diffc
 diffc=$(wc -l < "$diffoutput")
@@ -182,7 +184,7 @@ fi
 
 declare logoutput
 logoutput=$(mktemp -t tmp.git-sync-with-remote.log.XXXXXXXXXX)
-rm_on_exit "$logoutput"
+rm-on-exit "$logoutput"
 git log ..."${opt_remote}" > "$logoutput" 2>&1
 declare logc
 # shellcheck disable=SC2002
@@ -226,34 +228,31 @@ git pull --rebase "${opt_remote}" "${opt_branch}"
 status=$?
 if [ ! "$status" = '0' ]
 then
-    cmd-echo
-    cat <<EOF
-
-It appears the pull --rebase was not successful. Assuming the issue was not a
-system issue, but rather related to conflicts:
-
-1) Edit each file in conflict, looking for the (partial) conflict marker
-   "<<<<<". Once you see the issue, fix the code and save the file.
-
-2) "git add" any files you've changed.
-
-Once any conflicts are resolved, do a "git status". You will see files under
-the section "Changes to be committed" if:
-
-1) You fixed any conflicts.
-
-2) There are changes in the branch "${opt_branch}" that need to be added in
-   that have no conflicts.
-
-If you see any such files, run "git commit". That will complete the merge into
-your branch.
-
-Then push the branch up to your fork so you can submit a pull request.
-
-EOF
+    cmd-echo --ec -- "It appears the pull --rebase was not successful."
+    cmd-echo -- "" \
+             "Assuming the issue was not a system issue, but rather related to conflicts:" \
+             "" \
+             "1) Edit each file in conflict, looking for the (partial) conflict marker" \
+             "   '<<<<<'. Once you see the issue, fix the code and save the file." \
+             "" \
+             "2) 'git add' any files you've changed." \
+             "" \
+             "Once any conflicts are resolved, do a 'git status'. You will see files under" \
+             "the section 'Changes to be committed' if:" \
+             "" \
+             "1) You fixed any conflicts." \
+             "" \
+             "2) There are changes in the branch '${opt_branch}' that need to be added in" \
+             "   that have no conflicts." \
+             "" \
+             "If you see any such files, run 'git commit'. That will complete the merge into" \
+             "your branch." \
+             "" \
+             "Then push the branch up to your fork so you can submit a pull request."
     if ((do_stash))
     then
-        cmd-echo "Leaving stash stashed so a not to further complicate the issue"
+        cmd-echo -- "Leaving stash stashed so as not to further complicate the issue." \
+                 "Don't forget to 'git stash pop' after correcting the situation."
     fi
     exit 1
 fi
@@ -330,3 +329,36 @@ EOF
         fi
     fi
 fi
+
+exit 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-sync-with-remote - sync current repo/branch with a remote.
+
+=head1 SYNOPSIS
+
+ git-sync-with-remote [--remote remote-ref] --branch remote-branch
+
+=head1 DESCRIPTION
+
+TBD
+
+=head1 OPTIONS
+
+=over 4
+
+=item remote
+
+TBD
+
+=item branch
+
+TBD
+
+=back
+
+=cut
+
+__PODUSAGE__

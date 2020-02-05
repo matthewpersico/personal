@@ -5,12 +5,113 @@
 
 asplit ()
 {
-    if [ "$1" = '-' ]
+    if [[ $1 == -h ]]; then bash-usage asplit; return 0; fi
+
+    declare string="$1"
+    shift
+    declare sep=' ';
+    if [[ $1 == '-s' ]]
     then
-        shift
-        asplit-to-stdout "$@"
-    else
-        asplit-to-array "$@"
+        shift;
+        sep="$1"; shift;
     fi
-    return $?
+
+    declare -a pieces
+    IFS="$sep" read -r -a pieces <<< "$string"
+
+    if [[ $1 =~ ^- ]]
+    then
+        declare -n output
+        while (($#))
+        do
+            [[ $1 = '-a' ]] && output=$2 && shift && shift && continue
+            [[ $1 =~ ^- ]] && echo "$1 is an invalid option" && return 1
+            echo "When using -a you cannot specify target variables for split items."
+            return 1
+        done
+        output=()
+        output+=("${pieces[@]}")
+    else
+        declare _i=-1
+        for _v ; do
+            declare -n _var=$_v
+            ((_i+=1))
+            # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+            _var=${pieces[_i]}
+            ((_i+1 == ${#pieces[@]} )) && break
+        done
+    fi
+
+    return 0
 }
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+asplit - break up a string into one or more variables, based on a separator
+
+=head1 SYNOPSIS
+
+ asplit "value" [-s separator] <list of variables>
+ asplit "value" [-s separator] -a array
+ asplit -h
+
+=head1 DESCRIPTION
+
+  $ declare string
+  $ string="with a space and quotes|with|no|spaces"
+  $ declare -a target=()
+  $ asplit "$string" -s '|' -a target
+
+  $ echo $string
+  with a space and quotes|with|no|spaces
+
+  $ set | grep -E ^target=
+  target=([0]="with a space and quotes" [1]="with" [2]="no" [3]="spaces")
+
+In theory, you can code a split inline by just using the bash syntax:
+
+  IFS=| read -r -a target <<< "$string"
+
+However, it may more sense for your logical/semantic flow to use the 'split'
+verb.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item variable
+
+The variable containing the string to split. No reference syntax or sigil ($)
+needed; the function has a 'declare -n' statement that does
+referencing-by-name.
+
+=item list of variables
+
+One or more variable names (no sigils) into which the split elements are placed
+when copied from 'string'. Also handled via 'declare -n' reference-creating
+syntax. If there are fewer variables than split elements, the extra elements
+are dropped.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -s 'separator'
+
+A string that separates each pair of items in the string. The
+default is a single space. '-s' should be the second argument and only
+specified once.
+
+=item -a array
+
+An array name (no sigil) to accept split items. Also handled via 'declare -n'
+reference-creating syntax.
+
+=back
+
+=cut
+
+__PODUSAGE__

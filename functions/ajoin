@@ -1,11 +1,86 @@
 #!/usr/bin/env bash
 
 # <Function Class: bash arrays>
-# <Function Justification: env mod>
+# <Function Justification: none>
 
 ajoin()
 {
-    ##@@ none||none||ajoin||Print one string that joins arg2, arg3, etc, separated by arg1
+    if [[ $1 == -h ]]; then bash-usage ajoin; return 0; fi
 
-    local IFS="$1"; shift; echo "$*";return $?
+    declare -n joined="$1"; shift
+    joined='';
+
+    declare sep=' ';
+    if [[ $1 == '-s' ]]
+    then
+        shift
+        sep="$1"; shift
+    fi
+
+    (($#==0)) && return 9
+    (($#==1)) && joined="$1" && return 0
+    declare -a argv=("$@")
+    # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+    joined=$(printf "%s${sep}" "${argv[@]:0:(($#-1))}";echo "${argv[-1]}")
+    return 0
 }
+#  LocalWords:  whitespace sep
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+ajoin - put elements of a list into one variable, with a separator between them
+
+=head1 SYNOPSIS
+
+ ajoin variable [-s separator] <list of values>
+ ajoin -h
+
+=head1 DESCRIPTION
+
+As per the definition:
+
+  $ declare target=''
+  $ declare -a source=('foo' 'bar' 'baz' 'boingo')
+  $ declare v='with a space and quotes'
+  $ declare w='with a space and no quotes'
+  $ ajoin target -s '|' "$v" $w "${source[@]}" 'some' 'constants'
+  $ echo "$target"
+with a space and quotes|with|a|space|and|no|quotes|foo|bar|baz|boingo|some|constants
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item variable
+
+A scalar variable into which to places the joined items. No reference syntax
+needed, the function has a 'declare -n' statement that does
+referencing-by-name. Must be a variable; cannot be an array element. An empty
+variable will set the first target to ''. A variable that does not split will
+set the first target to the value of the whole string.
+
+=item <list>
+
+One or more variables, constants, arrays, etc., whose values are placed into the
+target. **Always** double quote all variables in order to prevent embedded
+whitepace expansion.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -s 'separator'
+
+A string that is placed between each pair of items put into the target. The
+default is a single space. '-s' should be the second argument and only
+specified once. Any other '-s' found beyond the second argument will be treated
+as normal text to be joined.
+
+=back
+
+=cut
+
+__PODUSAGE__

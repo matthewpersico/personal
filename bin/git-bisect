@@ -1,0 +1,175 @@
+#!/usr/bin/env bash
+
+echo "$(date): git-bisect" >> "$HOME/.gitaudit"
+
+# git-bisect
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+if ! git-version-verify 'git-bisect'
+then
+    exit 1
+fi
+
+# shellcheck disable=SC2034 # We'll use it eventually
+cmd_echo_id='git-bisect'
+
+# shellcheck disable=SC2120
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        bash-usage "$0"
+        echo
+        echo "** Standard actions **"
+        "$REALGIT" bisect --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+declare dispatch_to_real_git=1
+
+declare -a pass_on
+
+## DO NOT attempt to convert this to a 'getopt' implementation; it would
+## require specifying and handling every existing option in 'git bisect',
+## and it is just not necessary.
+while (( $# ))
+do
+    declare arg=$1
+    shift
+    case "$arg" in
+        --help )
+            # shellcheck disable=SC2119
+            usage
+            exit 0
+            ;;
+        --terms )
+            declare ovalue=''
+            if [[ "$arg" =~ = ]]
+            then
+                ovalue=${arg#*=}
+            else
+                ovalue=$1; shift
+            fi
+            pass_on+=("--term-old=${ovalue%%/*}" "--term-new=${ovalue##*/}")
+            ;;
+        end | exit | quit | abort )
+            exec git bisect "${pass_on[@]}" reset "$@"
+            ;;
+        * )
+            pass_on+=("$arg")
+            ;;
+    esac
+done
+
+if ((dispatch_to_real_git))
+then
+    ## Currently, we ALWAYS run the real git bisect, unless we exec-out or exit
+    ## above.
+    "$REALGIT" bisect "${pass_on[@]}" || exit $?
+fi
+
+exit 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-bisect - extensions to git bisect
+
+=head1 SYNOPSIS
+
+ git-bisect end|exit|quit|abort
+ git-bisect start --terms=oldterm/newterm
+
+=head1 DESCRIPTION
+
+Additions and documentations for 'git bisect'.
+
+=head1 ARGMENTS
+
+=over 4
+
+=item end|exit|quit|abort
+
+Synonyms for 'reset' with no commit argument. Restores the repo to the
+condition it was in before starting, especially reseting the commit that is
+checked out.
+
+=item start --terms
+
+When bisecting, the terms 'good' and 'bad' assume that you are looking for a
+change that broke code, that the older commits are good and the new commits are
+bad. This may not always be the case. You may be looking for the commit in
+which a file appeared. In that case, the older code would be the 'missing'
+state and the newer code would be the 'exists' state.
+
+By calling
+
+  git bisect start --terms=missing/exists
+
+you are really calling
+
+  git bisect start --term-old=missing --term-new=exists
+
+and you can then conduct your search like this:
+
+  git bisect missing some-older-sha ## where the file does not exist
+  git bisect exists some-newer-sha ## where the file does exist
+  prevsha=''
+  thissha=$(git rev-parse --verify HEAD)
+  while [ "$prevesha" != "$thissha" ]
+  do
+    if [ -f TheFileIAmLookingFor ]
+    then
+      git bisect exists
+    else
+      git bisect missing
+    fi
+    prevsha=$thissha
+    thissha=$(git rev-parse --verify HEAD)
+  done
+  [ -f TheFileIAmLookingFor ] && echo found the sha where it was created || echo did not find it
+
+Of course, if you want to find where a file disappears:
+
+  git bisect start --terms=exists/missing
+  git bisect exists some-older-sha
+  git bisect missing some-newer-sha
+
+  prevsha=''
+  thissha=$(git rev-parse --verify HEAD)
+  while [ "$prevesha" != "$thissha" ]
+  do
+    if [ -f TheFileIAmLookingFor ]
+    then
+      git bisect exists
+    else
+      git bisect missing
+    fi
+    prevsha=$thissha
+    thissha=$(git rev-parse --verify HEAD)
+  done
+  [ -f TheFileIAmLookingFor ] && echo still exists || echo found the sha where it disappeared
+
+**Note:** The '=' is required; --terms missing/exists will fail due to the
+  simple parsing we are wrapping around this git command.
+
+**Note:** You cannot reassign the word 'good', i.e; you cannot do this:
+
+  git bisect start --term-old=bad --term-new=good
+
+which essenially swaps the typical usage (was good, is now bad). Use
+
+  git bisect start --term-old=broken --term-new=fixed
+
+instead. In fact, the typical usage could be redefined as
+
+  git bisect start --term-old=fixed --term-new=broken
+
+=back
+
+=cut
+
+__PODUSAGE__

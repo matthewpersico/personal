@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-check-with-remote" >> "$HOME/.gitaudit"
+
 # git-check-with-remote
 
 # shellcheck disable=SC1090
@@ -29,11 +31,11 @@ do
         --bail_on_dirty) opt_bail_on_dirty=1 ;;
         -r|--remote) opt_remote="$1"; shift ;;
         -b|--branch) opt_branch="$1"; shift ;;
-        -h|--help) script-usage "$0"; exit 0 ;;
+        -h|--help) bash-usage "$0"; exit 0 ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
-            cmd-echo -e -- "$option is an invalid option. See $0 --help"
+            cmd-echo -ec -- "$option is an invalid option. See $0 --help"
             exit 1 ## return 1 in functions
             ;;
     esac
@@ -42,7 +44,7 @@ done
 if [ -z "$opt_branch" ]
 then
     cmd-echo -- "--branch required"
-    script-usage "$0"
+    bash-usage "$0"
     exit 1
 fi
 
@@ -91,7 +93,7 @@ fi
 ## Check the declare branch against its origin
 declare stcheck
 stcheck=$(mktemp -t tmp.git-check-with-remote.check.XXXXXXXXXX)
-rm_on_exit "$stcheck"
+rm-on-exit "$stcheck"
 git status 1>"$stcheck" 2>&1
 grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null
 status=$?
@@ -119,7 +121,7 @@ fi
 ## Now grab the remote branch
 declare gflog
 gflog=$(mktemp -t tmp.git-check-with-remote.gflog.XXXXXXXXXX)
-rm_on_exit "$gflog"
+rm-on-exit "$gflog"
 git fetch "${opt_remote}" "${opt_branch}" 2>"$gflog"
 declare rc=$?
 if ((rc))
@@ -133,19 +135,19 @@ rm -f "$gflog"
 ## Log the declare branch
 declare locallog
 locallog=$(mktemp -t tmp.git-check-with-remote.locallog.XXXXXXXXXX)
-rm_on_exit "$locallog"
+rm-on-exit "$locallog"
 git log > "$locallog"
 
 ## Log the declare copy of the remote branch
 declare remotelog
 remotelog=$(mktemp -t tmp.git-check-with-remote.remotelog.XXXXXXXXXX)
-rm_on_exit "$remotelog"
+rm-on-exit "$remotelog"
 git log "${opt_remote}/${opt_branch}" > "$remotelog"
 
 ## Diff 'em
 declare difflog
 difflog=$(mktemp -t tmp.git-check-with-remote.difflog.XXXXXXXXXX)
-rm_on_exit "$difflog"
+rm-on-exit "$difflog"
 diff "$locallog" "$remotelog" 1> "$difflog" 2>&1
 
 if [ -s "$difflog" ]
@@ -153,12 +155,12 @@ then
     # shellcheck disable=SC2002 # Using the cat instead of wc -l file prevents
     # the filename from being printed out,
     if [ "$(cat "$difflog" | wc -l)" = '10' ] \
-           && [ ! "$(grep -E "Merge pull request.*$(git-branch get-current)" "$difflog")" = '' ]
+           && [ ! "$(grep -E "Merge pull request.*$(git branch --show-current)" "$difflog")" = '' ]
     then
         cmd-echo "Only diff to ${opt_remote} is merge pull request."
     else
-        cmd-echo -head "*** git repo: $(pwd)"
-        cmd-echo -c "*** Current branch $(git branch get-current) and ${opt_remote}/${opt_branch} are not synced:"
+        cmd-echo -head "*** git repo: ${PWD}"
+        cmd-echo -c "*** Current branch $(git branch --show-current) and ${opt_remote}/${opt_branch} are not synced:"
         cat "$difflog"
     fi
 fi

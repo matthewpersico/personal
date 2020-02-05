@@ -5,14 +5,15 @@
 ## Stuff to do when you exit a script. From
 ## http://www.linuxjournal.com/content/use-bash-trap-statement-cleanup-temporary-files
 
-##    # Include the file
-##    source $BASH_INC_DIR/on_exit.binc
+## Include the file, with shellcheck exemption
+##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+##    source "$BASH_INC_DIR/on_exit.binc
 ##
-##    # Create a temp
+## Create a temp
 ##    gitroot=$(mktemp -t someformat.XXXXXXXXX)
 ##
-##    # Immediately register it so that it will be removed at script exit
-##    rm_on_exit $gitroot
+## Immediately register it so that it will be removed at script exit
+##    rm-on-exit $gitroot
 
 ## Note: DO NOT source this script into the login environment. It won't work
 ## unless you export each function; subshells and commands won't see the
@@ -24,61 +25,45 @@ declare -a _on_exit_items
 
 function on-exit ()
 {
-    for i in "${_on_exit_items[@]}"
+    local item
+    for item in "${_on_exit_items[@]}"
     do
-        [ -z "$i" ] && continue
-        [ "$ON_EXIT_VERBOSE" == '1' ] && echo "on_exit: $i" >&2
-        eval "$i"
+        [ -z "$item" ] && continue
+        [ "$ON_EXIT_VERBOSE" == '1' ] && echo "on_exit: $item" >&2
+        eval "$item"
     done
 }
 
-function on_exit()
+function do-on-exit()
 {
-    on-exit
-}
-
-function add-on-exit()
-{
-    local n=${#_on_exit_items[*]}
+    local n=${#_on_exit_items[@]}
     _on_exit_items[$n]="$*"
     if [[ $n -eq 0 ]]; then
         [ "$ON_EXIT_VERBOSE" == '1' ] && echo "add_on_exit: Setting trap (on_exit)" >&2
-        trap on_exit EXIT
+        trap on-exit EXIT
     fi
     return "$n"
 }
 
-function add_on_exit()
-{
-    add-on-exit "$@"
-    return $?
-}
-
-function del-on-exit()
+function dont-on-exit()
 {
     _on_exit_items[$1]=''
-}
-
-function del_on_exit()
-{
-    del-on-exit "$@"
 }
 
 function rm-on-exit()
 {
     for rmit in "$@"
     do
-        if [ -d "$rmit" ]
-        then
-            add-on-exit rm -rf "$rmit"
-        else
-            add-on-exit rm -f "$rmit"
-        fi
-        ((n+=1))
+        do-on-exit rm -rf "$rmit"
     done
 }
 
-function rm_on_exit()
+function show-on-exit ()
 {
-    rm-on-exit "$@"
+    local item
+    local n=-1
+    for item in "${_on_exit_items[@]}"
+    do
+        echo "$((n+=1)):'$item'"
+    done
 }

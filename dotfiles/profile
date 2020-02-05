@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2230 # 'which' is just fine, thank you
 
 # ~/.profile.${USER}
 # Isolates my stuff.
@@ -108,15 +107,16 @@ addpath -fx PATH "$PERSONALBIN"
 ## the xterminit file here (via xtermfuncs) as it contains functions that we
 ## cannot break out into their own files for autoload since xterminit is run
 ## under ksh before bash is invoked on chimera machines at Bloomberg.
-_profile_env_init_list='util.env cd.env perl.env git.env xtermfuncs'
+declare _profile_env_init_list='util.env cd.env perl.env git.env ansi-colors.env xtermfuncs'
 if [ "$OS_ID" = 'WSL' ]
 then
     _profile_env_init_list="$_profile_env_init_list wsl.env"
 fi
 
+declare _profile_env _profile_envvar _profile_envvar_val
 for _profile_env in ${_profile_env_init_list}
 do
-    _profile_envvar="$(echo "$_profile_env" | tr '[:lower:]' '[:upper:]' | tr -d '.' )_LOADED"
+    _profile_envvar="$(echo "${_profile_env^^}" | tr -d '.' | tr '-' '_')_LOADED"
     _profile_envvar_val="$(eval echo "\$$_profile_envvar")"
     if [ -z "$_profile_envvar_val" ]
     then
@@ -138,36 +138,30 @@ then
 
     # MISC
 
-    # STOP clearing the screen!!!
-    LESS="-X"
+    # Don't clear the screen. Don't cleanse colors. Exit at end.
+    LESS="-XRE"
     export LESS
 
     # Needs setting
+    declare _profile_pager
     for _profile_pager in less more
     do
-        [ -z "$PAGER" ] && PAGER=$(which $_profile_pager)
+        [ -z "$PAGER" ] && PAGER=$(type -P $_profile_pager)
     done
     [ -n "$PAGER" ] && export PAGER
 
     # Editing
+    declare iEDITOR
     for iEDITOR in xo emacs vi
     do
-        [ "$(which $iEDITOR 2>/dev/null)" ] && \
+        [ "$(type -P $iEDITOR 2>/dev/null)" ] && \
             EDITOR="$iEDITOR" && \
             export EDITOR && \
             break
     done
 
     # Browsing (decidedly non-standard)
-    for browser in firefox junktoshutupshellcheck
-    do
-        if fullpath=$(which $browser)
-        then
-            BROWSER="$fullpath"
-            export BROWSER
-            break
-        fi
-    done
+    set-browser firefox
 
     # for silencing emacs dbus warning message
     export NO_AT_BRIDGE=1

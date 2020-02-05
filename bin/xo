@@ -10,12 +10,10 @@ source "$BASH_INC_DIR/on_exit.binc"
 
 debug=0
 forceX=0
-# shellcheck disable=SC2230
-emacs_exe=$(which emacs)
-# shellcheck disable=SC2230
-emacsclient_exe=$(which emacsclient)
+emacs_exe=$(type -P emacs)
+emacsclient_exe=$(type -P emacsclient)
 declare -a gim
-declare -a which
+declare -a which ## We used to use the 'which' utility to find these
 declare as_visual=0
 declare new_frame=0
 declare more_opts=1
@@ -31,10 +29,21 @@ do
             emacs_opts+=('--debug-init') ;;
         debug | x ) set -x; debug=1 ;;
         forceX ) forceX=1 ;;
-        which ) which+=("$1"); shift ;;
+        which )
+            declare tmp
+            tmp=$(type -P "$1")
+            shift
+            if [ -z "$tmp" ]
+            then
+                cmd-echo -wc -- "$1 not found; skipping"
+            else
+                which+=("$tmp")
+            fi
+            ;;
         root )
             emacs_exe="$1/emacs"
             emacsclient_exe="$1/emacsclient"
+            declare i
             for i in $emacs_exe $emacsclient_exe
             do
                 [ -x "$i" ] || (cmd-echo "Cannot find '$i'. --root cannot be used." && exit 1);
@@ -58,7 +67,7 @@ do
             new_frame=1
             ;;
         help )
-            script-usage; exit 0;;
+            bash-usage "$0"; exit 0;;
         -- )
             more_opts=0
             ;;
@@ -69,7 +78,7 @@ done
 
 ## Temp file for processing and diagnostic messages.
 procs=$(mktemp -t tmp.xo.XXXXXXXXXX)
-rm_on_exit "$procs"
+rm-on-exit "$procs"
 
 ##
 ## Main
@@ -110,14 +119,11 @@ then
     hasX=1
 elif [ ! "$OS" = 'Cygwin' ]
 then
-    # shellcheck disable=SC2230
-    pinged=$(which xmodmap 2>&1 | grep 'no xmodmap')
-    if [ -n "$pinged" ]
+    if ! type -P xmodmap >/dev/null
     then
         hasX=0
     else
-        pinged=$(xmodmap 2>&1 | grep 'unable to open display')
-        if [ -n "$pinged" ]
+        if xmodmap 2>&1 | grep -q 'unable to open display'
         then
             hasX=0
         fi
@@ -236,7 +242,8 @@ usage: xo [--debug] [--forceX] [--root] \\
            '-' and '--' flags, if any, (represented by -any-emacs-opts') are
            passed directly to emacs. Some of the more useful are:
 
-           +l[:c] - open the file at line l, column c, which is optional.
+           +l[:c] - open the file at line l, column c, where the column
+                    is optional.
                     Note: Since we do not process + options, you could
                     use this without the intervening --, as in:
 

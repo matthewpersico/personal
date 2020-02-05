@@ -15,6 +15,6 @@ try ```branchname=$(hostname)-$(uname -s)```. When you have a branch name, execu
   * git push --set-upstream origin $branchname
 * cd dotfiles
 * . ./dotfilesbootstrap
-* makesymlinks $(pwd)
+* makesymlinks ${PWD}
 * makepstree
 * cd ~/personal

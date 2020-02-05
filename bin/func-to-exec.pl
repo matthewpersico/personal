@@ -4,6 +4,15 @@ use strict;
 use warnings;
 
 use File::Basename;
+our $force;
+
+BEGIN {
+    no warnings 'uninitialized';
+    if ( $ARGV[0] eq '--force' ) {
+        $force = 1;
+        shift;
+    }
+}
 
 ## This only does the physical transform. The complete set of steps for function X is:
 ##
@@ -85,7 +94,7 @@ LINE: while (<>) {
         next LINE;
     };
     m/# <Function Justification:\s+(.*)>/i && do {
-        next LINE if $1 =~ m/^none*/;
+        next LINE if $1 =~ m/^none*/ or $force;
         die "Function appears to have justification: $1\n";
     };
 
@@ -165,18 +174,6 @@ LINE: while (<>) {
         ##    but not '_', so that _git_cd_return would never even gotten in
         ##    here, but we have to exception check for _git-cd-return.
     };
-
-    ## *echo -i gets removed
-    $_ =~ m/func-echo\s+-i\s/ && next LINE;
-
-    ## func-X becomes script-X...
-    $_ =~ s/func-(yesno|pick|usage)/script-$1/g;
-
-    ## ...except that func-echo becomes cmd-echo
-    $_ =~ s/func-echo/cmd-echo/g;
-
-    ## usage_func transform
-    $_ =~ s/\$usage_func/script-usage/;
 
     ## SC2155
     ## This regexp really should be in Regexp::Common

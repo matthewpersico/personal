@@ -3,14 +3,15 @@
 
 ## Control when cron jobs mail output
 
-mailtype=''
-mailto=$MAILTO
-mailsubject=''
-checkkinit=0
-setx=0
-setv=0
-keeplog=0
-endofopts=0
+declare mailtype=''
+declare mailto=$MAILTO
+declare -a mailfrom
+declare mailsubject=''
+declare checkkinit=0
+declare setx=0
+declare setv=0
+declare keeplog=0
+declare endofopts=0
 while [[ "$1" =~ ^- ]] && ((!endofopts))
 do
     ## Strip all leading dashes here so that -foo and --foo can both
@@ -33,12 +34,16 @@ do
             setv=1
             ;;
         mailtype)
-            mailtype=$(echo "$1" | tr '[:upper:]' '[:lower:]')
+            mailtype="${1,,}"
             shift
             ;;
         to)
             mailto="$1"
             MAILTO=$mailto; export MAILTO
+            shift
+            ;;
+        from)
+            mailfrom=('--from' "$1")
             shift
             ;;
         keeplog)
@@ -75,7 +80,8 @@ done
 
 [ -z "$mailtype" ] && echo "Mail type required" && exit 1
 
-dayofweek=$(date +%a | tr '[:upper:]' '[:lower:]')
+dayofweek=$(date +%a)
+dayofweek=${dayofweek,,}
 args_ok=0
 while ((!args_ok))
 do
@@ -96,7 +102,7 @@ do
             ;;
         sun | mon | tue | wed | thu | fri | sat )
             ## We get here if the day in the mail type does not match today in
-            ## the $dayoaweek case above
+            ## the $dayofweek case above
             mailtype=non-zero
             break
             ;;
@@ -138,7 +144,7 @@ fi
 
 # shellcheck disable=SC1090 ## cannot find sourced file at shellcheck time
 source "$BASH_INC_DIR/on_exit.binc"
-rm_on_exit "$temproot" "$alllog" "$profilelog"
+rm-on-exit "$temproot" "$alllog" "$profilelog"
 
 if((checkkinit))
 then
@@ -254,9 +260,11 @@ if ((mailthelog))
 then
     if [ -n "$mailto" ]
     then
-        mailx -s "$subsubject - $mailsubject" \
-              "$mailto" \
-              <<EOM
+        /home/mpersico5/bloomberg/bin/bbmsg \
+            "${mailfrom[@]}" \
+            -t "$mailto" \
+            -s "$subsubject - $mailsubject" \
+            <<EOM
 $subsubject
 $( ((status)) && cat "$profilelog";cat "$alllog")
 EOM

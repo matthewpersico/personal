@@ -1,0 +1,792 @@
+#!/usr/bin/env perl
+
+#debug: #!/opt/bb/bin/perl -d:ptkdb ## Set a < G C S > whenever you use this.
+
+use strict;
+use warnings;
+
+use Cwd 'abs_path';
+use Data::Dumper;    # for debugging.
+use File::Basename;
+use File::Spec::Functions qw(catfile rel2abs);
+use File::Slurp;
+use Getopt::Long;
+use IO::File;
+use Path::Tiny;
+use Text::Wrap qw(wrap);
+$Text::Wrap::columns = 72;
+
+use constant NOFUNC => '!File Scope'; # the ! will sort this before all function names.
+## NOTE: If you change the lead character for items here, make sure you also
+## change it in git-process-source-ctrl-log.
+use constant LEAD_CHAR => '-';
+
+# These markers are composed this way so that they do not interfere when
+# committing *this* file.
+my $gcs_marker              = join( '', qw( < G C S > ) );
+my $gcs_marker_re           = qr/$gcs_marker/o;
+my $gcs_exclusion_marker    = join( '', qw( < G C S L I T E R A L > ) );
+my $gcs_exclusion_marker_re = qr/$gcs_exclusion_marker/;
+
+my %gcs;                 # Files with a GCS marker in them.
+my %entries;             # Holds all the comments, per file.
+my %diffs;               # diff output, per file.
+my %files_to_process;    # If you want to process all in the directory, they
+                         # must all be passed. Passed files should be in
+                         # absolute paths.
+my $scldir;              # The root of the repo, where the scl file is.
+my %deleted;             # Files that are being deleted, the won't be in the
+                         # directory, but still need to have scl entries.
+my @retain;              # The text for files not being committed.
+my %opt = (
+    'scl'         => undef,
+    'for-commit'  => undef,
+    'color'       => 'always',
+    'diff'        => 0,
+    'edit'        => 0,
+    'sclonly'     => 0,
+    'nosclonly'   => 0,
+    'gcsonly'     => 0,
+    'nogcsonly'   => 0,
+    'cached'      => 0,
+    'namesonly'   => 0,
+    'nountracked' => 0,
+);
+my @obsolete = qw(withstatus
+  skip-no-source-ctrl-log);
+
+sub main {
+
+    GetOptions(
+        \%opt,
+        'scl=s',    # The current scl filename.
+
+        'for-commit=s',    # The root of the new scl filenames. The commit
+                           # messages will go in .commit. The messages for
+                           # those files not yet committing will go in .retain.
+
+        # These three options are for formatting and will be ignored if
+        # --for-commit or --namesonly are set.
+        'color=s',    # Same as the git values.
+        'diff',       # Include git diff output mixed in with the status and
+                      # changelog info.
+        'cached',     # Controls the diff output.
+
+        'sclonly',    # Only process files with a changelog entry.
+        'nosclonly',  # Only process files without a changelog entry.
+                      # If neither of these are set, then files without a
+                      # changelog entry will fail a commit, but will not fail a
+                      # status print.
+
+        'gcsonly',    # Only process files with a Git Commit Skip marker.
+        'nogcsonly',  # Only process files without a Git Commit Skip marker.
+                      # If neither of these are set, then both sets of files
+                      # will be processed.
+
+        'namesonly',  # Just print the filenames; no status and comments. Used
+                      # primarily with --nosclonly to get a list of files that
+                      # need SourceCtrlLog entries Options we need to get rid
+                      # of. We absorb them here so that we don't fall over
+                      # until we can remove them upstream.
+
+        'nountracked',    # Do not print anything for untracked files.
+
+        'edit',    # Used in conjunction with --diff or --nosclonly, edit
+                   # each file that has no SourceCtrlLog entry or a diff so
+                   # that you can add a missing entry or update according
+                   # to the diff.
+        @obsolete
+    ) or die "Bad options";
+
+    my $found_obsolete = join( q(, ),
+        grep { exists $opt{$_} }
+        map { ( split( /=/, $_ ) )[0] } @obsolete );
+
+    warn join( qq(\n),
+        "Obsolete flag(s) passed in, ignored:",
+        $found_obsolete, q() )
+      if ($found_obsolete);
+    die "-scl SourceCtrlLog option required"
+      if ( !$opt{scl} );
+
+    # All of the entries in the scl are relative to directory where the scl
+    # lives, so it is important to record that location; we will normalize the
+    # scl entries and the incomming files to that location.
+    $opt{scl} = rel2abs( $opt{scl} );
+    $scldir = dirname( $opt{scl} );
+
+    %files_to_process = map { abs_path($_) => 0 } @ARGV;
+
+    if ( $opt{cached} ) {
+        die "--cached has no effect without --diff\n"
+          if !$opt{diff};
+
+        # Transform for use with the git diff command;
+        $opt{cached} = '--cached';
+    } else {
+        $opt{cached} = '';
+    }
+
+    if ( $opt{edit} and not( $opt{diff} or $opt{nosclonly} or $opt{gcsonly} ) )
+    {
+        die
+"--edit has no effect without either of --diff, --nosclonly or --gcsonly\n";
+    }
+
+    if ( $opt{sclonly} and $opt{nosclonly} ) {
+        die "--sclonly and --nosclonly are mutex\n";
+    }
+
+    if ( $opt{gcsonly} and $opt{nogcsonly} ) {
+        die "--gcsonly and --nogcsonly are mutex\n";
+    }
+
+    if (    ( $opt{sclonly} or $opt{nosclonly} )
+        and ( $opt{gcsonly} and $opt{nogcsonly} ) )
+    {
+        die join( 'and ',
+            map  { "--$_" }
+            grep { $opt{$_} } qw(sclonly nosclonly gcsonly nogcsonly) )
+          . " are mutex\n";
+    }
+
+    #
+    # Read the file, create the data structure of entries
+    #
+    parse_scl( $opt{scl} );
+
+    #
+    # Process the data
+    #
+    if ( $opt{'for-commit'} ) {
+        create_commit_scl( $opt{'for-commit'} );
+    } elsif ( $opt{'namesonly'} ) {
+        names_only();
+    } else {
+        format_scl();
+    }
+}
+
+sub parse_scl {
+    my ($scl) = @_;
+
+    # These regexes match file lines with file paths and file paths with
+    # functions, respectively.
+    my $filetag_re = qr(^\s+\* ([a-zA-Z0-9_./-]+));
+    my $functag_re = qr([(]([a-zA-Z0-9_.*\<\>\[\]\|/,: -]+)[)]);
+
+    # A serial number, monotonically increasing. We assign one to each new entry
+    # because 1) we are getting a new entry for each comment 2) the entries are
+    # entered at the top of the SourceCtrlLog. So to get the right chronological
+    # flow to the output, we have to reverse the entries.
+    my $entry_id = 0;
+
+    my %current;
+    # Data for the current entry, primarily to keep state between lines of text
+    # blocks.
+    my $sclih = IO::File->new( $scl, "r" );
+    if ( !$sclih ) {
+        if ( $opt{'for-commit'} ) {
+            die "Cannot open $scl for reading commit messages.";
+        } else {
+            warn "Cannot open $scl for reading status messages.\n";
+            return;
+        }
+    }
+
+    my @chunks;
+    my $in_chunk = 0;
+    # First we chunk the file
+  LINE: while (<$sclih>) {
+        chomp;
+        if ( $_ eq '' ) {
+            $in_chunk = 0;
+            next LINE;
+        }
+        if ($in_chunk) {
+            push @{ $chunks[-1]->{text} }, $_;
+            next LINE;
+        }
+        push @chunks,
+          {
+            entry_id => $entry_id++,
+            text     => [$_]
+          };
+        $in_chunk = 1;
+    }
+    $sclih->close();
+
+    # Then we sort through the chunks, processing the ones we want, throwing
+    # back the others if we are writting a commit message.
+    for my $chunk (@chunks) {
+        $current{entry_id}  = $chunk->{entry_id};
+        $current{text}      = '';
+        $current{orig_text} = $chunk->{text};
+        for ( @{ $chunk->{text} } ) {
+            next
+              if ( length($_) == 0
+                or /^\s+$/
+                or /^\d{4,4}-\d{2,2}-\d{2,2}/ );
+    # Parsing assumptions:
+    # 1) One SourceCtrlLog in git root for whole project.
+    # 2) Emacs variable add-log-always-start-new-record is set to 't'.
+    # 3) With #2, we can use Esc-Q to wrap text, so we have to account for that.
+
+            my $text;
+            if (m|${filetag_re}\s*${functag_re}:\s*(.*)|) {
+
+                # * file\s*(function):\s*text
+                $current{filespec} = catfile( $scldir, $1 );
+                $current{function} = $2;
+                ( $text = $3 ) =~ s/^\s+//;
+                $text =~ s/\s+$//;
+                $current{text} = $text;
+            } elsif (m|${filetag_re}:\s*(.*)|) {
+
+                # * file:\s*text
+                $current{filespec} = catfile( $scldir, $1 );
+                $current{function} = NOFUNC;
+                ( $text = $2 ) =~ s/^\s+//;
+                $text =~ s/\s+$//;
+                $current{text} = $text;
+            } elsif (m|${functag_re}:\s*(.*)|) {
+                # (function):\s*text
+                die
+"We no longer support a function entry without correspinding file:\n$_\n";
+            } elsif (m|${filetag_re}$|) {
+                # * file
+                die "We no longer support a file entry with no text:\n$_\n";
+            } else {
+                # text
+                ( $text = $_ ) =~ s/^\s+//;
+                $text =~ s/\s*$//;
+                $current{text} .= " $text";
+            }
+        }
+
+        if (   exists( $current{filespec} )
+            && exists( $files_to_process{ $current{filespec} } ) )
+        {
+            # Save off current info.
+            stash( \%current );
+            $files_to_process{ $current{filespec} } = 1;
+        } elsif ( $opt{'for-commit'} ) {
+            push @retain, @{ $current{orig_text} }, q();
+        }
+        %current = ();
+    }
+}
+
+sub stash {
+    my ($current) = @_;
+    $entries{ $current->{filespec} }->{ $current->{function} }
+      ->{ $current->{entry_id} } = "$current->{text}";
+}
+
+sub create_commit_scl {
+    my ($new_scl_root) = @_;
+
+    my ( $commit_f, $retain_f ) =
+      ( "${new_scl_root}.commit", "${new_scl_root}.retain" );
+    ( open my $commit_h, ">", $commit_f and print "DEBUG - $commit_f\n" )
+      or die "Cannot open $commit_f for write:$!\n";
+    ( open my $retain_h, ">", $retain_f and print "DEBUG - $retain_f\n" )
+      or die "Cannot open $retain_f for write:$!\n";
+
+    ## Checking for files with/without comments.
+    my @no_scl_keys =
+      grep { $files_to_process{$_} == 0 }
+      keys %files_to_process;
+    if (@no_scl_keys) {
+        if ( $opt{sclonly} ) {
+            warn scalar(@no_scl_keys),
+" file(s) have no entries; --sclonly was specified, so they will be skipped and the commit will continue.\n";
+            delete @files_to_process{@no_scl_keys};
+        } elsif ( $opt{nosclonly} ) {
+            warn scalar(@no_scl_keys),
+" file(s) have no entries; --nosclonly was specified, so they will be the ones processed and the commit will continue.\n";
+            my %have_scl_keys = %files_to_process;
+            delete @have_scl_keys{@no_scl_keys};
+            retain_entries( keys %have_scl_keys );
+            delete @files_to_process{ keys %have_scl_keys };
+        } else {
+            die "Error: Files with no entries:\n    "
+              . join( qq(\n    ), map { file_abs_to_git_rel($_) } @no_scl_keys )
+              . qq(\n);
+        }
+    }
+    write_commit_message($commit_h);
+    write_retained_log($retain_h);
+}
+
+sub write_commit_message {
+    my ($oh) = @_;
+
+    my %status = map { $_->[-1], $_->[-2] }
+      map { [ split(/\s+/) ] } qx(git diff-index HEAD),
+      qx(git diff-index --cached HEAD);
+    my @output = ( 'SUMMARY TEXT HERE', '' );
+    for my $filename ( sort keys %files_to_process ) {
+        push_scl_to_output(
+            is_commit   => 1,
+            status      => $status{ file_abs_to_git_rel($filename) },
+            input       => file_abs_to_scl_commit_entry($filename),
+            file        => $filename,
+            output      => \@output,
+            format_over => ''
+        );
+    }
+    $oh->print( join( qq(\n), @output, q() ) );
+}
+
+sub write_retained_log {
+    my ( $oh, $entries ) = @_;
+    my $iam = ( caller(0) )[3];
+
+    ## Strip out extra date lines.
+    my $i=0;
+    my $dateline_re = qr/\d{4,4}-\d{2,2}-\d{2,2}.*>/;
+    while ($i < @retain ) {
+        if (@retain - $i >= 3) {
+            if (join('', @retain[$i,$i+1,$i+2]) =~ /^${dateline_re}${dateline_re}$/) {
+                splice @retain, $i, 2;
+                next;
+            }
+        } elsif (@retain - $i == 2) {
+            if ( join('', @retain[$i,$i+1]) =~ /^${dateline_re}{1,2}$/) {
+                splice @retain, $i, 2;
+                next;
+            }
+        } elsif (@retain - $i == 1) {
+            if ( $retain[$i] =~ /^${dateline_re}{0,1}$/) {
+                splice @retain, $i, 1;
+                next;
+            }
+        }
+        $i++;
+    }
+
+    ## Print it.
+    $oh->print( join( qq(\n), @retain, q() ) );
+}
+
+sub format_scl {
+    my @output;    # Holds the formatted strings for the status output.
+
+    #
+    # Get diffs if asked.
+    #
+    my @diff_text;
+    if ( $opt{diff} ) {
+        @diff_text =
+          map { chomp; $_ } qx(git -c color.diff=$opt{color} diff $opt{cached});
+        my $entry;
+        for my $line (@diff_text) {
+            if ( $line =~ m/^....diff --git a/ ) {
+                $entry = $line;
+                $entry =~ s|.*b/||;
+                $entry =~ s|([/a-zA-Z0-9_.-]+).*|$1|;
+                $entry = file_git_rel_to_abs($entry);
+                $diffs{$entry} = [];
+            }
+            push @{ $diffs{$entry} }, $line;
+        }
+    }
+
+    ## These regexes account for the colorization on lines we need to
+    ## match.
+    my %re = (
+        color_on => qr|(?:\x{1b}\[\d+;\d+m){0,1}|,
+
+        untracked_color_on => qr|(?:\x{1b}\[(?:\d+;)+\d+m){0,1}|,
+
+        color_off => qr|(?:\x{1b}\[m){0,1}|,
+
+        status => qr/(?<status>new file|modified|deleted|renamed|)/,
+
+        file => qr|(?<file>[\w\/.+:~_-]+)|,
+
+        renamed_file => qr|(?<renamed_file>[\w\/.+:~_-]+)|,
+    );
+    $re{renamed} =
+qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_off}$|x;
+    $re{tracked} =
+      qr|^ $re{color_on} $re{status}: \s+ $re{file} $re{color_off}$|x;
+    $re{untracked} = qr|^ $re{untracked_color_on} $re{file} $re{color_off}$|x;
+
+    # At this point we want to get the current git status output and combine it
+    # with the scl data and maybe the git diff data.
+    #my @files = map { file_abs_to_git_rel($_) } keys(%files_to_process);
+    my @files = map { file_abs_to_pwd_rel($_) } keys(%files_to_process);
+    my @status = qx(git -c color.status=$opt{color} status @files);
+
+    # Start processing. We go line by line over the status output, always first
+    # putting the line onto the output, then parsing it. We print its scl text,
+    # or a warning if there is none, and then we add any diff output.
+
+  STATUS: for my $sline (@status) {
+        chomp $sline;
+        my $input = $sline;
+
+        $sline =~ s/^\s+//;
+        $sline =~ s/\s+$//;
+        my ( $status, $file, $filespec );
+
+        if ( $opt{nountracked} and $sline =~ /^Untracked files:/ ) {
+            last STATUS;
+        }
+
+        if (   $sline =~ m/$re{tracked}/o
+            or $sline =~ m/$re{untracked}/o
+            or $sline =~ m/$re{renamed}/o )
+        {
+            # Add in scl data.
+            my $status = ( $+{status} || 'untracked' );
+            push_scl_to_output(
+                input        => $input,
+                output       => \@output,
+                file         => $+{file},
+                status       => $status,
+                renamed_file => $+{renamed_file}
+            );
+        } else {
+            # just another line
+            push @output, $input;
+        }
+    }
+
+    for ( my $i = 0 ; $i < scalar(@output) ; $i++ ) {
+        $output[$i] =~ s/^\s+$//;
+        if ( $output[ $i - 1 ] eq '' and $output[$i] eq '' ) {
+            splice( @output, $i, 1 );
+            $i--;    # To recompare this one, in case there are multiple runs of
+                     # blanks
+        }
+    }
+    print join( qq(\n), @output, q() );
+}
+
+# Used to format the scl text
+my $ascii_red_black = ( $opt{color} ne 'never' ? '[31;40m' : '' );
+my $ascii_bold_red  = ( $opt{color} ne 'never' ? '[1;31m'  : '' );
+my $ascii_normal    = ( $opt{color} ne 'never' ? '[m'      : '' );
+
+# Track which scl entries we have already printed. If we see them again, it's
+# probably because there is a cached and a non-cached entry. The second time
+# around, we print a dupe entry message.
+my %scl_seen;
+
+sub push_scl_to_output {
+    my %args = (
+        input        => undef,
+        is_commit    => 0,
+        output       => [],
+        file         => undef,
+        status       => undef,
+        renamed_file => undef,
+        format_over  => ' ' x 8,
+        @_
+    );
+
+    my $ok_to_edit = 0;
+    $ascii_red_black = $ascii_bold_red = $ascii_normal = ''
+      if ( $args{is_commit} );
+
+    my ( $filespec, $renamed_filespec, $status ) = (
+        $args{file},
+        (
+            defined( $args{renamed_file} ) ? $args{renamed_file}
+            : ''
+        ),
+        (
+            defined( $args{status} ) ? $args{status}
+            : ''
+        ),
+    );
+
+    $filespec         = file_pwd_rel_to_abs( $args{file} );
+    $renamed_filespec = file_pwd_rel_to_abs( $args{renamed_file} )
+      if defined $args{renamed_file};
+    my $need_a_blank;
+
+    if (    not defined $entries{$filespec}
+        and $args{status} ne 'untracked'
+        and $opt{sclonly} )
+    {
+        return;
+    }
+
+    if ( defined $entries{$filespec}
+        and $opt{nosclonly} )
+    {
+        return;
+    }
+
+    $gcs{$filespec} = { count => 0, data => [] };
+    if ( $status !~ m /^(?:D|deleted)$/ ) {
+        # Check for any GCS entries in the code.
+        open my $ih, '<', $filespec
+          or die "Cannot open '$filespec' for read:$!";
+        my $line = 0;
+        my @gcs  = map {
+            $line++;
+            ( /$gcs_marker_re/ && !/$gcs_exclusion_marker_re/ )
+              ? "${line}: $_"
+              : ()
+        } <$ih>;
+        $gcs{$filespec} = {
+            count => scalar(@gcs),
+            data  => \@gcs
+          }
+          if @gcs;
+    }
+
+    if (   $opt{gcsonly} && $gcs{$filespec}->{count} == 0
+        or $opt{nogcsonly} && $gcs{$filespec}->{count} != 0 )
+    {
+        return;
+    }
+
+    push @{ $args{output} }, $args{input}
+      if ( defined( $args{input} ) );
+    if ( exists( $scl_seen{$filespec} ) ) {
+        # then we probably have one file in multiple sections. Print a
+        # reference here and move on.
+        if ( !$args{is_commit} ) {
+            push @{ $args{output} },
+              join( '', $args{format_over}, "Duplicate entry. See above." ),
+              '';
+        }
+        return;
+    } else {
+        $scl_seen{$filespec} = 1;
+    }
+
+    # Do we have an scl entry? If not, we note it here. If so, we print
+    # below. We test here in addition to below so as to allow the GCS info
+    # to be above the scl info.
+    if (    not defined $entries{$filespec}
+        and not $args{is_commit} )
+    {
+        if ( $args{status} ne 'untracked' ) {
+            $args{output}[-1] .=
+              ": ${ascii_bold_red}No SourceCtrlLog entry found.${ascii_normal}";
+            $need_a_blank = 1;
+        }
+        $ok_to_edit = 1;
+    }
+
+    if ( $gcs{$filespec}->{count} ) {
+        if ( $opt{'for-commit'} ) {
+            die join( '',
+                "Cannot process commit with $args{file}, GCS Entries:\n",
+                @{ $gcs{$filespec}->{data} } );
+        } else {
+            push @{ $args{output} },
+              map { "$args{format_over}$_" } (
+                "${ascii_bold_red}GCS Entries:[${ascii_normal}",
+                ( map { chomp; $_ } @{ $gcs{$filespec}->{data} } ),
+                "${ascii_bold_red}]${ascii_normal}",
+              ),
+              '';
+            $need_a_blank = 0;
+            $ok_to_edit   = 1;
+        }
+    }
+
+    # Do we have an scl entry?
+    if ( defined $entries{$filespec} ) {
+
+        # Short for the file's entry
+        my $e = $entries{$filespec};
+
+        # The functions, (including NOFUNC) for the entry.
+        my @funcs = sort( keys(%$e) );
+        for my $func (@funcs) {
+
+            my $lead;
+            if ( $func eq NOFUNC ) {
+                $lead = LEAD_CHAR . q ( );
+            } else {
+                $lead = q(  ) . LEAD_CHAR . q ( );
+                push @{ $args{output} },
+                  join( '', $args{format_over}, $func, '():' );
+            }
+            my $indent = set_indent_from_lead($lead);
+
+            # The orders of each text entry. The newest entries are put at the
+            # top of the scl file, so to put them in chrono order as you read
+            # downward in the commit message, we reverse them here.
+            my @orders = sort { $b <=> $a } keys %{ $e->{$func} };
+
+            for my $order (@orders) {
+                my @wrapped =
+                  split( /\n/, wrap( '', '', $e->{$func}->{$order} ) );
+                my $line1 = shift(@wrapped);
+                $line1 =~ s/^\s+//;    # If the file/function line is so long
+                                       # that the text is pushed to the next
+                                       # line, we get spurious space between
+                                       # the lead and the first word.
+                $line1 = join( '', $args{format_over}, $lead, $line1 );
+                push @{ $args{output} }, $line1,
+                  ## Line 2+
+                  ( map { join( '', $args{format_over}, $indent, $_ ) }
+                      @wrapped ),
+                  ( $args{is_commit} ? () : '' );
+            }
+            push @{ $args{output} }, ( $args{is_commit} ? '' : () );
+        }
+    }
+
+    ## Diffs here
+    if ( $diffs{$filespec} ) {
+        push @{ $args{output} }, @{ $diffs{$filespec} };
+        $ok_to_edit = 1;
+    }
+
+    push @{ $args{output} }, '' if $need_a_blank;
+
+    if ( $opt{edit} and $ok_to_edit ) {
+        my $child = fork();
+        if ($child) {
+            ## I am the parent. No waitpid here. The child is going to exec
+            ## into an editor process, so the editor master will take care of
+            ## cleaning it up.
+        } else {
+            ## I am the child
+            no warnings 'once';
+            ## Diassociating the child from the parent's IO channels. Not sure
+            ## if we need to, but it doesn't seem to break anything.
+            open( CPSTDIN,  "<&STDIN" );
+            open( CPSTDOUT, ">&STDOUT" );
+            open( CPSTDERR, ">&STDERR" );
+            close(STDIN);
+            close(STDOUT);
+            close(STDERR);
+            open( STDIN,  "<&CPSTDIN" );
+            open( STDOUT, ">&CPSTDOUT" );
+            open( STDERR, ">&CPSTDERR" );
+            exec( "$ENV{EDITOR}", $filespec );
+        }
+    }
+}
+
+sub names_only {
+
+    ## Checking for files with/without comments.
+    my @no_scl_keys =
+      grep { $files_to_process{$_} == 0 }
+      keys %files_to_process;
+    my %no_scl_keys;
+    if (@no_scl_keys) {
+        %no_scl_keys = map { $_ => 1 } @no_scl_keys;
+        if ( $opt{sclonly} ) {
+            delete @files_to_process{@no_scl_keys};
+        } elsif ( $opt{nosclonly} ) {
+            my %have_scl_keys = %files_to_process;
+            delete @have_scl_keys{@no_scl_keys};
+            retain_entries( keys %have_scl_keys );
+            delete @files_to_process{ keys %have_scl_keys };
+        }
+    }
+    my %status = map { $_->[-1], $_->[-2] }
+      map { [ split(/\s+/) ] } qx(git diff-index HEAD),
+      qx(git diff-index --cached HEAD);
+    my @output;
+  FILE: for my $filename ( sort keys %files_to_process ) {
+        my $git_rel_filename = file_abs_to_git_rel($filename);
+        my $status = $status{$git_rel_filename} || 'U';
+        if ( $opt{nountracked} and $status eq 'U' ) {
+            next FILE;
+        }
+        push @output,
+          join(
+            ':',
+            $git_rel_filename,
+            $status,
+            (
+                defined( $no_scl_keys{$filename} )
+                ? 'No SourceCtrlLog entry found'
+                : ()
+            )
+          );
+    }
+    print join( qq(\n), @output );
+}
+
+sub file_git_rel_to_abs {
+    if ( $_[0] =~ m|^$scldir| ) {
+        return ( $_[0] );
+    } else {
+        my $intermediate = "@{[path($_[0])->absolute($scldir)]}";
+        return ("@{[path($intermediate)->realpath()]}");
+    }
+}
+
+sub file_abs_to_git_rel {
+    return ("@{[path($_[0])->relative($scldir)]}");
+}
+
+sub file_pwd_rel_to_abs {
+    if ( $_[0] =~ m|^$ENV{PWD}| ) {
+        return ( $_[0] );
+    } else {
+        my $intermediate = "@{[path($_[0])->absolute($ENV{PWD})]}";
+        return ("@{[path($intermediate)->realpath()]}");
+    }
+}
+
+sub file_abs_to_pwd_rel {
+    return ("@{[path($_[0])->relative($ENV{PWD})]}");
+}
+
+sub file_abs_to_scl_main_entry {
+    return "\t* " . file_abs_to_git_rel( $_[0] ) . ":";
+}
+
+sub file_abs_to_scl_func_entry {
+    return "\t* " . file_abs_to_git_rel( $_[0] ) . " ($_[1]):";
+}
+
+sub file_abs_to_scl_commit_entry {
+    return file_abs_to_git_rel( $_[0] );
+}
+
+sub set_indent_from_lead {
+    return ' ' x length( $_[0] );
+}
+
+sub retain_entries {
+    for my $retain_key (@_) {
+        my $entry = delete $entries{$retain_key};
+        for my $scope ( sort keys %$entry ) {
+            my $log_entry_header;
+            if ( $scope eq '!File Scope' ) {
+                $log_entry_header = file_abs_to_scl_main_entry($retain_key);
+            } else {
+                $log_entry_header =
+                  file_abs_to_scl_func_entry( $retain_key, $scope );
+            }
+            for my $line (
+                map  { $_->[1] }
+                sort { $a->[0] <=> $b->[0] }
+                map  { [ $_ => $entry->{$scope}->{$_} ] }
+                keys %{ $entry->{$scope} }
+              )
+            {
+                push @retain, "$log_entry_header $line", q();
+            }
+        }
+    }
+}
+
+main();
+
+exit;
+
+END {
+    my $dq        = $?;
+    my $debugspot = 6;
+    $dq;
+}
+#  LocalWords:  filename

@@ -1,0 +1,429 @@
+#!/usr/bin/env bash
+
+echo "$(date): git-go" >> "$HOME/.gitaudit"
+
+# git-go
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+declare PS3
+PS3="Choose by number, /string to rematch, q to quit: "
+declare -a git_get_opts
+declare opt_list
+opt_list=0
+declare opt_wt
+opt_wt='-w'
+declare opt_stat
+opt_stat=0
+declare opt_mod
+opt_mod=0
+declare opt_size
+opt_size=0
+declare opt_brief
+opt_brief=0
+declare opt_comments
+opt_comments=0
+declare opt_repo_no
+opt_repo_no=0
+declare opt_comma
+opt_comma=0
+declare -a limited
+declare -a tgts
+declare doandcdfile
+
+# Read the options and args from command line. Note that the long and short
+# don't have to match up.
+declare OPTSARGS
+declare shortopts
+shortopts='elmrubhi:'
+declare longopts
+longopts="upstream,exact,et,exact-tail,eh,exact-head"
+longopts="$longopts,wc,with-comments,wco,with-comments-only"
+longopts="$longopts,list,lf,listfull,size,mbig,roots,update"
+longopts="$longopts,wt,nowt,subwt,wto"
+longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
+longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,set"
+
+# Process the command line.
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$0" -- "$@")
+declare status
+status=$?
+((status != 0)) && return $status ## return $status ## in functions
+
+# Reset the command line ($@).
+eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+while true
+do
+    declare option
+    option=$1
+    shift
+    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    case "$option" in
+        upstream) declare tmp
+                  tmp=$(git remote get-url upstream 2>/dev/null)
+                  # shellcheck disable=SC2154
+                  if [[ -z $tmp ]]
+                  then
+                      cmd-echo -ec -- "No upstream for current repo (${PWD})"
+                      exit 1
+                  fi
+                  tgts=("${tmp/*:/}")
+                  ;;
+        e | exact ) git_get_opts+=('--exact');;
+        et | exact-tail ) git_get_opts+=('--exact-tail');;
+        eh | exact-head ) git_get_opts+=('--exact-head');;
+        wc | with-comments ) opt_comments=1; opt_list=1 ;;
+        wco | with-comments-only ) opt_comments=2; opt_list=1 ;;
+        wpr | with-pr ) git_get_opts+=('--with-pr');;
+        npr | no-pr ) git_get_opts+=('--no-pr');;
+        l | list ) opt_list=1 ;;
+        lf | listfull ) opt_list=2 ;;
+        comma ) opt_comma=1 ;;
+        size ) opt_size=1; opt_list=1 ;;
+        m | mbig ) git_get_opts+=('-m') ;;
+        r | roots ) git_get_opts+=('-r') ;;
+        u | update ) git_get_opts+=('-u') ;;
+        wt ) opt_wt='-w' ;;
+        nowt ) opt_wt='' ;;
+        subwt | wto ) git_get_opts+=('--wto');;
+        stat ) opt_stat=1; opt_list=1 ;;
+        dirty ) opt_stat=2; opt_list=1 ;;
+        b| brief ) opt_brief=1 ;;
+        mod ) opt_mod=1;;
+        i | index ) opt_repo_no=$1; shift ;;
+        limited ) limited=('--limited' "$1"); shift ;;
+        doandcd ) doandcdfile=$1; shift;;
+        set ) cmd-echo -- Working...
+              git-go-set; exit 0;;
+        h | help ) bash-usage "$0"; exit 0 ;;
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo -ec -- "$option is an invalid option. See $0 --help"
+            exit 1
+            ;;
+    esac
+done
+if ((opt_stat!=2)) && ((opt_brief))
+then
+    cmd-echo -ec -- "Cannot specify --brief without --dirty"
+    bash-usage "$0"; exit 1
+fi
+
+## These settings are here and not in the case above where they are set because
+## they have non-blank defaults.
+[ -n "$opt_wt" ] && git_get_opts+=("$opt_wt")
+
+declare -a REPOS
+declare -a origtgts
+
+## Grab all arguments; these are filters. We let the code drop through if
+## there are no arguments instead of bypassing with an explicit check for
+## arguments in order not to complicate the interplay with --limited.
+for tgt in "$@"
+do
+    ## Strip trailing slashes. Not sure why we need to do this.
+    tgts+=("${tgt%%/}")
+done
+origtgts=("${tgts[@]}")
+
+## First call has no REPOS to feed back and may be using a --limited
+## option. Do it separately.
+if ((${#limited[@]}))
+then
+    git_get_opts=()
+fi
+readarray -t REPOS < <(git-go-get "${git_get_opts[@]}" "${limited[@]}" "${tgts[0]}")
+
+## Shift off the first array member so we can iterate over the rest.
+tgts=("${tgts[@]:1}")
+
+## The rest need the REPOS feedback.
+for tgt in "${tgts[@]}"
+do
+    readarray -t tns < <(tail_number_strip "${REPOS[@]}")
+    declare alltgts
+    ajoin alltgts -s ',' "${tns[@]}"
+    readarray -t REPOS < <(git-go-get --limited "$alltgts" "$tgt")
+    if ((${#REPOS[@]}==0))
+    then
+        break
+    fi
+done
+
+if ((${#REPOS[@]}==0))
+then
+    if (( ${#origtgts[@]} == 0 ))
+    then
+        cmd-echo -ec -- "No repos available."
+    elif (( ${#origtgts[@]} == 1 ))
+    then
+        cmd-echo -ec -- "Filter '${origtgts[*]}' does not match any repo"
+    else
+        declare allfilts
+        ajoin allfilts -s ',' "${origtgts[@]}"
+        cmd-echo -ec -- "Filters '$allfilts' do not match any repo"
+    fi
+    exit 1
+else
+    if ((opt_mod))
+    then
+        for r in "${REPOS[@]}"
+        do
+            (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1)
+             if (( $(git status --porcelain | wc  -l) ))
+             then
+                 echo
+                 cmd-echo -- "$r"
+                 git status
+             fi)
+        done
+    elif ((opt_list))
+    then
+        declare r
+        if ((opt_size))
+        then
+            ## Re-sort the list of repos by size descending using
+            ## byte-level counts.
+            repos_size=$(mktemp -t tmp.git-go.size.XXXXXXXXXX)
+            rm-on-exit "$repos_size"
+            for r in "${REPOS[@]}"
+            do
+                du -s --exclude wt "${TILDAE:-$HOME}/${r}"
+            done > "$repos_size"
+            readarray -t REPOS < <(sort -nr "$repos_size" | sed -E 's/^[0-9]+\s+//')
+        fi
+
+        for r in "${REPOS[@]}"
+        do
+            # shellcheck disable=SC2088
+            if((opt_size))
+            then
+                du -hs --exclude wt "${r}"
+            else
+                declare rexp
+                ((opt_list==1)) && rexp="~/${r}" || rexp="${TILDAE:-$HOME}/${r}"
+                if ((opt_stat==1))
+                then
+                    echo "$rexp"
+                    (cd "${TILDAE:-$HOME}/$r" || (cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
+                     git status --porcelain)
+                    echo
+                elif ((opt_stat==2))
+                then
+                    (
+                        cd "${TILDAE:-$HOME}/$r" || (cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
+                        if (( $(git status --porcelain | wc -l) ))
+                        then
+                            echo "$rexp"
+                            if ((opt_brief==0))
+                            then
+                                git status --porcelain
+                                echo
+                            fi
+                        fi
+                    )
+                elif ((opt_comments))
+                then
+                    (
+                        cd "${TILDAE:-$HOME}/$r" || (cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
+                        declare output
+                        output="$(git comment --show --hi)"
+                        if ((opt_comments==1)) || \
+                               ( ((opt_comments==2)) && [[ -n $output ]] )
+                        then
+                            echo "$rexp"
+                        fi
+                        [[ -n $output ]] && echo "    $output" && echo
+                    )
+                else
+                    echo -n "$rexp"
+                    if ((opt_comma)) && [ "$r" != "${REPOS[-1]}" ] ## and not the last rexp
+                    then
+                        echo -n ,
+                    else
+                        echo
+                    fi
+
+                fi
+            fi
+        done
+        exit
+    elif ((${#REPOS[@]}==1))
+    then
+        cmd-echo -- "Matches only ${REPOS[0]}. Going there."
+        REPO=${REPOS[0]}
+    else
+        declare REPO
+
+        if ((opt_repo_no))
+        then
+            declare r
+            declare ri
+            ri=1
+            for r in "${REPOS[@]}"
+            do
+                if ((ri==opt_repo_no))
+                then
+                    REPOS=("$r")
+                    break
+                fi
+                ((ri+=1))
+            done
+        fi
+
+        if ((${#REPOS[@]}==1))
+        then
+            ## Re-check singlematch condition in case we modified REPOS
+            ## above.
+            cmd-echo -- "Matches only ${REPOS[0]}. Going there."
+            REPO=${REPOS[0]}
+        else
+            readarray -t REPOS < <(tail_number_add "${REPOS[@]}")
+            COLUMNS=1 ## One character wide terminal, forces list to be one
+                      ## column.
+
+            select REPO in "${REPOS[@]}"
+            do
+                if ((opt_list))
+                then
+                    exit
+                fi
+                if [ -n "$REPO" ]
+                then
+                    REPO=$(tail_number_strip "$REPO")
+                    break
+                elif [ "${REPLY,,}" = 'q' ]
+                then
+                    exit
+                elif [[ "$REPLY" =~ ^/ ]]
+                then
+                    declare repolist
+                    # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
+                    # Wants to quote "$(trail_number_strip...), but we need the
+                    # output to be individual items so that ajoin works. Will
+                    # be an issue if a path has a space in it.
+                    ## TODO - tail_number_strip should take an array as a target and not
+                    ## use 'echo' to return its output.
+                    ajoin repolist -s ',' $(tail_number_strip "${REPOS[@]}")
+                    git go --limited "$repolist" "${REPLY#/}"
+                    break
+                else
+                    cmd-echo -ec -- "'$REPLY' is an invalid choice"
+                fi
+            done
+        fi
+    fi
+fi
+if [ -n "$REPO" ]
+then
+    ## dirlist, not builtin cd, to take advantage this cd enhancement
+    dirlist "${TILDAE:-$HOME}/${REPO//(repo)/}"
+    git hook check
+fi
+
+[ -n "$doandcdfile" ] && echo "go ${PWD}" > "$doandcdfile"
+
+exit 0
+
+:<<'__USAGE__'
+Usage: git-go [options] [ filter [filter...] ]
+
+   git-go --upstream
+
+   git-go [-h|--help]
+
+   Presents a list of all git repos in ${TILDAE:-$HOME}/gits for you to
+   choose and then cd to.
+
+   Undocumented, yet:
+   --exact|--exact-head|--exact-tail
+
+   -i n | --item n
+       'n' is an integer which will pick the nth item in the
+       list of repos that would be presented if you didn't specify
+       '--item'. Useful if you are cycling between a small number of repos.
+
+   --upstream Determine the upstream repo of the current repo and if we
+       have a clone of it, go there. This is primarily used to get there
+       for a 'dpkg-debchange' call.
+
+   --wc|--with-comments
+       Print the repo and any comments on the repo.
+
+   --wco|--with-comments-only
+       Print only repos with comments on the repo and any comments on the repo.
+
+   --help
+       Print this help text.
+
+   --list|-l
+       Skip the choosing part and just exit, printing each repo dir with a
+       literal '~'.
+
+   --listfull|--lf
+       Skip the choosing part and just exit, printing each repo dir with
+       '~' expanded.
+
+   --comma
+       Using any of the --list options, print the entries in one
+       comma-separated string instead of each entry on its own
+       line. Silently ignored if specified without a --list* option.
+
+   --size
+       Skip the choosing part and just exit, printing each repo dir with
+       '~' expanded, and its size, sorted by descending size order. Worktree
+       sizes are not included in the size of their parent repos.
+
+   --stat
+       Invoke as if --list was specified and for each repo, call 'git
+       status --porcelain'.
+
+   --dirty
+       Invoke as if --stat was specified, but only print repos and status
+       where there is a non-blank status.
+
+   --brief
+       Requires --dirty, eliminated the status output, just prints the
+       dirty repos.
+
+   --update
+       Rescan to pick up new and deleted repos and worktrees.
+
+   --roots
+       Include the non-git directories where gits live as choices so you
+       can add new repos.
+
+   --mbig
+       Include the directories in MBIG as choices.
+
+   --wt
+       Include the worktree subdirectories in repos as choices. This is the
+       default.
+
+   --nowt
+       Override the default and do not include the worktree subdirectories
+       in repos as choices.
+
+   --wto
+       Include only the worktrees as choices.
+
+   --mod
+       Show status of repos that have mods outstanding.
+
+   --set
+       Don't go anywhere but reset the list of repos. Use this after file
+       system surgery.
+
+   'filter' will filter the list using grep.
+
+   You can specify 'item' only after one 'dirmatch' filter. Otherwise you
+   can specify 0 or more 'dirmatch' filters. If the first 'dirmatch' filter
+   is a number (i.e., it looks like it could be an 'item'), prefix it with
+   a '/',
+
+__USAGE__

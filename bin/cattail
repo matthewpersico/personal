@@ -2,33 +2,59 @@
 
 # cattail
 
+[[ $1 =~ -h ]] && bash-usage "$0" && exit 0
+
+if [[ $1 =~ -z ]]
+then
+    shift
+    # shellcheck disable=SC2230 #https://github.com/koalaman/shellcheck/wiki/SC2230
+    if which zenity
+    then
+        tail -n +1 -f "$@" | \
+            zenity --text-info --auto-scroll \
+                   --width=1320 --height=800 \
+                   --title "read from cattail $*" &
+        ## Get the zenity and tail process pids
+        declare zenitypid
+        zenitypid=$(pgrep --parent $$ zenity)
+        declare tailpid
+        tailpid=$(pgrep --parent $$ tail)
+        while ps -p "$zenitypid" > /dev/null
+        do
+            :
+        done
+        ## zenity box is gone, kill the tail. Otherwise tail never gets a
+        ## signal and it never goes away.
+        kill "$tailpid"
+        exit 0
+    else
+        echo "Cannot find 'zenity' in path, falling back to plain old 'tail'..."
+    fi
+fi
 tail -n +1 -f "$@"
 exit $?
-
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/.
 
 :<<'__PODUSAGE__'
 =head1 NAME
 
-foo - script that does something
+cattail - cat the file from the start, then continue to tail -f it
 
 =head1 SYNOPSIS
 
- foo [--option1] [ --option2 optionarg ] arg1 [arg2 ...]
-     [fee] [dfsdfs] [sfsdfsf]
+ cattail [-z] file
+ cattail -h
 
 =head1 DESCRIPTION
 
-Describe in general terms what foo does.
+cat the file from the start, then continue to tail -f it.
 
 =head1 ARGUMENTS
 
 =over 4
 
-=item arg
+=item file
 
-Describe what arg does, should be, etc. Add a new =item for each distinct arg.
+File to track.
 
 =back
 
@@ -36,25 +62,14 @@ Describe what arg does, should be, etc. Add a new =item for each distinct arg.
 
 =over 4
 
-=item --option1
+=item -z
 
-Describe what --option1 does.
+Send the output to a zenity text box. If 'zenity' is not found on path, fail
+back to 'tail'.
 
-=item --option2
+=item -h
 
-Describe what --option2 does. Describe what optionarg does.
-
-=over 2
-
-=item *
-
-A choice for optionarg
-
-=item *
-
-Another choice for optionarg
-
-=back
+Print the help.
 
 =back
 

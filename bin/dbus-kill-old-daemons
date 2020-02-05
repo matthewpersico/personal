@@ -1,0 +1,26 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2009 #https://github.com/koalaman/shellcheck/wiki/SC2009
+all="$1"
+to_kill=$(ps -o etime,pid,command -U "$USER" \
+           | grep dbus-daemon | grep -v grep \
+           | sort | perl -ane 'print $_ if q('"$all"') eq q(--all) or $F[0] =~ m/^\d+-/' | wc -l)
+
+if ((to_kill))
+then
+    echo "Before $all"
+    ps -o etime,pid,command -U "$USER" \
+        | grep dbus-daemon | grep -v grep \
+        | sort | perl -ane 'print $_ if q('"$all"') eq q(--all) or $F[0] =~ m/^\d+-/'
+    # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
+    kill $(ps -o etime,pid,command -U "$USER" \
+               | grep dbus-daemon | grep -v grep \
+               | sort | perl -ane 'print qq($F[1] ) if q('"$all"') eq q(--all) or $F[0] =~ m/^\d+-/')
+    echo "After $all"
+    ps -o etime,pid,command -U "$USER" \
+        | grep dbus-daemon | grep -v grep \
+        | sort | perl -ane 'print $_ if q('"$all"') eq q(--all) or $F[0] =~ m/^\d+-/'
+else
+    echo -n 'No dbus-daemon processes'
+    [[ $all != '--all' ]] && echo -n ' more than a day old'
+    echo '.'
+fi

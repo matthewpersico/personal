@@ -74,7 +74,7 @@ do
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
-            cmd-echo -e -- "$option is an invalid option. See $0 --help"
+            cmd-echo -ec -- "$option is an invalid option. See $0 --help"
             exit 1
             ;;
     esac
@@ -93,9 +93,13 @@ do
     ## Need -e and -f. -e makes it a file system object. -f alone
     ## could confuse a directory with a sed command.
     ## Pathological? Yes. But that's how I roll.
-    if [ -e "$arg" ] && [ -f "$arg" ]
+    ## And then we need to deal with links so that we don't overwrite them with
+    ## file contents, losing the link.
+    if [ -e "$arg" ]
     then
-	    files+=("$arg")
+        [[ -h "$arg" ]] && arg=$(realpath "$arg") ## Follow links
+        [[ -f "$arg" ]] && files+=("$arg")
+        ## We skip directories.
     else
         ### TODO - NEED A WAY TO GET ARGS WITH SPACES IN HERE!!!!!!!!
 	    echo "$arg" >> "$sedcmdfile"

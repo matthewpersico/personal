@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-web" >> "$HOME/.gitaudit"
+
 # git-web
 
 # shellcheck disable=SC1090
@@ -13,12 +15,13 @@ fi
 # shellcheck disable=SC2034 # We'll use it eventually
 cmd_echo_id='git-web'
 
+# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 usage ()
 {
     (
         [ -n "$*" ] && cmd-echo -- "$@"
         echo "** Extended actions **"
-        script-usage
+        bash-usage "$0"
         echo
         echo "** Standard actions **"
         "$REALGIT" web--browse --help
@@ -38,18 +41,38 @@ do
     ## This bit deals with --foo=bar instead of --foo bar
     declare okey
     declare ovalue=''
-    if [[ "$option" =~ = ]]
+    ## but only deal with it if we really have an option. Otherwise you
+    ## misinterpret items like this git clone option: --config
+    ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
+    if [[ $option =~ ^- ]]
     then
-        okey=${option%%=*}
-        # shellcheck disable=SC2034 # We'll use it eventually
-        ovalue=${option#*=}
-        option="$okey"
+        if [[ "$option" =~ = ]]
+        then
+            okey=${option%%=*}
+            # shellcheck disable=SC2034 # We'll use it eventually
+            ovalue=${option#*=}
+            option="$okey"
+        fi
     fi
 
     case $option in
         ##
         ## Our options
         ##
+        set-browser )
+            [[ -z "$ovalue" ]] && ovalue=$1 && shift
+            declare tool
+            tool=$(basename "$ovalue" .exe)
+            git config --file "$HOME/.gitconfig.variable" web.browser "$tool"
+            git config --file "$HOME/.gitconfig.variable" "browser.${tool}.path" "$ovalue"
+            exit 0
+            ;;
+
+        h | help )
+            # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
+            usage
+            exit 0
+            ;;
         pr )
             opt_pr=1
             more_our_opts=0;;
@@ -78,7 +101,7 @@ then
     then
         declare statusdata
         statusdata=$(mktemp -t tmp.git-web.statusdata.$$.XXXXXXXXXX)
-        rm_on_exit "$statusdata"
+        rm-on-exit "$statusdata"
         git status --porcelain -b -uno > "$statusdata"
         declare linecount
         linecount=$(wc -l < "$statusdata")
@@ -86,18 +109,18 @@ then
         outofdate=$(grep '##' "$statusdata" | grep '\[')
         if ((linecount > 1)) || [ -n "$outofdate" ]
         then
-            cmd-echo -w -- "Current status not clean:"
+            cmd-echo -wc -- "Current status not clean:"
             git status
         fi
 
         declare url
-        if ! url=$(git-find-local-pr)
+        if ! url=$(git repo pr --get)
         then
-            cb="$(git branch get-current)"
+            cb="$(git branch --show-current)"
             url="$(kvstore get gitfuncs_git_browser_urls "$svc")/$repo/pull/new/$cb"
             if [ "$cb" = 'master' ]
             then
-                cmd-echo -w -- "Using the 'master' branch can bring up the wrong PR url: $url"
+                cmd-echo -wc -- "Using the 'master' branch can bring up the wrong PR url: $url"
             fi
         fi
     else
@@ -105,6 +128,8 @@ then
     fi
 
     $REALGIT web--browse "$url" &
+else
+    $REALGIT web--browse "${git_web__browse_args[@]}" &
 fi
 
 exit 0

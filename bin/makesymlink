@@ -16,13 +16,20 @@ do
     declare option
     option=$(dashstripper "$original")
     shift
+    ## This bit deals with --foo=bar instead of --foo bar...
     declare okey
     declare ovalue
-    if [[ "$option" =~ = ]]
+    ## but only deal with it if we really have an option. Otherwise you
+    ## misinterpret items like this git clone option: --config
+    ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
+    if [[ $option =~ ^- ]]
     then
-        okey=${option%%=*}
-        ovalue=${option#*=}
-        option="$okey"
+        if [[ "$option" =~ = ]]
+        then
+            okey=${option%%=*}
+            ovalue=${option#*=}
+            option="$okey"
+        fi
     fi
 
     case $option in
@@ -37,7 +44,7 @@ do
         slient) verbosity=0 ;;
         i | interactive) interactive=1;;
         help)
-            script-usage "$0"
+            bash-usage "$0"
             exit 0
             ;;
         * )
@@ -77,8 +84,8 @@ else
     if ((relative))
     then
         (( verbosity > 1 )) && cmd-echo -- "Relativizing src and link"
-        declare paths
-        asplit paths ':' "$(relativize_two_paths "$fullsrc" "$fulllink")"
+        declare -a paths
+        asplit "$(relativize_two_paths "$fullsrc" "$fulllink")" -s : paths
         (( verbosity > 1 )) && cmd-echo -- "Creating symlink '${paths[2]}' to '${paths[1]}' in '${paths[0]}'."
         (builtin cd "${paths[0]}" || exit 1
          ln -s "${paths[1]}" "${paths[2]}")

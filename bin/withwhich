@@ -3,6 +3,7 @@
 declare moreopts=1
 declare o_verbose=0
 declare o_exec=1
+declare o_all=''
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
     declare original="$1"
@@ -18,6 +19,8 @@ do
             o_exec=0
             o_verbose=1
             ;;
+        a ) o_all='a'
+            ;;
         --)
             moreopts=0
             ;;
@@ -30,34 +33,46 @@ done
 
 declare lookfor=$1
 shift
-declare found
-found=$(which "$lookfor")
-if [ -n "$found" ]
+if [ "$1" = '' ]
 then
-    declare -a run
-    declare i=-1
-    declare r
-    for r in "$@"
-    do
-        if [ "$r" = '%' ]
-        then
-            run[((i+=1))]="$found"
-            found=''
-        else
-            run[((i+=1))]="$r"
-        fi
-    done
-    ((o_verbose)) && echo "${run[@]} $found"
-    if((o_exec))
-    then
-        "${run[@]}" $found
-    else
-        echo "no-exec mode"
-    fi
-    exit $?
-else
-    exit 1
+    cmd-echo "Error: Need something to do with $lookfor"
+    exit
 fi
 
-: <<POD
-This is pod
+
+declare found
+declare -a lookfors
+readarray -t lookfors < <(type -P"$o_all" "$lookfor")
+case ${#lookfors[@]} in
+    0 ) ((o_verbose)) && cmd-echo --ec -- "$lookfor not found"
+        exit 1;;
+    1 ) found=${lookfors[0]}
+        ;;
+    * ) select found in "${lookfors[@]}" "quit"
+        do
+            [[ $found = 'quit' ]] && exit 0
+            [[ -n $found ]] && break
+        done
+esac
+
+declare -a run
+declare i=-1
+declare r
+for r in "$@"
+do
+    if [ "$r" = '%' ]
+    then
+        run[((i+=1))]="$found"
+        found=''
+    else
+        run[((i+=1))]="$r"
+    fi
+done
+((o_verbose)) && echo "${run[*]} $found"
+if((o_exec))
+then
+    "${run[@]}" $found
+else
+    echo "no-exec mode"
+fi
+exit $?

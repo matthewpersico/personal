@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
 
+echo "$(date): github-api" >> "$HOME/.gitaudit"
+
+# github-api
+
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
@@ -18,7 +22,6 @@ curl-cat ()
 
 main ()
 {
-    declare usage_cmd="script-usage"
     ## If there's any chance that this will be in a script that will be dotted in,
     ## remove the explicit out_cmd calls.
     declare out_cmd="exit"
@@ -35,6 +38,13 @@ main ()
     declare perl_data=0
     declare doexec=1
     declare -a otherparams
+    declare opt_data_mode=0
+    declare override_url
+    declare -a override_args
+    declare -a re_exec
+    declare no_fork=0
+
+    re_exec=("$@")
 
     ##
     ## options parsing
@@ -48,17 +58,32 @@ main ()
         ## This bit deals with --foo=bar instead of --foo bar
         declare okey=''
         declare ovalue=''
-        if [[ "$option" =~ = ]]
+        ## but only deal with it if we really have an option. Otherwise you
+        ## misinterpret items like this git clone option: --config
+        ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
+        if [[ $option =~ ^- ]]
         then
-            okey=${option%%=*}
-            ovalue=${option#*=}
-            option="$okey"
+            if [[ "$option" =~ = ]]
+            then
+                okey=${option%%=*}
+                ovalue=${option#*=}
+                option="$okey"
+            fi
         fi
 
         case $option in
+            override-url )
+                override_url=${ovalue:-$1}
+                [ -z "$ovalue" ] && shift
+                ;;
+
+            no-fork ) no_fork=1 ;;
+
+            data-mode ) opt_data_mode=1 ;;
+
             stream-data ) stream_data=1 ;;
 
-            perl-data ) perl_data=1 ;;
+            perl-data ) stream_data=1; perl_data=1 ;;
 
             keep-data ) keep_data=1 ;;
 
@@ -78,7 +103,7 @@ main ()
                 ;;
 
             h | help )
-                $usage_cmd
+                bash-usage "$0"
                 $out_cmd 0
                 ;;
 
@@ -108,7 +133,7 @@ main ()
     done
 
     declare server_url
-    server_url="$(kvstore get gitfuncs_git_api_urls "$server")/"
+    server_url="$(git kv --get "api-urls.$server")/"
     if [ -z "$server_url" ]
     then
         github-api-echo -- "'$server' is an in valid --server option"
@@ -116,13 +141,13 @@ main ()
     fi
 
     declare token_file
-    token_file="$HOME/$(kvstore get gitfuncs_git_token_file "$server")"
-
+    token_file="$HOME/$(git kv --get "token-file.$server")"
     if [ ! -r "$token_file" ]
     then
         github-api-echo -- "Credentials file '$token_file' not found. Do you have the right server?"
         exit 1
     fi
+
 
     ##
     ## action parsing
@@ -137,7 +162,7 @@ main ()
             if [ -z "$1" ]
             then
                 github-api-echo -- "No org/repo specified"
-                return 1;
+                return 1
             fi
             if [[ "$1" =~ / ]]
             then
@@ -162,7 +187,7 @@ main ()
             if [ -z "$1" ]
             then
                 github-api-echo -- "No org specified"
-                return 1;
+                return 1
             fi
             if [[ $1 =~ -user ]]
             then
@@ -188,13 +213,21 @@ main ()
             raw="$1"; shift
             ;;
 
-        unsupported )
-            unsupported="$1"; shift
+        url )
+            url="$1"; shift
             ;;
 
         filename )
             filename="$1"; shift
-            otherparams=("$@");
+            otherparams=("$@")
+            [[ -n ${otherparams[0]} ]] && \
+                [[ ! ${otherparams[0]} =~ ^\+ ]] &&
+                otherparams[0]="+${otherparams[0]}"
+            ;;
+
+        text )
+            text="$1"; shift
+            otherparams=("$@")
             [[ -n ${otherparams[0]} ]] && \
                 [[ ! ${otherparams[0]} =~ ^\+ ]] &&
                 otherparams[0]="+${otherparams[0]}"
@@ -207,7 +240,7 @@ main ()
             else
                 github-api-echo -- "No action provided"
             fi
-            return 1;
+            return 1
     esac
 
     if [ -n "$org" ]
@@ -254,12 +287,16 @@ main ()
             url="$raw"
             ;;
 
-        unsupported)
-            url="$unsupported"
+        url)
+            url="$url"
             ;;
 
         filename)
             url="search/code?q=$filename+in:path"
+            ;;
+
+        text)
+            url="search/code?q=${text}&type=Code"
             ;;
 
         pulls)
@@ -272,6 +309,17 @@ main ()
             ;;
 
     esac
+    ## Override on re-exec
+    if [[ -n $override_url ]]
+    then
+        ## Get rid of the option since we may have to use it again. We know we
+        ## made it the first option in the command.
+        re_exec=("${re_exec[@]:2}")
+
+        ## Use it
+        url="${override_url}"
+        override_args=('--override-url' "${url}")
+    fi
 
     declare curlheaders
     curlheaders=$(mktemp -t tmp.github-api.curlheaders.$$.XXXXXXXXXX)
@@ -287,7 +335,7 @@ main ()
     then
         github-api-echo -- "Header and data files are" "$curlheaders" "$curldata"
     else
-        rm_on_exit "$curlheaders" "$curldata" "$perldata"
+        rm-on-exit "$curlheaders" "$curldata" "$perldata"
     fi
 
     if((verbose))
@@ -350,6 +398,10 @@ main ()
                         ## Consoldate paged data
                         cat "${curldata}.${pageprint}" >> "$curldata"
                         ;;
+                    403 )
+                        ## Forbidden. Probably hit a query limit.
+                        cat "$curlheaders"
+                        ;;
                     404 )
                         ## Sometimes, even though pagination of the returned
                         ## data is indicated, the data is not paginated. If we
@@ -363,7 +415,12 @@ main ()
 
                         break ## while
                         ;;
+                    * )
+                        cat "$curlheaders"
+                        exit
+                        ;;
                 esac
+                ((pagenum+=1))
             done
         fi
 
@@ -390,11 +447,11 @@ main ()
             exists )
                 case $htmlstatus in
                     200 )
-                        github-api-echo -- "Repo exists."
+                        ((opt_data_mode==0)) && github-api-echo -- "Repo exists."
                         ;;
                     404 )
                         github-api-echo -e -- "'${server}:$org/$repo' not found."
-                        return 1;
+                        return 1
                         ;;
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
@@ -411,11 +468,26 @@ main ()
                         echo '$VAR1=' > "$perldata"
                         json_xs -t dumper < "$curldata" >> "$perldata"
                         perl -e 'do $ARGV[0]; print join(qq(\n), sort map {$_->{full_name}} @$VAR1)' "$perldata"
-                        return 1;
+                        return 1
                         ;;
+#                    301 )
+#                        declare newurl
+#                        newurl=$(perl -d:ptkdb -MJSON::XS -e '
+#open IH, q(<), $ARGV[0];
+#$data = join(q(),<IH>);
+#close(IH);
+#$json = decode_json($data);
+#$url = $json->{url};
+#$url =~ s|$ARGV[1]||;
+#print qq($url);' "${curldata}" "${server_url}")
+#                        cmd-echo -- "Need a --no-fork option below...Re-directing..."
+#                        cmd-echo --dc -- "exec $0 --override-url \"$newurl\" \"${re_exec[@]}\""
+#                        pause
+#                        exec $0 --override-url "$newurl" "${re_exec[@]}"
+#                        ;;
                     404 )
                         github-api-echo -e -- "'${server}:$org/$repo' not found."
-                        return 1;
+                        return 1
                         ;;
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
@@ -429,6 +501,10 @@ main ()
                 case $htmlstatus in
                     200 )
                     ;;
+                    404 )
+                        github-api-echo -e -- "'${server}:$org/$repo' not found."
+                        return 1
+                        ;;
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
@@ -439,15 +515,39 @@ main ()
 
             fork )
                 case $htmlstatus in
-                    200 )
-                        github-api-echo -- "Fork created."
+                    200 | 202 )
+                        if ((opt_data_mode==0))
+                        then
+                            [[ $htmlstatus == '200' ]] && github-api-echo -- "Fork created."
+                            [[ $htmlstatus == '202' ]] && github-api-echo -- "Fork found."
+                            ## In the 202 case one or both of the repos could have
+                            ## been renamed after the fork was originally created.
+                        else
+                            echo $(perl -MJSON::XS -e '
+open IH, q(<), $ARGV[0];
+$data = join(q(),<IH>);
+close(IH);
+$json = decode_json($data);
+print $json->{name};' "${curldata}" )
+                        fi
                         ;;
-                    202 )
-                        github-api-echo -- "Fork found."
+
+                    307 )
+                        declare newurl
+                        newurl=$(perl -MJSON::XS -e '
+open IH, q(<), $ARGV[0];
+$data = join(q(),<IH>);
+close(IH);
+$json = decode_json($data);
+$url = $json->{url};
+$url =~ s|$ARGV[1]||;
+print qq($url);' "${curldata}" "${server_url}")
+                        cmd-echo -- "Re-directing..."
+                        exec $0 --override-url "$newurl" "${re_exec[@]}"
                         ;;
                     404 )
                         github-api-echo -e -- "either organization '$org' or repo '$repo' does not exist on '$server'."
-                        return 1;
+                        return 1
                         ;;
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
@@ -460,14 +560,14 @@ main ()
                 then
                     declare waiting='Waiting for fork creation...'
                     declare remaining=60
-                    while github-api --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
+                    while github-api "${override_args[@]}" --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
                     do
                         [ -n "$waiting" ] && github-api-echo -- "'$waiting'" && waiting=''
                         sleep 1
                         ((remaining-=1))
                         ((remaining)) || break
                     done
-                    if github-api --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
+                    if github-api "${override_args[@]}" --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
                     then
                         github-api-echo -w -- "Fork not yet created"
                         return 1
@@ -485,7 +585,7 @@ main ()
         then
             # shellcheck disable=SC2016 # We know the variable will not expand.
             echo '$VAR1='
-            json_xs -t dumper < "${curldata}"
+            json_xs -t dump < "${curldata}"
         else
             cat -v "${curldata}"
         fi
@@ -504,10 +604,6 @@ main ()
 main "$@"
 exit $?
 
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
-## 'POD' in __PODUSAGE__.
-
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -515,17 +611,18 @@ github-api - Wrapper around curl calls to the github api
 
 =head1 SYNOPSIS
 
- github-api [--server server] [--stream-data [--perl-data]] [--keep-data] ] [--wait] [--verbose|--silent|--noexec] \
+ github-api [--server server] [--stream-data|--perl-data] [--keep-data] ] [--wait] [--verbose|--silent|--noexec] \
      org <orgname> |
      repos [--user] <orgname> |
      exists[|ping] <orgname> <reponame> |
      list-forks <orgname> <reponame> |
      fork <orgname> <reponame> |
      filename <filename-to-search-for> |
+     text <text-to-search-for> |
      [--pullId N] pulls |
-     contents path/to/file/from/repo/root[?ref=id]
+     contents path/to/file/from/repo/root[?ref=id] |
+     url <serverless-url-of-api-call> |
      raw <full-url-of-api-call>
-     unsupported <serverless-url-of-api-call>
 
 =head1 DESCRIPTION
 
@@ -563,17 +660,25 @@ Create a fork, in your org, a repo. Requires an orgname and a repo.
 
 Find a file in all orgs/repos. Requires an filename to search for.
 
--item contents
+=item text
+
+Find a text string in all orgs/repos. Requires an string to search for. Special characters must be provided as URL escapes (%20 for a space, %3D for an equals sign, etc.)
+
+=item pulls
+
+Find information about **open** pull requests.
+
+=item contents
 
 Get a file. Specify the path to the file relative to the repo root. The optional parameter 'ref' is the commit/branch/tag for the version you want. Default is the version at the head of branvh 'master'.
 
+=item url
+
+Run any api call, expressed as the raw api, assuming the https://, server and api point portions.
+
 =item raw
 
-Run any api call, expressed as the raw api, starting with the https:// server and api point portion.
-
-=item unsupported
-
-Run any api call, expressed as the raw api, assuming the https:// server and api point portion.
+Run any api call, expressed as the raw api, starting with the https://, server and api point portions.
 
 =back
 
@@ -587,11 +692,11 @@ Default: 'github'. Also accepts 'bbgithub'.
 
 =item --stream-data
 
-All headers and titles are suppressed. Only the data structure is sent to stdout for display. Use this if you want to ingest the output in a program.
+All headers and titles are suppressed. Only the JSON data structure is sent to stdout for display. Use this if you want to ingest the output in a program.
 
 =item --perl-data
 
-Only applies for streamed data, convert to a Perl Data::Dumper format that should be stored to a file X so it can then used via a
+All headers and titles are suppressed. Only the JSON data structure is converted to a Perl Data::Dumper format and sent to stdout for display. The output should be stored to a file X so it can then used via a
 
  do $ARGV[0];
 

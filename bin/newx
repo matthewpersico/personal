@@ -11,6 +11,7 @@ declare bg
 declare lxtermgeo_w
 lxtermgeo_w="$XTERMGEO_W"
 declare colors
+declare prochandling=''
 while ((more_opts)) && [[ "$1" =~ ^- ]]
 do
     declare option
@@ -18,8 +19,12 @@ do
 
     case $option in
         h* )
-            script-usage
+            bash-usage "$0"
             exit 0 ;;
+        procbg )
+            prochandling='bg' ; shift ;;
+        procda )
+            prochandling='da' ; shift ;;
         w )
             ## wide
             ((lxtermgeo_w*=2)) ; shift ;;
@@ -34,8 +39,8 @@ do
             ((count=$1*-1)) ; shift ;;
         scheme )
             tmpfile=/tmp/newx.$$
-            echo 'The list of avaliable color schemes is (scheme=foreground,background)'
-            env | grep forebackmap | perl -pe 's/forebackmap_([a-z]+)/$1/' | sort > $tmpfile
+            echo 'The list of avaliable color schemes is (scheme=FOREGROUND,BACKGROUND)'
+            env | grep FOREBACKMAP | perl -pe 's/FOREBACKMAP_([a-z]+)/$1/' | sort > $tmpfile
     	    cat $tmpfile
             example_scheme=$(head -$((RANDOM % $(wc -l < $tmpfile) )) $tmpfile | tail -1 | sed 's/=.*//')
             echo "Re-run using -oneofthoseschemes, i.e.; -$example_scheme"
@@ -44,7 +49,7 @@ do
         * )
             ## Is it a color?
             bg=$(dashstripper "$1")
-            var="forebackmap_$bg"
+            var="FOREBACKMAP_${bg^^}"
             [ -n "${!var}" ] && colors="$colors ${!var}" && shift || more_opts=0 ;;
     esac
 done
@@ -53,23 +58,30 @@ done
 if (($#==1))
 then
     bg=$(dashstripper "$1")
-    var="forebackmap_$bg"
+    var="FOREBACKMAP_${bg^^}"
     [ -n "${!var}" ] && colors="$colors ${!var}" && shift
 fi
 
-[ -z "${colors}" ] && var="forebackmap_$(xterm_background)" && colors=${!var}
+[ -z "${colors}" ] && var="FOREBACKMAP_$(xterm_background)" && colors=${!var}
 
 ## Yeah this is a little funky - you could end up creating "count"
 ## terminals of each color.
 declare i=0
 declare j=$i
+declare xtg="${lxtermgeo_w}x${XTERMGEO_H}+$((XTERMGEO_X+(j*72)))+$((XTERMGEO_Y+(j*72)))"
 while ((i<count))
 do
     for color in $colors
     do
         # shellcheck disable=SC2086 # $XTERMFONTS needs expansion
-        RXCmd "$HOSTNAME" -geometry "$XTERMGEO" $XTERMFONTS "$@" -fg "${color%%,*}" -bg "${color##*,}" \
-              -geometry "${lxtermgeo_w}x${XTERMGEO_H}+$((XTERMGEO_X+(j*72)))+$((XTERMGEO_Y+(j*72)))"
+        case $prochandling in
+            da ) exec RXCmd "$HOSTNAME" -geometry "$xtg" $XTERMFONTS "$@" -fg "${color%%,*}" -bg "${color##*,}"
+                 ;;
+            bg ) RXCmd "$HOSTNAME" -geometry "$xtg" $XTERMFONTS "$@" -fg "${color%%,*}" -bg "${color##*,}" &
+                 ;;
+            * ) RXCmd "$HOSTNAME" -geometry "$xtg" $XTERMFONTS "$@" -fg "${color%%,*}" -bg "${color##*,}"
+                ;;
+            esac
         sleep .05 ## Just enough to space out the &-ed invocations so that they
         ## do not randomly appear, but rather appear in a nice
         ## cascade.

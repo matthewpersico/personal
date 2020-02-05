@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-# git-branch
+# git-branch - no .gitaudit, called on every prompt
 
 # shellcheck disable=SC1090
 # Don't know if we really need this yet:
@@ -13,11 +13,16 @@ usage ()
     (
         [ -n "$*" ] && cmd-echo -- "$@"
         echo "** Extended actions **"
-        script-usage
+        bash-usage "$0"
         echo
         echo "** Standard actions **"
         "${REALGIT}" branch --help
     ) 2>&1 | ${PAGER:-less}
+}
+
+_git_branch_is_a_pull ()
+{
+    [[ $1 =~ ^pull ]]
 }
 
 git-branch-checkout ()
@@ -28,7 +33,7 @@ git-branch-checkout ()
         local PS3="Choose by number, q to quit: "
         select tgt_branch in $(git branch list --strip)
         do
-            [ "$(echo "$REPLY" | tr '[:upper:]' '[:lower]')" = 'q' ] && return 1
+            [ "${REPLY,,}" = 'q' ] && return 1
             [ -n "$tgt_branch" ] && break
         done
     else
@@ -70,14 +75,14 @@ git-branch-delete ()
         declare option=$1
         shift
         case "$option" in
-            -y|--yes) opt_yes=1; shift ;;
-            --no-remote|--declare-only) no_remote=1; shift ;;
-            --no-go-set) do_go_set=0; shift ;;
+            -y|--yes) opt_yes=1 ;;
+            --no-remote|--declare-only) no_remote=1 ;;
+            --no-go-set) do_go_set=0 ;;
             -h|--help) usage; return 0 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
-                cmd-echo -e -- "$option is an invalid option. See git-branch --help"
+                cmd-echo -ec -- "$option is an invalid option. See git-branch --help"
                 return 1 ;;
         esac
     done
@@ -85,7 +90,7 @@ git-branch-delete ()
     declare branch
     branch=$1;
     declare current_branch
-    current_branch=$(git branch get-current)
+    current_branch=$(git branch --show-current)
     if [ -z "$branch" ]
     then
         declare branchesa
@@ -110,7 +115,7 @@ git-branch-delete ()
                     branch=$selected
                     break
                 fi
-            elif [ "$(echo "$REPLY" | tr '[:upper:]' '[:lower:]')" = 'q' ]
+            elif [ "${$REPLY,,}" = 'q' ]
             then
                 return 0
             else
@@ -128,12 +133,23 @@ git-branch-delete ()
             return 1
         fi
 
+        declare -a delarg
+        if _git_branch_is_a_pull "$branch"
+        then
+            delarg=('-D')
+        else
+            delarg=('-d')
+        fi
         declare brdelstat
-        git branch -d "$branch"
+        cmd-echo -dc -- "Normal deletes use -d, we seem to need to use -D for pulls." \
+                 "That may be because the pull is not merged?" \
+                 "We are about to 'git branch ${delarg[*]} $branch'." \
+                 "Once you figure out what's going on with pulls, you can remove this diagnostic."
+        git branch "${delarg[@]}" "$branch"
         brdelstat=$?
         if ((brdelstat))
         then
-            cmd-echo -- "ERROR: git branch -d $branch failed. Returning $brdelstat."
+            cmd-echo -- "ERROR: git branch ${delarg[*]} $branch failed. Returning $brdelstat."
             return $brdelstat
         fi
         cmd-echo -- "Branch deleted locally."
@@ -155,6 +171,12 @@ git-branch-delete ()
                 then
                     resp='y'
                 else
+                    declare fetched
+                    fetched=$(git config --get "worktree.$branch.EMfetched")
+                    if [[ -n $fetched ]]
+                    then
+                        cmd-echo -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
+                    fi
                     resp=$(cmd-yesno "Try deleting in remote '$remote'" n)
                 fi
                 if [ "$resp" == 'y' ]
@@ -210,18 +232,6 @@ git-branch-rename ()
     return $?
 }
 
-git-branch-get-current ()
-{
-    ( if [ -n "$1" ]
-      then
-          ## dirlist, not builtin cd, to take advantage this cd enhancement
-          dirlist "$1"
-      fi
-      git symbolic-ref HEAD | cut -d/ -f3-
-    )
-    return 0
-}
-
 git-branch-orphan()
 {
     ##Create an empty branch, for tools you want to keep, but not publish
@@ -259,7 +269,7 @@ git-branch-track-remote ()
     [ -z "$local_branch" ] && local_branch=$branch
 
     declare local_branch_exists
-    local-branch_exists="$(git branch --list "$local_branch")"
+    local_branch_exists="$(git branch --list "$local_branch")"
     if [ -z "$local_branch_exists" ]
     then
         ## Does not exists, create and track
@@ -315,7 +325,7 @@ git-branch-list ()
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
-                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                cmd-echo -ec -- "$option is an invalid option. See $0 --help"
                 exit 1 ## return 1 in functions
                 ;;
         esac
@@ -355,7 +365,7 @@ main ()
 {
     declare action=$1
 
-    if [[ "$action" =~ -h ]]
+    if [[ "$action" =~ ^-+h ]]
     then
         usage
         return  0
@@ -385,10 +395,9 @@ git-branch - git extention of git branch
 
  git branch delete oldBranch
  git branch rename currentBranch newbranch
- git branch get-current
  git branch orphan
- git branch track remote
- git branch fetch remote
+ git branch track-remote
+ git branch fetch-remote
  git branch list
  git branch comment
 

@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-status-ext" >> "$HOME/.gitaudit"
+
 # git-status-ext
 
 if ! git-version-verify 'git-status-ext'
@@ -11,32 +13,24 @@ usage ()
 {
     (
         echo "** Extended actions **"
-        script-usage git-status-ext
-        script-usage git-status-with-source-ctrl-log
+        bash-usage git-status-ext
+        bash-usage git-status-with-source-ctrl-log
         echo
         echo "** Standard actions **"
         "${REALGIT}" status --help
     ) 2>&1 | ${PAGER:-less}
 }
 
-[[ "$1" =~ -h ]] && usage && exit 0
+[[ "$1" =~ ^-+h ]] && usage && exit 0
 
 declare color
-declare gr
-gr="$(git root)"
-declare rpwd
-rpwd="$(realpath "$(pwd)")"
-if [[ $gr != "$rpwd" ]]
-then
-    cmd-echo "Must run git status-ext from the root" \
-             "    $gr" \
-             "not the current directory" \
-             "    $rpwd"
-    exit 1
-fi
-
 color='--color=never'
-{ [ -t 1 ] || [ -p /dev/stdout ] ; } && color="--color=always"
+if [[ "$1" == --nocolor ]]
+then
+    shift
+else
+    { [ -t 1 ] || [ -p /dev/stdout ] ; } && color="--color=always"
+fi
 
 echo
 echo "=== Latest log entry:"
@@ -49,17 +43,10 @@ then
 fi
 echo
 echo "=== Status:"
-declare outcmd=cat
-if [[ "$1" =~ -dif ]]
-then
-    outcmd='less -RE'
-fi
+declare outcmd=${PAGER:-less}
+[[ $outcmd =~ 'less' ]] && outcmd="$outcmd -RE"
 
 git-status-with-source-ctrl-log $color "$@" | grep -v "No files specified" | $outcmd
-
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
-## 'POD' in __PODUSAGE__.
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -68,30 +55,74 @@ git-status-ext - extended git status
 
 =head1 SYNOPSIS
 
- git status-ext [--diff] [pathspec...]
+ git status-ext \
+        [--[no]sclonly | --[no]gcsonly] \
+        [--noun[tracked] \
+        [--diff [--cached]] [--edit] \
+        [--color [always|never] | --nocolor]
+        [filename [filename...]]
+
+ git status-ext --help
 
 =head1 DESCRIPTION
 
-A git status command enhanced as follows:
+Run a 'git status', interleaving the entries from SourceCrtlLog and git diff.
+
+=head1 ARGUMENTS
 
 =over 4
 
-=item Latest log entry
+=item filename
 
-The log entry for the latest commit in the repo (git log -1) is shown.
+One or more files on which to run 'git status'. With no files, process all
+files that would appear in a 'git status' command.
 
-=item Comments
+In either case, then apply the filtering options below.
 
-Any comments on the repo.
+=back
 
-=item Status with source-ctrl-log entries.
+=head1 OPTIONS
 
-If SourceCtrlLog is found in the repo or worktree root, its contents are mixed
-in with the regular git status display. If --diff is specfied, the git diff
-output is also mixed in.
+=over 4
+
+=item --[no]sclonly
+
+Do [not] print status for items that have an entry in SourceCrtlLog. Default is
+to print for both.
+
+=item --[no]gcsonly
+
+Do [not] print status for items that have a Git Commit Skip marker in their
+code. Default is to print for both.
+
+=item --noun[tracked]
+
+Do not print status for untracked items. Default is to print them.
+
+=item --diff
+
+Also mix in the git diff of the item.
+
+=item --cached
+
+Do the git diff with the --cached flag.
+
+=item --edit
+
+With --diff or --nosclonly or --gcsonly, if the file has a diff or has no
+source control log entry or a gcs marker, edit it in $EDITOR. This makes it
+easy to add entries where there are none or ammend existing entries in
+conjunction with the status output as it scrolls by or remove the markers.
+
+=item --color
+
+Specify if coloring the output or not using git --color options.
+
+=item nocolor
+
+Alias for '--color never'.
 
 =back
 
 =cut
-
 __PODUSAGE__

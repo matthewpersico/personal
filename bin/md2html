@@ -1,0 +1,108 @@
+#!/usr/bin/env bash
+
+md2html_gen ()
+{
+    title="MD2HTML as of $(date)"
+    echo '<title>MD2HTML</title>' > "$md2htmlHTMLFile".tmp
+    python3.6 -m markdown "$md2htmlMDFile" >> "$md2htmlHTMLFile".tmp
+    sed "/>MD2HTML</s//>$title</" "$md2htmlHTMLFile".tmp > "$md2htmlHTMLFile"
+    rm -f "$md2htmlHTMLFile".tmp
+    cmd-echo Generated
+    ls -lart "$md2htmlHTMLFile"
+    cp "$md2htmlHTMLFile" "$md2htmlHTMLFileFinal"
+}
+
+md2html_edit ()
+{
+    if [ "$1" = 'client' ]
+    then
+        emacsclient -c "$md2htmlMDFile"
+    else
+        xo "$md2htmlMDFile"
+    fi
+}
+
+md2html_view ()
+{
+    if [ -n "$BROWSER" ]
+    then
+        "$BROWSER" "$md2htmlHTMLFileFinal" &
+    else
+        cmd-echo -ec -- "No BROWSER defined"
+    fi
+}
+set -x
+declare moreopts=1
+declare action
+while [[ "$1" =~ ^- ]] && ((moreopts))
+do
+    declare original="$1"
+    shift
+    declare option
+    option=$(dashstripper "$original")
+    case $option in
+        edit | gen* | view )
+            action=$option
+            ;;
+        help )
+            bash-usage "$0"
+            exit 0
+            ;;
+        --)
+            moreopts=0
+            ;;
+        * )
+            cmd-echo -- "$original is an invalid option. See $0 --help"
+            exit 1
+            ;;
+    esac
+done
+
+declare md2htmlMDFile
+declare md2htmlHTMLFile
+declare md2htmlHTMLFileFinal
+
+md2htmlMDFile=$1
+md2htmlHTMLFile="${md2htmlMDFile/.md/.html}"
+md2htmlHTMLFileFinal="$HOME/public_html/md2html/$(basename "$md2htmlHTMLFile")"
+
+if [[ -n $action ]]
+then
+    "md2html_$action"
+    exit $?
+else
+    cmd-echo "No options specified"
+    if [ "$md2htmlHTMLFile" -ot "$md2htmlMDFile" ]
+    then
+        cmd-echo "md file newer - generating"
+        md2html_gen
+    else
+        cmd-echo "editing..."
+        md2html_edit client
+        md2html_gen
+    fi
+fi
+md2html_view
+
+## The End, to make sure we never eval the usage statement
+exit 0
+
+## Go grab the usage template the file USAGE
+## You can add sections with =head1, but stick to =item for section breakdowns,
+## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
+## 'POD' in __PODUSAGE__.
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+md2html - md2html html thingy
+
+=head1 SYNOPSIS
+
+ md2html --edit
+ md2html --generate
+ md2html --view
+
+=cut
+
+__PODUSAGE__

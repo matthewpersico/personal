@@ -1,15 +1,59 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-process-source-ctrl-log" >> "$HOME/.gitaudit"
+
 # git-process-source-ctrl-log
 
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
+cleanup ()
+{
+    rm -f "$parsed_cl_root"*
+    if (($1 == 0))
+    then
+        ## We're good, ok to delete the backup
+        rm -f "$source_ctrl_logbkp"
+    fi
+}
+
+rollback ()
+{
+    cmd-echo --wc -- "Rolling back $source_ctrl_log"
+    if ! cp -f "$source_ctrl_logbkp" "$source_ctrl_log"
+    then
+        declare tmp="${parsed_cl_root}*"
+        declare -a intermed
+        # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
+        readarray intermed < <(ls -c1 "$tmp" | sort)
+        cmd-echo --ec -- "Rollback of '$source_ctrl_log' failed." \
+                 "Backup is in '$source_ctrl_logbkp'." \
+                 "Intermediate files are:" \
+                 "${intermed[@]}"
+    else
+        cleanup 1
+    fi
+}
+
+rollforward ()
+{
+    if ! cp -f "$parsed_cl_retain" "$source_ctrl_log"
+    then
+        cmd-echo --ec -- "Rollforward of $parsed_cl_retain to $source_ctrl_log failed." \
+                 "Keeping both files as is, so that you can attend to the issue."
+        exit 1
+    else
+        cleanup 0
+    fi
+}
+
 declare action='read'
 declare opt_v='' ## passed to commit
 declare status=0
-declare parsed_cl
-parsed_cl=$(mktemp -t tmp.git-process-source-ctrl-log.XXXXXXXXXX)
+declare parsed_cl_root
+declare parsed_cl_commit
+declare parsed_cl_retain
+declare source_ctrl_logbkp
 declare -a pscl_flags
 declare git_editor
 declare opt_confirm=0
@@ -26,16 +70,18 @@ do
     declare ovalue=''
     if [[ "$option" =~ = ]]
     then
-        okey=${option%%=*}
-        ovalue=${option#*=}
+        okey=${option%%=*}  ## Removes longest string on the right.
+        ovalue=${option#*=} ## Removes shortest string on the left. These
+                            ## asymetric matches Do The Right Thing in the face
+                            ## of an option=value pair where the value itself
+                            ## has an = in it.
         option="$okey"
     fi
 
     case $option in
-        ## standard options
         h | help )
-            script-usage
-            ## (return if a func, exit if a script) 0
+            bash-usage "$0"
+            exit 0
             ;;
         debug | x ) set -x; trap 'set +x' EXIT;;
         verbose | v )
@@ -43,11 +89,10 @@ do
             ;;
         commit)
             action=commit;
-            pscl_flags+=(--write --newscl "$parsed_cl")
-            ;;
-        withstatus)
-            action=withstatus;
-            pscl_flags+=(--withstatus)
+            parsed_cl_root=$(mktemp -t tmp.git-process-source-ctrl-log.XXXXXXXXXX)
+            parsed_cl_commit="${parsed_cl_root}.commit"
+            parsed_cl_retain="${parsed_cl_root}.retain"
+            pscl_flags+=(--for-commit "$parsed_cl_root")
             ;;
         diff)
             pscl_flags+=(--diff)
@@ -55,14 +100,26 @@ do
         cached)
             pscl_flags+=(--cached)
             ;;
+        sclonly)
+            pscl_flags+=(--sclonly)
+            ;;
         nosclonly)
             pscl_flags+=(--nosclonly)
+            ;;
+        gcsonly)
+            pscl_flags+=(--gcsonly)
+            ;;
+        nogcsonly)
+            pscl_flags+=(--nogcsonly)
             ;;
         filesonly)
             pscl_flags+=(--filesonly)
             ;;
         skip-no-source-ctrl-log)
             pscl_flags+=(--skipmissing)
+            ;;
+        edit)
+            pscl_flags+=(--edit)
             ;;
         confirm)
             opt_confirm=1
@@ -77,29 +134,36 @@ do
             [ -z "$ovalue" ] && shift
             pscl_flags+=(--color "$color")
             ;;
-        --)
+        nountracked )
+            pscl_flags+=(--nountracked)
+            ;;
+            --)
             moreopts=0
             ;;
         * )
-            cmd-echo -- "$original is an invalid option. See $0 --help";
+            cmd-echo --ec -- "$original is an invalid option. See $0 --help";
             ## (return if a func, exit if a script) 1
             ;;
     esac
 done
 
-## Everything else is a file
+## Everything else is a file. We always get files. We are called from
+## git-commit-with-source-ctrl-log-guts which figures out what files to deal
+## with, including handling '-a'.
 if [ -z "$1" ]
 then
-    cmd-echo "No files specified."
+    cmd-echo --ec -- "No files specified."
     exit 1
 fi
 
+## Get the full path for files that could be in play in a SourceCtrlLog and
+## deal with possibly rm'ed files.
 declare -a filelist
 declare file
 for file in "$@"
 do
     declare absolute_file
-    absolute_file="$(realpath "$(pwd)")/$file"
+    absolute_file="$(realpath "${PWD}")/$file"
     if [ -r "$absolute_file" ]
     then
         filelist+=("$absolute_file")
@@ -111,137 +175,138 @@ do
             ## Then the file is indeed git rm'ed.
             filelist+=("$absolute_file")
         else
-            cmd-echo "File $file not found. Aborting"
+            cmd-echo --ec -- "File $file not found. Aborting"
             exit 1
         fi
     fi
 done
 
-## Find the source-ctrl-log
+## Find and validate the source-ctrl-log
 declare source_ctrl_logdir
 source_ctrl_logdir=$(git root)
 if ((status != 0))
 then
-    script-usage
+    bash-usage "$0"
     exit $status
 fi
 
 declare source_ctrl_log="${source_ctrl_logdir}/$GITFUNCS_SOURCE_CTRL_LOG_NAME"
-if [ ! -r "$source_ctrl_log" ]
-then
-    cmd-echo -- "$source_ctrl_log not readable"
-    exit 1
-fi
+[[ ! -f "$source_ctrl_log" ]] && cmd-echo --wc -- "No $source_ctrl_log found"
+
 if [ "$action" = 'commit' ] && [ ! -w "$source_ctrl_log" ]
 then
-    cmd-echo -- "$source_ctrl_log not writable"
+    cmd-echo --ec -- "$source_ctrl_log not writable"
     exit 1
 fi
-
-declare source_ctrl_logbkp="${source_ctrl_log}.bkp"
 
 declare others
 others=$(find "$source_ctrl_logdir" -name "$GITFUNCS_SOURCE_CTRL_LOG_NAME" | grep -v "$source_ctrl_log")
 if [ -n "$others" ]
 then
-    cmd-echo "Found $others. No other $GITFUNCS_SOURCE_CTRL_LOG_NAME allowed under $source_ctrl_logdir."
+    cmd-echo --ec -- "Found $others. No other $GITFUNCS_SOURCE_CTRL_LOG_NAME allowed under $source_ctrl_logdir."
     exit 1
 fi
 
-## Backup
-cp -f "$source_ctrl_log" "$source_ctrl_logbkp"
-
-## Do it
-$DEBUG_PARSE_SOURCE_CTRL_LOG parse-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
-status=$?
-if ((status!=0))
+##
+## Status display only
+##
+if [[ "$action" != 'commit' ]]
 then
-    ## Restore
-    cmd-echo "Rolling back $source_ctrl_log"
-    cp -f "$source_ctrl_logbkp" "$source_ctrl_log"
+    process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
+    exit $?
+fi
+
+##
+## Commits
+##
+
+## Backup
+source_ctrl_logbkp="${source_ctrl_log}.bkp"
+if [[ -f "$source_ctrl_log" ]]
+then
+    cp "$source_ctrl_log" "$source_ctrl_logbkp"
+    status=$?
+    if ((status != 0))
+    then
+        cmd-echo --ec -- "Error backing up $source_ctrl_log"
+        exit 1
+    fi
+fi
+
+## Parse
+process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
+status=$?
+if ((status != 0))
+then
+    rollback
     exit $status
 fi
 
-echo "in git-process-source-ctrl-log......"
-if [ "$action" = 'commit' ]
+## We rebuild the filelist from the commit message file so that we can account
+## for having changed the file list in process-source-control-log.
+## NOTE: If you change the lead character for items in process-source-control-log,
+## make sure you also change it here -------------------------------------------v
+declare -a filelist_refreshed
+mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY TEXT HERE|- | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$parsed_cl_commit")
+cmd-echo "About to commit" "${filelist_refreshed[@]}"
+if ((opt_confirm))
 then
-    #for specific_pcl_file in "$parsed_cl"*
-    #do
-    specific_pcl_file="$parsed_cl"
-    ## We rebuild the filelist from the commit message files so that we can
-    ## account for having skipped files because they do not have a
-    ## source_ctrl_log entry.
-    declare -a filelist_refreshed
-    mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY LINE HERE|o | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$specific_pcl_file")
-    cmd-echo "About to commit" "${filelist_refreshed[@]}"
-    declare resp='y'
-    if ((opt_confirm))
+    declare resp
+    resp=$(cmd-yesno 'Ok' n)
+    if [ "$resp" = 'n' ]
     then
-        resp=''
-        resp=$(cmd-yesno 'Ok' n)
+        ## Restore
+        cmd-echo --ec -- "Commit aborted"
+        rollback
+        exit 0
     fi
-    if [ "$resp" = 'y' ]
-    then
-        declare git_status_before
-        git_status_before=$(mktemp -t tmp.git-process-source-ctrl-log.XXXXXXXXXX)
-        rm_on_exit "$git_status_before"
-        $REALGIT status --porcelain > "$git_status_before" 2>&1
-        if [ -z "$git_editor" ]
-        then
-            git commit -F "$specific_pcl_file" --edit $opt_v "${filelist_refreshed[@]}"
-        else
-            GIT_EDITOR=$git_editor git commit -F "$specific_pcl_file" --edit $opt_v "${filelist_refreshed[@]}"
-        fi
-        status=$?
-        if ((status==0))
-        then
-            ## PROBLEM - it appears that if a git commit is aborted due to a
-            ## hook failure, we don't get an error return, which means we don't
-            ## rollback the $source_ctrl_log. Sooooo, we defensively try to
-            ## ferret out that problem by looking at git status before and
-            ## after the commit - if they are the same, it probably failed the
-            ## hook.
-            declare git_status_after
-            git_status_after=$(mktemp -t tmp.git-process-source-ctrl-log.XXXXXXXXXX)
-            rm_on_exit "$git_status_after"
-            $REALGIT status --porcelain > "$git_status_after" 2>&1
-            diff -q "$git_status_before" "$git_status_after" 1>/dev/null
-            diffstatus=$?
-            if ((diffstatus==0))
-            then
-                cmd-echo "git commit exited successfully, but since there appears to have been" \
-                         "no change in git status, we are assuming the pre-commit hook failed." \
-                         "This can also happen if you change one or more files being committed" \
-                         "while you have the editor open, so DON'T DO THAT. As a precaution," \
-                         "we will roll back '$source_ctrl_log'."
-                status=1
-            fi
-        fi
-
-        if((status!=0))
-        then
-            ## Restore
-            cmd-echo "Rolling back $source_ctrl_log"
-            cp -f "$source_ctrl_logbkp" "$source_ctrl_log"
-            exit $status
-        fi
-    else
-        cmd-echo "Commit aborted"
-    fi
-    ##done
 fi
-[ -f "$source_ctrl_logbkp" ] && \rm -f "$source_ctrl_logbkp"
-## If we are here, we can safely get rid of parsed cl files.
-\rm -f "$parsed_cl"*
-exit 0
 
-:<< __EOUSAGE__
-__USAGE__
-NAME
-    git-process-source_ctrl_log
+## Do the commit
+declare git_status_before
+git_status_before=$(mktemp -t tmp.git-process-source-ctrl-log.before-status.XXXXXXXXXX)
+rm-on-exit "$git_status_before"
+$REALGIT status --porcelain > "$git_status_before" 2>&1
+if [ -z "$git_editor" ]
+then
+    git commit -F "$parsed_cl_commit" --edit $opt_v "${filelist_refreshed[@]}"
+else
+    GIT_EDITOR=$git_editor git commit -F "$parsed_cl_commit" --edit $opt_v "${filelist_refreshed[@]}"
+fi
+status=$?
+if ((status==0))
+then
+    ## POTENTIAL PROBLEM - even though status==0, it appears that if a git
+    ## commit is aborted due to a coding error in the hook (as opposed to the
+    ## hook finding a non-commitable condition and exiting non-zero), we don't
+    ## get an error return, which means we don't rollback the
+    ## $source_ctrl_log. Sooooo, we defensively try to ferret out that problem
+    ## by looking at git status before the commit (see above) and after (see
+    ## next lines). If the two statuses are the same then the commit did not
+    ## take, so we rollback.
+    declare git_status_after
+    git_status_after=$(mktemp -t tmp.git-process-source-ctrl-log.after-status.XXXXXXXXXX)
+    rm-on-exit "$git_status_after"
+    $REALGIT status --porcelain > "$git_status_after" 2>&1
+    diff -q "$git_status_before" "$git_status_after" 1>/dev/null
+    diffstatus=$?
+    if ((diffstatus==0))
+    then
+        cmd-echo --wc -- \
+                 "The return status from 'git commit' has indicated a successful" \
+                 "execution, but since there appears to have been no change in" \
+                 "git status, we are assuming the pre-commit hook failed." \
+                 "This can also happen if you edit one or more files being" \
+                 "committed while you have the editor open, so DON'T DO THAT." \
+                 "As a precaution we will roll back '$source_ctrl_log'."
+        status=1
+    fi
+fi
 
-SYNOPSYS
-
-DESCRIPTION
-    TBD
-__EOUSAGE__
+if((status!=0))
+then
+    rollback
+else
+    rollforward
+fi
+exit $status

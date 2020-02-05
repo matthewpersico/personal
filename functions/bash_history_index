@@ -1,22 +1,32 @@
 #!/usr/bin/env bash
 
 # <Function Class: hist>
-# <Function Justification: flock>
+# <Function Justification: Optimzation: called every prompt print.>
 
 bash_history_index ()
 {
+    declare index_file
+    index_file="$HISTDIR/.histindex"
+    if [[ $1 == '--outfile' ]]
+    then
+        index_file="$2"
+        shift; shift;
+    fi
+    declare index_lock=${index_file}.lock
+    [[ ! -f "$index_lock" ]] && touch "$index_lock"
+
     declare -a files=("$@")
-    [ "${#files[@]}" = '0' ] && files=("$HISTFILE")
+    declare argcount="${#files[@]}"
+    ((argcount == '0')) && files=("$HISTFILE")
+    declare i
     for i in "${files[@]}"
     do
-        local index_file
-        index_file="$(dirname "$HISTFILE")/.index"
+        (( argcount > 0 )) && echo "$i..."
         local start
         start=$(head -1 "$i")
         local end
         end=$(tail -2 "$i" | head -1)
 
-        local index_lock=${index_file}.lock
         if type flock &>/dev/null; then
             exec 201>"$index_lock"
             flock -x -w5 201 || (echo "Cannot lock $index_lock. Aborting" && return 1)

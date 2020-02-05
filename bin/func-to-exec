@@ -2,21 +2,35 @@
 
 ## func-to-exec
 
-if [[ "$(pwd)" =~ functions ]] || \
-       [[ "$(pwd)" =~ bin ]]
+if [[ "${PWD}" =~ functions ]] || \
+       [[ "${PWD}" =~ bin ]]
 then
     cmd-echo 'Cannot be in functions or bin subdir for conversion.' \
                 'cd .. and re-exec.'
     exit 1
 fi
 
-if [ -z "$1" ] || [[ $1 =~ -h ]]
+if [ -z "$1" ] || [[ $1 =~ ^-+h ]]
 then
-    cmd-echo "usage: $0 func [func...]" \
+    cmd-echo "usage: $0 [--convert-only] [--force] func [func...]" \
                 "       You can use or not use the 'function/'" \
                 "       prefix;we will adjust."
     exit 1;
 fi
+
+convert_only=0
+while [[ "$1" =~ ^- ]]
+do
+    if [[ "$1" = '--convert-only' ]]
+    then
+        convert_only=1
+        shift
+    elif [[ "$1" = '--force' ]]
+    then
+        force='--force'
+        shift
+    fi
+done
 
 ## Find sources, set targets
 declare -a funcnames ## the keys for the *_paths hashes
@@ -43,8 +57,13 @@ do
         cmd-echo -- "$src_path not found"
         ((bad+=1))
     else
-        justified=$(grep 'Function Justification' "$src_path" | \
-                        grep -i -v none)
+        if [ "$force" = '--force' ]
+        then
+            justified=''
+        else
+            justified=$(grep 'Function Justification' "$src_path" | \
+                            grep -i -v none)
+        fi
         if [ -n "$justified" ]
         then
             cmd-echo "Not converting $src_path: $(grep 'Function Justification' "$src_path")"
@@ -69,7 +88,7 @@ done
 
 ## Do the conversions
 cmd-echo "Converting to scripts..."
-if ! func-to-exec.pl "${tgt_paths[@]}" ## Each conversion of bin/foo will be in bin/foo.new
+if ! perl -S -d:ptkdb func-to-exec.pl $force "${tgt_paths[@]}" ## Each conversion of bin/foo will be in bin/foo.new
 then
     exit $?
 fi
@@ -130,38 +149,44 @@ do
     unset tmp_paths["$funcname"]
 done
 
-if ((!${#commit_list[@]}))
+if (( convert_only == 0 ))
 then
-    cmd-echo 'Nothing to commit.'
-    exit 0
+
+    if ((!${#commit_list[@]}))
+    then
+        cmd-echo 'Nothing to commit.'
+        exit 0
+    fi
+
+    ## Get rid of the new files we used as input to the Perl conversion script.
+    \rm -f "${tgt_paths[@]}"
+
+    ## Do the git move
+    cmd-echo "git mv ${src_paths[*]} bin"
+    git mv "${src_paths[@]}" bin
+
+    ## Commit the move
+    cmd-echo "git commit ${src_paths[*]} ${tgt_paths[*]} -m 'func to exec, move phase'"
+    GPCHA='--skip shellcheck' git commit "${src_paths[@]}" "${tgt_paths[@]}" -m 'func to exec, move phase'
+
+    ## Overlay the moves with the converted temps
+    cmd-echo "Overlay with converted files..."
+    declare -a unset_contents
+    for funcname in "${commit_list[@]}"
+    do
+        tgt_path="${tgt_paths[$funcname]}"
+        tmp_path="${tmp_paths[$funcname]}"
+        \mv "${tmp_path}" "${tgt_path}"
+        chmod 755 "${tgt_path}"
+        unset_contents+=("$funcname")
+    done
+
+    ## Commit the conversions
+    cmd-echo "git commit ${tgt_paths[*]} -m 'func to exec, convert phase'"
+    git commit "${tgt_paths[@]}" -m 'func to exec, convert phase'
+
+    ## Reminder
+    cmd-echo 'Remember to' "unset -f ${unset_contents[*]}"
+else
+    cmd-echo 'Skipping git.'
 fi
-
-## Get rid of the new files we used as input to the Perl conversion script.
-\rm -f "${tgt_paths[@]}"
-
-## Do the git move
-cmd-echo "git mv ${src_paths[*]} bin"
-git mv "${src_paths[@]}" bin
-
-## Commit the move
-cmd-echo "git commit ${src_paths[*]} ${tgt_paths[*]} -m 'func to exec, move phase'"
-GPCHA='--skip shellcheck' git commit "${src_paths[@]}" "${tgt_paths[@]}" -m 'func to exec, move phase'
-
-## Overlay the moves with the converted temps
-cmd-echo "Overlay with converted files..."
-declare -a unset_contents
-for funcname in "${commit_list[@]}"
-do
-    tgt_path="${tgt_paths[$funcname]}"
-    tmp_path="${tmp_paths[$funcname]}"
-    \mv "${tmp_path}" "${tgt_path}"
-    chmod 755 "${tgt_path}"
-    unset_contents+=("$funcname")
-done
-
-## Commit the conversions
-cmd-echo "git commit ${tgt_paths[*]} -m 'func to exec, convert phase'"
-git commit "${tgt_paths[@]}" -m 'func to exec, convert phase'
-
-## Reminder
-cmd-echo 'Remember to' "unset -f ${unset_contents[*]}"

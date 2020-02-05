@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+echo "$(date): git-what" >> "$HOME/.gitaudit"
+
 # git-what
 
 # shellcheck disable=SC1090
@@ -16,10 +18,10 @@ main ()
 
     [ "$action" = 'is' ] && action=$1 && shift ## syntactic sugar
 
-    if [[ "$action" =~ -h ]]
+    if [[ "$action" =~ ^-+h ]]
     then
         (
-            script-usage
+            bash-usage "$0"
         ) 2>&1 | ${PAGER:-less}
         return  0
     fi
@@ -42,7 +44,7 @@ main ()
             actions+=("--$action") ;;
         * )
             cmd-echo -- "'$action' is an invalid request"
-            script-usage 2>&1 | ${PAGER:-less}
+            bash-usage "$0" 2>&1 | ${PAGER:-less}
             exit 1
             ;;
     esac
@@ -69,7 +71,7 @@ main ()
             edit ) opt_edit=1 ;;
             * )
                 cmd-echo -- "--$action is an invalid option"
-                script-usage 2>&1 | ${PAGER:less}
+                bash-usage "$0" 2>&1 | ${PAGER:less}
                 exit 1
         esac
     done
@@ -79,12 +81,12 @@ main ()
         if ((opt_absolute))
         then
             cmd-echo -- 'Cannot specify --rooted and --absolute'
-            script-usage 2>&1 | ${PAGER:less}
+            bash-usage "$0" 2>&1 | ${PAGER:less}
             exit 1
         elif ((opt_edit))
         then
             cmd-echo -- 'Cannot specify --rooted and --edit'
-            script-usage 2>&1 | ${PAGER:less}
+            bash-usage "$0" 2>&1 | ${PAGER:less}
             exit 1
         fi
     fi
@@ -93,7 +95,7 @@ main ()
     if ((modified_only))
     then
         declare deleted
-        deleted=$(ajoin '|' "$(git what is deleted "${fmt_options[@]}" )")
+        ajoin deleted -s '|' "$(git what is deleted "${fmt_options[@]}" )"
         declare mod
         for mod in $(git what is modified "${fmt_options[@]}")
         do

@@ -3,13 +3,12 @@
 # logit
 #
 
-# Take args, treat as a command + args and run all output to a file.
-
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
 # Inits
 declare logfile=''
+declare opt_add_args_to_logfile=0
 declare logdir=''
 declare teeit=0
 declare zenityit=0
@@ -22,25 +21,39 @@ declare purge=''
 declare notimestamp=''
 declare attime=''
 declare isat=0
+declare -a zenity_geo
+declare opt_logonly=0
+declare -a envs
+
 declare -a original_argv
 original_argv+=("$0" "$@")
 
 # Read the options and args from command line. Note that the long and short
 # don't have to match up.
 declare OPTSARGS
-declare shortopts='k'
-declare longopts='isat,at:,tee,zenity,log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprior,notimestamp,tpe,ts,help'
+declare shortopts='kz'
+declare longopts
+
+ajoin longopts -s , \
+      isat aa at: tee zenity zw: zh: log: dir: \
+      edit edit-on-fail edit-echo \
+      purge purgeprev purgeyesterday \
+      notimestamp tpye tppe tpae tpe zpe ts help logonly \
+      env:
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 declare status=$?
 if ((status != 0))
 then
-    echo "If the error was 'unrecognized option...'"
-    echo "then logit read an option to your program"
-    echo "as its own. Add -- as the last logit option"
-    echo "right before your command."
-    echo "Exiting."
+    cmd-echo -ec -- \
+             "If the error was" \
+             "     logit: unrecognized option..." \
+             "then logit read an option to your program" \
+             "as its own. Add -- as the last logit option" \
+             "right before your command. If you did, then check" \
+             "that any option requiring an argument (like --at)" \
+             "has one. Exiting."
     exit $status
 fi
 
@@ -56,6 +69,9 @@ do
     shift
     [ "$option" != '--' ] && option=${option##-} && option=${option##-}
     case "$option" in
+        aa )
+            opt_add_args_to_logfile=1
+            ;;
         at )
             if ((opts_count))
             then
@@ -67,14 +83,19 @@ do
             atfile=$(mktemp -t tmp.logit.at.XXXXXXXXXX)
             echo "logit --isat $*" > "$atfile"
             chmod +x "$atfile"
-            at -f "$atfile" "$attime"
+            at -m -f "$atfile" "$attime"
+            sleep 5
+            cmd-echo
             exit 0
+            ;;
+        logonly )
+            opt_logonly=1
             ;;
         isat)
             isat=1
             ;;
         h|help)
-            script-usage; exit 0 ;;
+            bash-usage "$0"; exit 0 ;;
         log)
             logfile="$1"
             shift ;;
@@ -84,8 +105,27 @@ do
         tee)
             teeit=1
             ;;
-        zenity)
+        zpe | zpae | zppe | zpye )
+            purge=all
+            case "$option" in
+                zppe)
+                    purge=prev
+                    ;;
+                zpye)
+                    purge=yesterday
+                    ;;
+            esac
+            edit="$LOGIT_EDITOR"
+            [ -z "$edit" ] && edit="$EDITOR"
+            ;& ## unconditional dropthrough
+        z | zenity )
             zenityit=1
+            zenity_geo=(--width 1320 --height 800)
+            case "$option" in
+                zw) zenity_geo[1]="${1}"; shift;;
+                zh) zenity_geo[3]="${1}"; shift;;
+                zenity | z) : ;;
+            esac
             ;;
         edit-echo)
             edit_echo=1
@@ -101,31 +141,40 @@ do
         purge)
             purge=all
             ;;
-        purgeprior)
-            purge=prior
+        purgeprev)
+            purge=prev
+            ;;
+        purgeyesterday)
+            purge=yesterday
             ;;
         notimestamp)
             notimestamp=1
             ;;
-        tpe)
+        tpe | tpae | tppe | tpye )
             teeit=1
-            purge=all
             edit="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit="$EDITOR"
-            ;;
-        tpef)
-            teeit=1
             purge=all
-            edit_on_fail="$LOGIT_EDITOR"
-            [ -z "$edit_on_fail" ] && edit_on_fail="$EDITOR"
+            case "$option" in
+                tppe)
+                    purge=prev
+                    ;;
+                tpye)
+                    purge=yesterday
+                    ;;
+            esac
             ;;
         ts)
             tsit=1
+            ;;
+        env)
+            asplit "$1" -s , -a envs
+            export eval "${envs[@]}"
             shift ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
-            cmd-echo -e -- "$option is an invalid option; you probably forgot to add a -- option between the logit options and the command to run. See $0 --help"
+            cmd-echo -ec -- "$option is an invalid option; you probably forgot to add a -- option between the logit options and the command to run. See $0 --help"
             exit 1 ;;
     esac
 done
@@ -136,57 +185,55 @@ if ((isat)) \
                 [ -n "${edit}${edit_on_fail}" ]; }
 then
     echo "Cannot use --at with any of --teeit, --zenityit, --edit, --edit_on_fail"
-    script-usage; exit 1
+    bash-usage "$0"; exit 1
 fi
 
 # Arg checking
 if [ -z "$1" ]
 then
     echo "Command required."
-    script-usage; exit 1
+    bash-usage "$0"; exit 1
 fi
 
-before_command=1
-after_command=0
-declare -a envs
-command=''
+declare command
 declare -a cmdargs
 
 for arg in "$@"
 do
-    if [[ "$arg" =~ = ]] && ((before_command))
+    if [[ -z $command ]]
     then
-        envs+=("$arg")
+        command="$arg"
     else
-        before_command=0
-        if ((after_command))
-        then
-            cmdargs+=("$arg")
-        else
-            command="$arg"
-            after_command=1
-        fi
+        cmdargs+=("$arg")
     fi
 done
 
 if [ ! -x "$command" ]
 then
-    # shellcheck disable=SC2230
-    fullcommand=$(which "$command" 2>/dev/null)
+    fullcommand=$(type -P "$command" 2>/dev/null)
     if [ -z "$fullcommand" ]
     then
-        isafunc=$(type "$command" | head -1)
-        if [ "$isafunc" != "$command is a function" ]
+        isafunc=$(type -t "$command")
+        if [ "$isafunc" != "function" ]
         then
-            echo "'$command' is not a function or not found or not executable."
-            script-usage; exit 1
+            echo "'$command' is not a function and it either cannot not be found on PATH or is not executable."
+            exit 1
         fi
     fi
 fi
 
 # Log file setup
 [ -z "$logfile" ] && logfile=$(basename "$command")
+if (( opt_add_args_to_logfile ))
+then
+    set -x
+    declare aatl
+    ajoin aatl -s , "${cmdargs[@]}"
+    aatl=${aatl// /,,}
+    logfile="${logfile}.${aatl}"
+fi
 logfileroot="${logfile}.logit"
+set +x
 now=$(date +%Y_%m_%dT%H_%M_%S)
 logfile="${logfileroot}"
 if [ "$notimestamp" = '' ]
@@ -202,8 +249,8 @@ then
         logdir=$(dirname "$logfile")
         logfile=$(basename "$logfile")
     else
-        logdir=$(pwd)
-        [ -d ./logit ] && logdir=$(pwd)/logit
+        logdir=${PWD}
+        [ -d ./logit ] && logdir=${PWD}/logit
     fi
 fi
 
@@ -211,17 +258,36 @@ logspec="$logdir/$logfile"
 logspecroot="$logdir/$logfileroot"
 if [ -n "$purge" ]
 then
-    if [ "$purge" = 'all' ]
+    declare -a rmlist
+    if [[ "$purge" = 'all' ]]
     then
         echo "Purging ${logspecroot}*"
         rm -f "${logspecroot}"*
-    else
+    elif [[ "$purge" = 'prev' ]]
+    then
+        ## 0th log by time, descending
+        echo -n "Purging ${logspecroot}*, removing the latest"
+        declare rmlist
+        rmlist=$(ls -t "${logspecroot}"* 2>/dev/null)
+        if [ -n "${rmlist[0]}" ]
+        then
+            rm -f "${rmlist[0]}"
+            echo ", ${rmlist[0]}"
+        else
+            echo
+        fi
+    elif [[ "$purge" = 'yesterday' ]]
+    then
         ## prior day
         echo "Purging ${logspecroot}*, keeping $today"
-        declare rmlist
-        # shellcheck disable=SC2010 ## Yeah, yeah ls|grep is bad. It's also simple.
-        rmlist=$(ls "${logspecroot}"* 2>/dev/null | grep -v "logit.${today}")
-        [ -n "$rmlist" ] && rm -f "$rmlist"
+        declare tmps
+        readarray tmps < <(ls -rt "${logspecroot}"* 2>/dev/null)
+        declare tmp
+        for tmp in "${tmps[@]}"
+        do
+            [[ ! $tmp =~ logit.${today} ]] && rmlist+=("$tmp")
+        done
+         [ -n "${rmlist[0]}" ] && rm -f "${rmlist[@]}"
     fi
 fi
 
@@ -233,17 +299,27 @@ then
     echo "Working..."
 fi
 
-if ((teeit))
+if ((opt_logonly))
+then
+    echo '--logonly specified. Run these commands:'
+    # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+    (( ${#envs[@]} )) && echo -n "${envs[*]} "
+    echo "$command ${cmdargs[*]}" '2>&1 | tee ' "$logspec"
+    exit 0
+fi
+
+if ((teeit || zenityit))
 then
     declare termer=''
 
     declare -a terms
     ((zenityit)) && terms+=('zenity')
     terms+=(xterm rxvt mrxvt)
+    declare i
     for i in "${terms[@]}"
     do
         # shellcheck disable=SC2230
-        [ -z "$termer" ] && [ -n "$(which "$i" 2>/dev/null)" ] && termer=$(which "$i")
+        [ -z "$termer" ] && [ -n "$(type -P "$i" 2>/dev/null)" ] && termer=$(type -P "$i")
     done
 
     termheight=$(x-current-root --height)
@@ -252,7 +328,7 @@ then
     declare -a colors
     if [[ $termer =~ xterm ]]
     then
-         if type xterm_Xground 2>/dev/null 1>/dev/null
+         if type -P xterm_Xground 2>/dev/null 1>/dev/null
          then
              colors=('-fg' "$(xterm_foreground)" '-bg' "$(xterm_background)")
          fi
@@ -262,10 +338,10 @@ then
     title="logit tee of '$command ${cmdargs[*]}' on $(hostname)"
     if [[ $termer =~ zenity ]]
     then
-        tail -f "$logspec" | \
-            $termer --text-info --auto-scroll \
-                    --width=1320 --height=800 \
-                    --title "$title [log is $logspec]" \
+        $termer --text-info --auto-scroll \
+                "${zenity_geo[@]}" \
+                --title "$title [log is $logspec]" \
+                < <(tail -f "$logspec") \
             &
     else
         $termer -g 132x${termheight}+100+100 \
@@ -274,11 +350,20 @@ then
                 -e tail -f "$logspec" \
             &
     fi
-    sleep 2 ## Give the terminal a chance to come up and start tailing so we
+    sleep 2 ## Give the $termer a chance to come up and start tailing so we
             ## see the whole log in the tail
 
     tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
     termerpid=$(pstree | grep "$termer" | grep "$logspec" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+    if [[ $termer =~ zenity ]]
+    then
+        ## Ending the zenity process doesn't end the tail and exiting this
+        ## program doesn't end the tail either. We must arrange for it to
+        ## explicitly end when this program exits. Otherwise, the tails pile up
+        ## in the process table. Also make sure that we flush the log and wait
+        ## before we kill that tail so that all the output ends up in the log.
+        do-on-exit "echo >> $logspec;sleep 2;kill $tailpid"
+    fi
 fi
 
 (
@@ -308,7 +393,7 @@ fi
         echo
 
         tmpf=$(mktemp -t tmp.logit.XXXXXXXXXX)
-        rm_on_exit "$tmpf"
+        rm-on-exit "$tmpf"
         git stash list >"$tmpf" 2>&1
         if [ -s "$tmpf" ]
         then
@@ -327,7 +412,8 @@ fi
     echo "********************"
     echo "      command"
     echo "********************"
-    echo "${envs[*]} $command ${cmdargs[*]}"
+    (( ${#envs[@]} )) && echo "export ${envs[*]}"
+    echo "$command ${cmdargs[*]}"
     echo
 
     echo "********************"
@@ -335,6 +421,7 @@ fi
     echo "start time: $(date)"
     eval "${envs[@]}"
     echo "********************"
+
     if((tsit))
     then
         $command "${cmdargs[@]}" | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
@@ -398,15 +485,16 @@ fi
 exit $status
 
 :<<'__USAGE__'
-[FOO=BAR [ FOO2=BAR2... ] ] \\
 logit [--at time] \\
-      [ --tee | --zenity ] \\
+      [--env [FOO=BAR[,FOO2=BAR2... ] ]] \\
+      [ --tee | [--zenity|-z|-zh:height|-zw:width] ] \\
       [ --log log_basename ] \\
+      [ --aa ]
       [ --notimestamp ] \\
       [ --dir log_directory ] \\
       [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
-      [ --purge | --purgeprior ] \\
-      [ --tpe[f] ] \\
+      [ --purge | --purgeprev | --purgeyesterday ] \\
+      [ --tp[[|a]|y|pe ] \\
       [ --ts ] \\
       [ -- ] \\
       command [arg ..]
@@ -430,52 +518,86 @@ OPTIONS:
                  specified time. '--at' must be the first option,
                  if specified.
 
-      --tee    - Spin up a terminal and show the log
-                 output in it as it is generated.
+      --env    - comma separated pairs of VAR=value definitions. You can
+                 also just put these before the 'logit' call, but then you
+                 won't have them noted in the logit log file. Using '--env'
+                 will document them on the command line print out.
 
-      --zenity - Spin up a zenity text dialog and show the log
-                 output in it as it is generated. If zenity
-                 is not available, we fall back to --tee.
+      --tee    - Spin up a terminal and show the log output in it as it is
+                 generated.
+
+      --zenity|-z
+               - Spin up a zenity text dialog and show the log output in it as
+                 it is generated. If zenity is not available, we fall back to
+                 --tee.
+
+      --zh:height
+      --zw:width
+               - Spin up a zenity text dialog as with '--zenity', and also change
+                 the size.
 
       --log    - Provide a root name for the log if
                  the command is generic.
+
+      --aa     - Short for 'add args'. Concatinates all the arguments to the
+                 command into one string, using '-' as a separator and appends
+                 that string to the base logfile name with a dot. Usefull if
+                 loging multiple invocations of a command differing only in the
+                 arguments.
 
       --notimestamp
                - Do not add a timestamp or the pid of the logit process to the
                  log name.  Use if the log name provided by --log is unique or
                  you don't care about overwriting logs.
 
-      --dir    - Put the logs in specifed directory, not
-                 current working directory. If not specified
-                 and there is a 'logit' subdir of the current
-                 working directory, logs will be placed in './logit'.
+      --dir    - Put the logs in specifed directory. If not
+                 specfied, logs will be placed in the './logit' subdir,
+                 if it exists. Otherwise, logs will be placed in the current
+                 directory.
 
       --edit   - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
                  \$EDITOR ($EDITOR). Run the first one found in order
                  to edit log file when the command exits.
 
-      --edit-echo -
-                 Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
-                 \$EDITOR ($EDITOR). Echo the command that would have
-                 been generated for --edit. This allows you to decide
-                 whether or not to edit the log.
+      --edit-echo
+               - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then \$EDITOR
+                 ($EDITOR). Echo the command that would have been generated for
+                 --edit. This allows you to decide whether or not to edit the
+                 log.
 
-      --edit-on-fail -
-                 Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
-                 \$EDITOR ($EDITOR). Run the first one found in order
-                 to edit the log file if the command fails.
+      --edit-on-fail
+               - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then \$EDITOR
+                 ($EDITOR). Run the first one found in order to edit the log
+                 file if the command fails.
 
       --purge  - Remove all similarly named log files before
                  running the command.
 
-      --purgeprior -
-                 Remove all similarly named log files before
+      --purgeprev
+               - Remove only the latest log file. Allows you to keep an initial
+                 log, remove the intermediate failures and have a successful
+                 log to compare with.
+
+      --purgeyesterday
+               - Remove all similarly named log files before
                  running the command, but keep those with
                  today's date in the log name.
 
-      --tpe[f]   - A shortcut for --tee --purge --edit, the three most
-                 commonly used switches. Adding the 'f' makes it
-                 behave as if --edit-on-fail was set instead of --edit.
+      --tpe|tpae
+               - A shortcut for --tee --purge --edit, the three most commonly
+                 used switches. 'pa' is purge all, which is the default.
+
+      --tppe   - A shortcut for --tee --purgeprev --edit.
+
+      --tpye   - A shortcut for --tee --purgeyesterday --edit.
+
+      --zpe|zpae
+               - A shortcut for --zenity --purge --edit, the three most commonly
+                 used switches. 'pa' is purge all, which is the default.
+
+      --zppe   - A shortcut for --zenity --purgeprev --edit.
+
+      --zpye   - A shortcut for --zenity --purgeyesterday --edit.
 
       --ts     - Use the 'ts' command to prepend a time stamp to each
                  output line.

@@ -1,141 +1,251 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2164 # cd || exit
 
-# dpkgrefrepos
+echo "$(date): git-mono" >> "$HOME/.gitaudit"
+
+# git-mono
+
+# shellcheck disable=SC2034
+declare DEBUG__this_script=$0
 
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
-on_exit set +x
+do-on-exit set +x
 
 declare owd
-owd=$(pwd)
+owd=${PWD}
 
-declare moreopts=1
-declare quiet=0
-declare opt_repo
-declare opt_update
 declare -A repos
-declare repo
-fmt=''
-while [[ "$1" =~ ^- ]] && ((moreopts))
-do
-    declare original="$1"
-    shift
-    declare option
-    option=$(dashstripper "$original")
-    ## This bit deals with --foo=bar instead of --foo bar
-    declare okey=''
-    declare ovalue=''
-    if [[ "$option" =~ = ]]
+
+set_repos ()
+{
+    declare repo=$1
+    declare option=$2
+    declare opt_wt=$3
+
+    declare -a repos_tmp
+    if [ "$repo" = ':all' ]
     then
-        okey=${option%%=*}
-        ovalue=${option#*=}
-        option="$okey"
+        repos_tmp[0]=''
+        option=pattern
+    else
+        IFS=, read -ra repos_tmp <<< "$repo"
     fi
 
-    case $option in
-        u | update )
-            opt_update=1
-            ;;
-        r | rp | repo | repopatt )
-            opt_repo=${ovalue:-$1}
-            [ -z "$ovalue" ] && shift
-
-            declare -a repos_tmp
-            if [ "$opt_repo" = ':all' ]
-            then
-                repos_tmp[0]=''
-            else
-                IFS=, read -ra repos_tmp <<< "$opt_repo"
-            fi
-
-            if [[ "$option" =~ r(p|epop) ]]
-            then
-                for repo_pattern in "${repos_tmp[@]}"
-                do
-                    for repo in $( git-go --listfull "$repo_pattern")
-                    do
-                        repos[$repo]=1
-                    done
-                done
-            else
-                for repo in "${repos_tmp[@]}"
-                do
-                    repos[$repo]=1
-                done
-            fi
-            ;;
-
-        ## standard options
-        h | help )
-            script-usage
-            exit 0
-            ;;
-        quiet | q )
-            quiet=1
-            ;;
-        x )
-            set -x
-            ;;
-        --)
-            moreopts=0
-            ;;
-        * )
-            cmd-echo -- "$original is an invalid option. See $0 --help"
-            exit 1
-            ;;
-    esac
-done
-
-if ((${#repos[@]} == 0))
-then
-    cmd-echo -- "Required option '--repo' not specified"
-    script-usage
-    exit 1
-fi
-
-if {
-    [ "$1" = 'git' ] && \
-        { [ "$2" = 'grep' ] || \
-              [ "$2" = 'ls-files' ] || \
-                  [ "$2" = 'find' ] \
-        ; }
-} || \
-    [ "$1" = 'git-find' ]
-then
-    fmt='/'
-fi
-
-for repo in "${!repos[@]}"
-do
-    if (( !quiet ))
+    if [[ "$option" =~ (rp|patt) ]]
     then
-        echo
-        cmd-echo -- "*** $repo"
+        for repo_pattern in "${repos_tmp[@]}"
+        do
+            for repo in $( git go --listfull "$opt_wt" "$repo_pattern")
+            do
+                repos[$repo]=1
+            done
+        done
+    else
+        for repo in "${repos_tmp[@]}"
+        do
+            repos[$repo]=1
+        done
+    fi
+    return 0
+}
+
+main ()
+{
+    declare moreopts=1
+    declare quiet=0
+    declare silent=0
+    declare opt_repo
+    declare opt_update
+    declare opt_pause=0
+    declare repo
+    declare opt_rcge=-1
+    declare opt_wt=''
+    fmt=''
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        declare original="$1"
+        shift
+        declare option
+        option=$(dashstripper "$original")
+        ## This bit deals with --foo=bar instead of --foo bar
+        declare okey=''
+        declare ovalue=''
+        ## but only deal with it if we really have an option. Otherwise you
+        ## misinterpret items like this git clone option: --config
+        ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
+        if [[ $option =~ ^- ]]
+        then
+            if [[ "$option" =~ = ]]
+            then
+                okey=${option%%=*}
+                ovalue=${option#*=}
+                option="$okey"
+            fi
+        fi
+
+        case $option in
+            u | update )
+                opt_update=1
+                ;;
+            nowt | wto )
+                opt_wt="--$option"
+                ;& # unconditional drop-through
+            all )
+                option=r
+                ovalue=':all'
+                ;& # unconditional drop-through
+            r | rp | repo | repopatt )
+                opt_repo=${ovalue:-$1}
+                [ -z "$ovalue" ] && shift
+                set_repos "$opt_repo" "$option" "$opt_wt"
+                ;;
+            p | pause )
+                opt_pause=1
+                ;;
+            ## standard options
+            h | help )
+                bash-usage "$0"
+                exit 0
+                ;;
+            quiet | q )
+                quiet=1
+                silent=0
+                opt_rcge=-1
+                ;;
+            silent | s )
+                quiet=0
+                silent=1
+                opt_rcge=-1
+                ;;
+            rcge )
+                quiet=0
+                silent=0
+                opt_rcge=${ovalue:-$1}
+                [ -z "$ovalue" ] && shift
+                ;;
+            x ) set -x ;;
+            --)
+                moreopts=0
+                ;;
+            * )
+                cmd-echo -- "$original is an invalid option. See $0 --help"
+                exit 1
+                ;;
+        esac
+    done
+
+    if ((${#repos[@]} == 0))
+    then
+        ## Grab them all
+        set_repos ':all' 'pattern'
     fi
 
-    builtin cd "$repo"
-    ((opt_update)) && git pull
-    if [ -n "$fmt" ]
+    ## These commands return results with relative filenames in them. This code
+    ## makes them print out as non-relative.
+    if { [ "$1" = 'git' ] \
+             && [[ "$2" =~ ^(find|grep|ls-files)$ ]]
+       } \
+           || [ "$1" = 'git-find' ] \
+           || [ "$1" = 'git-grep' ]
     then
+        # shellcheck disable=SC2016
+        fmt='${repo}/'
+    fi
+
+    declare -a execmel
+    declare -a execmer
+    declare -a lsfiles
+    declare need_lsfiles=0
+    declare use_repo_dir=0
+    declare use_repo_idx=0
+    declare use_repo_loc=''
+    for arg in "$@"
+    do
+        if [[ $arg != '{LSFILES}' ]]
+        then
+            if ((need_lsfiles == 1))
+            then
+                execmer+=("$arg")
+            else
+                execmel+=("$arg")
+            fi
+        else
+            need_lsfiles=1
+        fi
+        if [[ $arg == '{REPO}' ]]
+        then
+            use_repo_dir=1
+            if [[ ${execmel[-1]} == '{REPO}' ]]
+            then
+                use_repo_loc='l'
+                use_repo_idx=$((${#execmel[@]}-1))
+            else
+                use_repo_loc='r'
+                use_repo_idx=$((${#execmer[@]}-1))
+            fi
+        fi
+    done
+
+    for repo in "${!repos[@]}"
+    do
+        # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
+        builtin cd "$repo"
+        ((opt_update)) && git pull
         declare t
         t=$(mktemp -t tmp.dpkgrefrepos.XXXXXXXXXX)
-        rm_on_exit "$t"
-        "$@" > "$t"
-        declare line
-        while read -r line
-        do
-            echo "${repo}${fmt}${line}"
-        done < "$t"
-    else
-        "$@"
-    fi
-done
+        rm-on-exit "$t"
+        declare status
+        if ((need_lsfiles))
+        then
+            mapfile -t lsfiles < <(git ls-files)
+        else
+            lsfiles=()
+        fi
+        if ((use_repo_dir))
+        then
+            eval execme${use_repo_loc}[${use_repo_idx}]="${PWD}"
+        fi
+        "${execmel[@]}" "${lsfiles[@]}" "${execmer[@]}" > "$t" 2>&1
+        status=$?
+        if (( opt_rcge > -1 ))
+        then
+            if (( status >= opt_rcge ))
+            then
+                echo
+                cmd-echo -- "*** $repo"
+            fi
+        elif (( quiet==0 && silent==0 ))
+        then
+            echo
+            cmd-echo -- "*** $repo"
+        fi
 
-builtin cd "$owd"
+        ## We wc on words (-w) and not lines (-l) because some commands print
+        ## blank lines instead of nothing when they do nothing.
+        if (( $(wc -w 2>/dev/null < "$t") ))
+        then
+            if (( quiet ))
+            then
+                echo
+                cmd-echo -- "*** $repo"
+            fi
+            declare line
+            while read -r line
+            do
+                echo "$(eval echo ${fmt})${line}"
+            done < "$t"
+        fi
+        ((opt_pause)) && cmd-pause "Return to continue..."
 
-exit 0
+        # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
+        builtin cd "$owd"
+    done
+    set +x
+}
+
+main "$@"
+exit $?
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -144,8 +254,12 @@ git mono - run a git command over a list of repos
 
 =head1 SYNOPSIS
 
- git mono -r repo[,repo...] [ --repo repo[,repo ...] ... ] [--quiet] [-u|--update] command [args...]
- git mono --rp repopatt[,repopatt...] [ --rp repopatt[,repopatt ...] ... ] [--quiet] [-u|--update] command [args...]
+ git mono [ [-r repo[,repo...] [ --repo repo[,repo ...] ... ] ] \
+            [--rp repopatt[,repopatt...] [ --rp repopatt[,repopatt ...] ... ] ] \
+            | \
+            [--wto|--nowt|--all] \
+          ] \
+          [--quiet|--silent|--rcge n] [-u|--update] command [arg|'{LSFILES}'|'{REPO}']...
 
 =head1 DESCRIPTION
 
@@ -157,15 +271,34 @@ Run 'command' over each repo.
 
 =item -r|--repo
 
-An exact path to an existing repo. If the repo spec is ':all', we search all repos we can find. Multiple options and comma separated lists are both accepted.
+An exact path to an existing repo. If the repo spec is ':all', we search all
+repos found via 'gitgo --listfull'. Multiple options and comma separated lists
+are both accepted. If neither --repo or --repopatt are specified, we will
+execute over all repos found via 'gitgo --listfull'.
 
 =item --rp|--repopatt
 
-A repo spec that matches one or more repos via 'gitgo --listfull'. If the repo spec is ':all', we search all repos we can find. Multiple options and comma separated lists are both accepted.
+A repo spec that matches one or more repos via 'gitgo --listfull'. If the repo
+spec is ':all', we search all repos we can find. Multiple options and comma
+separated lists are both accepted. If neither --repo or --repopatt are
+specified, we will execute over all repos found via 'gitgo --listfull'.
+
+=item --all
+
+Same as -r :all
 
 =item --quiet
 
-Do not print a header with each repo as it is encountered.
+Only print a repo header if there is output from the command executed in the repo.
+
+=item --silent
+
+Never print a repo header even if there is output from the command executed in the repo.
+
+-item --rcge n
+
+Only print a repo header if the return code from the command is greater than or
+equal to 'n'. This is a good way to print headers only on failures (--rcge 1).
 
 =item -u|--update
 
@@ -177,13 +310,16 @@ execute 'git pull' on each repo before executing the command
 
 =over 4
 
-=item command [args...]
+=item command ["{LSFILES}"] [arg|"{REPO}"]...
 
-The command and its arguments are run in each repo specified, cd'ing to the repo before running. If command is a git command, you need to specify the 'git' part.
+The command and its arguments are run in each repo specified, cd'ing to the
+repo before running. If command is a git command, you need to specify the 'git'
+part.
+
+If the command needs the files of a repo as arguments, the string LSFILES will
+be replaced with the output of '$(git ls-files)' before being executed.
 
 =back
-
-
 
 =cut
 

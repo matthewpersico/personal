@@ -10,15 +10,13 @@
 
 ## - No associative arrays.
 ## - No variables with - in them. Use _ instead.
-
 if [ -z "$DISPLAY" ]
 then
     export DISPLAY=:0.0
 fi
 
 ## Is X installed?
-# shellcheck disable=SC2230 # 'which' is fine.
-if ! which xmodmap 1>/dev/null
+if ! type -P xmodmap 1>/dev/null
 then
     echo 'No X installed. xterm setup skipped.'
     return 0
@@ -36,7 +34,8 @@ fi
 
 if [ -z "$XTERM" ]
 then
-    for i in /usr/bin/X11 /usr/bin /bin
+    declare i
+    for i in /usr/bin/X11 /usr/bin /bin /opt/bb/bin
     do
         if [ -z "$XTERM" ] && [ -e "$i/xterm" ]
         then
@@ -51,11 +50,9 @@ then
     fi
 fi
 
-if [ -z "${HOSTNAME}" ]
-then
-    HOSTNAME=$(hostname)
-fi
-export XTERM HOSTNAME
+[ -z "${HOSTNAME}" ] && HOSTNAME=$(hostname)
+[ -z "${HOSTNAME_FQDN}" ] && HOSTNAME_FQDN=$(hostname --fqdn)
+export XTERM HOSTNAME HOSTNAME_FQDN
 
 XTERMGEO_W=132
 export XTERMGEO_W
@@ -67,24 +64,24 @@ XTERMGEO_Y=200
 export XTERMGEO_Y
 XTERMGEO="${XTERMGEO_W}x${XTERMGEO_H}+${XTERMGEO_X}+${XTERMGEO_Y}"
 export XTERMGEO
-case ${HOSTNAME} in
+case ${HOSTNAME_FQDN} in
     *bldo* )
-        NEWXCOLOR=red
+        NEWXCOLOR=RED
         XTERMFONTS="-fa 'Monospace' -fs 10"
         ;;
 
-    *bcpc* )
-        NEWXCOLOR=wheat
+    *bcpc* | *bcc*)
+        NEWXCOLOR=WHEAT
         XTERMFONTS="-fa 'Monospace' -fs 10"
         ;;
 
     nylxdev* )
-        NEWXCOLOR=darkblue
+        NEWXCOLOR=DARKBLUE
         XTERMFONTS=''
         ;;
 
     monolith* )
-        NEWXCOLOR=black
+        NEWXCOLOR=BLACK
         if [ "$XSERVER" = 'XWin' ]
         then
             XTERMFONTS="-fa 'Monospace' -fs 10"
@@ -97,10 +94,10 @@ case ${HOSTNAME} in
     * )
         if "$HOME/personal/bin/iswsl"
         then
-            NEWXCOLOR=black
+            NEWXCOLOR=BLACK
             XTERMFONTS='-fn lucidasanstypewriter-10'
         else
-            NEWXCOLOR=brightred
+            NEWXCOLOR=RED
             XTERMFONTS=''
         fi
         ;;
@@ -114,87 +111,39 @@ export XTERMFONTS
 ## and make git be a function such that it calls '/the/real/git
 ## $GIT_COLORS "$@"'.
 
-## See below, the section marked "Query the colors" to see how to maintain that
-## for each new pair added here. These colors are decoded in 'newx'.
-export forebackmap_grey='black,darkgrey'
-export forebackmap_darkblue='wheat,darkblue'
-export forebackmap_brightred='wheat,red'
-export forebackmap_red='wheat,darkred'
-export forebackmap_white='black,white'
-export forebackmap_black='white,black'
-export forebackmap_blue='white,steelblue'
-export forebackmap_green='white,seagreen'
-export forebackmap_wheat='black,wheat'
-export forebackmap_orange='black,orange'
-export forebackmap_yellow='black,yellow'
-export forebackmap_pink='black,pink'
-export forebackmap_brown='white,brown'
-export forebackmap_choc='white,chocolate'
-
-##
-## Colors!
-##
-
-## Printable ANSI sequences
-
-export ANSI_reset="\\e[0m"
-export ANSI_bold="\\e[1m"
-export ANSI_underscore="\\e[4m"
-export ANSI_blink="\\e[5m"
-export ANSI_reverse="\\e[7m"
-export ANSI_concealed="\\e[8m"
-
-export ANSI_FG_black="\\e[30m"
-export ANSI_FG_red="\\e[31m"
-export ANSI_FG_green="\\e[32m"
-export ANSI_FG_yellow="\\e[33m"
-export ANSI_BG_orange="\\e[38;5;208m"
-export ANSI_FG_blue="\\e[34m"
-export ANSI_FG_magenta="\\e[35m"
-export ANSI_FG_cyan="\\e[36m"
-export ANSI_FG_white="\\e[37m"
-
-export ANSI_BG_black="\\e[40m"
-export ANSI_BG_red="\\e[41m"
-export ANSI_BG_green="\\e[42m"
-export ANSI_BG_yellow="\\e[43m"
-export ANSI_BG_orange="\\e[48;5;208m"
-export ANSI_BG_blue="\\e[44m"
-export ANSI_BG_magenta="\\e[45m"
-export ANSI_BG_cyan="\\e[46m"
-export ANSI_BG_white="\\e[47m"
-
-##
-## Query the colors.
-##
+## Settings for xterm, distinct from the ANSI printable sequences above.
+export FOREBACKMAP_GREY='BLACK,GREY'
+export FOREBACKMAP_RED='WHEAT,DARKRED'
+export FOREBACKMAP_WHITE='BLACK,WHITE'
+export FOREBACKMAP_BLACK='WHITE,BLACK'
+export FOREBACKMAP_BLUE='WHITE,STEELBLUE'
+export FOREBACKMAP_GREEN='WHITE,SEAGREEN'
+export FOREBACKMAP_WHEAT='BLACK,WHEAT'
+export FOREBACKMAP_ORANGE='BLACK,ORANGE'
+export FOREBACKMAP_CHOC='WHITE,CHOCOLATE'
 
 ## Make sure that the value of each entry below matches a color in one of the
-## 'forebackmap_' variables above. In order to figure out a bg color:
-##
-## o add the fg, bg combo to a new forebackmap_<name> variable above.
-## o reload this file.
-## o call newx<name>.
-## o in the new terminal, call newx. The rgb of the new bg color will be
-##   spit out in an error message and then you can add it here.
-export xterm_Xground_map_rgba9a9a9a9a9a9='grey'
-export xterm_Xground_map_rgb000000008b8b='darkblue'
-export xterm_Xground_map_rgbffff00000000='brightred'
-export xterm_Xground_map_rgb8b8b00000000='red'
-export xterm_Xground_map_rgbffffffffffff='white'
-export xterm_Xground_map_rgb000000000000='black'
-export xterm_Xground_map_rgb46468282b4b4='blue'
-export xterm_Xground_map_rgb2e2e8b8b5757='green'
-export xterm_Xground_map_rgbf5f5dedeb3b3='wheat'
-export xterm_Xground_map_rgbffffa5a50000='orange'
-export xterm_Xground_map_rgbffffffff0000='yellow'
-export xterm_Xground_map_rgbffffc0c0cbcb='pink'
-export xterm_Xground_map_rgba5a52a2a2a2a='brown'
-export xterm_Xground_map_rgbd2d269691e1e='choc'
+## 'FOREBACKMAP_' variables above. The names and RGB values of the colors are
+## taken from 'https://en.wikipedia.org/wiki/X11_color_names#Color_name_chart'.
+export XTERM_XGROUND_MAP_RGBA9A9A9A9A9A9='GREY'
+export XTERM_XGROUND_MAP_RGB8B8B00000000='DARKRED'
+export XTERM_XGROUND_MAP_RGBFFFFFFFFFFFF='WHITE'
+export XTERM_XGROUND_MAP_RGB000000000000='BLACK'
+export XTERM_XGROUND_MAP_RGB46468282B4B4='BLUE'
+export XTERM_XGROUND_MAP_RGB2E2E8B8B5757='GREEN'
+export XTERM_XGROUND_MAP_RGBF5F5DEDEB3B3='WHEAT'
+export XTERM_XGROUND_MAP_RGBFFFFA5A50000='ORANGE'
+export XTERM_XGROUND_MAP_RGBFFFFFFFF0000='YELLOW'
+export XTERM_XGROUND_MAP_RGBFFFFC0C0CBCB='PINK'
+export XTERM_XGROUND_MAP_RGBA5A52A2A2A2A='BROWN'
+export XTERM_XGROUND_MAP_RGBD2D269691E1E='CHOC'
 
 . ~/personal/functions/settitle
 . ~/personal/functions/tickercfg
 . ~/personal/functions/ticker
 . ~/personal/functions/tickerkill
+
+xset -b ## bell off
 
 XTERMINIT_LOADED=1
 export XTERMINIT_LOADED
