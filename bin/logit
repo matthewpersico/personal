@@ -8,6 +8,7 @@ source "$BASH_INC_DIR/on_exit.binc"
 
 # Inits
 declare logfile=''
+declare opt_add_args_to_logfile=0
 declare logdir=''
 declare teeit=0
 declare zenityit=0
@@ -31,10 +32,10 @@ original_argv+=("$0" "$@")
 # don't have to match up.
 declare OPTSARGS
 declare shortopts='kz'
-declare longopts #='isat,at:,tee,zenity,zw:,zh:log:,dir:,edit,edit-on-fail,edit-echo,purge,purgeprev,purgeyesterday,notimestamp,tpye,tppe,tpae,tpe,zpe,ts,help,logonly,env:'
+declare longopts
 
 ajoin longopts -s , \
-      isat at: tee zenity zw: zh: log: dir: \
+      isat aa at: tee zenity zw: zh: log: dir: \
       edit edit-on-fail edit-echo \
       purge purgeprev purgeyesterday \
       notimestamp tpye tppe tpae tpe zpe ts help logonly \
@@ -68,6 +69,9 @@ do
     shift
     [ "$option" != '--' ] && option=${option##-} && option=${option##-}
     case "$option" in
+        aa )
+            opt_add_args_to_logfile=1
+            ;;
         at )
             if ((opts_count))
             then
@@ -220,7 +224,16 @@ fi
 
 # Log file setup
 [ -z "$logfile" ] && logfile=$(basename "$command")
+if (( opt_add_args_to_logfile ))
+then
+    set -x
+    declare aatl
+    ajoin aatl -s , "${cmdargs[@]}"
+    aatl=${aatl// /,,}
+    logfile="${logfile}.${aatl}"
+fi
 logfileroot="${logfile}.logit"
+set +x
 now=$(date +%Y_%m_%dT%H_%M_%S)
 logfile="${logfileroot}"
 if [ "$notimestamp" = '' ]
@@ -476,6 +489,7 @@ logit [--at time] \\
       [--env [FOO=BAR[,FOO2=BAR2... ] ]] \\
       [ --tee | [--zenity|-z|-zh:height|-zw:width] ] \\
       [ --log log_basename ] \\
+      [ --aa ]
       [ --notimestamp ] \\
       [ --dir log_directory ] \\
       [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
@@ -524,6 +538,12 @@ OPTIONS:
 
       --log    - Provide a root name for the log if
                  the command is generic.
+
+      --aa     - Short for 'add args'. Concatinates all the arguments to the
+                 command into one string, using '-' as a separator and appends
+                 that string to the base logfile name with a dot. Usefull if
+                 loging multiple invocations of a command differing only in the
+                 arguments.
 
       --notimestamp
                - Do not add a timestamp or the pid of the logit process to the
