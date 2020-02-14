@@ -39,6 +39,11 @@ git-repo-is_clean ()
     (( $(git st --porcelain | grep -cv '??') == 0 ))
 }
 
+git-repo-is_spotless ()
+{
+    git-repo-is_pristine "$@"
+}
+
 git-repo-is_pristine ()
 {
     (( $(git st --porcelain | wc -l) == 0 )) \
@@ -54,6 +59,23 @@ git-repo-is_pristine ()
         fi
     fi
     return 1
+}
+
+git-repo-is_up_to_date ()
+{
+    declare branch_status
+    branch_status=$(git status | grep 'Your branch is')
+    declare verbose=0
+    if [[ "$1" =~ -v ]]
+    then
+        echo "$branch_status"
+    fi
+    if [[ -z $branch_status ]] || [[ $branch_status =~ 'Your branch is up to date' ]]
+    then
+        return 0
+    else
+        return 1
+    fi
 }
 
 git-repo-is_a_fork ()
@@ -752,7 +774,8 @@ then, in the source repo that has the files you want to copy:
                | a fork
                | a fork of
                | clean
-               | pristine ] [repo-dir]
+               | [pristine|spotless]
+               | up-to-date ] [repo-dir]
 
 With no arguments, is the current directory a repo.
 
@@ -766,7 +789,11 @@ With 'a fork of', if the current or specified directory repo has a remote origin
 
 With 'clean', does the current or specified git repo have no edited tracked files.
 
-With 'pristine', is the current or specified git repo 'clean' with no untracked files. If it is NOT a worktree, it is checked to make sure that it has no outsanding worktrees. '-v' will print why it is not pristine.
+With 'pristine|spotless', is the current or specified git repo 'clean' with no untracked files. If it is NOT a worktree, it is checked to make sure that it has no outsanding worktrees. '-v' will print why it is not pristine.
+
+With 'up-to-date', is the current or specified git repo up to date with its remote branch. If there is no remote branch, the return is always true.
+
+Note that 'pristine|spotless' and 'up-to-date' are unrelated. The branch can be 'up-to-date', yet have editable files.
 
 =item name
 
