@@ -12,18 +12,33 @@ for repo in "${repos[@]}"
 do
     (
         cd "$repo" || exit 1
-        echo "**** $(pwd) ****"
-        echo "---- git status ----"
-        if git status
+        cmd-echo "**** $(pwd) ****"
+        if git repo is pristine
         then
-            declare output
-            output=$(mktemp -t tmp."$(basename "$0")".git-diff.XXXXXXXXXX)
-            if ! git diff --name-only origin/master >"$output" 2>&1
-            then
-                echo "---- git diff origin/master ----"
-                cat "$output"
-                rm -rf "$output"
-            fi
+            echo "Your branch is up to date with 'origin/$(git branch list -c)'"
+        else
+            git -c color.status=always st | \
+                perl -MTerm::ANSIColor -ne \
+                     'chomp;
+$on = $off = q();
+if (/Your branch is (ahead|behind).*/) {
+  $on=color(q(on_red));
+  $off=color(q(reset));
+}
+ print($on,$_,$off,qq(\n));
+'
+        fi
+        declare output
+        output=$(mktemp -t tmp.checkmail.git-diff.XXXXXXXXXX)
+        git diff --name-only origin/master >"$output" 2>&1
+        if (( $(wc -l < "$output") ))
+        then
+            cmd-echo --color RED -- "Your branch is NOT up to date with 'origin/master'." "The differing files are:"
+            cat "$output"
+            rm -rf "$output"
+        else
+            echo "Your branch is up to date with 'origin/master'"
         fi
     )
+    echo
 done
