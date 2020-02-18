@@ -291,16 +291,37 @@ git-branch-track-remote ()
     return $?
 }
 
+git-branch-remote-track()
+{
+    git-branch-track-remote "$@"
+}
+
+
 git-branch-fetch-remote ()
 {
     git-branch-track-remote "$@"
+}
+
+git-branch-remote-fetch ()
+{
+    git-branch-fetch-remote "$@"
+}
+
+git-branch-prune-remote ()
+{
+    git remote update -p
+}
+
+git-branch-remote-prune ()
+{
+    git-branch-prune-remote
 }
 
 git-branch-list ()
 {
     local strip=0
     local remote=''
-    local current=0
+    local show_current=''
     declare OPTSARGS
     declare shortopts='rac'
     declare longopts='strip,nostrip,remote,all,current'
@@ -321,8 +342,7 @@ git-branch-list ()
         case "$option" in
             -a | --all) remote='-a';;
             -r | --remote) remote='-r';;
-            -c | --current)  git rev-parse --abbrev-ref HEAD
-                             return 0;;
+            -c | --current) show_current='--show-current';;
             --strip) strip=1;;
             --nostrip) strip=0;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
@@ -345,6 +365,8 @@ git-branch-list ()
     local -a opts
     opts=('--list')
     [ -n "$remote" ] && opts+=("$remote")
+    [[ -n $show_current ]] && opts=("$show_current")
+
     if ((strip))
     then
         "${REALGIT}" branch --no-color "${opts[@]}" "$@" | sed 's/^[ *] //' | sed 's/ .*//'
@@ -400,9 +422,10 @@ git-branch - git extention of git branch
  git branch delete oldBranch
  git branch rename currentBranch newbranch
  git branch orphan
- git branch track-remote
- git branch fetch-remote
- git branch list [-c]
+ git branch track-remote|remote-track
+ git branch fetch-remote|remote-fetch
+ git branch prune-remote|remote-prune
+ git branch list [[-c|--current]| [-r|--remote]| [-a|--all]] [--[no]strip]
  git branch comment
 
 
@@ -420,7 +443,7 @@ TBD
 
 =list
 
-Lists all branches. -c lists only the current one.
+Lists all branches. By default, lists just the local ones. -c lists only the current one. -r lists remotes. -a lists locals and remotes. --strip removes the spacing and the colors and the current branch indicator.
 
 =item comment
 
