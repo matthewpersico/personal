@@ -34,7 +34,7 @@ my %diffs;               # diff output, per file.
 my %files_to_process;    # If you want to process all in the directory, they
                          # must all be passed. Passed files should be in
                          # absolute paths.
-my $scldir;              # The root of the repo, where the scl file is.
+my $gitrootdir;          # The root of the repo, where the scl file and other control files are.
 my %deleted;             # Files that are being deleted, the won't be in the
                          # directory, but still need to have scl entries.
 my @retain;              # The text for files not being committed.
@@ -113,7 +113,7 @@ sub main {
     # lives, so it is important to record that location; we will normalize the
     # scl entries and the incomming files to that location.
     $opt{scl} = rel2abs( $opt{scl} );
-    $scldir = dirname( $opt{scl} );
+    $gitrootdir = dirname( $opt{scl} );
 
     %files_to_process = map { abs_path($_) => 0 } @ARGV;
 
@@ -236,7 +236,7 @@ sub parse_scl {
             if (m|${filetag_re}\s*${functag_re}:\s*(.*)|) {
 
                 # * file\s*(function):\s*text
-                $current{filespec} = catfile( $scldir, $1 );
+                $current{filespec} = catfile( $gitrootdir, $1 );
                 $current{function} = $2;
                 ( $text = $3 ) =~ s/^\s+//;
                 $text =~ s/\s+$//;
@@ -244,7 +244,7 @@ sub parse_scl {
             } elsif (m|${filetag_re}:\s*(.*)|) {
 
                 # * file:\s*text
-                $current{filespec} = catfile( $scldir, $1 );
+                $current{filespec} = catfile( $gitrootdir, $1 );
                 $current{function} = NOFUNC;
                 ( $text = $2 ) =~ s/^\s+//;
                 $text =~ s/\s+$//;
@@ -475,6 +475,8 @@ my $ascii_normal    = ( $opt{color} ne 'never' ? '[m'      : '' );
 # probably because there is a cached and a non-cached entry. The second time
 # around, we print a dupe entry message.
 my %scl_seen;
+my %dotgcs;
+my $dotgcsfile;
 
 sub push_scl_to_output {
     my %args = (
@@ -539,6 +541,21 @@ sub push_scl_to_output {
             data  => \@gcs
           }
           if @gcs;
+
+        # Check for .gcs entries
+        if(!$dotgcsfile) {
+            $dotgcsfile=catfile($gitrootdir, '.gcs');
+            if ( -r $dotgcsfile ) {
+                open my $gcsh, '<', $dotgcsfile
+                  or die "Cannot open '$dotgcsfile' for read:$!";
+                %dotgcs = map {chomp;$_ => 1 } <$gcsh>;
+            }
+        }
+        if ( $dotgcs{file_abs_to_git_rel($filespec)} ) {
+            $gcs{$filespec}{count}++;
+            push @{$gcs{$filespec}{data}},
+              ( $gcs{$filespec}{count} > 1 ? "Also in $dotgcsfile" : "In $dotgcsfile");
+        }
     }
 
     if (   $opt{gcsonly} && $gcs{$filespec}->{count} == 0
@@ -715,16 +732,16 @@ sub names_only {
 }
 
 sub file_git_rel_to_abs {
-    if ( $_[0] =~ m|^$scldir| ) {
+    if ( $_[0] =~ m|^$gitrootdir| ) {
         return ( $_[0] );
     } else {
-        my $intermediate = "@{[path($_[0])->absolute($scldir)]}";
+        my $intermediate = "@{[path($_[0])->absolute($gitrootdir)]}";
         return ("@{[path($intermediate)->realpath()]}");
     }
 }
 
 sub file_abs_to_git_rel {
-    return ("@{[path($_[0])->relative($scldir)]}");
+    return ("@{[path($_[0])->relative($gitrootdir)]}");
 }
 
 sub file_pwd_rel_to_abs {
