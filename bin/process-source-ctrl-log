@@ -524,23 +524,18 @@ sub push_scl_to_output {
         return;
     }
 
-    $gcs{$filespec} = { count => 0, data => [] };
+    $gcs{$filespec} = { count => 0, data => [], ignored => 0 };
     if ( $status !~ m /^(?:D|deleted)$/ ) {
         # Check for any GCS entries in the code.
         open my $ih, '<', $filespec
           or die "Cannot open '$filespec' for read:$!";
         my $line = 0;
-        my @gcs  = map {
+        push @{$gcs{$filespec}{data}}, map {
             $line++;
             ( /$gcs_marker_re/ && !/$gcs_exclusion_marker_re/ )
               ? "${line}: $_"
               : ()
-        } <$ih>;
-        $gcs{$filespec} = {
-            count => scalar(@gcs),
-            data  => \@gcs
-          }
-          if @gcs;
+          } <$ih>;
 
         # Check for .gcs entries
         if(!$dotgcsfile) {
@@ -548,15 +543,21 @@ sub push_scl_to_output {
             if ( -r $dotgcsfile ) {
                 open my $gcsh, '<', $dotgcsfile
                   or die "Cannot open '$dotgcsfile' for read:$!";
-                %dotgcs = map {chomp;$_ => 1 } <$gcsh>;
+                %dotgcs = map {chomp; (split(/:/, $_),1)[0,1]} <$gcsh>;
             }
         }
         if ( $dotgcs{file_abs_to_git_rel($filespec)} ) {
-            $gcs{$filespec}{count}++;
-            push @{$gcs{$filespec}{data}},
-              ( $gcs{$filespec}{count} > 1 ? "Also in $dotgcsfile" : "In $dotgcsfile");
+            if ( $dotgcs{file_abs_to_git_rel($filespec)} eq '1' ) {
+                push @{$gcs{$filespec}->{data}},
+                  ( $gcs{$filespec}->{count} > 1 ? "Also in $dotgcsfile" : "In $dotgcsfile");
+            } elsif ($dotgcs{file_abs_to_git_rel($filespec)} eq 'ignore') {
+                push @{$gcs{$filespec}->{data}},
+                  "Ignored in $dotgcsfile";
+                $gcs{$filespec}->{ignored} = 1;
+            }
         }
     }
+    $gcs{$filespec}->{count} = scalar(@{$gcs{$filespec}->{data}});
 
     if (   $opt{gcsonly} && $gcs{$filespec}->{count} == 0
         or $opt{nogcsonly} && $gcs{$filespec}->{count} != 0 )
@@ -595,9 +596,17 @@ sub push_scl_to_output {
 
     if ( $gcs{$filespec}->{count} ) {
         if ( $opt{'for-commit'} ) {
-            die join( '',
-                "Cannot process commit with $args{file}, GCS Entries:\n",
-                @{ $gcs{$filespec}->{data} } );
+            if ( $gcs{$filespec}->{ignored} ) {
+                warn join( '',
+                           "Will process commit with $args{file}, GCS Entries:\n",
+                           @{ $gcs{$filespec}->{data} },
+                           qq(\n));
+            } else {
+                die join( '',
+                          "Cannot process commit with $args{file}, GCS Entries:\n",
+                          @{ $gcs{$filespec}->{data} },
+                          qq(\n));
+            }
         } else {
             push @{ $args{output} },
               map { "$args{format_over}$_" } (
