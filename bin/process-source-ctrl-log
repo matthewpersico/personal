@@ -78,6 +78,9 @@ sub main {
                       # changelog entry will fail a commit, but will not fail a
                       # status print.
 
+        'sclpick=s',  # Only commit files whose comment exactly matches the
+                      # supplied text.
+
         'gcsonly',    # Only process files with a Git Commit Skip marker.
         'nogcsonly',  # Only process files without a Git Commit Skip marker.
                       # If neither of these are set, then both sets of files
@@ -301,6 +304,10 @@ sub create_commit_scl {
         if ( $opt{sclonly} ) {
             warn scalar(@no_scl_keys),
 " file(s) have no entries; --sclonly was specified, so they will be skipped and the commit will continue.\n";
+            delete @files_to_process{@no_scl_keys};
+        } elsif ( $opt{sclpick} ) {
+            warn scalar(@no_scl_keys),
+" file(s) have no entries; --sclpick was specified, so they will be skipped and the commit will continue.\n";
             delete @files_to_process{@no_scl_keys};
         } elsif ( $opt{nosclonly} ) {
             warn scalar(@no_scl_keys),
@@ -565,6 +572,8 @@ sub push_scl_to_output {
         return;
     }
 
+    my $pop_to_length = @{ $args{output} };
+
     push @{ $args{output} }, $args{input}
       if ( defined( $args{input} ) );
     if ( exists( $scl_seen{$filespec} ) ) {
@@ -626,6 +635,17 @@ sub push_scl_to_output {
         # Short for the file's entry
         my $e = $entries{$filespec};
 
+        # Check for matching comment.
+        if ($opt{sclpick} ) {
+            my @keep_it = grep{ /$opt{sclpick}/ } map{ values(%{$e->{$_}}) } keys %{$e};
+            if (! @keep_it ) {
+                while (@{$args{output}} != $pop_to_length) {
+                    pop @{$args{output}};
+                }
+                return;
+            }
+        }
+
         # The functions, (including NOFUNC) for the entry.
         my @funcs = sort( keys(%$e) );
         for my $func (@funcs) {
@@ -662,11 +682,20 @@ sub push_scl_to_output {
             }
             push @{ $args{output} }, ( $args{is_commit} ? '' : () );
         }
+    } else {
+        # If there are no scl entries when we are trying to match an entry, get
+        # rid of it.
+        if ( $opt{sclpick} ) {
+            pop @{$args{output}}
+              while ( @{$args{output}} != $pop_to_length);
+            return;
+        }
     }
 
     ## Diffs here
     if ( $diffs{$filespec} ) {
-        push @{ $args{output} }, @{ $diffs{$filespec} };
+        push @{ $args{output} },
+          ( map { $args{format_over} . $_ } @{ $diffs{$filespec}} ), '';
         $ok_to_edit = 1;
     }
 
