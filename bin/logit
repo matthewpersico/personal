@@ -362,7 +362,10 @@ then
         ## explicitly end when this program exits. Otherwise, the tails pile up
         ## in the process table. Also make sure that we flush the log and wait
         ## before we kill that tail so that all the output ends up in the log.
-        do-on-exit "echo >> $logspec;sleep 2;kill $tailpid"
+        do-on-exit "echo >> $logspec \
+                      && sleep 2 \
+                      && ps -p $tailpid >/dev/null 2>/dev/null \
+                      && kill $tailpid >/dev/null 2>/dev/null"
     fi
 fi
 
@@ -479,8 +482,8 @@ then
         echo "${editcmd[@]}" "$logspec"
     else
         "${editcmd[@]}" "$logspec" &
-        [ -n "$tailpid" ] && kill "$tailpid"
-        [ -n "$termerpid" ] && kill "$termerpid"
+        [[ -n $tailpid ]] && kill "$tailpid" >/dev/null 2>/dev/null
+        [[ -n $termerpid ]] && kill "$termerpid" >/dev/null 2>/dev/null
     fi
 fi
 exit $status
