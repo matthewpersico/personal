@@ -42,7 +42,6 @@ main ()
     declare override_url
     declare -a override_args
     declare -a re_exec
-    declare no_fork=0
 
     re_exec=("$@")
 
@@ -76,8 +75,6 @@ main ()
                 override_url=${ovalue:-$1}
                 [ -z "$ovalue" ] && shift
                 ;;
-
-            no-fork ) no_fork=1 ;;
 
             data-mode ) opt_data_mode=1 ;;
 
@@ -501,6 +498,18 @@ main ()
                 case $htmlstatus in
                     200 )
                     ;;
+                    301 )
+                        declare newurl
+                        newurl=$(perl -MJSON::XS -e '
+open IH, q(<), $ARGV[0];
+$data = join(q(),<IH>);
+close(IH);
+$json = decode_json($data);
+$url = $json->{url};
+$url =~ s|$ARGV[1]||;
+print qq($url);' "${curldata}" "${server_url}")
+                        exec "$0" --override-url "$newurl" "${re_exec[@]}"
+                        ;;
                     404 )
                         github-api-echo -e -- "'${server}:$org/$repo' not found."
                         return 1
@@ -523,12 +532,12 @@ main ()
                             ## In the 202 case one or both of the repos could have
                             ## been renamed after the fork was originally created.
                         else
-                            echo $(perl -MJSON::XS -e '
+                            perl -MJSON::XS -e '
 open IH, q(<), $ARGV[0];
 $data = join(q(),<IH>);
 close(IH);
 $json = decode_json($data);
-print $json->{name};' "${curldata}" )
+print $json->{name};' "${curldata}"
                         fi
                         ;;
 
@@ -543,7 +552,7 @@ $url = $json->{url};
 $url =~ s|$ARGV[1]||;
 print qq($url);' "${curldata}" "${server_url}")
                         cmd-echo -- "Re-directing..."
-                        exec $0 --override-url "$newurl" "${re_exec[@]}"
+                        exec "$0" --override-url "$newurl" "${re_exec[@]}"
                         ;;
                     404 )
                         github-api-echo -e -- "either organization '$org' or repo '$repo' does not exist on '$server'."
