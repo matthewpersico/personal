@@ -141,6 +141,7 @@ git-repo-diff ()
     declare name_only=0
     declare exclude=''
     declare side_by_side='-u'
+    declare edit=0
     while [[ "$1" =~ ^- ]] && ((moreopts))
     do
         declare original="$1"
@@ -170,6 +171,8 @@ git-repo-diff ()
                 exclude=${ovalue:-$1}; [ -z "$ovalue" ] && shift ;;
             side-by-side)
                 side_by_side='-y --suppress-common-lines';;
+            edit)
+                edit=1 ;;
             name-only | \
                 names-only | \
                 l)
@@ -274,6 +277,7 @@ git-repo-diff ()
         fi
     fi
 
+    declare -a editable
     for key in "${!leftfiles[@]}"
     do
         declare output
@@ -286,6 +290,9 @@ git-repo-diff ()
             if ((name_only))
             then
                 echo "$leftf" "$rightf"
+            elif ((edit))
+            then
+                editable+=("$leftf" "$rightf")
             else
                 cmd-echo -- '-----'
                 declare diffcmd
@@ -299,6 +306,18 @@ git-repo-diff ()
             fi
         fi
     done
+
+    if (( ${#editable[@]} ))
+    then
+        if [ -z "$EDITOR" ]
+        then
+            cmd-echo -- "No EDITOR env variable found"
+            return 1
+        else
+            $EDITOR "${editable[@]}"
+            return $?
+        fi
+    fi
 
     return 0
 }
@@ -754,7 +773,8 @@ Mostly used with --current, deletes the repo, checking for worktrees and uncommi
 
 =item diff
 
-  git repo diff [--nocolor] [--name[s]-only | -l] \
+  git repo diff [--nocolor] \
+                [ [--name[s]-only | -l ] | --edit ] \
                 [--exclude path/to/exclude] \
                 [src] tgt
 
@@ -768,6 +788,10 @@ then, in the source repo that has the files you want to copy:
   do
     cp -v $from $to
   done < <(git repo diff --name-only path/to/the/target/repo)
+
+If you want to more carefully do such a copy, then use --edit to bring all the
+files into your editor and use its diff and write facilities to Do The Right
+Thing.
 
 =item is
 
