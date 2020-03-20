@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+
+## mktemp.binc - bash include
+
+## Defaults for making temp files that tie the temp to the script making it.
+## Use in conjunction with "on_exit.binc" to get rid of the temps on exit.
+
+## Include the file, with shellcheck exemption
+##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+##    source "$BASH_INC_DIR/on_exit.binc"
+##
+## Create a temp
+##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+##    source "$BASH_INC_DIR/mktemp.binc"
+##    gitroot=$(mktempfile)
+##
+## Immediately register it so that it will be removed at script exit
+##    rm-on-exit $gitroot
+
+## Note: DO NOT source this script into the login environment. It won't work
+## unless you export each function; subshells and commands won't see the
+## functions otherwise.
+
+function mktempfile()
+{
+    _mktemp_guts "$@"
+}
+
+function mktempdir()
+{
+    _mktemp_guts -d "$@"
+}
+
+function _mktemp_guts ()
+{
+    declare dodir=''
+    if [[ $1 == '-d' ]]
+    then
+        dodir=$1
+        shift
+    fi
+    declare tmproot
+    declare -a args
+    args=("$1" "$(basename "$0")" "${FUNCNAME[2]}" "${FUNCNAME[1]}")
+    for tmproot in "${args[@]}"
+    do
+        ##      not blank                 not a shell
+        if [[ -n "$tmproot" ]] && [[ ! $tmproot =~ ^- ]]
+        then
+            declare tmp
+            # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
+            tmp=$(mktemp $dodir -t tmp."$tmproot".XXXXXXXXX)
+            echo "$tmp"
+            return
+        fi
+    done
+}
