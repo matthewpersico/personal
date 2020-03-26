@@ -226,14 +226,12 @@ fi
 [ -z "$logfile" ] && logfile=$(basename "$command")
 if (( opt_add_args_to_logfile ))
 then
-    set -x
     declare aatl
     ajoin aatl -s , "${cmdargs[@]}"
     aatl=${aatl// /,,}
     logfile="${logfile}.${aatl}"
 fi
 logfileroot="${logfile}.logit"
-set +x
 now=$(date +%Y_%m_%dT%H_%M_%S)
 logfile="${logfileroot}"
 if [ "$notimestamp" = '' ]
@@ -322,30 +320,33 @@ then
         [ -z "$termer" ] && [ -n "$(type -P "$i" 2>/dev/null)" ] && termer=$(type -P "$i")
     done
 
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+    declare xtermxy=$(xterm-cli location get)
+    declare xtermx=$((${xtermxy%%:*}+20))
+    declare xtermy=$((${xtermxy##*:}+20))
+
     termheight=$(x-current-root --height)
     if ((termheight >1024)); then termheight=40; else termheight=20; fi
 
     declare -a colors
     if [[ $termer =~ xterm ]]
     then
-         if type -P xterm_Xground 2>/dev/null 1>/dev/null
-         then
-             colors=('-fg' "$(xterm_foreground)" '-bg' "$(xterm_background)")
-         fi
+        colors=('-fg' "$(xterm-cli foreground)" '-bg' "$(xterm-cli background)")
     fi
 
     declare title
-    title="logit tee of '$command ${cmdargs[*]}' on $(hostname)"
+    title="logit tee of '$command ${cmdargs[*]}' on $(hostname) [log is $logspec]"
     if [[ $termer =~ zenity ]]
     then
+
         $termer --text-info --auto-scroll \
                 "${zenity_geo[@]}" \
-                --title "$title [log is $logspec]" \
+                --title "$title" \
                 < <(tail -f "$logspec") \
             &
     else
-        $termer -g 132x${termheight}+100+100 \
-                -title "$title [log is $logspec]" \
+        $termer -g 132x${termheight}+${xtermx}+${xtermy} \
+                -title "$title" \
                 "${colors[@]}" \
                 -e tail -f "$logspec" \
             &
@@ -367,6 +368,8 @@ then
                       && ps -p $tailpid >/dev/null 2>/dev/null \
                       && kill $tailpid >/dev/null 2>/dev/null"
     fi
+
+
 fi
 
 (
@@ -404,7 +407,7 @@ fi
             cat "$tmpf"
             echo
         fi
-        rm -rf $tmpf
+        rm -rf "$tmpf"
     fi
 
     echo "********************"
@@ -422,7 +425,9 @@ fi
 
     echo "********************"
     echo "     execution"
-    echo "start time: $(date)"
+    declare start_at
+    start_at=$(data +%s)
+    echo "start time: $(date --date@"$start_at")"
     eval "${envs[@]}"
     echo "********************"
 
@@ -442,7 +447,10 @@ fi
     echo "********************"
     echo "$logmsg"
     echo "exit status: $status"
-    echo "end time: $(date)"
+    declare end_at
+    end_at=$(data +%s)
+    echo "end time: $(date --date@"$end_at")"
+    echo "elapsed seconds: $((end_at-start_at))"
     echo "********************"
     exit "$status"
 ) >> "$logspec" 2>&1

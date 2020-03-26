@@ -97,6 +97,8 @@ do
         doandcd ) doandcdfile=$1; shift;;
         set ) cmd-echo -- Working...
               git-go-set; exit 0;;
+        prune ) cmd-echo -- Working...
+              git-go-prune; exit 0;;
         h | help ) bash-usage "$0"; exit 0 ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
@@ -172,13 +174,16 @@ else
     then
         for r in "${REPOS[@]}"
         do
-            (cd "${TILDAE:-$HOME}/$r" || (echo "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1)
-             if (( $(git status --porcelain | wc  -l) ))
-             then
-                 echo
-                 cmd-echo -- "$r"
-                 git status
-             fi)
+            (
+                # The exit 1; will exit from the subshell, skipping the git status call
+                cd "${TILDAE:-$HOME}/$r" || { echo "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
+                if (( $(git status --porcelain | wc  -l) ))
+                then
+                    echo
+                    cmd-echo -- "$r"
+                    git status
+                fi
+            )
         done
     elif ((opt_list))
     then
@@ -208,13 +213,15 @@ else
                 if ((opt_stat==1))
                 then
                     echo "$rexp"
-                    (cd "${TILDAE:-$HOME}/$r" || (cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
-                     git status --porcelain)
+                    (
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
+                        git status --porcelain
+                    )
                     echo
                 elif ((opt_stat==2))
                 then
                     (
-                        cd "${TILDAE:-$HOME}/$r" || (cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
                         if (( $(git status --porcelain | wc -l) ))
                         then
                             echo "$rexp"
@@ -228,7 +235,7 @@ else
                 elif ((opt_comments))
                 then
                     (
-                        cd "${TILDAE:-$HOME}/$r" || (cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1);
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
                         declare output
                         output="$(git comment --show --hi)"
                         if ((opt_comments==1)) || \
@@ -416,6 +423,11 @@ Usage: git-go [options] [ filter [filter...] ]
    --set
        Don't go anywhere but reset the list of repos. Use this after file
        system surgery.
+
+   --prune
+       Visit each repo that would ordinarily end up in the selection list and
+       try to remove it. The repo must have no open PRs and no uncommitted
+       objects.
 
    'filter' will filter the list using grep.
 

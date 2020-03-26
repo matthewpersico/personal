@@ -21,10 +21,10 @@ git-repo-is ()
         verbose=1
         shift
     fi
-    [[ "$1" ]] && [[ $1 != . ]] && (cd "$1" || return 1)
+    [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
     git rev-parse --show-toplevel 2>/dev/null 1>&2
     status=$?
-    [[ "$1" ]] && [[ $1 != . ]] && (cd - || return 1)
+    [[ "$1" ]] && [[ $1 != . ]] && { cd - || return 1; }
     (( verbose )) && ( (( status )) && echo false || echo true )
     return $status
 }
@@ -55,7 +55,10 @@ git-repo-is_pristine ()
         if ! git worktree ina && (( $(git worktree list | wc -l) != 1 ))
         then
             echo Found worktrees:
-            git worktree list
+            git worktree list | tail -n +2 # Do not print the root repo for the
+                                           # worktrees, which is always the
+                                           # first entry of the wt list
+                                           # command.
         fi
     fi
     return 1
@@ -126,9 +129,9 @@ git-repo-is_fork_of ()
 
 git-repo-name ()
 {
-    [[ "$1" ]] && [[ $1 != . ]] && (cd "$1" || return 1)
+    [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
     name=$(git remote -v 2>/dev/null | grep origin | sed 's|.*/||' | sed 's/ .*//' | sort -u)
-    [[ "$1" ]] && [[ $1 != . ]] && (cd - || return 1)
+    [[ "$1" ]] && [[ $1 != . ]] && { cd - || return 1; }
     [ -z "$name" ] && return 1
     echo "$name"
     return 0
@@ -333,7 +336,7 @@ git-repo-delete ()
     declare dirmode=''
     [[ -z $1 ]] && bash-usage "$0" && return 1
     if [[ $1 = '--pwdmode' ]] \
-           || [[ $1 == '--current' ]] \
+           || [[ $1 =~ ^--curr ]] \
            || [[ $1 == '-c' ]] \
            || [[ $1 == '.' ]]
     then
@@ -364,17 +367,17 @@ git-repo-delete ()
     if [ -n "$dirmode" ]
     then
         ## We were given the directory containing the repo
-        builtin cd "$dirmode" || ( cmd-echo "Cannot cd $dirmode" && return 1 )
+        builtin cd "$dirmode" || { cmd-echo "Cannot cd $dirmode" && return 1; }
         declare root_or_err
         root_or_err="$(git root 2>&1)"
         declare status=$?
         if ((status))
         then
             cmd-echo -- "$root_or_err"
-            builtin cd "$returnpath" || ( cmd-echo "Cannot cd $returnpath" && return 1)
+            builtin cd "$returnpath" || { cmd-echo "Cannot cd $returnpath" && return 1; }
             return $status
         else
-            builtin cd "$root_or_err" || ( cmd-echo "Cannot cd $root_or_err" && return 1)
+            builtin cd "$root_or_err" || { cmd-echo "Cannot cd $root_or_err" && return 1; }
         fi
     elif ((!current))
     then
@@ -426,7 +429,7 @@ git-repo-delete ()
             return 1
         fi
 
-        builtin cd .. || ( cmd-echo "Cannot cd .." && return 1)
+        builtin cd .. || { cmd-echo "Cannot cd .." && return 1; }
         \rm -rf "$repo"
         status=$?
         ((status != 0)) && return 1; ## If the rm fails, we should see error
@@ -451,9 +454,9 @@ git-repo-delete ()
     ## Go there.
     if [ ! "$returnpath" = '/' ]
     then
-        builtin cd "$returnpath" || ( cmd-echo "Cannot cd $returnpath" && return 1)
+        builtin cd "$returnpath" || { cmd-echo "Cannot cd $returnpath" && return 1; }
     else
-        builtin cd ~ || ( cmd-echo "Cannot cd ~" && return 1)
+        builtin cd ~ || { cmd-echo "Cannot cd ~" && return 1; }
     fi
 
     ## Feed "there" back to the git function to make it stick.
@@ -683,14 +686,33 @@ git-repo-reset ()
     git-repo-restore "$@"
 }
 
+git-repo-revert ()
+{
+    git-repo-restore "$@"
+}
+
 git-repo-restore ()
 {
+    cmd-echo "Cleaning..."
     git dorealclean
+
+    cmd-echo "Unstaging..."
     declare -a files
     readarray -t files < <(git is committable)
     git reset HEAD -- "${files[@]}"
+
+    cmd-echo "Uncheckouting..."
     readarray -t files < <(git is modified)
     git checkout -- "${files[@]}"
+
+    cmd-echo "Status..."
+    git status
+
+}
+
+git-repo-tags ()
+{
+     git tag --list --sort=v:refname
 }
 
 main()
@@ -752,8 +774,9 @@ git-repo - act on or interrogate the current repo
  git-repo ina
  git-repo name
  git-repo pr-get
- git-repo reset/restore
+ git-repo reset/revert/restore
  git-repo sync
+ git-repo tags
 
  git-repo purge/prune [repo-dir [repo-dir]... ]
 
@@ -830,7 +853,7 @@ Print the name of the remote repo.
 
 Deal with pull requests related to the current repo. --get will look for an open pull request for this branch against remotes 'upstream' and then 'origin'. --silent will supress printing the PR reference so that you can just used the return value; 0 if there is an open pull request, 1 if not.
 
-=item restore
+=item revert/reset/restore
 
 Performs a realclean, resets all uncommitted changes.
 
@@ -850,6 +873,12 @@ pristine'. no) then it prompts to accept deleting the repo.
 **NOTE:** This probably belongs in git mono or a git repos command that would
   replace git mono. The git mono default of 'exec all of this for each repo'
   could be the --exec option of git repos.
+
+=item tags
+
+Show all the tags in ascending version order. Alias for
+
+  git tag --list --sort=v:refname
 
 =back
 
