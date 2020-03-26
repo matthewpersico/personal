@@ -11,7 +11,7 @@ choices="y/n"
 
 while [[ "$1" =~ ^- ]]
 do
-    [[ "$1" =~ ^-nop ]] && do_print=0 && shift
+    [[ "$1" =~ -nop ]] && do_print=0 && shift
     [[ "$1" = -q ]] && choices="y/n/q" && shift
 done
 
@@ -19,26 +19,11 @@ declare prompt_text
 prompt_text=$1;shift
 declare default
 default=$1;shift
-declare -a cmd
-cmd=("$@")
 
 declare respyn
 respyn=$(pick "$prompt_text" "$choices" "$default")
 
-if (( ${#cmd[@]} != 0 ))
-then
-    ## There is a command
-    do_print=0 ## If respyn not y and we fall through.
-    if [ "$respyn" = 'y' ]
-    then
-        ## Do the command as requested, exit as appropriate.
-        "${cmd[@]}"
-        exit $?
-    fi
-fi
-
-## No command, print response if asked, or command skipped, do not print
-## command. Then exit as requested.
+## Print response if asked, then exit as requested.
 ((do_print)) && echo "$respyn"
 [ "$respyn" = 'y' ] && exit 0
 [ "$respyn" = 'n' ] && exit 1
@@ -51,7 +36,7 @@ yesno - prompt for a yes or no (or quit) answer
 
 =head1 SYNOPSIS
 
-  yesno [-q] [--noprint] "prompt text" "default[y|n|q]" [command and args to execute if yes]
+  yesno [-q] [--noprint] "prompt text" "default[y|n|q]"
 
 =head2 Examples using the output
 
@@ -74,9 +59,7 @@ yesno - prompt for a yes or no (or quit) answer
       ## quit actions...
   fi
 
-  yesno "prompt text" "n" [command and args to execute if yes])
-
-  [ "$(yesno "prompt text")" = 'y' ] && command and args to execute if yes
+  [ "$(yesno "prompt text" "n")" = 'y' ] && command and args to execute if yes
 
 =head2 Examples using the status
 
@@ -96,9 +79,7 @@ yesno - prompt for a yes or no (or quit) answer
      ## quit actions...
   fi
 
-  yesno "prompt text" "n" [command and args to execute if yes]
-
-  yesno "prompt text" && command and args to execute if yes
+  yesno "prompt text" "n" && command and args to execute if yes
 
 =head1 DESCRIPTION
 
@@ -131,12 +112,12 @@ Prints this text, followed the literal text '(y/n) ?', waiting for your response
 The default response if you just hit return. If you do not want a default,
 specify a blank string, i.e: "".
 
-=item command and args to execute if yes
+=head1 OBSOLETE
 
-Executes this command with args on a posititve response (y). In this case,
-prints the output of the command and returns the exit value of the command. On
-a negative response (n or q), prints nothing and returns 1 for 'n' and 2 for
-'q'.
+This command used to take. as its remaining arguments, a command (with its
+arguments) to execute on a positive response. We removed that when we had a V8
+moment and realised that that functionality could just be implemented at the
+caller level with an && operator.
 
 =back
 
