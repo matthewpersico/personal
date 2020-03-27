@@ -15,6 +15,7 @@ use IO::File;
 use Path::Tiny;
 use Text::Wrap qw(wrap);
 $Text::Wrap::columns = 72;
+use Lingua::EN::Inflect;
 
 use constant NOFUNC => '!File Scope'; # the ! will sort this before all function names.
 ## NOTE: If you change the lead character for items here, make sure you also
@@ -34,10 +35,10 @@ my %diffs;               # diff output, per file.
 my %files_to_process;    # If you want to process all in the directory, they
                          # must all be passed. Passed files should be in
                          # absolute paths.
-my $gitrootdir;          # The root of the repo, where the scl file and other control files are.
-my %deleted;             # Files that are being deleted, the won't be in the
-                         # directory, but still need to have scl entries.
-my @retain;              # The text for files not being committed.
+my $gitrootdir; # The root of the repo, where the scl file and other control files are.
+my %deleted;    # Files that are being deleted, the won't be in the
+                # directory, but still need to have scl entries.
+my @retain;     # The text for files not being committed.
 my %opt = (
     'scl'         => undef,
     'for-commit'  => undef,
@@ -106,7 +107,7 @@ sub main {
         map { ( split( /=/, $_ ) )[0] } @obsolete );
 
     warn join( qq(\n),
-        "Obsolete flag(s) passed in, ignored:",
+        "Obsolete " . PL( "flag", @obsolete ) . " passed in, ignored:",
         $found_obsolete, q() )
       if ($found_obsolete);
     die "-scl SourceCtrlLog option required"
@@ -301,17 +302,22 @@ sub create_commit_scl {
       grep { $files_to_process{$_} == 0 }
       keys %files_to_process;
     if (@no_scl_keys) {
+        my $msg_prefix = join( q( ),
+            scalar(@no_scl_keys),
+            PL( "file", scalar(@no_scl_keys) ),
+            PL_V( "have", scalar(@no_scl_keys) ),
+            'no entries' );
         if ( $opt{sclonly} ) {
-            warn scalar(@no_scl_keys),
-" file(s) have no entries; --sclonly was specified, so they will be skipped and the commit will continue.\n";
+            warn
+"${msg_prefix}; --sclonly was specified, so they will be skipped and the commit will continue.\n";
             delete @files_to_process{@no_scl_keys};
         } elsif ( $opt{sclpick} ) {
-            warn scalar(@no_scl_keys),
-" file(s) have no entries; --sclpick was specified, so they will be skipped and the commit will continue.\n";
+            warn
+"${msg_prefix}; --sclpick was specified, so they will be skipped and the commit will continue.\n";
             delete @files_to_process{@no_scl_keys};
         } elsif ( $opt{nosclonly} ) {
-            warn scalar(@no_scl_keys),
-" file(s) have no entries; --nosclonly was specified, so they will be the ones processed and the commit will continue.\n";
+            warn
+"${msg_prefix}; --nosclonly was specified, so they will be the ones processed and the commit will continue.\n";
             my %have_scl_keys = %files_to_process;
             delete @have_scl_keys{@no_scl_keys};
             retain_entries( keys %have_scl_keys );
@@ -351,21 +357,25 @@ sub write_retained_log {
     my $iam = ( caller(0) )[3];
 
     ## Strip out extra date lines.
-    my $i=0;
+    my $i           = 0;
     my $dateline_re = qr/\d{4,4}-\d{2,2}-\d{2,2}.*>/;
-    while ($i < @retain ) {
-        if (@retain - $i >= 3) {
-            if (join('', @retain[$i,$i+1,$i+2]) =~ /^${dateline_re}${dateline_re}$/) {
+    while ( $i < @retain ) {
+        if ( @retain - $i >= 3 ) {
+            if (
+                join( '', @retain[ $i, $i + 1, $i + 2 ] ) =~
+                /^${dateline_re}${dateline_re}$/ )
+            {
                 splice @retain, $i, 2;
                 next;
             }
-        } elsif (@retain - $i == 2) {
-            if ( join('', @retain[$i,$i+1]) =~ /^${dateline_re}{1,2}$/) {
+        } elsif ( @retain - $i == 2 ) {
+            if ( join( '', @retain[ $i, $i + 1 ] ) =~ /^${dateline_re}{1,2}$/ )
+            {
                 splice @retain, $i, 2;
                 next;
             }
-        } elsif (@retain - $i == 1) {
-            if ( $retain[$i] =~ /^${dateline_re}{0,1}$/) {
+        } elsif ( @retain - $i == 1 ) {
+            if ( $retain[$i] =~ /^${dateline_re}{0,1}$/ ) {
                 splice @retain, $i, 1;
                 next;
             }
@@ -537,34 +547,38 @@ sub push_scl_to_output {
         open my $ih, '<', $filespec
           or die "Cannot open '$filespec' for read:$!";
         my $line = 0;
-        push @{$gcs{$filespec}{data}}, map {
+        push @{ $gcs{$filespec}{data} }, map {
             $line++;
             ( /$gcs_marker_re/ && !/$gcs_exclusion_marker_re/ )
               ? "${line}: $_"
               : ()
-          } <$ih>;
+        } <$ih>;
 
         # Check for .gcs entries
-        if(!$dotgcsfile) {
-            $dotgcsfile=catfile($gitrootdir, '.gcs');
+        if ( !$dotgcsfile ) {
+            $dotgcsfile = catfile( $gitrootdir, '.gcs' );
             if ( -r $dotgcsfile ) {
                 open my $gcsh, '<', $dotgcsfile
                   or die "Cannot open '$dotgcsfile' for read:$!";
-                %dotgcs = map {chomp; (split(/:/, $_),1)[0,1]} <$gcsh>;
+                %dotgcs =
+                  map { chomp; ( split( /:/, $_ ), 1 )[ 0, 1 ] } <$gcsh>;
             }
         }
-        if ( $dotgcs{file_abs_to_git_rel($filespec)} ) {
-            if ( $dotgcs{file_abs_to_git_rel($filespec)} eq '1' ) {
-                push @{$gcs{$filespec}->{data}},
-                  ( $gcs{$filespec}->{count} > 1 ? "Also in $dotgcsfile" : "In $dotgcsfile");
-            } elsif ($dotgcs{file_abs_to_git_rel($filespec)} eq 'ignore') {
-                push @{$gcs{$filespec}->{data}},
-                  "Ignored in $dotgcsfile";
+        if ( $dotgcs{ file_abs_to_git_rel($filespec) } ) {
+            if ( $dotgcs{ file_abs_to_git_rel($filespec) } eq '1' ) {
+                push @{ $gcs{$filespec}->{data} },
+                  (
+                    $gcs{$filespec}->{count} > 1
+                    ? "Also in $dotgcsfile"
+                    : "In $dotgcsfile"
+                  );
+            } elsif ( $dotgcs{ file_abs_to_git_rel($filespec) } eq 'ignore' ) {
+                push @{ $gcs{$filespec}->{data} }, "Ignored in $dotgcsfile";
                 $gcs{$filespec}->{ignored} = 1;
             }
         }
     }
-    $gcs{$filespec}->{count} = scalar(@{$gcs{$filespec}->{data}});
+    $gcs{$filespec}->{count} = scalar( @{ $gcs{$filespec}->{data} } );
 
     if (   $opt{gcsonly} && $gcs{$filespec}->{count} == 0
         or $opt{nogcsonly} && $gcs{$filespec}->{count} != 0 )
@@ -607,14 +621,12 @@ sub push_scl_to_output {
         if ( $opt{'for-commit'} ) {
             if ( $gcs{$filespec}->{ignored} ) {
                 warn join( '',
-                           "Will process commit with $args{file}, GCS Entries:\n",
-                           @{ $gcs{$filespec}->{data} },
-                           qq(\n));
+                    "Will process commit with $args{file}, GCS Entries:\n",
+                    @{ $gcs{$filespec}->{data} }, qq(\n) );
             } else {
                 die join( '',
-                          "Cannot process commit with $args{file}, GCS Entries:\n",
-                          @{ $gcs{$filespec}->{data} },
-                          qq(\n));
+                    "Cannot process commit with $args{file}, GCS Entries:\n",
+                    @{ $gcs{$filespec}->{data} }, qq(\n) );
             }
         } else {
             push @{ $args{output} },
@@ -636,13 +648,16 @@ sub push_scl_to_output {
         my $e = $entries{$filespec};
 
         # Check for matching comment.
-        if ($opt{sclpick} ) {
-            my @keep_it = grep{ /$opt{sclpick}/ } map{ values(%{$e->{$_}}) } keys %{$e};
-            if (! @keep_it ) {
-                while (@{$args{output}} != $pop_to_length) {
-                    pop @{$args{output}};
+        if ( $opt{sclpick} ) {
+            my @keep_it =
+              grep { /$opt{sclpick}/ }
+              map  { values( %{ $e->{$_} } ) } keys %{$e};
+            if ( !@keep_it ) {
+                while ( @{ $args{output} } != $pop_to_length ) {
+                    pop @{ $args{output} };
                 }
-                push @retain, @{$files_to_process{$filespec}->{orig_text}}, '';
+                push @retain, @{ $files_to_process{$filespec}->{orig_text} },
+                  '';
                 return;
             }
         }
@@ -687,10 +702,10 @@ sub push_scl_to_output {
         # If there are no scl entries when we are trying to match an entry, get
         # rid of it.
         if ( $opt{sclpick} ) {
-            while (@{$args{output}} != $pop_to_length) {
-                pop @{$args{output}};
+            while ( @{ $args{output} } != $pop_to_length ) {
+                pop @{ $args{output} };
             }
-            push @retain, @{$files_to_process{$filespec}->{orig_text}}, ''
+            push @retain, @{ $files_to_process{$filespec}->{orig_text} }, ''
               if $files_to_process{$filespec};
             return;
         }
@@ -699,7 +714,7 @@ sub push_scl_to_output {
     ## Diffs here
     if ( $diffs{$filespec} ) {
         push @{ $args{output} },
-          ( map { $args{format_over} . $_ } @{ $diffs{$filespec}} ), '';
+          ( map { $args{format_over} . $_ } @{ $diffs{$filespec} } ), '';
         $ok_to_edit = 1;
     }
 

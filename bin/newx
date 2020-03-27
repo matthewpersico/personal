@@ -62,24 +62,29 @@ then
     [ -n "${!var}" ] && colors="$colors ${!var}" && shift
 fi
 
-[ -z "${colors}" ] && var="FOREBACKMAP_$(xterm_background)" && colors=${!var}
+[ -z "${colors}" ] && var="FOREBACKMAP_$(xterm-cli background)" && colors=${!var}
 
 ## Yeah this is a little funky - you could end up creating "count"
 ## terminals of each color.
 declare i=0
 declare j=$i
-declare xtg="${lxtermgeo_w}x${XTERMGEO_H}+$((XTERMGEO_X+(j*72)))+$((XTERMGEO_Y+(j*72)))"
+declare delta_x=36
+declare delta_y=36
+xtg ()
+{
+    echo "${lxtermgeo_w}x${XTERMGEO_H}+$((XTERMGEO_X+(j*delta_x)))+$((XTERMGEO_Y+(j*delta_y)))"
+}
 while ((i<count))
 do
     for color in $colors
     do
         # shellcheck disable=SC2086 # $XTERMFONTS needs expansion
         case $prochandling in
-            da ) exec RXCmd "$HOSTNAME" -geometry "$xtg" $XTERMFONTS "$@" -fg "${color%%,*}" -bg "${color##*,}"
+            da ) exec RXCmd "$HOSTNAME" -geometry "$(xtg)" $XTERMFONTS "$@" -fg "${color%%,*}" -bg "${color##*,}"
                  ;;
-            bg ) RXCmd "$HOSTNAME" -geometry "$xtg" $XTERMFONTS "$@" -fg "${color%%,*}" -bg "${color##*,}" &
+            bg ) RXCmd "$HOSTNAME" -geometry "$(xtg)" $XTERMFONTS "$@" -fg "${color%%,*}" -bg "${color##*,}" &
                  ;;
-            * ) RXCmd "$HOSTNAME" -geometry "$xtg" $XTERMFONTS "$@" -fg "${color%%,*}" -bg "${color##*,}"
+            * ) RXCmd "$HOSTNAME" -geometry "$(xtg)" $XTERMFONTS "$@" -fg "${color%%,*}" -bg "${color##*,}"
                 ;;
             esac
         sleep .05 ## Just enough to space out the &-ed invocations so that they
@@ -88,6 +93,7 @@ do
         ((j+=1))
     done
     ((i+=1))
+    xtg="${lxtermgeo_w}x${XTERMGEO_H}+$((XTERMGEO_X+(j*72)))+$((XTERMGEO_Y+(j*72)))"
 done
 ## POD guard
 exit 0
