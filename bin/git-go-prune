@@ -1,0 +1,41 @@
+#!/usr/bin/env bash
+
+cmd-echo "Processing clean, non-open-pr worktrees"
+for i in $(git-go --listfull --wto)
+do
+    if [[ $i =~ personal ]] || [[ $i =~ 1750 ]]
+    then
+        cmd-echo --head --wc "Skipping $i"
+    else
+        (
+            if cd "$i"
+            then
+                if ! git repo pr --get
+                then
+                    cmd-echo --head "$(pwd)"
+                    cmd-yesno "Delete" "n" && git wt del --current
+                fi
+            fi
+        )
+    fi
+done
+
+cmd-echo "Processing clean repos"
+for i in $(git-go --listfull --nowt)
+do
+    if [[ $i =~ personal ]] || [[ $i =~ 1750 ]]
+    then
+        cmd-echo --head --wc "Skipping $i"
+    else
+        (
+            if cd "$i"
+            then
+                cmd-echo --head "$(pwd)"
+                if git repo is pristine -v && cmd-yesno --nop "git repo del --current" "n"
+                then
+                    git repo del --current
+                fi
+            fi
+        )
+    fi
+done

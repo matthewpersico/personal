@@ -1,0 +1,379 @@
+#!/usr/bin/env bash
+
+# xterm-cli
+
+# Control the xterm from the command line
+
+declare ticker_tmp
+ticker_tmp="/tmp/ticker.$(hostname).$(ps -o ppid= $$)"
+
+xterm-cli-id ()
+{
+    xwininfo -name "$USER@$(hostname):$(pwd | sed "s|$HOME|~|")" \
+    | grep 'Window id' \
+    | sed -e 's/.* Window id: //' -e 's/ .*//'
+}
+
+xterm-cli-info ()
+{
+    declare id=$1
+    [[ -z $id ]] && id=$(xterm-cli-id)
+    xwininfo -id "$id"
+}
+
+xterm-cli-raw-csi ()
+{
+    set -x
+    echo -ne "${CSI}$*t"
+}
+
+_xterm-cli-xground ()
+{
+    declare col
+    col=$1
+    if [ -n "$XTERM_SHELL" ]
+    then
+        ## from http://superuser.com/questions/157563/programmatic-access-to-current-xterm-background-color
+        exec < /dev/tty
+        oldstty=$(stty -g)
+        stty raw -echo min 0
+        #          OSC    Ps  ;Pt ST
+        echo -en "\\033]${col};?\\033\\" >/dev/tty  # echo opts differ w/ OSes
+        result=
+        if IFS=';' read -r -d \\ color ; then
+            result=$(echo "$color" | sed 's/^.*\;//;s/[^rgb:0-9a-f/]//g')
+            idxresult=$(echo "$result" | sed 's/[:/]//g')
+        fi
+        stty "$oldstty"
+        declare var
+        var=XTERM_XGROUND_MAP_${idxresult^^}
+        declare color
+        color=$(eval echo "\$$var")
+        if [ -n "${color}" ]
+        then
+            echo "${color}"
+            exit
+        else
+            echo "## WARNING: - no mapped color found for $result" >&2
+        fi
+    else
+        echo "## WARNING: - XTERM_SHELL not defined, probably not an xterm" >&2
+    fi
+
+    if [ -n "$NEWXCOLOR" ]
+    then
+        echo "$NEWXCOLOR"
+        exit
+    else
+        echo "## WARNING: - NEWXCOLOR not defined" >&2
+    fi
+
+    echo "## WARNING: - default color is GREY" >&2
+    echo GREY
+}
+
+xterm-cli-foreground ()
+{
+    _xterm-cli-xground 10
+}
+
+xterm-cli-background ()
+{
+    _xterm-cli-xground 11
+}
+
+xterm-location ()
+{
+    declare -a info
+    readarray -t info < <(xwininfo -name "$USER@$(hostname):$(pwd | sed "s|$HOME|~|")")
+
+    declare x=-1
+    declare y=-1
+    declare newx=0
+    declare newy=0
+
+    for line in "${info[@]}"
+    do
+        if [[ $line =~ Absolute\ upper-left\ X ]]
+        then
+            x="${line#*:}"
+        elif [[ $line =~ Absolute\ upper-left\ Y ]]
+        then
+            y="${line#*:}"
+        fi
+        [[ $x != '-1' ]] && [[ $y != '-1' ]] && break
+    done
+
+    ## strips whitespace
+    x=$((x+0))
+    y=$((y+0))
+
+    if [[ $1 == 'get' ]]
+    then
+        shift
+        if [[ $1 == 'x' ]]
+        then
+            echo "$x"
+        elif [[ $1 == 'y' ]]
+        then
+            echo "$y"
+        else
+            echo "$x:$y"
+        fi
+        return
+    elif [[ $1 == 'set' ]]
+    then
+        shift
+        if [[ $1 == 'x' ]]
+        then
+            shift
+            newx=$1
+            newy=$y
+        elif [[ $1 == 'y' ]]
+        then
+            shift
+            newy=$1
+            newx=$x
+        else
+            newx=$1
+            shift
+            newy=$1
+            if [[ -z $newx ]] || [[ -z $newy ]]
+            then
+                cmd-echo --ec 'Must specify x and y if you do not specify which one'
+                return 1
+            fi
+        fi
+        if [[ $newx =~ [+-] ]]
+        then
+            finalx=$((x + newx))
+            echo "newx = $x + $newx ($finalx)"
+        else
+            finalx=$newx
+            echo "newx = $finalx"
+        fi
+        if [[ $newy =~ [+-] ]]
+        then
+            finaly=$((y + newy))
+            echo "newy = $y + $newy ($finaly)"
+        else
+            finaly=$newy
+            echo "newy = $finaly"
+        fi
+        echo -ne "\033[3;${finalx};${finaly}t"
+        return
+    else
+        cmd-echo --ec 'Missing get/set command'
+    fi
+
+}
+
+xterm-size ()
+{
+    declare -a info
+    readarray -t info < <(xwininfo -name "$USER@$(hostname):$(pwd | sed "s|$HOME|~|")")
+
+    declare x=-1
+    declare y=-1
+    declare coords
+    declare newx=0
+    declare newy=0
+
+    for line in "${info[@]}"
+    do
+        if [[ $line =~ geometry ]]
+        then
+            coords="${line#*-geometry}"
+            coords="${coords%%+*}"
+            x=${coords%%x*}
+            y=${coords##*x}
+        fi
+        [[ $x != '-1' ]] && [[ $y != '-1' ]] && break
+    done
+
+    ## strips whitespace
+    x=$((x+0))
+    y=$((y+0))
+
+    if [[ $1 == 'get' ]]
+    then
+        shift
+        if [[ $1 == 'x' ]]
+        then
+            echo "$x"
+        elif [[ $1 == 'y' ]]
+        then
+            echo "$y"
+        else
+            echo "$x:$y"
+        fi
+        return
+    elif [[ $1 == 'set' ]]
+    then
+        shift
+        if [[ $1 == 'x' ]]
+        then
+            shift
+            newx=$1
+            newy=$y
+        elif [[ $1 == 'y' ]]
+        then
+            shift
+            newy=$1
+            newx=$x
+        else
+            newx=$1
+            shift
+            newy=$1
+            if [[ -z $newx ]] || [[ -z $newy ]]
+            then
+                cmd-echo --ec 'Must specify x and y if you do not specify which one'
+                return 1
+            fi
+        fi
+        if [[ $newx =~ [+-] ]]
+        then
+            finalx=$((x + newx))
+            echo "newx = $x + $newx ($finalx)"
+        else
+            finalx=$newx
+            echo "newx = $finalx"
+        fi
+        if [[ $newy =~ [+-] ]]
+        then
+            finaly=$((y + newy))
+            echo "newy = $y + $newy ($finaly)"
+        else
+            finaly=$newy
+            echo "newy = $finaly"
+        fi
+        echo -ne "\033[8;${finaly};${finalx}t"
+        return
+    else
+        cmd-echo --ec 'Missing get/set command'
+    fi
+
+}
+
+_xterm-cli-ticker-cfg ()
+{
+    local i=0
+    local M
+    local T
+    local live=0
+    if [[ "$1" == '--live' ]]
+    then
+        shift
+        live=1
+        M="::: $("$@") :::"
+    else
+        M="::: $* :::"
+    fi
+    T="$M$M$M$M"
+
+    local f
+    f="$ticker_tmp"
+    echo "$M" > "$f"
+
+    local S ## First time around clears the prompt
+
+    while sleep .2s && [ -r "$f" ]
+    do
+        # Use the direct function instead of another xterm-cli dispatch call.
+        xterm-cli-set-title "$S"
+        (( ++i>${#M} )) && i=1
+        S=${T:i:40}
+        if ((live))
+        then
+            M="::: $("$@") :::"
+            T="$M$M$M$M"
+            echo "$M" > "$f"
+        fi
+    done
+}
+
+xterm-cli-ticker ()
+{
+    if [[ $1 =~ -kill ]]
+    then
+        rm -f "$ticker_tmp"
+        return
+    fi
+
+    if [ -r "$ticker_tmp" ]
+    then
+        echo "Found $f"
+        echo Looks like there is already a ticker running
+        echo with the banner:
+        echo
+        cat "$ticker_tmp"
+    else
+        _xterm-cli-ticker-cfg "$@" &
+    fi
+}
+
+main ()
+{
+    declare action
+    action=$1
+    shift
+
+    if [[ "$action" =~ ^-+h ]]
+    then
+        bash-usage "$0"
+        return  0
+    fi
+
+    # xterm-cli-* are functions defined in this script. The rest are functions
+    # or scripts.
+    declare name
+    for name in "xterm-cli-${action}" "xterm-${action}"
+    do
+        declare type
+        type=$(type -t "$name")
+        if [[ -n $type ]]
+        then
+            "$name" "$@"
+            return $?
+        fi
+    done
+
+    cmd-echo --ec "'$action' is not an xterm-cli action"
+    return 1
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+xterm-cli - xterm commands/queries unified
+
+=head1 SYNOPSIS
+
+ xterm-cli id
+           info
+
+           [fore|back]ground
+           location [-x|-y]
+           size get | set [-x[+|-]n]
+           size set -x[+|-]n
+           size set -y[+|-]n
+           size set [+|-]n [+|-]n
+
+           raw-csi control sequences
+
+           ticker [--kill]
+
+=head1 DESCRIPTION
+
+TBD
+
+=head1 ARGUMENTS
+
+TBD
+
+=cut
+
+__PODUSAGE__

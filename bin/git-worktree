@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-echo "$(date): git-worktree" >> "$HOME/.gitaudit"
-
 # git-worktree
 
 if ! git-version-verify 'git-worktree'
@@ -32,12 +30,12 @@ _git_worktree_check_set_pwd ()
     then
         if [ -d ./wt ]
         then
-            builtin cd ./wt || ( cmd-echo -- "Cannot cd ./wt" && return 1)
+            builtin cd ./wt || { cmd-echo -- "Cannot cd ./wt" && return 1; }
         elif [ -d ../../wt ] && ((opt_current_ok))
         then
-            builtin cd .. || ( cmd-echo -- "Cannot cd .. (wt)" && return 1)
+            builtin cd .. || { cmd-echo -- "Cannot cd .. (wt)" && return 1; }
         else
-            cmd-echo -- "Current directory is ${PWD}." \
+            cmd-echo --ec -- "Current directory is ${PWD}." \
                       'No wt subdir.' \
                       'Will not manipulate worktrees outside of wt dir. Aborting.'
             return 1
@@ -290,13 +288,16 @@ git-worktree-create ()
                 wtargs=('--track' '-b' "$localbranchname" )
             else
                 cmd-echo -wc -- \
-                         "Pulling a PR directly will leave you with a branch that will not" \
-                         "track the remote PR (and cannot be 'git pull'ed to update it)." \
-                         "If you think you're going to want to update the PR, you're better" \
-                         "off cloning the repo where the PR occurred, checking out the" \
-                         "source branch of the repo and working with that. Make sure that" \
-                         "if the PR source is a fork of a canonical, that you establish a" \
-                         "remote to the canonical."
+                         "Pulling a PR directly will leave you with a branch" \
+                         "that will not track the remote PR, and, therefore cannot be" \
+                         "'git pull'ed to update it. " \
+                         "" \
+                         "If you think you're going to want to push new" \
+                         "commits to the PR, or that you're going to have to" \
+                         "pull updates to local copy of the PR, then you're" \
+                         "probably better off cloning the repo where the PR" \
+                         "occurred, checking out the source branch of the" \
+                         "repo and working with that."
             fi
             $REALGIT worktree add "${wtargs[@]}" "$localbranchname" "$exists"
             status=$?
@@ -516,7 +517,7 @@ $(ls -la)"
     local wtpath
     wtpath="$wtroot/$wtname"
 
-    builtin cd "$wtpath" || ( cmd-echo -- "Cannot cd $wtpath" && return 1)
+    builtin cd "$wtpath" || { cmd-echo -- "Cannot cd $wtpath" && return 1; }
 
     ## Make sure we are in a proper worktree.
     if ! git-worktree-ina
@@ -533,7 +534,7 @@ $(ls -la)"
         then
             git status
             echo
-            cmd-echo -- "Will not delete unclean worktree. Clean worktree or re-run command with --force."
+            cmd-echo --ec -- "Will not delete unclean worktree. Clean worktree or re-run command with --force."
             return 1
         fi
     fi
@@ -563,7 +564,7 @@ $(ls -la)"
     ## Whack it. Start with the current dir, which is the worktree.
     local delit
     delit=$(basename "${PWD}")
-    builtin cd .. || ( cmd-echo -- "Cannot cd .." && return 1)
+    builtin cd .. || { cmd-echo -- "Cannot cd .." && return 1; }
     if ! rm -rf "$delit"
     then
         cmd-echo -- "Bad rm of ./$delit (from ${PWD}). Aborting."
@@ -578,8 +579,8 @@ $(ls -la)"
         then
             #it's empty
             delit=$(basename "${PWD}")
-            builtin cd .. || ( cmd-echo -- "Cannot cd .." && return 1)
-            \rm -rf "$delit" || cmd-echo -- "Bad rm of ./$delit (from ${PWD}). Aborting." && return 1;
+            builtin cd .. || { cmd-echo -- "Cannot cd .." && return 1; }
+            \rm -rf "$delit" || { cmd-echo -- "Bad rm of ./$delit (from ${PWD}). Aborting." && return 1; }
         fi
     done
 
@@ -606,9 +607,9 @@ $(ls -la)"
         ## Have to be in the git repo that the basis for the worktree.
         while [ "$(basename "${PWD}")" != 'wt' ]
         do
-            builtin cd .. || ( cmd-echo -- "Cannot cd .." && return 1)
+            builtin cd .. || { cmd-echo -- "Cannot cd .." && return 1; }
         done
-        builtin cd .. || ( cmd-echo -- "Cannot cd .." && return 1)
+        builtin cd .. || { cmd-echo -- "Cannot cd .." && return 1; }
         if [ "$resp" = 'y' ]
         then
             git-branch delete --no-go-set $opt_yes_string "$current_branch"
@@ -713,13 +714,12 @@ $(ls -la)"
     local new_wtname="$1" ; shift
     if [ -d "$new_wtname" ]
     then
-        cmd-echo -- "Will not overwrite existing worktree $new_wtname
+        cmd-echo --ec -- "Will not overwrite existing worktree $new_wtname
 $(ls -la)"
         return 1
     fi
     local new_wtpath="$wtroot/$new_wtname"
-
-    builtin cd "$old_wtpath" || ( cmd-echo -- "Cannot cd $old_wtpath" && return 1)
+    builtin cd "$old_wtpath" || { cmd-echo -- "Cannot cd $old_wtpath" && return 1; }
     local cb
     cb="$(git branch --show-current)"
     if [ "$cb" = "$old_wtname" ]
@@ -755,7 +755,7 @@ $(ls -la)"
 
     cmd-echo -- "Moving the local files..."
     ## Move us
-    builtin cd .. || ( cmd-echo -- "Cannot cd .." && return 1)
+    builtin cd .. || { cmd-echo -- "Cannot cd .." && return 1; }
     mv "$old_wtpath" "$new_wtpath" || return 1
 
     ## Register the rename
@@ -956,7 +956,7 @@ $(ls -la)"
     local wtpath
     wtpath="$wtroot/$wtname"
 
-    builtin cd "$wtpath" || ( cmd-echo -- "Cannot cd $wtpath" && return 1)
+    builtin cd "$wtpath" || { cmd-echo -- "Cannot cd $wtpath" && return 1; }
 
     # shellcheck disable=SC2119
     if ! git-worktree-ina

@@ -30,10 +30,17 @@ ok_action ()
 ## Main
 ##
 
+## Globals
+declare root_dir
+root_dir=$(git root)
+
 ## Actions setup
 declare -a actions_list=(clean flake black mypy test doc end)
+declare -a single_actions_list=(pytest)
 declare actions_re
 ajoin actions_re -s '|' "${actions_list[@]}" restart
+declare single_actions_re
+ajoin single_actions_re -s '|' "${single_actions_list[@]}"
 declare draacc='flake' # default_restart_action_after_code_change
 
 ## Actions comp values setup
@@ -55,7 +62,7 @@ declare override_action
 
 ## Read the last thing we were doing or set up the default
 declare rc
-rc=$(git root)/.toxic
+rc="$root_dir"/.toxic
 [ ! -e "$rc" ] && start_action "$draacc"
 last_action=$(cat "$rc")
 
@@ -64,7 +71,10 @@ last_action=$(cat "$rc")
 ##
 declare stop_here=0
 [[ "$1" = '--only' ]] && stop_here=1 && shift
-if [[ -n $1 ]] && [[ $1 =~ ^($actions_re)$ ]]
+if [[ -n $1 ]] && [[ $1 =~ ^($single_actions_re)$ ]]
+then
+    action=$1; shift
+elif [[ -n $1 ]] && [[ $1 =~ ^($actions_re)$ ]]
 then
     ## Override check
     override_action=$1; shift
@@ -93,19 +103,49 @@ else
     then
         cmd-echo --wc -- "The following files have changed since the last toxic run:"
         ls -lat "${newer[@]}"
-        cmd-echo --wc -- "Resuming at $draacc instead of $action"
-        action="$draacc"
+        declare use_draacc=1
+        declare newer_entry
+        for newer_entry in "${newer[@]}"
+        do
+            if [[ $(basename "$newer_entry") =~ ^requirements ]]
+            then
+                cmd-echo --wc -- "Resuming at 'clean' instead of default resume action of '$draacc' because '$newer_entry' has changed and is a requirements file."
+                action=clean
+                use_draacc=0
+                break
+            fi
+        done
+        if ((use_draacc))
+        then
+            cmd-echo --wc -- "Resuming at  default resume action of '$draacc' instead of '$action' due to changed files."
+            action="$draacc"
+        fi
     fi
 fi
 
 while [[ -n $action ]]
 do
+    if [[ -n $override_action ]] && [[ $override_action != 'clean' ]]
+    then
+        rm -rf .toxic.clean
+    fi
+
     case $action in
         clean )
+            if [[ -e .toxic.clean ]]
+            then
+                if ! cmd-yesno "It appears that you just cleaned. Do you really want to clean again?"
+                then
+                    cmd-echo 'Re-run without the "clean" action'
+                    exit 1
+                fi
+            fi
+
             start_action "$action" "cleaning"
 
             cmd-echo --color BLUE -- 'git dorealclean'
-            git dorealclean -e requirements-local.txt || exit $?
+            git dorealclean -e requirements-local.txt -e '*logit*' || exit $?
+            touch .toxic.clean
 
             end_action "$action"
             ;;
@@ -125,6 +165,17 @@ do
             end_action "$action"
             ;;
 
+        pytest )
+            args=("$@")
+
+            cmd-echo --color BLUE -- "source .tox/py38/bin/activate"
+            source .tox/py38/bin/activate
+
+            cmd-echo --color BLUE -- "python -m pytest ${args[*]} "
+            python -m pytest "${args[@]}" || exit 1
+
+            action=single_action_end
+            ;;
 
         flake )
             start_action "$action" "flaking"
@@ -154,7 +205,7 @@ do
             then
                 cmd-echo -wc -- 're-blacking to fix...'
                 cmd-echo --color BLUE -- '.tox/black/bin/python -m black .'
-                .tox/black/bin/python -m black .
+                "$root_dir"/.tox/black/bin/python -m black .
             fi
 
             end_action "$action"
@@ -172,17 +223,17 @@ do
         end )
             start_action "$action" "end'ing..."
 
-            if ((!restart))
-            then
-                declare -a newer
-                mapfile -t newer < <(cd "$(git root)" && git find --abspath --newer "$rc")
-                if [ -n "${newer[0]}" ]
-                then
-                    cmd-echo -- "The following files have changed since the last complete, successful toxic run:"
-                    ls -lat "${newer[@]}"
-                    action='restart'
-                fi
-            fi
+            #if ((!restart))
+            #then
+            #    declare -a newer
+            #    mapfile -t newer < <(cd "$(git root)" && git find --abspath --newer "$rc")
+            #    if [ -n "${newer[0]}" ]
+            #    then
+            #        cmd-echo -- "The following files have changed since the last complete, successful toxic run:"
+            #        ls -lat "${newer[@]}"
+            #        action='restart'
+            #    fi
+            #fi
 
             end_action "$action"
             ;;
@@ -196,6 +247,10 @@ do
         docok   |\
         endok )
             ok_action "$action"
+            ;;
+
+        single_action_end )
+            exit 0
             ;;
 
         * ) cmd-echo -ec -- "Invalid action '$action'" \
@@ -269,7 +324,12 @@ action 'clean' so that you can clean before running with logging so that
           --cov-config={toxinidir}/tox.ini \
           {posargs}
   deps =
+      -e../relative/to/repo/dir/path/to/another/repo
       -rrequirements-dev.txt
+  ;; When using -e, it must appear before any module spec in a -r file
+  ;; for the module you are overriding AND there cannot be any version
+  ;; spec for that module in the -r file or else the pypi version will
+  ;; be grabbed.
 
   [testenv:black]
   whitelist_externals = black
@@ -288,12 +348,14 @@ action 'clean' so that you can clean before running with logging so that
   commands = flake8 foo/ tests/ --output-file=.flake8.out --tee
   changedir = {toxinidir}
   deps =
+      -e../relative/to/repo/dir/path/to/another/repo
       -rrequirements-dev.txt
 
   [testenv:docs]
   basepython = python3.7
   commands = python setup.py build_sphinx
   deps =
+      -e../relative/to/repo/dir/path/to/another/repo
       -rrequirements-dev.txt
 
   [testenv:mypy]
@@ -304,6 +366,7 @@ action 'clean' so that you can clean before running with logging so that
       python -m pip install --index-url https://artprod.dev.foo.com/artifactory/api/pypi/foo-pypi/simple --trusted-host artprod.dev.foo.com --force-reinstall --upgrade --no-dependencies foo.dpkg.core
       mypy --strict {posargs}
   deps =
+      -e../relative/to/repo/dir/path/to/another/repo
       -rrequirements-dev.txt
 
 =cut

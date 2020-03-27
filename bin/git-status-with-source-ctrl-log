@@ -1,13 +1,15 @@
 #!/usr/bin/env bash
 
-echo "$(date): git-status-with-source-ctrl-log" >> "$HOME/.gitaudit"
-
 # git-status-with-source-ctrl-log
 
-declare diff
-declare cached
+declare edit
+declare filesonly
 declare sclonly
+declare -a sclpick
 declare gcsonly
+declare diff
+declare debug
+declare cached
 declare color
 declare -a color_opt
 declare -a untracked_opt
@@ -16,7 +18,7 @@ declare -a untracked_opt
 # an optional one. Note that the long and short don't have to match up.
 declare OPTSARGS
 declare shortopts='xh'
-declare longopts='filesonly,sclonly,nosclonly,gcsonly,nogcsonly,diff,cached,help,debug,color:,nocolor,edit,noun,nountracked'
+declare longopts='filesonly,sclonly,nosclonly,gcsonly,nogcsonly,diff,cached,help,debug,color:,nocolor,edit,noun,nountracked,sclpick:'
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
@@ -36,13 +38,14 @@ do
         --edit) edit='--edit';;
         --filesonly) filesonly='--filesonly';;
         --sclonly) sclonly='--sclonly';;
+        --sclpick) sclpick=('--sclpick' "$1"); shift;;
         --nosclonly) sclonly='--nosclonly';;
         --gcsonly) gcsonly='--gcsonly' ;;
         --nogcsonly) gcsonly='--nogcsonly' ;;
         --diff) diff='--diff';;
         --cached) cached='--cached';;
         -h|--help) bash-usage git-status-ext; exit 0 ;;
-        --debug | -x ) set -x; trap 'set +x' EXIT;;
+        --debug | -x ) set -x; debug='-x'; trap 'set +x' EXIT;;
         --color) color=$1
                  shift
                  color_opt=(--color "$color")
@@ -72,4 +75,6 @@ else
     mapfile -t filenames < <(git what is edited)
 fi
 
-git-process-source-ctrl-log $diff $cached "${color_opt[@]}" "${untracked_opt[@]}" $sclonly $gcsonly $filesonly $edit "${filenames[@]}"
+git-process-source-ctrl-log $diff $cached $debug "${color_opt[@]}" \
+                            "${untracked_opt[@]}" $sclonly $gcsonly \
+                            $filesonly $edit "${sclpick[@]}" "${filenames[@]}"
