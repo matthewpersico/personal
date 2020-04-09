@@ -4,6 +4,13 @@
 
 [[ $1 =~ -h ]] && bash-usage "$0" && exit 0
 
+if [[ -n $VIRTUAL_ENV ]]
+then
+    cmd-echo --ec -- "Cannot run toxic while in VIRTUAL_ENV ($VIRTUAL_ENV)"
+    exit 1
+fi
+
+
 start_action ()
 {
     echo "$1" > "$rc"
@@ -26,6 +33,21 @@ ok_action ()
     action="${actions_list[$idx]}"
 }
 
+uflog ()
+{
+    perl -e '
+while (<>) {
+    if ($ENV{uflogenv}
+        and
+        /^((?:flake8|black|mypy|py[0-9]+) installed: )/) {
+        print join(sprintf(qq(,\n%*s), length($1), q( )), split(/,/));
+    } else {
+        print $_
+    }
+}
+'
+}
+
 ##
 ## Main
 ##
@@ -36,7 +58,7 @@ root_dir=$(git root)
 
 ## Actions setup
 declare -a actions_list=(clean flake black mypy test doc end)
-declare -a single_actions_list=(pytest)
+declare -a single_actions_list=(pytest activate)
 declare actions_re
 ajoin actions_re -s '|' "${actions_list[@]}" restart
 declare single_actions_re
@@ -71,6 +93,9 @@ last_action=$(cat "$rc")
 ##
 declare stop_here=0
 [[ "$1" = '--only' ]] && stop_here=1 && shift
+declare uflogenv
+[[ "$1" = '--uflog' ]] && export uflogenv='1' && shift
+
 if [[ -n $1 ]] && [[ $1 =~ ^($single_actions_re)$ ]]
 then
     action=$1; shift
@@ -125,7 +150,7 @@ fi
 
 while [[ -n $action ]]
 do
-    if [[ -n $override_action ]] && [[ $override_action != 'clean' ]]
+    if [[ -z $override_action ]] || [[ $override_action != 'clean' ]]
     then
         rm -rf .toxic.clean
     fi
@@ -160,7 +185,8 @@ do
             fi
 
             cmd-echo --color BLUE -- "tox ${args[*]} "
-            tox "${args[@]}" || exit 1
+            tox "${args[@]}" | uflog
+            pipe-check
 
             end_action "$action"
             ;;
@@ -169,10 +195,22 @@ do
             args=("$@")
 
             cmd-echo --color BLUE -- "source .tox/py38/bin/activate"
+            # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
             source .tox/py38/bin/activate
 
-            cmd-echo --color BLUE -- "python -m pytest ${args[*]} "
-            python -m pytest "${args[@]}" || exit 1
+            cmd-echo --color BLUE -- "pytest ${args[*]} "
+            pytest "${args[@]}" || exit 1
+
+            action=single_action_end
+            ;;
+
+        activate )
+            args=("$@")
+
+            cmd-echo --color ORANGE -- "You cannot activate with toxic because" \
+                     "the environment will not survive the exit from the toxic subproc."\
+                     "Run this command instead:"
+            cmd-echo --color BLUE -- "source .tox/py38/bin/activate"
 
             action=single_action_end
             ;;
@@ -181,7 +219,8 @@ do
             start_action "$action" "flaking"
 
             cmd-echo --color BLUE -- 'tox -e flake8'
-            tox -e flake8 || exit 1
+            tox -e flake8 | uflog
+            pipe-check
 
             end_action "$action"
             ;;
@@ -192,7 +231,8 @@ do
             declare mypyarg
             mypyarg=$(dirname "$(git find __init__.py | grep -v test)")
             cmd-echo --color BLUE -- "tox -e mypy -- $mypyarg"
-            tox -e mypy -- "$mypyarg" || exit 1
+            tox -e mypy -- "$mypyarg" | uflog
+            pipe-check
 
             end_action "$action"
             ;;
@@ -275,15 +315,27 @@ toxic - run python lint/format/test/doc suite
 
 =head1 SYNOPSIS
 
- toxic [--only] [clean|[red|flake]|black|test|doc]
+ toxic [--only] [--uflog] [clean|flake|black|mypy|test|doc]
+
+ toxic [--uflog] [pytest]
 
 =head1 DESCRIPTION
 
-Run a python tox setup. Pick a starting point. Will restart from 'flake' on any file changes.
+Run a python tox setup.
 
 =head1 ACTIONS
 
-Look at the SYNOPSIS
+=item pytest
+
+Runs 'pytest' with any arguments supplied. First sources in the activate script
+(which doesn't stick on exit because of UNIX subprocessing) so that you don't
+have to remember to do so.
+
+=item all others
+
+Start at the specifed phase. Order in the SYNOPSIS is the run order.  Will
+restart from 'flake' on any file changes. Will try not to let you run 'clean'
+twice in a row.
 
 =head1 OPTIONS
 
@@ -295,7 +347,21 @@ Perform the current action and do not go onto the next one. Usually used with
 action 'clean' so that you can clean before running with logging so that
 'clean' does not blow away your logging.
 
+=item --uflog
+
+Monitor stdout and change the 'installed: ' statement from a comma-delimted,
+barely readable blob into a nicely indented, one-module-per-line list.
+
 =back
+
+=head1 DEBUGGING
+
+  import pdb
+  ...
+  pdb.set_trace()
+
+Will stop the execution at the line following the `set_trace` and drop you
+into the debugger.
 
 =head1 SAMPLE TOX
 
@@ -324,12 +390,27 @@ action 'clean' so that you can clean before running with logging so that
           --cov-config={toxinidir}/tox.ini \
           {posargs}
   deps =
-      -e../relative/to/repo/dir/path/to/another/repo
+      -e file:///full/path/to/another/repo#egg=the.import.name
       -rrequirements-dev.txt
-  ;; When using -e, it must appear before any module spec in a -r file
-  ;; for the module you are overriding AND there cannot be any version
-  ;; spec for that module in the -r file or else the pypi version will
-  ;; be grabbed.
+
+  ;; Using -e and tox:
+
+  ;; - You cannot put a -e spec in a -r file.
+
+  ;; - A -e spec must appear on the command line before any -r file that
+       contains the same module spec.
+
+  ;; - There cannot be any version spec for that module in the -r file or else
+       the pypi version will be grabbed instead of the -e spec.
+
+  ;; - There must be an egg name and it must match the import spec of the
+       module you are pulling from the repo.
+
+  ;; - The files are not copied into your environment, but linked to their
+       original locations.
+
+  ;; - The -e spec should be used for 'flake8', 'mypy', and 'testenv'. It is
+       not needed for 'doc' or 'black'.
 
   [testenv:black]
   whitelist_externals = black
@@ -348,14 +429,13 @@ action 'clean' so that you can clean before running with logging so that
   commands = flake8 foo/ tests/ --output-file=.flake8.out --tee
   changedir = {toxinidir}
   deps =
-      -e../relative/to/repo/dir/path/to/another/repo
+      -e file:///full/path/to/another/repo#egg=the.import.name
       -rrequirements-dev.txt
 
   [testenv:docs]
   basepython = python3.7
   commands = python setup.py build_sphinx
   deps =
-      -e../relative/to/repo/dir/path/to/another/repo
       -rrequirements-dev.txt
 
   [testenv:mypy]
@@ -366,7 +446,7 @@ action 'clean' so that you can clean before running with logging so that
       python -m pip install --index-url https://artprod.dev.foo.com/artifactory/api/pypi/foo-pypi/simple --trusted-host artprod.dev.foo.com --force-reinstall --upgrade --no-dependencies foo.dpkg.core
       mypy --strict {posargs}
   deps =
-      -e../relative/to/repo/dir/path/to/another/repo
+      -e file:///full/path/to/another/repo#egg=the.import.name
       -rrequirements-dev.txt
 
 =cut

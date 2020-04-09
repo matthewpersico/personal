@@ -103,19 +103,27 @@ _aload()
             if [[ $funcfile ]] ; then
                 ## The file was found for $func. Process it.
 
+
                 if ((optimize)); then
-                    ## For the first function loaded, we will not know
-                    ## AUTOLOAD_SHIM_OVERHEAD. We can only calculate it after
-                    ## we have loaded one function.
-                    if [[ $AUTOLOAD_SHIM_OVERHEAD ]]; then
-                        local size
-                        size=$(wc -c < "$funcfile")
-                        local shimsize
-                        shimsize=$(autoload_calc_shimsize "$func")
-                        if (( size <= shimsize)); then
-                            doshim=0
-                            andevaled=', optimized'
-                            ((optimized+=1))
+                    if grep -q NO_SHIM "$funcfile" && \
+                            [[ $(basename "$funcfile") != "autoload" ]]
+                    then
+                        doshim=0
+                        andevaled=', not shimmed by request'
+                    else
+                        ## For the first function loaded, we will not know
+                        ## AUTOLOAD_SHIM_OVERHEAD. We can only calculate it
+                        ## after we have loaded one function.
+                        if [[ $AUTOLOAD_SHIM_OVERHEAD ]]; then
+                            local size
+                            size=$(wc -c < "$funcfile")
+                            local shimsize
+                            shimsize=$(autoload_calc_shimsize "$func")
+                            if (( size <= shimsize)); then
+                                doshim=0
+                                andevaled=', optimized'
+                                ((optimized+=1))
+                            fi
                         fi
                     fi
                 fi
@@ -152,6 +160,11 @@ _aload()
                         return 1;
                     fi
                     }'
+                elif grep -q NO_BRAND "$funcfile" && \
+                        [[ $(basename "$funcfile") != "autoload" ]]
+                then
+                    # shellcheck disable=SC1090
+                    . "$funcfile"
                 else
                     # shellcheck disable=SC1090
                     . "$funcfile"
@@ -316,7 +329,9 @@ SYNOPSIS
 
         autoreload [function ...]
 
-DESCRIPTION
+        Directives:
+        # NO_SHIM
+        # NO_BRAND
 
         An implementation of the 'autoload' functionality built into other
         shells, of which 'ksh' is the most prominent.  It allows for a keeping
@@ -357,6 +372,14 @@ USAGE
           then goes and finds the appropriate file in FPATH, sources it in and
           then calls the actual function with any arguments you just passed in
           to the shim function. Subsequent calls just run the function.
+
+        o The NO_SHIM and NO_BRAND directives are text you can add to your
+           (in a comment) that control how the function is evaluated:
+
+          NO_SHIM does an immediate evaluation and load of the function without
+          the space-saving shim preload.
+
+          NO_BRAND does not alter the text of the evaled function at all.
 
 OPTIONS
 
@@ -406,8 +429,9 @@ OPTIONS
            (load) are already used as options in 'autoload').
 
         -l When autoloading a function, eval the shim immediately in order to
-           load the true function code. See "Using '-l'" in the NOTES below for
-           details.
+           load the true function code. Another way to get an immediate eval is
+           to put the text "NO_SHIM" in a comment in the function. See "Using
+           '-l'" in the NOTES below for details.
 
         -o Optimize. When autoloading, take the time to execute
 
@@ -441,6 +465,12 @@ NOTES
 
         o Using '-1'
 
+          If the function is one that you *never* want shimmed, add the text
+          'NO_SHIM' to a comment in the function. Then -l or not, you'll always
+          get the full expansion in all processes.
+
+          That being said...
+
           If you are running under set -x and/or set -v, you may see that the
           shim does not appear to "work"; instead of seeing the shim first and
           the real code subsequently, you may see the shim evaluated multiple
@@ -463,6 +493,8 @@ NOTES
           directly. For a few calls, the overhead of repeatedly running the
           shim is not expensive, but in a tight loop, it might be. Caveat
           Programer.
+
+        o
 
         o Although the number of functions in the environment does not change
           by using 'autoload', the amount of memory they take up can be greatly
