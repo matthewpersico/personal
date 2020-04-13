@@ -12,6 +12,9 @@ then
     exit 1
 fi
 
+## Functions that encapsulate the enhanced functionality. main() is defined
+## last and called last.
+
 usage ()
 {
     (
@@ -24,17 +27,95 @@ usage ()
     ) 2>&1 | ${PAGER:-less}
 }
 
-## Functions that encapsulate the enhanced functionality. main() is defined
-## last and called last.
-git-commit-scl()
+git-commit-with-source-ctrl-log ()
 {
-    git-commit-with-source-ctrl-log-guts "$@"
-    return $?
+    declare opt_a
+    declare opt_v
+    declare -a opt_edit
+    declare -A opt_exclude
+    declare opt_skip
+    declare opt_debug
+    declare opt_confirm=''
+    declare -a opt_scl_pick
+    declare moreopts=1
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        declare original="$1"
+        declare option
+        option=$(dashstripper "$original")
+        shift
+
+        case $option in
+            a ) opt_a='-a';;
+            v ) opt_v='-v';;
+            e ) opt_edit=(--edit --editor "$EDITOR");;
+            editor ) opt_edit=(--edit --editor "$1"); shift;;
+            s ) opt_skip='--skip-no-source-ctrl-log';;
+            sclpick ) opt_scl_pick=("$original" "$1"); shift;;
+            sclonly ) opt_skip='--sclonly' ;;
+            nosclonly ) opt_skip='--nosclonly' ;;
+            c | confirm ) opt_confirm='--confirm';;
+            exclude | ex) opt_exclude["$(realpath "$1")"]=1; shift;;
+            h | help )
+                bash-usage "$0"
+                exit 0 ;;
+            debug | x ) set -x; opt_debug='-x'; trap 'set +x' EXIT ;;
+            --)
+                moreopts=0
+                ;;
+            * )
+                cmd-echo -- "$original is an invalid option. See $0 --help"; exit 1;;
+        esac
+    done
+
+    ## Locate all the files to process
+    declare -a filenames
+    if (($#))
+    then
+        ## Process what's specified
+        filenames=("$@")
+    else
+        if [ -z "$opt_a" ]
+        then
+            ## We want to mimic the same behavior as git commit with no filenames
+            ## (default to only staged files), but we need to pass files into
+            ## git-process-source-ctrl-log, so we grab the staged files.
+            mapfile -t filenames < <(git what is staged)
+        else
+            ## This mimics git commit -a; commit staged and unstaged files that are
+            ## modified.
+            mapfile -t filenames < <(git what is modified)
+        fi
+    fi
+
+    ## Process any exclusions
+    if (( ${#opt_exclude[@]} > 0 ))
+    then
+        declare -a included
+        declare i
+        for i in $(seq 0 $((${#filenames[@]}-1)))
+        do
+            declare filepath
+            filepath="$(realpath "${filenames[$i]}")"
+            if [ "${opt_exclude[$filepath]}" = '' ]
+            then
+                included+=("$filepath")
+            fi
+        done
+        filenames=("${included[@]}")
+    fi
+    git-process-source-ctrl-log --commit \
+                                $opt_confirm $opt_v $opt_debug "${opt_edit[@]}" \
+                                $opt_skip "${opt_scl_pick[@]}" "${filenames[@]}"
+    status=$?
+    return $status
 }
 
 main ()
 {
     declare opt_scl=0
+    # This is a shellcheck bug. Reported https://github.com/koalaman/shellcheck/issues/1913
+    # shellcheck disable=SC2178 #https://github.com/koalaman/shellcheck/wiki/SC2178
     declare opt_scl_pick=0
     declare moreopts=1
     declare -a pass_on_args
@@ -89,9 +170,13 @@ main ()
                     ;;
                 sclpick )
                     opt_scl=1
+                    # This is a shellcheck bug. Reported https://github.com/koalaman/shellcheck/issues/1913
+                    # shellcheck disable=SC2178 #https://github.com/koalaman/shellcheck/wiki/SC2178
                     opt_scl_pick=${ovalue:-$1}
                     [ -z "$ovalue" ] && shift
                     ## We DO pass this option on, but since it has its own arg, we handle it here
+                    # This is a shellcheck bug. Reported https://github.com/koalaman/shellcheck/issues/1913
+                    # shellcheck disable=SC2128 #https://github.com/koalaman/shellcheck/wiki/SC2128
                     pass_on_args+=("$original" "$opt_scl_pick")
                     continue
                     ;;
@@ -175,7 +260,7 @@ ${message:$limidx} - $(git worktree get-name)"
     ((do_push)) && cmd-echo -- 'Committing...'
     if ((opt_scl))
     then
-        git-commit-scl "${pass_on_args[@]}"
+        git-commit-with-source-ctrl-log "${pass_on_args[@]}"
     else
         if [ -n "${opt_message[1]}" ]
         then
@@ -206,11 +291,10 @@ git-commit - git extention of git commit
 
 =head1 SYNOPSIS
 
- git commit -scl
- git commit -sclonly
+ git commit -scl | --sclonly | --sclpick
  git commit -m[emojid] "message" [-eref reference |-dref]
- git commit --no-hooks
- git commit --push
+ git commit --no[[-]hooks|verify]
+ git commit --push|--pr
 
 =head1 DESCRIPTION
 
@@ -234,6 +318,10 @@ using this flag. Let the contents of the file determine which files to
 commit. **Note** - you still need to use the '-a' flag to consider files that
 have been modifed but not yet added to the index.
 
+=item --sclpick
+
+TBD
+
 =item -m[emjoid]
 
 Add a text tag to the start of the commit message. There is supposed to be an
@@ -252,7 +340,6 @@ using UTF 8 at best.
 
  mtst - TEST:
 
-
 =item -eref reference
 
 Add the text "- reference" to the end of the commit message.
@@ -263,14 +350,19 @@ Add the text "- $(basename $(git root))" to the end of the commit message. Good
 if your repo dirs are worktrees whose names correspond to the workflow system
 item id related to this work.
 
-=item --no-hooks
+=item --no[[-]hooks|verify
 
-Alias for --no-verify.
+Aliases for --no-verify.
 
 =item --push
 
 After a successful commit, run 'git push' using all the defaults for remote and
 other push options.
+
+=item --pr
+
+After a successful commit, run 'git push' using all the defaults for remote and
+other push options and then open up a browser to a pull request creation page.
 
 =back
 

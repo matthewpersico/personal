@@ -2,24 +2,29 @@
 
 # bash-usage
 
+# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+source "$BASH_INC_DIR/mktemp.binc"
+
 _guts-usage ()
 {
     declare tgt="$1"
-    if grep -q -E "^:<<'__PODUSAGE" "$tgt"
+    if grep -q -E "^:<<.{0,1}__PODUSAGE" "$tgt"
     then
         pod2text "$tgt" | ${PAGER:cat}
-    elif grep -q -E "^:<<'__USAGE" "$tgt"
+    elif grep -q -E "^:<<.{0,1}__USAGE" "$tgt"
     then
-        printf '%s'   "$( sed -e "0,/^:<<'__USAGE__/d" -e '/^__USAGE__/,$d' "$tgt" )" | ${PAGER:cat}
-        ## If your script is a wrapper around another script, and you do not
-        ## want to repeat all of the wrapped help text in the wrapper help,
-        ## just put a bash-usage command in your help between __USAGE_CHAIN
-        ## markers and we will execute that, pulling in that help too. We
-        ## assume that the chained help comes after your help. TODO: Allow for
-        ## embedded help in the above text.
-        declare chain
-        chain="$(sed -e "0,/^:<<'__USAGE_CHAIN/d" -e '/^__USAGE_CHAIN/,$d' "$tgt")"
-        [ -n "$chain" ] && $chain | ${PAGER:cat}
+        declare tmpfile
+        tmpfile=$(mktempfile)
+        rm-on-exit "$tmpfile"
+        declare start_marker
+        start_marker=$(grep -E "^:<<.{0,1}__USAGE" "$tgt" | sed 's/[!:<<]//g')
+        ( echo "cat <<$start_marker"
+          sed -e "0,/^:<<*__USAGE__/d" -e '/^__USAGE__/,$d' "$tgt"
+          echo "__USAGE__"
+        ) > "$tmpfile"
+        chmod +x "$tmpfile"
+        "$tmpfile"
     else
         echo "No usage text found for $tgt" >&2
     fi
@@ -103,7 +108,6 @@ bash-usage - print the usage text of a script or function
 
 =head1 SYNOPSIS
 
- bash-usage path/to/a/file
  bash-usage name
  bash-usage -h
 
@@ -112,8 +116,43 @@ bash-usage - print the usage text of a script or function
 Given a file, print the usage therein.
 
 Given 'name', determine if it is a script or a function and from that, go
-figure out where the defining text for 'name' is and read the usage information
-out of it.
+figure out where the defining text for 'name' is within 'name' and read the
+usage information out of it.
+
+We recognize two types of usage text:
+
+=over 4
+
+=item shell usage
+
+Using one of these starting markers
+
+  :<<__USAGE__
+  :<<'__USAGE__'
+  :<<"__USAGE__'
+
+and an end marker __USAGE__, all the text from start to end markers,
+inclusively, will be read and processed using 'cat <<'. That means text with
+the last two quoted forms will be printed verbatim, but text with the first
+(unquoted) form will be evaluated for variables and $() commands contained
+within. Caveat Progremmer.
+
+=item POD usage
+
+Using one of these starting markers
+
+  :<<__PODUSAGE__
+  :<<'__PODUSAGE__'
+  :<<"__PODUSAGE__'
+
+and an end marker __PODUSAGE__, the entire file is run through 'pod2text' and
+all POD within will be processed, regardless of where it is. We simply adopted
+the convention of using :<<__PODUSAGE__ when we extended bash-usage to process
+it because it was consistent with the muscle memory of the original __USAGE__
+convention. The various quoted forms don't mean anything; 'pod2text' will read
+the entire file and ignore what is not pod.
+
+=back
 
 =head1 ARGUMENTS
 
@@ -122,9 +161,15 @@ out of it.
 =item name
 
 'name' must be either:
+
  - the full path to a script
+
  - script that is on $PATH
- - a function name that has been loaded with 'autoload'
+
+ - a function name that has been loaded with 'autoload' so that we can
+   accurately find the definition file and read the usage text from there,
+   as the usage comments (as well as all other comments) are stripped
+   from the function text when loaded.
 
 =back
 

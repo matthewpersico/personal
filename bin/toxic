@@ -24,7 +24,11 @@ end_action ()
     idx="${actions[$action]}"
     ((idx+=1))
     action="${actions_list[$idx]}"
-    ((stop_here)) && exit 1
+    if [[ $stop_here == '1' ]] \
+           || [[ $stop_here == "$action" ]]
+    then
+        exit 1
+    fi
 }
 
 ok_action ()
@@ -58,7 +62,7 @@ root_dir=$(git root)
 
 ## Actions setup
 declare -a actions_list=(clean flake black mypy test doc end)
-declare -a single_actions_list=(pytest activate)
+declare -a single_actions_list=(pytest pytestdb activate)
 declare actions_re
 ajoin actions_re -s '|' "${actions_list[@]}" restart
 declare single_actions_re
@@ -93,6 +97,7 @@ last_action=$(cat "$rc")
 ##
 declare stop_here=0
 [[ "$1" = '--only' ]] && stop_here=1 && shift
+[[ "$1" = '--stop-at' ]] && stop_here="$1" && shift && shift
 declare uflogenv
 [[ "$1" = '--uflog' ]] && export uflogenv='1' && shift
 
@@ -109,7 +114,7 @@ then
     if ((override_action_int > last_action_int )) \
            && [[ $action != "$draacc" ]] \
            && [[ $action != "clean" ]] \
-           && ((stop_here==0))
+           && [[ $stop_here = '0' ]]
     then
         cmd-echo -ec -- "$override_action cannot be executed; last phase executed was '$last_action'."
         exit 1
@@ -191,15 +196,20 @@ do
             end_action "$action"
             ;;
 
-        pytest )
+        pytest* )
             args=("$@")
 
             cmd-echo --color BLUE -- "source .tox/py38/bin/activate"
             # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
             source .tox/py38/bin/activate
 
-            cmd-echo --color BLUE -- "pytest ${args[*]} "
-            pytest "${args[@]}" || exit 1
+            if [[ $action == pytestdb ]]
+            then
+                xo --geo-only --eval "(pdb \"pytest --pdb $*\")"
+            else
+                cmd-echo --color BLUE -- "pytest ${args[*]} "
+                pytest "${args[@]}" || exit 1
+            fi
 
             action=single_action_end
             ;;
@@ -317,7 +327,7 @@ toxic - run python lint/format/test/doc suite
 
  toxic [--only] [--uflog] [clean|flake|black|mypy|test|doc]
 
- toxic [--uflog] [pytest]
+ toxic [--uflog] [pytest[db]] [args...]
 
 =head1 DESCRIPTION
 
@@ -325,17 +335,28 @@ Run a python tox setup.
 
 =head1 ACTIONS
 
+=over 4
+
 =item pytest
 
 Runs 'pytest' with any arguments supplied. First sources in the activate script
 (which doesn't stick on exit because of UNIX subprocessing) so that you don't
 have to remember to do so.
 
+=item pytestdb
+
+Runs 'pytest --pdb' in an emacs debugger session with any arguments
+supplied. First sources in the activate script (which doesn't stick on exit
+because of UNIX subprocessing) so that you don't have to remember to do so.
+Eventually need to get a graphic debugger in here.
+
 =item all others
 
 Start at the specifed phase. Order in the SYNOPSIS is the run order.  Will
 restart from 'flake' on any file changes. Will try not to let you run 'clean'
 twice in a row.
+
+=back
 
 =head1 OPTIONS
 
@@ -356,12 +377,14 @@ barely readable blob into a nicely indented, one-module-per-line list.
 
 =head1 DEBUGGING
 
+In addition to using '--pytestdb', adding this to your code:
+
   import pdb
   ...
   pdb.set_trace()
 
-Will stop the execution at the line following the `set_trace` and drop you
-into the debugger.
+will stop the execution at the line following the 'pdb.set_trace()' statement
+and drop you into the debugger.
 
 =head1 SAMPLE TOX
 
