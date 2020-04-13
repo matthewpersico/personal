@@ -25,6 +25,13 @@ do
     shift ## That way you avoid endless loops on invalid options.
 
     case $option in
+        geo-only )
+            declare rootx=$(( $(x-current-root -w)/2 ))
+            declare rooty=$(( $(x-current-root -h)/6 ))
+            $emacs_exe -g +${rootx}+${rooty} \
+                       "$@" &
+            exit 0
+            ;;
         debug-init )
             emacs_opts+=('--debug-init') ;;
         debug | x ) set -x; debug=1 ;;
@@ -176,10 +183,11 @@ then
         then
             declare rootx=$(( $(x-current-root -w)/2 ))
             declare rooty=$(( $(x-current-root -h)/6 ))
-            $emacs_exe "$@" -g +${rootx}+${rooty}  "${gim[@]}" "${which[@]}" &
-            #$emacs_exe "$@" "${gim[@]}" "${which[@]}" &
+            $emacs_exe -g +${rootx}+${rooty} \
+                       "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" &
         else
-            $emacs_exe -nw "$@" "${gim[@]}" "${which[@]}"  < /dev/tty
+            $emacs_exe -nw \
+                       "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" < /dev/tty
         fi
     else
         cmd-echo "No emacs server found. Start one and try again or use -m."
@@ -190,12 +198,12 @@ then
     then
         if ((new_frame))
         then
-            $emacsclient_exe -c "$@" "${gim[@]}" "${which[@]}" | grep -v 'Waiting for Emacs' &
+            $emacsclient_exe -c "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" | grep -v 'Waiting for Emacs' &
         elif ((as_visual==1))
         then
-            $emacsclient_exe -c "$@" "${gim[@]}" "${which[@]}"
+            $emacsclient_exe -c "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}"
         else
-            $emacsclient_exe -n -a "$emacs_exe" "$@" "${gim[@]}" "${which[@]}"
+            $emacsclient_exe -n -a "$emacs_exe" "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}"
         fi
     else
         cmd-echo "Server already up. Specify a file to edit."
@@ -209,46 +217,98 @@ fi
 
 exit 0
 
-:<<'__USAGE__'
-usage: xo [--debug] [--forceX] [--root] \\
-          [--gim] [--which file[,file...]] \\
-          [-- any-emacs-opts] [file [file...]]
-       xo --help
+:<<'__PODUSAGE__'
+=head1 NAME
 
-       Start up emacs, using client mode where possible.
+xo - Start up emacs, using X and client mode where possible.
 
-       --debug
-           'xo' is a shell script. Run with 'set -x' to see what's borken.
+=head1 SYNOPSIS
 
-       --forceX
-           'xo' tries hard to find X. If it can't but you know it's available,
-           tell 'xo' to use it anyway.
+  xo [--debug] [--forceX] [--root] \\
+     [--gim] [--which file[,file...]] \\
+     [-- any-emacs-opts] [file [file...]]
 
-       --root
-           Root directory of the emacs install, if you are using multiple
-           version in places other than the default.
+  xo --geo-only <emacs opts and args>
 
-       --gim
-           Stands for GIM or Git Is Modified. Find all the files that look
-           like they have been modified (not committed) in the current
-           directory (if it is a git repo) and edit those.
+  xo --help
 
-       --which
-           Look up the files specified on PATH.
+=head1 DESCRIPTION
 
-       --nf
-           New frame. Open this file in a new frame.
+Starts emacs, with X, in server mode and subsequently uses client mode. Lots of
+extra goodies added, mostly defined via the options. However, one extra thing
+we do when running under X is query the server for the root size and then we
+force start emacs in approximately the center of the root. That way we don't
+have to recenter on each startup and we don't have to deal with "start location
+droop".
 
-       -- any-emacs-opts
-           Notice this is '-- any-emacs-opts' and not '--any-emacs-opts'.  The
-           '--' signals that there are no more options for 'xo'. All subsequent
-           '-' and '--' flags, if any, (represented by -any-emacs-opts') are
-           passed directly to emacs. Some of the more useful are:
+=head1 ARGUMENTS
 
-           +l[:c] - open the file at line l, column c, where the column
-                    is optional.
-                    Note: Since we do not process + options, you could
-                    use this without the intervening --, as in:
+=over 4
 
-                    $ xo +123:45 some.file
-__USAGE__
+=item file
+
+Files to edit. But see options below for other items to filter or substitute for a file list.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --debug
+
+'xo' is a shell script. Run with 'set -x' to see what's borken.
+
+=item --forceX
+
+'xo' tries hard to find X. If it can't but you know it's available, tell 'xo'
+to use it anyway.
+
+=item --root
+
+Root directory of the emacs install, if you are using multiple version in
+places other than the default.
+
+=item --gim
+
+Stands for GIM or Git Is Modified. Find all the files that look like they have
+been modified (not committed) in the current directory (if it is a git repo)
+and edit those.
+
+=item --which
+
+Take fhe files specified as basenames and look for them on PATH.
+
+=item --nf
+
+New frame. Open this file in a new frame.
+
+=item -- any-emacs-opts
+
+Notice, this is '-- any-emacs-opts' and not '--any-emacs-opts'.  The '--'
+signals that there are no more options for 'xo'. All subsequent '-' and '--'
+flags, if any, (represented by 'any-emacs-opts') are passed directly to
+emacs. Some of the more useful are:
+
+=over 4
+
+=item +l[:c]
+
+Open the file at line l, column c, where the column is optional.  Note: Since
+we do not process + options, you could use this without the intervening --, as
+in: C<$ xo +123:45 some.file>
+
+=back
+
+=item --geo-only
+
+Starts up emacs directly, does not try to do any of the fancy server stuff xo
+normally does, with the exception of centering the display in the X root
+window. You can the pass it any emacs options and args you like. B<Note>: Must
+be the B<first> option or argument to 'xo' to work properly.
+
+=back
+
+=cut
+
+__PODUSAGE__

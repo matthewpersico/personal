@@ -83,17 +83,6 @@ then
     ## nothing needs to know about anything else until it's actually called, in
     ## which case its shim, or its full function code, will be ready.
     autoload -x -o -y -a "$PERSONALROOT/functions"
-
-    ## Over time you discover that many of your functions are only used in the
-    ## context of backticks and other scripts that are executed but never
-    ## sourced into your current process directly. That means that all of these
-    ## subshells are going to re-evalute the shim over and over, even if you
-    ## have exported the functions. This script will run 'autoload -l' on
-    ## specified functions to do just that - unshim the most widely used
-    ## functions.
-    # shellcheck disable=SC1090
-    [ -f "$PERSONALDATA/autoload-unshim.dat" ] && \
-        . "$PERSONALBIN/autoload-unshim" -y "$PERSONALDATA/autoload-unshim.dat"
 fi
 
 ## Now that functions are loaded, we can use them, starting with addpath.
@@ -107,14 +96,16 @@ addpath -fx PATH "$PERSONALBIN"
 ## the xterminit file here (via xtermfuncs) as it contains functions that we
 ## cannot break out into their own files for autoload since xterminit is run
 ## under ksh before bash is invoked on chimera machines at Bloomberg.
-declare _profile_env_init_list='util.env cd.env perl.env git.env ansi-colors.env xtermfuncs'
+declare -a _profile_env_init_list
+_profile_env_init_list+=('util.env' 'cd.env' 'perl.env' 'git.env')
+_profile_env_init_list+=('ansi-colors.env' 'xtermfuncs' 'python.env')
 if [ "$OS_ID" = 'WSL' ]
 then
-    _profile_env_init_list="$_profile_env_init_list wsl.env"
+    _profile_env_init_list+=('wsl.env')
 fi
 
 declare _profile_env _profile_envvar _profile_envvar_val
-for _profile_env in ${_profile_env_init_list}
+for _profile_env in "${_profile_env_init_list[@]}"
 do
     _profile_envvar="$(echo "${_profile_env^^}" | tr -d '.' | tr '-' '_')_LOADED"
     _profile_envvar_val="$(eval echo "\$$_profile_envvar")"
@@ -127,7 +118,6 @@ do
         ! $CRON && [ -n "$ALLFUNCS_PROFILE" ] && echo "$(date): Skipped loading $_profile_env, $_profile_envvar=$_profile_envvar_val"
     fi
 done
-
 if [ "$CRON" = 'false' ]
 then
     ## Items we don't need in a cron job, some potentially fatal in that

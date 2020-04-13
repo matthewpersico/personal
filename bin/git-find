@@ -20,6 +20,7 @@ declare opt_ls=0
 declare opt_files_only=0
 declare opt_checkout=0
 declare opt_show=0
+declare opt_exact=0
 declare timecompfile=''
 declare timecomp=''
 declare moreopts=1
@@ -49,6 +50,7 @@ do
         abspath) opt_abspath=1 ;;
         ls) opt_ls=1 ;;
         files-only | fo ) opt_files_only=1 ;;
+        exact) opt_exact=1 ;;
         --) moreopts=0;;
         *) cmd-echo -- "$original is an invalid option. See $0 --help"
            exit 1 ;;
@@ -249,9 +251,17 @@ do
         fi
 
         ffb=$(basename "$ff")
-        if [[ $ffb =~ $f ]]
+        if ((opt_exact==0))
         then
-            output+=("$ff")
+            if [[ $ffb =~ $f ]]
+            then
+                output+=("$ff")
+            fi
+        else
+            if [[ $ffb == "$f" ]]
+            then
+                output+=("$ff")
+            fi
         fi
     done
 done
@@ -316,7 +326,7 @@ git-find - run a 'find'-like command on the current repo
 
  git-find [-ls] [-i] [-x exclude_pattern[,exclude_pattern...] \
           [--untracked_only|-u] [--all|-a] [--edit|-e] [--files-only] \
-          pattern [pattern...] \
+          [--exact] pattern [pattern...] \
 
  git-find --conflicts [-n|-l] [--edit|-e]
  git-find [--deleted] file
@@ -353,19 +363,23 @@ match and matched the directory.
 
 Run ls -la on the found items instead of just printing them.
 
-=item -i
-
-Case insensitive matching.
-
 =item -n|-l
 
 Print matches with line number or just print filename containing a
 match. Mutually exclusive.
 
+=item -i
+
+Case insensitive matching.
+
 =item -x exclude_pattern
 
 Files that match the regular expression given are excluded. Multiple patterns
 can be comma separated and multiple -x options can be specified.
+
+=item --exact
+
+Match filenames by direct comparision, not regexp *pattern*.
 
 =item --untracked-only
 
