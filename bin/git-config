@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 
+# git-config
+
 echo "$(date): git-grep" >> "$HOME/.gitaudit"
 
 # git-grep
@@ -7,7 +9,7 @@ echo "$(date): git-grep" >> "$HOME/.gitaudit"
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
-if ! git-version-verify 'git-grep'
+if ! git-version-verify 'git-config'
 then
     exit 1
 fi
@@ -20,16 +22,16 @@ usage ()
         bash-usage "$0"
         echo
         echo "** Standard actions **"
-        "$REALGIT" grep --help
+        "$REALGIT" config --help
     ) 2>&1 | ${PAGER:-less}
 }
 
 main ()
 {
-    declare opt_edit=0
     declare -a pass_on_args
 
-    for i in $(git config --get "$(basename $0).opts")
+    ## Must be REALGIT or we recurse like mad and forkbomb ourselvesq...
+    for i in $($REALGIT config --get git-config.opts)
     do
         pass_on_args+=("$i")
     done
@@ -51,8 +53,12 @@ main ()
                     usage ''
                     exit 0
                     ;;
-                edit )
-                    opt_edit=1
+                personal )
+                    pass_on_args+=('-f' "$HOME/.gitconfig.personal")
+                    continue
+                    ;;
+                bloom* )
+                    pass_on_args+=('-f' "$HOME/.gitconfig.bloomberg")
                     continue
                     ;;
                 ## No '*)' case needed; anything else just gets passed on
@@ -63,19 +69,7 @@ main ()
         pass_on_args+=("$original")
     done
 
-    if ((opt_edit))
-    then
-        declare -a files
-        readarray -t files < <($REALGIT grep -l "${pass_on_args[@]}")
-        if [ -n "${files[0]}" ]
-        then
-            $EDITOR "${files[@]}"
-        else
-            echo "Pattern not found; no files to edit."
-        fi
-    else
-        $REALGIT grep "${pass_on_args[@]}"
-    fi
+    $REALGIT config "${pass_on_args[@]}"
     return $?
 }
 
@@ -86,25 +80,27 @@ exit $?
 :<<'__PODUSAGE__'
 =head1 NAME
 
-git-grep - git extention of git grep
+git-config - git extention of git config
 
 =head1 SYNOPSIS
 
- git grep --edit
+ git config [--personal|--bloomberg] <all other git config options>
 
 =head1 DESCRIPTION
 
-Extensions to the 'git grep' command. Any action not described here will be passed onto the actual 'git grep' command.
+Extensions to the 'git config' command. Any action not described here will be passed onto the actual 'git grep' command.
 
 =head1 EXTENSIONS
 
 =over 4
 
-=item --edit
+=item --personal
 
-Instead of displaying the results of the grep, edit all the files containing the pattern. Functionally equivilent to
+Shortcut for -f "$HOME/.gitconfig.personal". Only needed for writing. "$HOME/.gitconfig.personal" is [include]ed in .gitconfig, so that it will be searched for read operations.
 
- $EDITOR $(git grep -l pattern)
+=item --bloomberg
+
+Shortcut for -f "$HOME/.gitconfig.bloomberg". Only needed for writing. "$HOME/.gitconfig.bloomberg" is [include]ed in .gitconfig, so that it will be searched for read operations.
 
 =back
 
