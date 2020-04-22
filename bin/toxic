@@ -40,6 +40,7 @@ ok_action ()
 uflog ()
 {
     perl -e '
+$| = 1;
 while (<>) {
     if ($ENV{uflogenv}
         and
@@ -100,6 +101,10 @@ declare stop_here=0
 [[ "$1" = '--stop-at' ]] && stop_here="$1" && shift && shift
 declare uflogenv
 [[ "$1" = '--uflog' ]] && export uflogenv='1' && shift
+declare repeat=100000000 # so that under normal circumstances of going through
+                         # action lists, it's irrelevant, but when trying to
+                         # repeat on action, we can set it.
+[[ "$1" = '--repeat' ]] && repeat=$2 && shift && shift
 
 if [[ -n $1 ]] && [[ $1 =~ ^($single_actions_re)$ ]]
 then
@@ -153,8 +158,9 @@ else
     fi
 fi
 
-while [[ -n $action ]]
+while [[ -n $action ]] && ((repeat))
 do
+    ((repeat -= 1))
     if [[ -z $override_action ]] || [[ $override_action != 'clean' ]]
     then
         rm -rf .toxic.clean
@@ -205,13 +211,13 @@ do
 
             if [[ $action == pytestdb ]]
             then
-                xo --geo-only --eval "(pdb \"pytest --pdb $*\")"
+                xo --nobg --geo-only --eval "(pdb \"pytest --pdb $*\")"
             else
                 cmd-echo --color BLUE -- "pytest ${args[*]} "
                 pytest "${args[@]}" || exit 1
             fi
 
-            action=single_action_end
+            ((repeat==0)) && action=single_action_end
             ;;
 
         activate )
