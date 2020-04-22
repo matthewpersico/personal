@@ -17,6 +17,7 @@ declare -a which ## We used to use the 'which' utility to find these
 declare as_visual=0
 declare new_frame=0
 declare more_opts=1
+declare nobg=0
 declare -a emacs_opts
 while ((more_opts)) && [[ "$1" =~ ^- ]]
 do
@@ -28,9 +29,16 @@ do
         geo-only )
             declare rootx=$(( $(x-current-root -w)/2 ))
             declare rooty=$(( $(x-current-root -h)/6 ))
-            $emacs_exe -g +${rootx}+${rooty} \
-                       "$@" &
+            if ((nobg))
+            then
+                $emacs_exe -g +${rootx}+${rooty} "$@"
+            else
+                $emacs_exe -g +${rootx}+${rooty} "$@" &
+            fi
             exit 0
+            ;;
+        nobg )
+            nobg=1
             ;;
         debug-init )
             emacs_opts+=('--debug-init') ;;
@@ -183,8 +191,14 @@ then
         then
             declare rootx=$(( $(x-current-root -w)/2 ))
             declare rooty=$(( $(x-current-root -h)/6 ))
-            $emacs_exe -g +${rootx}+${rooty} \
-                       "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" &
+            if ((nobg))
+            then
+                $emacs_exe -g +${rootx}+${rooty} \
+                           "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}"
+            else
+                $emacs_exe -g +${rootx}+${rooty} \
+                           "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" &
+            fi
         else
             $emacs_exe -nw \
                        "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" < /dev/tty
@@ -198,7 +212,12 @@ then
     then
         if ((new_frame))
         then
-            $emacsclient_exe -c "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" | grep -v 'Waiting for Emacs' &
+            if ((nobg))
+            then
+                $emacsclient_exe -c "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" | grep -v 'Waiting for Emacs'
+            else
+                $emacsclient_exe -c "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" | grep -v 'Waiting for Emacs' &
+            fi
         elif ((as_visual==1))
         then
             $emacsclient_exe -c "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}"
@@ -228,7 +247,7 @@ xo - Start up emacs, using X and client mode where possible.
      [--gim] [--which file[,file...]] \\
      [-- any-emacs-opts] [file [file...]]
 
-  xo --geo-only <emacs opts and args>
+  xo [--nobg] --geo-only <emacs opts and args>
 
   xo --help
 
@@ -300,12 +319,17 @@ in: C<$ xo +123:45 some.file>
 
 =back
 
+=item --nobg
+
+Do not background the emacs command. Mostly used when starting up emacs just to
+run a debugger.
+
 =item --geo-only
 
 Starts up emacs directly, does not try to do any of the fancy server stuff xo
 normally does, with the exception of centering the display in the X root
 window. You can the pass it any emacs options and args you like. B<Note>: Must
-be the B<first> option or argument to 'xo' to work properly.
+appear before any emacs options to work properly.
 
 =back
 
