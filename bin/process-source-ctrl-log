@@ -18,9 +18,8 @@ $Text::Wrap::columns = 72;
 use Lingua::EN::Inflect qw(PL PL_V);
 
 use constant NOFUNC => '!File Scope'; # the ! will sort this before all function names.
-## NOTE: If you change the lead character for items here, make sure you also
-## change it in git-process-source-ctrl-log.
-use constant LEAD_CHAR => '-';
+## PSCL_LEAD_CHAR is set in git-process-source-ctrl-log.
+use constant LEAD_CHAR => $ENV{PSCL_LEAD_CHAR} // '-';
 
 # These markers are composed this way so that they do not interfere when
 # committing *this* file.
@@ -97,7 +96,7 @@ sub main {
 
         'edit',    # Used in conjunction with --diff or --nosclonly, edit each
                    # file that has no SourceCtrlLog entry or a diff so that you
-                   # can use Cx4a in emacs to generate and entry in
+                   # can use C-x-4-a in emacs to generate and entry in
                    # SourceCtrlLog where on is missing entry or needs to be
                    # updated top match the diff.
 
@@ -176,10 +175,17 @@ sub main {
 sub parse_scl {
     my ($scl) = @_;
 
-    # These regexes match file lines with file paths and file paths with
-    # functions, respectively.
-    my $filetag_re = qr(^\s+\* ([a-zA-Z0-9_./-]+));
-    my $functag_re = qr([(]([a-zA-Z0-9_.*\<\>\[\]\|/,: -]+)[)]);
+    # Regexes for misc parts of the file.
+    my $chunk_start_re = qr(^\s+\*\s)x;
+    my $date_re = qr(^\d{4,4}-\d{2,2}-\d{2,2})x;
+    my $filetag_re = qr($chunk_start_re
+                        (?<file>[a-zA-Z0-9_./-]+)
+                   )x;
+    my $functag_re = qr([(]
+                        (?<func>[a-zA-Z0-9_.*\<\>\[\]\|/,:\s-]+)
+                        [)]
+                   )x;
+    my $text_re = qr/(?<text>.*)/x;
 
     # A serial number, monotonically increasing. We assign one to each new entry
     # because 1) we are getting a new entry for each comment 2) the entries are
@@ -201,24 +207,22 @@ sub parse_scl {
     }
 
     my @chunks;
-    my $in_chunk = 0;
-    # First we chunk the file
+    # First we chunk the file, getting rid of dates and lead blanks.
   LINE: while (<$sclih>) {
+        next if m/$date_re/ or (!@chunks and $_ eq "\n") ;
+
         chomp;
-        if ( $_ eq '' ) {
-            $in_chunk = 0;
-            next LINE;
+        if ( $_ =~ m/$chunk_start_re/ ) {
+            # Start a new chunk
+            push @chunks,
+              {
+                  entry_id => $entry_id++,
+                  text     => [$_]
+              };
+        } else {
+            push @{ $chunks[-1]->{text} }, $_
+              if @chunks;
         }
-        if ($in_chunk) {
-            push @{ $chunks[-1]->{text} }, $_;
-            next LINE;
-        }
-        push @chunks,
-          {
-            entry_id => $entry_id++,
-            text     => [$_]
-          };
-        $in_chunk = 1;
     }
     $sclih->close();
 
@@ -229,44 +233,40 @@ sub parse_scl {
         $current{text}      = '';
         $current{orig_text} = $chunk->{text};
         for ( @{ $chunk->{text} } ) {
-            next
-              if ( length($_) == 0
-                or /^\s+$/
-                or /^\d{4,4}-\d{2,2}-\d{2,2}/ );
-    # Parsing assumptions:
-    # 1) One SourceCtrlLog in git root for whole project.
-    # 2) Emacs variable add-log-always-start-new-record is set to 't'.
-    # 3) With #2, we can use Esc-Q to wrap text, so we have to account for that.
-
+            # Parsing assumptions:
+            # 1) One SourceCtrlLog in git root for whole project.
+            # 2) Emacs variable add-log-always-start-new-record is set to 't'.
+            # 3) With #2, we can use Esc-Q to wrap text, so we have to account for that.
             my $text;
-            if (m|${filetag_re}\s*${functag_re}:\s*(.*)|) {
+            if (m|${filetag_re}\s*${functag_re}:\s*${text_re}|) {
 
                 # * file\s*(function):\s*text
-                $current{filespec} = catfile( $gitrootdir, $1 );
-                $current{function} = $2;
-                ( $text = $3 ) =~ s/^\s+//;
-                $text =~ s/\s+$//;
-                $current{text} = $text;
-            } elsif (m|${filetag_re}:\s*(.*)|) {
+                $current{filespec} = catfile( $gitrootdir, $+{file} );
+                $current{function} = $+{func};
+                $current{text} = strip_text($+{text});
+            } elsif (m|${filetag_re}:\s*${text_re}|) {
 
                 # * file:\s*text
-                $current{filespec} = catfile( $gitrootdir, $1 );
+                $current{filespec} = catfile( $gitrootdir, $+{file} );
                 $current{function} = NOFUNC;
-                ( $text = $2 ) =~ s/^\s+//;
-                $text =~ s/\s+$//;
-                $current{text} = $text;
-            } elsif (m|${functag_re}:\s*(.*)|) {
+                $current{text} = strip_text($+{text});
+            } elsif (m|${functag_re}:\s${text_re}|) {
+
                 # (function):\s*text
-                die
-"We no longer support a function entry without correspinding file:\n$_\n";
+                $current{function} = $+{func};
+                $current{text} = strip_text($+{text});
             } elsif (m|${filetag_re}$|) {
+
                 # * file
-                die "We no longer support a file entry with no text:\n$_\n";
+                $current{filespec} = catfile( $gitrootdir, $1 );
             } else {
+                my $new_text = strip_text($_);
                 # text
-                ( $text = $_ ) =~ s/^\s+//;
-                $text =~ s/\s*$//;
-                $current{text} .= " $text";
+                if(length($new_text)) {
+                    $current{text} .= " $new_text";
+                } else {
+                    $current{text} .= "<PARA>";
+                }
             }
         }
 
@@ -281,6 +281,13 @@ sub parse_scl {
         }
         %current = ();
     }
+}
+
+sub strip_text {
+    my $text = $_[0];
+    $text =~ s/^\s+//;
+    $text =~ s/\s*$//;
+    return $text;
 }
 
 sub stash {
@@ -684,19 +691,29 @@ sub push_scl_to_output {
             my @orders = sort { $b <=> $a } keys %{ $e->{$func} };
 
             for my $order (@orders) {
-                my @wrapped =
-                  split( /\n/, wrap( '', '', $e->{$func}->{$order} ) );
-                my $line1 = shift(@wrapped);
-                $line1 =~ s/^\s+//;    # If the file/function line is so long
-                                       # that the text is pushed to the next
-                                       # line, we get spurious space between
-                                       # the lead and the first word.
-                $line1 = join( '', $args{format_over}, $lead, $line1 );
-                push @{ $args{output} }, $line1,
-                  ## Line 2+
-                  ( map { join( '', $args{format_over}, $indent, $_ ) }
-                      @wrapped ),
-                  ( $args{is_commit} ? () : '' );
+                my @paras = split(/<PARA>\s*/, $e->{$func}->{$order} );
+                my $para_lead = $lead;
+                for my $para (@paras) {
+                    my @wrapped =
+                      split( /\n/, wrap( '', '', $para ) );
+                    my $line1 = shift(@wrapped);
+                    # If the file/function line is so long that the text is
+                    # pushed to the next line, we get spurious space between
+                    # the lead and the first word.
+                    $line1 =~ s/^\s+//;
+                    $line1 = join( '', $args{format_over}, $para_lead, $line1 );
+                    push @{ $args{output} }, $line1,
+                      ## Line 2+
+                      ( map { join( '', $args{format_over}, $indent, $_ ) }
+                        @wrapped ),
+                        ( $args{is_commit} ? () : '' );
+                    if($para ne $paras[-1]) {
+                        if ($args{output}->[-1] ne '') {
+                            push @{ $args{output} }, '';
+                        }
+                        $para_lead = ' ' x length($para_lead);
+                    }
+                }
             }
             push @{ $args{output} }, ( $args{is_commit} ? '' : () );
         }
