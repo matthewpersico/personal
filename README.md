@@ -33,9 +33,9 @@ This step stores existing dotfiles and links to new ones in the repo.
 ```
 $ cd dotfiles
 $ . ./dotfilesbootstrap
-$ makesymlinks ${PWD}
-$ makepstree
-$ cd ~/personal
+$ cd ..
+$ bin/makesymlinks -i dotfiles
+$ bin/makepstree
 ```
 
 ## Test
