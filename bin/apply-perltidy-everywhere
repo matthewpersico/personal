@@ -7,7 +7,9 @@ use warnings;
 use FindBin qw($RealBin);
 use lib "$RealBin/../lib";
 #<<< perltidy
-use ApplyEverywhereUtils qw(git_find_perl_code);
+use ApplyEverywhereUtils qw(find_perl_code
+                    is_git_repo
+                    git_find_perl_code);
 #>>> perltidy
 
 use Test::More;
@@ -32,9 +34,6 @@ my $stop_on_first = 0;
 
 use File::Temp;
 
-my %excludes_defaults =
-  ( grep => [qr/^# Created by DBIx::Class::Schema::Loader/] );
-
 our %excludes;
 
 ## Option processing
@@ -56,10 +55,13 @@ GetOptions(
     'stop-on-first-error' => \$stop_on_first
 ) or die "Bad argument, see --help for documentation.\n";
 
+## Two early exits
 exit system(qw(perltidy -dpro)) if ($findrc);
-exec '/opt/bb/bin/perldoc', $0 if ($help);
+exec 'perldoc', $0 if ($help);
+
+## Option checking
 $profile = "-pro=$profile" if ($profile);
-die "Cannot set --verbose and --silent" if ( $verbose && $silent );
+die "Cannot set --verbose and --silent\n" if ( $verbose && $silent );
 $chattiness += ( $verbose - $silent );
 $chattiness = 0 if $ENV{HARNESS_ACTIVE};
 if ( defined($use_tdy) ) {
@@ -85,14 +87,26 @@ die "Cannot set --all and --nonmod-only"
   if $all and $nonmod_only;
 
 ## Files to process
-my @files = git_find_perl_code(
-    files => ( $all || $mod_only || $nonmod_only ? [] : \@ARGV ),
-    mod_only    => $mod_only,
-    nonmod_only => $nonmod_only,
-);
-die
-"No files given as arguments and no files found to match mod($mod_only), nonmod($nonmod_only) or all($all) options"
-  if !@files;
+my @files;
+if(is_git_repo()){
+    @files = git_find_perl_code(
+        files => ( $all || $mod_only || $nonmod_only ? [] : \@ARGV ),
+        mod_only    => $mod_only,
+        nonmod_only => $nonmod_only,
+    );
+#<<< perltidy
+    die
+      "No files given as arguments and no Perl files found to match mod($mod_only), nonmod($nonmod_only) or all($all) options"
+      if !@files;
+#>>> perltidy
+} else {
+    @files = find_perl_code(files =>  \@ARGV);
+#<<< perltidy
+    die
+      "No files given as arguments and no Perl files found"
+      if !@files;
+#>>> perltidy
+}
 
 my $warnfmt =
   '%-' . ( sort { $b <=> $a } map { length($_) } @files )[0] . 's - %s';
@@ -101,20 +115,20 @@ system(qw(perltidy @ptopts -ddf))          if ( $chattiness >= 3 );
 system(qw(perltidy @ptopts -dpro))         if ( $chattiness >= 2 );
 system(qw(perltidy @ptopts $profile -dop)) if ( $chattiness >= 3 );
 
-#my $perltidycmdbase = "$^X -d:ptkdb /opt/bb/bin/perltidy $profile";
+#my $perltidycmdbase = "$^X -d:ptkdb -S perltidy $profile";
 my $perltidycmdbase = "perltidy @ptopts $profile";
 my $diffs           = 0;
 my $mods            = 0;
-my $excludes_file   = "$RealBin/../../.perltidy.exclude";
-if ( -e $excludes_file ) {
+my $excludes_file = (grep { -r $_ }
+  ($ENV{PERLTIDY} ? dirname("$ENV{PERLTIDY}/.perltidyex") : (),
+   "$ENV{PWD}/.perltidyex",
+   "$ENV{HOME}/.perltidyex"))[0];
+
+if ( $excludes_file ) {
     my $ih = IO::File->new( $excludes_file, 'r' );
     my $ex = join( '', <$ih> );
     eval $ex
       or die $@;
-}
-for my $k ( keys %excludes_defaults ) {
-    $excludes{$k} = [] if not defined $excludes{$k};
-    push @{ $excludes{$k} }, @{ $excludes_defaults{$k} };
 }
 
 my @summary;
@@ -134,7 +148,7 @@ SOURCES: for my $file (@files) {
         } elsif ( $exclude_type eq 'name' ) {
             my @output;
             for my $excl_name ( @{ $excludes{'name'} } ) {
-                push @output, $file if $file eq $excl_name;
+                push @output, $file if $file =~ m/$excl_name/;
             }
             push @excludes, "By name:\n", join( qq(\n), @output, '' )
               if (@output);
@@ -273,7 +287,7 @@ __END__
   apply-perltidy-everywhere --stop-on-first-error
                             ## for use in t/0-perltidy.t
 
-  apply-perltidy-everywhere [ --use-tidy [ ext ] ] \
+  apply-perltidy-everywhere [ --use-tdy [ ext ] ] \
                             [ --names-only ] \
                             [ --verbose|--silent ] \
                             [ --profile profile_file ] \
@@ -322,27 +336,21 @@ offending files that failed the confirmation test.
 
 =head2 Exclusions
 
-In all modes, some files are excluded from processing. The current exclusion
-criteria are:
-
-=item Files created by DBIx::Class::Schema::Loader
-
-The generated code portion of these files is checksummed and the checksum is
-stored in the file for validation purposes; perltidy modifications would
-invalidate that check. Those files are identifed as containing text matching
-the regular expression
-
-  qr/^# Created by DBIx::Class::Schema::Loader/
-
-If you need to exclude other files from being perltidied, simply create a
-'.perltidy.exclude' file in the root of the repo with the following format:
+If you need to exclude files from being perltidied, simply create a
+'.perltidyex' file in the root of the git repo or project with the following
+format:
 
   $excludes{grep} = [ a list of regular expressions found in the files to exclude ];
   $excludes{name} = [ a list of paths to the files to exclude unconditionally,
                      relative to the repo root ];
 
-.perltidy.exclude is simply Perl code that is processed by reading in the text
-and eval'ing it. Syntax errors will be caught.
+.perltidyex is simply Perl code that is processed by reading in the text and
+eval'ing it. Syntax errors will be caught. The file is searched for in three
+locations and the first one found is used exclusively:
+
+  dirname($ENV{PERLTIDY})
+  $ENV{PWD}
+  $ENV{HOME}
 
 =head2 Operation
 
@@ -359,7 +367,7 @@ to be such before being processed.
 
 =over
 
-=item --use-tidy [ ext ]
+=item --use-tdy [ ext ]
 
 In confirmation mode, for each file, do not direct the output to a temp file
 that is disposed of, but put it in a file with the same path as the source,
