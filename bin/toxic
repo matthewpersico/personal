@@ -6,7 +6,7 @@
 
 if [[ -n $VIRTUAL_ENV ]]
 then
-    cmd-echo --ec -- "Cannot run toxic while in VIRTUAL_ENV ($VIRTUAL_ENV)"
+    cmd-echo --ec -- "Cannot run toxic while in VIRTUAL_ENV ($VIRTUAL_ENV)" "Run 'deactivate' first."
     exit 1
 fi
 
@@ -53,6 +53,11 @@ while (<>) {
 '
 }
 
+option_dne_action ()
+{
+    cmd-echo --ec -- "$1 does not apply with action $2"
+}
+
 ##
 ## Main
 ##
@@ -61,9 +66,13 @@ while (<>) {
 declare root_dir
 root_dir=$(git root)
 
+## The two digit version number for the correct tox subdir for python (i.e.; py38
+declare py_short_ver
+py_short_ver=$(python --version | sed -e 's/Python //' -e 's/..$//' -e 's/\.//')
+
 ## Actions setup
 declare -a actions_list=(clean flake black mypy test doc end)
-declare -a single_actions_list=(pytest pytestdb activate)
+declare -a single_actions_list=(pytest pytestdb pytestdbe pytestdbu activate)
 declare actions_re
 ajoin actions_re -s '|' "${actions_list[@]}" restart
 declare single_actions_re
@@ -82,7 +91,7 @@ do
     key="${action}ok"
     actions[$key]=$action_idx
 done
-
+action=""
 ## Default actions
 declare last_action=$draacc
 declare override_action
@@ -96,35 +105,102 @@ last_action=$(cat "$rc")
 ##
 ## Options and argument processing
 ##
-declare stop_here=0
-[[ "$1" = '--only' ]] && stop_here=1 && shift
-[[ "$1" = '--stop-at' ]] && stop_here="$1" && shift && shift
-declare uflogenv
-[[ "$1" = '--uflog' ]] && export uflogenv='1' && shift
-declare repeat=100000000 # so that under normal circumstances of going through
-                         # action lists, it's irrelevant, but when trying to
-                         # repeat on action, we can set it.
-[[ "$1" = '--repeat' ]] && repeat=$2 && shift && shift
 
-if [[ -n $1 ]] && [[ $1 =~ ^($single_actions_re)$ ]]
+declare OPTSARGS
+declare shortopts='v'
+declare longopts='only,stop-at:,uflog,repeat,verbose'
+
+declare stop_here
+declare uflogenv
+declare repeat=1
+declare verbose=0
+
+# Process the command line.
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") ## "${FUNCNAME[0]}" -- "$@") ## in functions
+declare status=$?
+((status != 0)) && exit $status ## return $status ## in functions
+
+# Reset the command line ($@).
+eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+while true
+do
+    declare option=$1
+    shift
+    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    case "$option" in
+        only )
+            stop_here=1
+            ;;
+        stop-at )
+            stop_here="$1"
+            shift
+            ;;
+        uflog )
+            export uflogenv='1'
+            ;;
+        "repeat" )
+            repeat=$1
+            shift
+            ;;
+        v | verbose)
+            verbose=1
+            ;;
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo -e -- "$option is an invalid option. See $0 --help"
+            exit 1 ## return 1 in functions
+            ;;
+    esac
+done
+
+declare action_type=''
+if [[ -n $1 ]]
 then
     action=$1; shift
-elif [[ -n $1 ]] && [[ $1 =~ ^($actions_re)$ ]]
-then
-    ## Override check
-    override_action=$1; shift
-    [[ $override_action == 'restart' ]] && override_action=$draacc
-    override_action_int=${actions[$override_action]}
-    last_action_int=${actions[$last_action]}
-    if ((override_action_int > last_action_int )) \
-           && [[ $action != "$draacc" ]] \
-           && [[ $action != "clean" ]] \
-           && [[ $stop_here = '0' ]]
+    if [[ $action =~ $actions_re ]]
     then
-        cmd-echo -ec -- "$override_action cannot be executed; last phase executed was '$last_action'."
-        exit 1
+        action_type=step
+    elif [[ $action =~ $single_actions_re ]]
+    then
+        # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+        action_type=single
+    elif [[ $action =~ ^- ]]
+    then
+        ## No action, just options
+        echo noop > /dev/null
     else
-        action=$override_action
+        cmd-echo --ec -- "'$action' is not one of ${actions_list[*]} ${single_actions_list[*]}"
+        exit 1
+    fi
+fi
+
+if [[ $action ]]
+then
+    (( repeat > 1 )) && [[ $action != 'pytest' ]] && cmd-echo --wc -- "'--repeat' is ignored for '$action'"
+    if [[ $action =~ ^($single_actions_re)$ ]]
+    then
+        [[ -n $stop_here ]] && cmd-echo --wc -- "'--only' and '--stop-at' are ignored for '$action'"
+    elif [[ $action =~ ^($actions_re)$ ]]
+    then
+        ## Override check
+        override_action=$action
+        [[ $override_action == 'restart' ]] && override_action=$draacc
+        override_action_int=${actions[$override_action]}
+        last_action_int=${actions[$last_action]}
+        if ((override_action_int > last_action_int )) \
+               && [[ $action != "$draacc" ]] \
+               && [[ $action != "clean" ]] \
+               && [[ $stop_here = '0' ]]
+        then
+            cmd-echo -ec -- "$override_action cannot be executed; last phase executed was '$last_action'."
+            exit 1
+        else
+            action=$override_action
+        fi
     fi
 else
     ## Code restart check
@@ -158,9 +234,8 @@ else
     fi
 fi
 
-while [[ -n $action ]] && ((repeat))
+while [[ -n $action ]]
 do
-    ((repeat -= 1))
     if [[ -z $override_action ]] || [[ $override_action != 'clean' ]]
     then
         rm -rf .toxic.clean
@@ -188,15 +263,15 @@ do
 
         test )
             args=("$@")
+            declare -a add_args
             start_action "$action" "testing"
 
-            if [[ -e ./wt ]]
-            then
-                args+=('--' '--ignore=wt')
-            fi
+            [[ -e ./wt ]] && add_args+=('--ignore=wt')
+            ((verbose)) && add_args+=('--log-cli-level=INFO')
+            (( ${#add_args[@]} )) && add_args=('--' "${add_args[@]}")
 
-            cmd-echo --color BLUE -- "tox ${args[*]} "
-            tox "${args[@]}" | uflog
+            cmd-echo --color BLUE -- "tox ${args[*]} ${add_args[*]}"
+            tox "${args[@]}" "${add_args[@]}" | uflog
             pipe-check
 
             end_action "$action"
@@ -205,19 +280,31 @@ do
         pytest* )
             args=("$@")
 
-            cmd-echo --color BLUE -- "source .tox/py38/bin/activate"
-            # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
-            source .tox/py38/bin/activate
+            cmd-echo --color BLUE -- "source .tox/py${py_short_ver}/bin/activate"
+            # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+            source .tox/py"${py_short_ver}"/bin/activate
 
-            if [[ $action == pytestdb ]]
+            if [[ $action == pytest ]]
             then
-                xo --nobg --geo-only --eval "(pdb \"pytest --pdb $*\")"
-            else
-                cmd-echo --color BLUE -- "pytest ${args[*]} "
+                cmd-echo --color BLUE -- "pytest ${args[*]}"
                 pytest "${args[@]}" || exit 1
+            elif [[ $action == pytestdb ]]
+            then
+                cmd-echo --color BLUE -- "pytest --pdb $*"
+                pytest --pdb "$@"
+            elif [[ $action == pytestdbe ]]
+            then
+                cmd-echo --color BLUE -- "xo --nobg --geo-only --eval \"(pdb \\\"pytest --pdb $*\\\")\""
+                xo --nobg --geo-only --eval "(pdb \"pytest --pdb $*\")"
+            elif [[ $action == pytestdbu ]]
+            then
+                cmd-echo --color BLUE -- "pytest --pdbcls pudb.debugger:Debugger --pdb -s $*"
+                pytest --pdbcls pudb.debugger:Debugger --pdb -s "$@"
+            else
+                cmd-echo --ec -- "$action not a valid test action"
+                exit 1
             fi
-
-            ((repeat==0)) && action=single_action_end
+            action=single_action_end
             ;;
 
         activate )
@@ -226,7 +313,7 @@ do
             cmd-echo --color ORANGE -- "You cannot activate with toxic because" \
                      "the environment will not survive the exit from the toxic subproc."\
                      "Run this command instead:"
-            cmd-echo --color BLUE -- "source .tox/py38/bin/activate"
+            cmd-echo --color BLUE -- "source .tox/py${py_short_ver}/bin/activate"
 
             action=single_action_end
             ;;
@@ -244,10 +331,17 @@ do
         mypy )
             start_action "$action" "mypying"
 
-            declare mypyarg
-            mypyarg=$(dirname "$(git find __init__.py | grep -v test)")
-            cmd-echo --color BLUE -- "tox -e mypy -- $mypyarg"
-            tox -e mypy -- "$mypyarg" | uflog
+            declare -a mypyarg
+            mapfile -t mypyarg < <(for f in $(git find __init__.py | sort -u | xargs dirname)
+                                   do
+                                       [[ $f =~ ^test ]] && continue
+                                       if [[ -z $last ]] || [[ ! $f =~ $last ]]
+                                       then
+                                           last=$f; echo "$last";
+                                       fi
+                                   done)
+            cmd-echo --color BLUE -- "tox -e mypy -- ${mypyarg[*]}"
+            tox -e mypy -- "${mypyarg[@]}" | uflog
             pipe-check
 
             end_action "$action"
@@ -331,9 +425,11 @@ toxic - run python lint/format/test/doc suite
 
 =head1 SYNOPSIS
 
- toxic [--only] [--uflog] [clean|flake|black|mypy|test|doc]
+ toxic [--only | --stop-at action] [--uflog] [--v|verbose] [clean|flake|black|mypy|test|doc]
 
- toxic [--uflog] [pytest[db]] [args...]
+ toxic [--repeat N] pytest [args...]
+
+ toxic pytestdb[eu] [args...]
 
 =head1 DESCRIPTION
 
@@ -349,18 +445,33 @@ Runs 'pytest' with any arguments supplied. First sources in the activate script
 (which doesn't stick on exit because of UNIX subprocessing) so that you don't
 have to remember to do so.
 
+=item pytestdb*
+
+Runs 'pytest' in one of three debug modes
+
+=over 4
+
 =item pytestdb
 
+Runs 'pytest -pdb', which uses the line-oriented builtin Python debugger.
+
+=item pytestdbe
+
 Runs 'pytest --pdb' in an emacs debugger session with any arguments
-supplied. First sources in the activate script (which doesn't stick on exit
-because of UNIX subprocessing) so that you don't have to remember to do so.
-Eventually need to get a graphic debugger in here.
+supplied.
 
-=item all others
+=item pytestdbu
 
-Start at the specifed phase. Order in the SYNOPSIS is the run order.  Will
-restart from 'flake' on any file changes. Will try not to let you run 'clean'
-twice in a row.
+Runs 'pytest' with the 'pudb' test-graphical debugger.
+
+=back
+
+=item clean|flake|black|mypy|test|doc
+
+Start at the specifed phase. Continue to the next phase in the order stated in
+the SYNOPSIS.  Will restart from 'flake' on any file changes, from 'clean'
+whenever specified. Will try not to let you run 'clean' twice in a row; that is
+usually an up-arrow repeat-last-command mistake.
 
 =back
 
@@ -374,23 +485,35 @@ Perform the current action and do not go onto the next one. Usually used with
 action 'clean' so that you can clean before running with logging so that
 'clean' does not blow away your logging.
 
+=item --stop-at action
+
+Do not execute actions in the list beyond this action.
+
 =item --uflog
 
 Monitor stdout and change the 'installed: ' statement from a comma-delimted,
 barely readable blob into a nicely indented, one-module-per-line list.
 
+=item --verbose
+
+During testing, print logger output.
+
+=item --repeat
+
+Allows you to repeat 'pytest' any number of times. Useful for stress testing.
+
 =back
 
 =head1 DEBUGGING
 
-In addition to using '--pytestdb', adding this to your code:
+In addition to using '--pytestdb*', adding this to your code:
 
   import pdb
   ...
   pdb.set_trace()
 
 will stop the execution at the line following the 'pdb.set_trace()' statement
-and drop you into the debugger.
+and drop you into whichever debugger you are using.
 
 =head1 SAMPLE TOX
 
