@@ -195,13 +195,11 @@ main ()
             then
                 org=${1%/*}
                 repo=${1#*/}
-                github-api-echo -- "org only, repo $repo ignored"
             else
                 org=$1; shift
                 if [ -n "$1" ]
                 then
                     repo=$1; shift
-                    github-api-echo -- "org only, repo $repo ignored"
                 fi
             fi
             ;;
@@ -374,7 +372,7 @@ main ()
             do
                 github-api-echo "Page ${pagenum}..."
                 # shellcheck disable=SC2059
-                pageprint="$(printf "$pagenumfmt" $pagenum)"
+                pageprint="$(printf "$pagenumfmt" "$pagenum")"
                 curl \
                     --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
                     "${curlopts[@]}" \
@@ -392,7 +390,8 @@ main ()
                 htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
                 case $htmlstatus in
                     200 )
-                        ## Consoldate paged data
+                        ## Consolidate paged data.
+                        echo ',' >> "$curldata"
                         cat "${curldata}.${pageprint}" >> "$curldata"
                         ;;
                     403 )
@@ -419,11 +418,31 @@ main ()
                 esac
                 ((pagenum+=1))
             done
+            ## $curldata as invalid json because each page is a list instead of
+            ## all the data in one list. We added the commas above. Now we pull
+            ## out the superfluous ][ here:
+            declare curldata_relist
+            curldata_relist=$(mktemp -t tmp.github-api.curldata_relist.$$.XXXXXXXXXX)
+            perl -d:ptkdb -e '
+BEGIN { print(qq([\n)); }
+while(<>){
+  chomp;
+  print qq($_\n) if($_ ne q([) and $_ ne q(]));
+}
+END { print(qq(]\n)); }
+' "$curldata" > "$curldata_relist"
+            mv "$curldata_relist" "$curldata"
+
         fi
 
         declare htmlstatus
         htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
         case $action in
+            orgs | repos )
+            ## Multiple pages will have each page in a list, which is no good
+            ## if you want to use the json. We might hoist this out to a shared
+            ## routine if other paged data causes an issue.
+                ;;
             contents)
                 case $htmlstatus in
                     200 )
@@ -592,9 +611,11 @@ print qq($url);' "${curldata}" "${server_url}")
     then
         if((perl_data))
         then
+            set -x
             # shellcheck disable=SC2016 # We know the variable will not expand.
             echo '$VAR1='
             json_xs -t dump < "${curldata}"
+            set +x
         else
             cat -v "${curldata}"
         fi
