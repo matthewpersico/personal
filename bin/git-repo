@@ -577,8 +577,9 @@ git-repo-sync ()
 
 git-repo-sync-with ()
 {
-    if [[ $1 = --master ]]
+    if [[ $1 = --master ]] || [[ $1 = --main ]]
     then
+        declare branch_name=${1##--}
         shift
         ## clone-and-fork repos need to sync with the master in the canonical
         ## upstream branch.  If there is no 'upstream', then it's probably a
@@ -588,16 +589,16 @@ git-repo-sync-with ()
         upstream=$(git remote get-url upstream 2>/dev/null)
         if [ -n "${upstream}" ]
         then
-            cmd-echo -- "syncing with master in upstream ${upstream}"
-            git-sync-with-remote --remote upstream --branch master "$@"
+            cmd-echo -- "syncing with branch '${branch_name}' in upstream '${upstream}'"
+            git-sync-with-remote --remote upstream --branch "$branch_name" "$@"
             status=$?
         else
             declare origin
             origin=$(git remote get-url origin 2>/dev/null)
             if [ -n "${origin}" ]
             then
-                cmd-echo -- "syncing with master in origin ${origin}"
-                git-sync-with-remote --remote origin --branch master "$@"
+                cmd-echo -- "syncing with branch '${branch_name}' in origin '${origin}'"
+                git-sync-with-remote --remote origin --branch "$branch_name" "$@"
                 status=$?
             else
                 cmd-echo --ec -- "Current repo is not a clone of a remote"
@@ -618,8 +619,9 @@ git-repo-check ()
 
 git-repo-check-with ()
 {
-    if [[ $1 = --master ]]
+    if [[ $1 = --master ]] || [[ $1 = --main ]]
     then
+        declare branch_name=${1##--}
         shift
         ## clone-and-fork repos need to check with the master in the canonical
         ## upstream branch.  If there is no 'upstream', then it's probably a
@@ -629,16 +631,16 @@ git-repo-check-with ()
         upstream=$(git remote get-url upstream 2>/dev/null)
         if [ -n "${upstream}" ]
         then
-            cmd-echo -- "checking with master in upstream ${upstream}"
-            git-check-with-remote --remote upstream --branch master "$@"
+            cmd-echo -- "checking with branch '${branch_name}' in upstream '${upstream}'"
+            git-check-with-remote --remote upstream --branch "$branch_name" "$@"
             status=$?
         else
             declare origin
             origin=$(git remote get-url origin 2>/dev/null)
             if [ -n "${origin}" ]
             then
-                cmd-echo -- "checking with master in origin ${origin}"
-                git-check-with-remote --remote origin --branch master "$@"
+                cmd-echo -- "checking with branch '${branch_name}' in origin '${origin}'"
+                git-check-with-remote --remote origin --branch "$branch_name" "$@"
                 status=$?
             else
                 cmd-echo --ec -- "Current repo is not a clone of a remote"
@@ -871,7 +873,7 @@ With 'a fork of', print the repo it was forked from, if a fork.
 
 With 'a worktree', is the current or specified directory repo a worktree.
 
-With 'a worktree of', print the master repor for this worktree.
+With 'a worktree of', print the main worktree (from git init or git clone) for this linked worktree.
 
 With 'clean', does the current or specified git repo have no edited tracked files.
 
@@ -897,8 +899,17 @@ Performs a realclean, resets all uncommitted changes.
 
 =item sync
 
-git pull against the remote and branch specified. If --master, then use the
-default pull remote and remote branch master.
+ --branch branch [--remote remote]
+
+git pull against the --remote and --branch specified.
+
+ --master
+ --main
+
+If --master or --main is specifed instead of --branch and --remote, then we use
+that 'master' or 'main', respectively as the branch name to sync against and we
+look for that branch in the remotes 'upstream' and 'origin' in that order,
+using the first one in which we find.
 
 =item purge/prune
 
