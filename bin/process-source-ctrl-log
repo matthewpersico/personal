@@ -28,6 +28,7 @@ my $gcs_marker_re           = qr/$gcs_marker/o;
 my $gcs_exclusion_marker    = join( '', qw( < G C S L I T E R A L > ) );
 my $gcs_exclusion_marker_re = qr/$gcs_exclusion_marker/;
 
+my @chunks;              # The SCL file, parsed.
 my %gcs;                 # Files with a GCS marker in them.
 my %entries;             # Holds all the comments, per file.
 my %diffs;               # diff output, per file.
@@ -191,7 +192,7 @@ sub parse_scl {
     # because 1) we are getting a new entry for each comment 2) the entries are
     # entered at the top of the SourceCtrlLog. So to get the right chronological
     # flow to the output, we have to reverse the entries.
-    my $entry_id = 0;
+    my $chunk_id = 1;
 
     my %current;
     # Data for the current entry, primarily to keep state between lines of text
@@ -206,81 +207,99 @@ sub parse_scl {
         }
     }
 
-    my @chunks;
-    # First we chunk the file, getting rid of dates and lead blanks.
+    # First we chunk the file.
+    my $current_date = '';
+    my $in_a_chunk = 0;
   LINE: while (<$sclih>) {
-        next if m/$date_re/ or (!@chunks and $_ eq "\n") ;
-
         chomp;
+        if ( m/$date_re/ ) {
+            $current_date = $_;
+            $in_a_chunk = 0;
+            next;
+        }
+        next if (!$in_a_chunk and $_ eq q());
         if ( $_ =~ m/$chunk_start_re/ ) {
             # Start a new chunk
             push @chunks,
               {
-                  entry_id => $entry_id++,
-                  text     => [$_]
+                  date      => $current_date,
+                  chunk_id  => $chunk_id++,
+                  orig_text => [$_],
+                  text      => ''
               };
+            $current_date = undef;
+            $in_a_chunk = 1;
         } else {
-            push @{ $chunks[-1]->{text} }, $_
+            push @{ $chunks[-1]->{orig_text} }, $_
               if @chunks;
         }
     }
     $sclih->close();
 
-    # Then we sort through the chunks, processing the ones we want, throwing
-    # back the others if we are writting a commit message.
+    # Now we post-process the chunks.
     for my $chunk (@chunks) {
-        $current{entry_id}  = $chunk->{entry_id};
-        $current{text}      = '';
-        $current{orig_text} = $chunk->{text};
-        for ( @{ $chunk->{text} } ) {
+        for ( @{ $chunk->{orig_text} } ) {
             # Parsing assumptions:
             # 1) One SourceCtrlLog in git root for whole project.
-            # 2) Emacs variable add-log-always-start-new-record is set to 't'.
+
+            # 2) Emacs variable add-log-always-start-new-record is set to
+            # 't'. That means every chunk has a filename, even if functions or
+            # text may be on the next line due to wrapping. In other words, you
+            # might see:
+            #    (some_long_func):
+            # or
+            #    Some text.
+            # but never:
+            #    * (some_long_func):
+            # or
+            #    * Some text.
+            # which simplifies the processing.
             # 3) With #2, we can use Esc-Q to wrap text, so we have to account for that.
             my $text;
-            if (m|${filetag_re}\s*${functag_re}:\s*${text_re}|) {
+            if (m|${filetag_re}\s*${functag_re}:(?:\s*${text_re})?|) {
 
+                # Patterns:
                 # * file\s*(function):\s*text
-                $current{filespec} = catfile( $gitrootdir, $+{file} );
-                $current{function} = $+{func};
-                $current{text} = strip_text($+{text});
-            } elsif (m|${filetag_re}:\s*${text_re}|) {
+                # * file\s*(function):
+                $chunk->{filespec} = catfile( $gitrootdir, $+{file} );
+                $chunk->{function} = $+{func};
+                $chunk->{text} = strip_text($+{text});
+            } elsif (m|${filetag_re}(?::?(?:\s*${text_re})?)|) {
 
-                # * file:\s*text
-                $current{filespec} = catfile( $gitrootdir, $+{file} );
-                $current{function} = NOFUNC;
-                $current{text} = strip_text($+{text});
-            } elsif (m|${functag_re}:\s${text_re}|) {
+                # Patterns:
+                # * file:\s*text - Normal
+                # * file:        - File and text are too long, text pushed to next line
+                # * file         - File and function are too long, function pushed to next line
+                $chunk->{filespec} = catfile( $gitrootdir, $+{file} );
+                $chunk->{function} = NOFUNC;
+                $chunk->{text} = defined($+{text}) ? strip_text($+{text}) : '';
+            } elsif (m|${functag_re}:(?:\s${text_re})?$|) {
 
-                # (function):\s*text
-                $current{function} = $+{func};
-                $current{text} = strip_text($+{text});
-            } elsif (m|${filetag_re}$|) {
-
-                # * file
-                $current{filespec} = catfile( $gitrootdir, $1 );
+                # Patterns:
+                # (function):\s*text - Normal
+                # (function):        - Function and text are too long, text pushed to next line
+                $chunk->{function} = $+{func};
+                $chunk->{text} = defined($+{text}) ? strip_text($+{text}) : '';
             } else {
                 my $new_text = strip_text($_);
                 # text
                 if(length($new_text)) {
-                    $current{text} .= " $new_text";
+                    $chunk->{text} .= " $new_text";
                 } else {
-                    $current{text} .= "<PARA>";
+                    $chunk->{text} .= "<PARA>";
                 }
             }
         }
 
-        if (   exists( $current{filespec} )
-            && exists( $files_to_process{ $current{filespec} } ) )
-        {
-            # Save off current info.
-            stash( \%current );
-            $files_to_process{ $current{filespec} } = {%current};
-        } elsif ( $opt{'for-commit'} ) {
-            push @retain, @{ $current{orig_text} }, q();
+        # Done processing the chunk here, record it as an entry:
+        $entries{ $chunk->{filespec} }->
+          { $chunk->{function} }->
+          { $chunk->{chunk_id} } = $chunk;
+        if (exists($files_to_process{ $chunk->{filespec} })) {
+            $files_to_process{ $chunk->{filespec} } = $chunk;
         }
-        %current = ();
     }
+
 }
 
 sub strip_text {
@@ -288,12 +307,6 @@ sub strip_text {
     $text =~ s/^\s+//;
     $text =~ s/\s*$//;
     return $text;
-}
-
-sub stash {
-    my ($current) = @_;
-    $entries{ $current->{filespec} }->{ $current->{function} }
-      ->{ $current->{entry_id} } = "$current->{text}";
 }
 
 sub create_commit_scl {
@@ -329,7 +342,6 @@ sub create_commit_scl {
 "${msg_prefix}; --nosclonly was specified, so they will be the ones processed and the commit will continue.\n";
             my %have_scl_keys = %files_to_process;
             delete @have_scl_keys{@no_scl_keys};
-            retain_entries( keys %have_scl_keys );
             delete @files_to_process{ keys %have_scl_keys };
         } else {
             die "Error: Files with no entries:\n    "
@@ -362,38 +374,24 @@ sub write_commit_message {
 }
 
 sub write_retained_log {
-    my ( $oh, $entries ) = @_;
+    my ( $oh ) = @_;
     my $iam = ( caller(0) )[3];
 
-    ## Strip out extra date lines.
-    my $i           = 0;
-    my $dateline_re = qr/\d{4,4}-\d{2,2}-\d{2,2}.*>/;
-    while ( $i < @retain ) {
-        if ( @retain - $i >= 3 ) {
-            if (
-                join( '', @retain[ $i, $i + 1, $i + 2 ] ) =~
-                /^${dateline_re}${dateline_re}$/ )
-            {
-                splice @retain, $i, 2;
-                next;
-            }
-        } elsif ( @retain - $i == 2 ) {
-            if ( join( '', @retain[ $i, $i + 1 ] ) =~ /^${dateline_re}{1,2}$/ )
-            {
-                splice @retain, $i, 2;
-                next;
-            }
-        } elsif ( @retain - $i == 1 ) {
-            if ( $retain[$i] =~ /^${dateline_re}{0,1}$/ ) {
-                splice @retain, $i, 1;
-                next;
-            }
-        }
-        $i++;
-    }
+    ## Get rid of everything we put in the commit message
+    delete @entries{keys %files_to_process};
 
-    ## Print it.
-    $oh->print( join( qq(\n), @retain, q() ) );
+    for my $chunk (@chunks) {
+        if (exists($entries{ $chunk->{filespec} }->
+                     { $chunk->{function} }->
+                     { $chunk->{chunk_id} })) {
+            $oh->print(join("\n",
+                            (defined ($chunk->{date})
+                               ? ($chunk->{date}, '')
+                               : () ),
+                            @{$chunk->{orig_text}},
+                            ''));
+        }
+    }
 }
 
 sub format_scl {
@@ -651,6 +649,7 @@ sub push_scl_to_output {
     }
 
     # Do we have an scl entry?
+    my @keep_it;
     if ( defined $entries{$filespec} ) {
 
         # Short for the file's entry
@@ -658,15 +657,15 @@ sub push_scl_to_output {
 
         # Check for matching comment.
         if ( $opt{sclpick} ) {
-            my @keep_it =
+            my @match_comment =
               grep { /$opt{sclpick}/ }
+              map  { $_->{text} }
               map  { values( %{ $e->{$_} } ) } keys %{$e};
-            if ( !@keep_it ) {
+            if ( ! @match_comment ) {
                 while ( @{ $args{output} } != $pop_to_length ) {
                     pop @{ $args{output} };
                 }
-                push @retain, @{ $files_to_process{$filespec}->{orig_text} },
-                  '';
+                delete $files_to_process{$filespec};
                 return;
             }
         }
@@ -691,7 +690,7 @@ sub push_scl_to_output {
             my @orders = sort { $b <=> $a } keys %{ $e->{$func} };
 
             for my $order (@orders) {
-                my @paras = split(/<PARA>\s*/, $e->{$func}->{$order} );
+                my @paras = split(/<PARA>\s*/, $e->{$func}->{$order}->{text} );
                 my $para_lead = $lead;
                 for my $para (@paras) {
                     my @wrapped =
@@ -724,8 +723,7 @@ sub push_scl_to_output {
             while ( @{ $args{output} } != $pop_to_length ) {
                 pop @{ $args{output} };
             }
-            push @retain, @{ $files_to_process{$filespec}->{orig_text} }, ''
-              if $files_to_process{$filespec};
+            delete $files_to_process{$filespec};
             return;
         }
     }
@@ -778,7 +776,6 @@ sub names_only {
         } elsif ( $opt{nosclonly} ) {
             my %have_scl_keys = %files_to_process;
             delete @have_scl_keys{@no_scl_keys};
-            retain_entries( keys %have_scl_keys );
             delete @files_to_process{ keys %have_scl_keys };
         }
     }
@@ -847,30 +844,6 @@ sub file_abs_to_scl_commit_entry {
 
 sub set_indent_from_lead {
     return ' ' x length( $_[0] );
-}
-
-sub retain_entries {
-    for my $retain_key (@_) {
-        my $entry = delete $entries{$retain_key};
-        for my $scope ( sort keys %$entry ) {
-            my $log_entry_header;
-            if ( $scope eq '!File Scope' ) {
-                $log_entry_header = file_abs_to_scl_main_entry($retain_key);
-            } else {
-                $log_entry_header =
-                  file_abs_to_scl_func_entry( $retain_key, $scope );
-            }
-            for my $line (
-                map  { $_->[1] }
-                sort { $a->[0] <=> $b->[0] }
-                map  { [ $_ => $entry->{$scope}->{$_} ] }
-                keys %{ $entry->{$scope} }
-              )
-            {
-                push @retain, "$log_entry_header $line", q();
-            }
-        }
-    }
 }
 
 main();

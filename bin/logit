@@ -12,6 +12,7 @@ declare opt_add_args_to_logfile=0
 declare logdir=''
 declare teeit=0
 declare zenityit=0
+declare zenity_only=0
 declare teeit=0
 declare tsit=0
 declare edit=''
@@ -35,7 +36,7 @@ declare shortopts='kz'
 declare longopts
 
 ajoin longopts -s , \
-      isat aa at: tee zenity zw: zh: log: dir: \
+      isat aa at: tee zenity zo zenity-only zw: zh: log: dir: \
       edit edit-on-fail edit-echo \
       purge purgeprev purgeyesterday \
       notimestamp tpye tppe tpae tpe zpe ts help logonly \
@@ -118,12 +119,14 @@ do
             edit="$LOGIT_EDITOR"
             [ -z "$edit" ] && edit="$EDITOR"
             ;& ## unconditional dropthrough
-        z | zenity )
+        z | zo | zenity | zenity-only | zw | zh)
             zenityit=1
             zenity_geo=(--width 1320 --height 800)
             case "$option" in
                 zw) zenity_geo[1]="${1}"; shift;;
                 zh) zenity_geo[3]="${1}"; shift;;
+                zenity-only | zo )
+                    zenity_only=1;;
                 zenity | z) : ;;
             esac
             ;;
@@ -290,7 +293,13 @@ then
 fi
 
 touch "$logspec" ## Critical for tee below
-logmsg="Logfile is: $logspec"
+if ((zenity_only == 0 ))
+then
+    logmsg="Logfile is: $logspec"
+else
+    logmsg='--zenity-only, log will not be retained'
+fi
+
 if ((! isat))
 then
     echo "$logmsg"
@@ -320,11 +329,14 @@ then
         [ -z "$termer" ] && [ -n "$(type -P "$i" 2>/dev/null)" ] && termer=$(type -P "$i")
     done
 
+    # Locate the popup tailing xterm close to the invoking xterm window for
+    # convenience.
     # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
     declare xtermxy=$(xterm-cli location get)
     declare xtermx=$((${xtermxy%%:*}+20))
     declare xtermy=$((${xtermxy##*:}+20))
 
+    # Size the popup tailing xterm with respect to screen real estate.
     termheight=$(x-current-root --height)
     if ((termheight >1024)); then termheight=40; else termheight=20; fi
 
@@ -363,10 +375,15 @@ then
         ## explicitly end when this program exits. Otherwise, the tails pile up
         ## in the process table. Also make sure that we flush the log and wait
         ## before we kill that tail so that all the output ends up in the log.
-        do-on-exit "echo >> $logspec \
+        declare cmds="echo >> $logspec \
                       && sleep 2 \
                       && ps -p $tailpid >/dev/null 2>/dev/null \
                       && kill $tailpid >/dev/null 2>/dev/null"
+        if((zenity_only))
+        then
+            cmds="$cmds && rm -f $logspec"
+        fi
+        do-on-exit "$cmds"
     fi
 
 
@@ -501,10 +518,10 @@ then
 fi
 exit $status
 
-:<<'__USAGE__'
+:<<__USAGE__
 logit [--at time] \\
       [--env [FOO=BAR[,FOO2=BAR2... ] ]] \\
-      [ --tee | [--zenity|-z|-zh:height|-zw:width] ] \\
+      [ --tee | [--zenity[-only]|-z[o]|-zh:height|-zw:width] ] \\
       [ --log log_basename ] \\
       [ --aa ]
       [ --notimestamp ] \\
@@ -548,6 +565,11 @@ OPTIONS:
                  it is generated. If zenity is not available, we fall back to
                  --tee.
 
+      --zenity-only|-zo
+               - Spin up a zenity text dialog and show the log output in it as
+                 it is generated. Delete the underlying log file when done.
+                 If zenity is not available, we fall back to --tee and retain the log.
+
       --zh:height
       --zw:width
                - Spin up a zenity text dialog as with '--zenity', and also change
@@ -572,18 +594,18 @@ OPTIONS:
                  if it exists. Otherwise, logs will be placed in the current
                  directory.
 
-      --edit   - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then
+      --edit   - Look for \$LOGIT_EDITOR ($LOGIT_EDITOR), then
                  \$EDITOR ($EDITOR). Run the first one found in order
                  to edit log file when the command exits.
 
       --edit-echo
-               - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then \$EDITOR
+               - Look for \$LOGIT_EDITOR ($LOGIT_EDITOR), then \$EDITOR
                  ($EDITOR). Echo the command that would have been generated for
                  --edit. This allows you to decide whether or not to edit the
                  log.
 
       --edit-on-fail
-               - Look for \$LOGIT_EDITOR (\$LOGIT_EDITOR), then \$EDITOR
+               - Look for \$LOGIT_EDITOR ($LOGIT_EDITOR), then \$EDITOR
                  ($EDITOR). Run the first one found in order to edit the log
                  file if the command fails.
 

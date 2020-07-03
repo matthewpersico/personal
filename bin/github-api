@@ -154,7 +154,7 @@ main ()
     shift
 
     case $action in
-        fork | list-forks | exists | ping | pulls | contents )
+        fork | list-forks | exists | ping | pulls | contents | repo )
             ## Requires a repo
             if [ -z "$1" ]
             then
@@ -179,7 +179,7 @@ main ()
             fi
             ;;
 
-        orgs | repos )
+        org | repos )
             ## Requires an org
             if [ -z "$1" ]
             then
@@ -195,15 +195,19 @@ main ()
             then
                 org=${1%/*}
                 repo=${1#*/}
-                github-api-echo -- "org only, repo $repo ignored"
             else
                 org=$1; shift
                 if [ -n "$1" ]
                 then
                     repo=$1; shift
-                    github-api-echo -- "org only, repo $repo ignored"
                 fi
             fi
+            if [[ $action == 'org' ]] && [[ -n $repo ]]
+            then
+                cmd-echo --wc -- "Repo ignore for action org"
+                repo=''
+            fi
+
             ;;
 
         raw )
@@ -266,7 +270,7 @@ main ()
             url="repos/$org/$repo/forks"
             ;;
 
-        orgs)
+        org)
             url="orgs/$org"
             ;;
 
@@ -277,6 +281,11 @@ main ()
             else
                 url="orgs/$org/repos?type=$scope"
             fi
+            ;;
+
+        repo )
+            action='exists'
+            url="repos/$org/$repo"
             ;;
 
         raw)
@@ -368,13 +377,13 @@ main ()
             # shellcheck disable=SC2059
             pageprint="$(printf "$pagenumfmt" $pagenum)"
             # shellcheck disable=SC2004
-            github-api-echo "$pagenum of ${pagenums[1]} pages of data fetched..."
+            ((!silent)) && github-api-echo "$pagenum of ${pagenums[1]} pages of data fetched..."
             ((pagenum+=1))
             while (( pagenum <= "${pagenums[1]}" ))
             do
-                github-api-echo "Page ${pagenum}..."
+                ((!silent)) && github-api-echo "Page ${pagenum}..."
                 # shellcheck disable=SC2059
-                pageprint="$(printf "$pagenumfmt" $pagenum)"
+                pageprint="$(printf "$pagenumfmt" "$pagenum")"
                 curl \
                     --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
                     "${curlopts[@]}" \
@@ -392,7 +401,8 @@ main ()
                 htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
                 case $htmlstatus in
                     200 )
-                        ## Consoldate paged data
+                        ## Consolidate paged data.
+                        echo ',' >> "$curldata"
                         cat "${curldata}.${pageprint}" >> "$curldata"
                         ;;
                     403 )
@@ -419,11 +429,46 @@ main ()
                 esac
                 ((pagenum+=1))
             done
+            ## $curldata as invalid json because each page is a list instead of
+            ## all the data in one list. We added the commas above. Now we pull
+            ## out the superfluous ][ here:
+            declare curldata_relist
+            curldata_relist=$(mktemp -t tmp.github-api.curldata_relist.$$.XXXXXXXXXX)
+            perl -e '
+BEGIN { print(qq([\n)); }
+while(<>){
+  chomp;
+  print qq($_\n) if($_ ne q([) and $_ ne q(]));
+}
+END { print(qq(]\n)); }
+' "$curldata" > "$curldata_relist"
+            mv "$curldata_relist" "$curldata"
         fi
-
         declare htmlstatus
         htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
         case $action in
+            repos )
+                if [[ -n $repo ]]
+                then
+                    declare curldata_filter
+                    curldata_filter=$(mktemp -t tmp.github-api.curldata_filter.$$.XXXXXXXXXX)
+                    perl -d:ptkdb -MJSON::XS -e '
+open IH, q(<), $ARGV[0];
+$data = join(q(),<IH>);
+close(IH);
+$json = decode_json($data);
+my @js;
+my $re = qr/$ARGV[1]/;
+for my $j (@{$json}) {
+  if ( $j->{name} =~ m/$re/ ) {
+    push @js, $j;
+  }
+}
+print(JSON::XS->new->pretty(1)->encode(\@js));
+' "${curldata}" "$repo" > "$curldata_filter" || exit $?
+                    mv "$curldata_filter" "$curldata"
+                fi
+                ;;
             contents)
                 case $htmlstatus in
                     200 )
@@ -622,8 +667,9 @@ github-api - Wrapper around curl calls to the github api
 
  github-api [--server server] [--stream-data|--perl-data] [--keep-data] ] [--wait] [--verbose|--silent|--noexec] \
      org <orgname> |
-     repos [--user] <orgname> |
+     repos [--user] <orgname> [<reponamepattern>] |
      exists[|ping] <orgname> <reponame> |
+     repo <orgname <reponame> |
      list-forks <orgname> <reponame> |
      fork <orgname> <reponame> |
      filename <filename-to-search-for> |
@@ -639,23 +685,32 @@ Run some specific github apis. Uses your own OAuth credentials so you may not
 be able to see everything. Prints its messages to stderr, all data to stdout so
 you can filter the output with pipes and still see the progress messages.
 
+Any time you are required to provide and orgname and reponame, you can provide
+them as one arg orgname/reponame.
+
 =head1 ARGUMENTS
 
 =over 4
 
-=item orgs
+=item org
 
 Runs orgs api call. Requires an orgname. Returns metadata about that org.
 
 =item repos
 
 Runs repos api call. Requires an orgname. Returns metadata about all the repos
-in that org. If the 'org' is a person, add the '--user' flag.
+in that org. If the 'org' is a person, add the '--user' flag. Add a regular expression and
+the output is limited to that repos whose names match.
 
 =item exists|ping
 
-Runs repos api call. Requires an orgname and a repo. Returns metadata repo
-specified. Exits 0 if repo found, 1 if not.
+Runs repos api call. Requires an orgname and a repo. Exits 0 if repo found, 1
+if not.
+
+=item repo
+
+Runs repo api call. Requires an orgname and a repo. Returns metadata for the repo
+specified. More efficient than 'repos' for a single exact repo.
 
 =item list-forks
 

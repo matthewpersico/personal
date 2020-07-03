@@ -4,9 +4,45 @@ use strict;
 use warnings;
 
 use Exporter 'import';
-our @EXPORT_OK = qw(git_find_perl_code
-  code_has_taint_flag
-  init_env);
+our @EXPORT_OK = qw(find_perl_code
+                    is_git_repo
+                    git_find_perl_code
+                    code_has_taint_flag
+                    );
+
+sub filter {
+    ## The -f serves two purposes:
+    ## 1) We only want to examine files, not directories or links
+    ## 2) If you're in the middle of removing files from a repo, but haven't
+    ## committed yet, the deleted files will show up in the 'git ls-files'
+    ## output.
+    my @files = grep { -f $_ } map { chomp; $_ } @_;
+
+    ## modules (.pm), scripts (.pl), test files(.t) and .psgi from Catalyst.
+    my @byname = grep { $_ =~ m/\.(p[ml]|t|sgi)$/i } @files;
+
+    ## searching for shebang lines because lots of scripts do not
+    ## end in .pl
+    my @bycontent;
+    @bycontent = qx(grep -l '^#!.*perl' @files)
+      if (@files);
+
+    ## A .pl with a shebang shows up in both lists.
+    my %uniq = map { chomp; $_ => 1 } ( @byname, @bycontent );
+
+    return sort keys %uniq;
+}
+
+sub find_perl_code {
+    my %args  = @_;
+    my @files = @{ $args{files} } or qx(find . -type f);
+    return filter(@files);
+}
+
+sub is_git_repo {
+    qx(git rev-parse --show-toplevel 2>/dev/null 1>&2);
+    return $? ? 0 : 1;
+}
 
 sub git_find_perl_code {
     my %args  = @_;
@@ -30,26 +66,7 @@ sub git_find_perl_code {
             @files = qx(git ls-files);
         }
     }
-    ## The -f serves two purposes:
-    ## 1) We only want to examine files, not directories or links
-    ## 2) If you're in the middle of removing files from a repo, but haven't
-    ## committed yet, the deleted files will show up in the 'git ls-files'
-    ## output.
-    @files = grep { -f $_ } map { chomp; $_ } @files;
-
-    ## modules (.pm), scripts (.pl), test files(.t) and .psgi from Catalyst.
-    my @byname = grep { $_ =~ m/\.(p[ml]|t|sgi)$/i } @files;
-
-    ## searching for shebang lines because lots of scripts do not
-    ## end in .pl
-    my @bycontent;
-    @bycontent = qx(grep -l '^#!.*perl' @files)
-      if (@files);
-
-    ## A .pl with a shebang shows up in both lists.
-    my %uniq = map { chomp; $_ => 1 } ( @byname, @bycontent );
-
-    return sort keys %uniq;
+    return filter(@files);
 }
 
 sub code_has_taint_flag {
@@ -61,13 +78,6 @@ sub code_has_taint_flag {
     my $ret = ( $head =~ m/#!.*perl.*-w*T/ );
 
     return $ret;
-}
-
-## This can be modifed per repo/project as needed
-sub init_env {
-    $ENV{DPKG_DISTROCTL_DISTRIBUTION} = q(anything);
-    $ENV{DPKG_DISTROCTL_REALUSER}     = q(anything);
-    $ENV{DPKG_DISTRO_DEV_ROOT}        = q(/tmp);
 }
 
 1;
