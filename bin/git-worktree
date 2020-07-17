@@ -109,7 +109,8 @@ git-worktree-create ()
     local status=0
     local opt_m=''
     local message=''
-    local asmaster='master'
+    local default_branch
+    default_branch=$(git-repo default-branch)
     local remote=origin
     local localbranchname
     local pull_request=''
@@ -138,7 +139,7 @@ git-worktree-create ()
             no-reset | skip-reset) opt_reset=0 ;;
             f|fetch) fetch_existing=1 ;;
             m|message) opt_m=$1; message="$1"; shift ;;
-            asmaster) asmaster=$1; shift ;;
+            default_branch) default_branch=$1; shift ;;
             h|help) usage; return 0 ;;
             r|remote) remote=$1; shift ;;
             orphan) echo "Sorry, cannot create orphans this way."
@@ -306,7 +307,8 @@ git-worktree-create ()
                 cmd-echo -- "Aborting."
                 return 1
             fi
-            declare respdbg=$(yesno "Continue" "n")
+            declare respdbg
+            respdbg=$(yesno "Continue" "n")
             [[ $respdbg == 'n' ]] && exit
             ((verbose)) && cmd-echo -- "cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
@@ -316,70 +318,10 @@ git-worktree-create ()
 
             _git_worktree_info_add_fetched_date "$localbranchname"
         else ## ((fetch_existing==0)) && [ -z "$exists" ]
-            # shellcheck disable=SC2050 #https://github.com/koalaman/shellcheck/wiki/SC2050
-            if [[ "we need the master to be the source" = 'true' ]]
-            then
-                ## Since this worktree is going to create a branch of the local
-                ## $asmaster, make sure the local $asmaster (where we should be right
-                ## now) it is up to date.
-                if [ "$(git branch --show-current)" != "$asmaster" ]
-                then
-                    cmd-echo -- "Cannot create branch and worktree because the current branch '$(git branch --show-current)' is not the master branch '$asmaster'."
-                    return 1
-                fi
-                cmd-echo -- "Checking local '$asmaster', starting point for branch."
-                git pull
-                status=$?
-                ## We can return here with no other notice, assuming the error message
-                ## from the pull would have been printed to stderr.
-                ((status)) && return 1
-
-                ## Let's practice a little hygiene here and keep the origin master up
-                ## to date with the upstream master.
-
-                #### - WARNING - This should only be used if the current repo is a
-                #### - clone of YOUR FORK of a canonical repo. If you are working
-                #### - in a CLONE of the CANONICAL, you do NOT want to do this. Now
-                #### - that think we can tell the difference, we will cautiously do
-                #### - this.
-                local upstream
-                upstream=$(git repo is a-fork-of)
-                if [ -n "$upstream" ]
-                then
-                    # shellcheck disable=SC2154
-                    cmd-echo -- \
-                             "We think that the local repo" \
-                             "    $(git-worktree-get-root)" \
-                             "is a clone of the remote repo" \
-                             "    $(git remote get-url origin)"\
-                             "which is, in turn, a fork of" \
-                             "    $(git repo is a-fork-of)" \
-                             "meaning that we think we can safely execute" \
-                             "    git push origin $asmaster"
-                    resp=$(cmd-yesno Ok n)
-                    if [ "$resp" = 'y' ]
-                    then
-                        git push origin "$asmaster"
-                    else
-                        cmd-echo -- "Skipping..."
-                    fi
-                else
-                    # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
-                    #     ${gitfuncs_remotes[origin]} initialized elsewhere
-                    cmd-echo -- \
-                             "We think that the local repo" \
-                             "    $(git-worktree-get-root)" \
-                             "is a clone of the remote repo" \
-                             "    ${gitfuncs_remotes[origin]}"\
-                             "which is NOT a fork of any repo," \
-                             "meaning that we WILL NOT BE executing" \
-                             "    git push origin $asmaster"
-                fi
-            fi ## if [ "we need the master to be the source" = 'true' ]
 
             ## Now create the worktree and the branch.
             ((verbose)) && cmd-echo -- "$REALGIT worktree add -b ${wtsubdir} ${wtbranch}"
-            $REALGIT worktree add $create_branch "${wtsubdir}" "${wtbranch}" "$asmaster"
+            $REALGIT worktree add $create_branch "${wtsubdir}" "${wtbranch}" "$default_branch"
             status=$?
             if ((status))
             then
@@ -400,7 +342,7 @@ git-worktree-create ()
             git push --set-upstream "$remote" "${wtbranch}"
         fi
     fi
-    ## Convert the worktree's .git file to use a relative path to the master
+    ## Convert the worktree's .git file to use a relative path to the default
     ## .git location. In that way, we can use the repo on machines where it may
     ## be mounted in a different place, so that the absolute path is different
     ## in those places.
@@ -860,30 +802,6 @@ git-worktree-diff-from-root ()
     return $?
 }
 
-git-worktree-get-root ()
-{
-    local i
-    local status=0
-    local wtr
-    wtr=$($REALGIT worktree list | \
-              grep '\[master\]' | \
-              sed -e 's/\s\+[0-9a-z ]\+\[master\]//')
-    declare i
-    for i in "${PIPESTATUS[@]}"
-    do
-        ((i>status)) && status=$i
-    done
-    ((status)) && return "$status"
-    if [ -n "${wtr}" ]
-    then
-        echo "${wtr}"
-        return 0
-    else
-        echo
-        return 1
-    fi
-}
-
 git-worktree-show-merged ()
 {
     git config --get-regexp em-markedmerged
@@ -1129,19 +1047,19 @@ A synonymn for 'add' but one that respects our conventions.
 
 For branches:
 
- git worktree cre[ate] [-f] [-r remote] [-m 'message'] [--asmaster somebranch] [-l localbranchname] worktree-name
+ git worktree cre[ate] [-f] [-r remote] [-m 'message'] [--default_branch somebranch] [-l localbranchname] worktree-name
        -f|--fetch
            - Do not create the branch, but fetch an existing branch.
        -r|--remote
            - Use 'remote' as the source; the default is 'origin'.
        -m|--message
            - Record a short description readable with git-st-ext.
-       --asmaster
-           - use 'somebranch' as the worktree basis. The default is 'master'.
+       --default_branch
+           - use 'somebranch' as the worktree basis. The default is read from the repo.
        -l localbranchname
            - When fetching an existing remote branch 'X', use 'localbranchname'
              as the tracking branch name instead of 'X'. Most useful if you are
-             fetching someone else's 'master' branch.
+             fetching someone else's default branch.
        worktree-name
            - the name of the branch and worktree to create
 
@@ -1190,18 +1108,18 @@ Get the root directory for the current worktree.
 
 =item diff-to-root
 
-Perform a diff betweeen the master branch and the current worktree for a given
+Perform a diff betweeen the default branch and the current worktree for a given
 set of files or all the git-known files in the current worktree.
 
  git worktree diff-to-root [--reverse] [--color] [-w]
        --reverse - Perform the diff in the reverse order, i.e, betweeen the
-                   current worktree and the master branch.
+                   current worktree and the default branch.
        --color   - Common git color options: always, never, or auto.
        -w        - Perform the diff ignoring whitespace.
 
 =item diff-from-root
 
-Perform a diff betweeen the current worktree and the master branch for a given
+Perform a diff betweeen the current worktree and the default branch for a given
 set of files or all the git-known files in the current worktree. A synonymn for
 
  git worktree diff-to-root --reverse
