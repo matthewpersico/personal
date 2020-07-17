@@ -133,7 +133,7 @@ git-repo-is_worktree ()
     then
         if [[ $1 == 'of' ]]
         then
-            sed 's/gitdir: \(.*\)\/\.git\/worktrees.*/\1/' < "$(git root)/.git"
+            realpath "$(git root)/$(sed 's/gitdir: \(.*\)\/\.git\/worktrees.*/\1/' < "$(git root)/.git")"
         fi
         return 0
     else
@@ -578,19 +578,14 @@ git-repo-sync ()
 git-repo-sync-with ()
 {
     declare arg1=$1
-    if [[ $arg1 == --default ]]
+    if [[ $arg1 =~ ^--def ]]
     then
-        # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
-        arg1="--$(git-repo-default-branch)"
-    fi
-
-    if [[ $arg1 = --master ]] || [[ $arg1 = --main ]]
-    then
-        declare branch_name=${arg1##--}
         shift
-        ## clone-and-fork repos need to sync with the master in the canonical
-        ## upstream branch.  If there is no 'upstream', then it's probably a
-        ## clone only, so sync against the master in origin.
+        declare branch_name
+        branch_name=$(git-repo-default-branch)
+        ## clone-and-fork repos need to sync with the default branch in the
+        ## canonical upstream branch.  If there is no 'upstream', then it's
+        ## probably a clone only, so sync against the default branch in origin.
         declare status
         declare upstream
         upstream=$(git remote get-url upstream 2>/dev/null)
@@ -626,13 +621,16 @@ git-repo-check ()
 
 git-repo-check-with ()
 {
-    if [[ $1 = --master ]] || [[ $1 = --main ]]
+    declare arg1=$1
+    if [[ $arg1 =~ ^--def ]]
     then
-        declare branch_name=${1##--}
         shift
-        ## clone-and-fork repos need to check with the master in the canonical
-        ## upstream branch.  If there is no 'upstream', then it's probably a
-        ## clone only, so check against the master in origin.
+        declare branch_name
+        branch_name=$(git-repo-default-branch)
+        ## clone-and-fork repos need to check with the default branch in the
+        ## canonical upstream branch.  If there is no 'upstream', then it's
+        ## probably a clone only, so check against the default branch in
+        ## origin.
         declare status
         declare upstream
         upstream=$(git remote get-url upstream 2>/dev/null)
@@ -909,15 +907,14 @@ Performs a realclean, resets all uncommitted changes.
 
  --branch branch [--remote remote]
 
-git pull against the --remote and --branch specified.
+Run a 'git pull' against the --remote and --branch specified.
 
- --master
- --main
+ --def[ault]
 
-If --master or --main is specifed instead of --branch and --remote, then we use
-that 'master' or 'main', respectively as the branch name to sync against and we
-look for that branch in the remotes 'upstream' and 'origin' in that order,
-using the first one in which we find.
+If --def or --default is specifed instead of --branch and --remote, then we use
+that default branch of the repo as the branch name to sync against and we look
+for that branch in the remotes 'upstream' and 'origin' in that order, using the
+first one in which we find.
 
 =item purge/prune
 
@@ -942,3 +939,5 @@ Show all the tags in ascending version order. Alias for
 =cut
 
 __PODUSAGE__
+
+#  LocalWords:  fi
