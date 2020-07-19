@@ -54,7 +54,7 @@ do
     declare fulllink
     fulllink=${dotfiles[$src]}
     declare resp='y'
-    # Don't ask here if we are in interactive mode;`we'll ask in makesymlink.
+    # Don't ask here if we are in interactive mode; we'll ask in makesymlink.
     [ -z "$interactive" ] && \
           [ -n "${dotfilesopt[$src]}" ] && \
         resp=$(yesno "Link $fulllink -> $fullsrc")
@@ -65,6 +65,34 @@ do
     [ -n "${dotfilesperms[$src]}" ] && \
         chmod "${dotfilesperms[$src]}" "$fullsrc"
 done
+
+# shellcheck disable=SC2154 #dotfiles assigned in dotfiles_manifest source above
+for src in "${!dotfilescopies[@]}"
+do
+    declare fullsrc
+    fullsrc=$dotfiles_dir/$src
+    declare fullcopy
+    fullcopy=${dotfilescopies[$src]}
+    declare resp='y'
+    # Don't ask here if we are in interactive mode; we'll ask in makesymlink.
+    [ -z "$interactive" ] && \
+          [ -n "${dotfilesopt[$src]}" ] && \
+        resp=$(yesno "Copy $fullsrc to  $fullcopy")
+    if [[ "$resp" = 'y' ]]
+    then
+        declare -a transform
+        if [[ -n ${dotfilestransforms[$src]} ]]
+        then
+            transform=('--transform' "${dotfilestransforms[$src]}")
+        fi
+        makesymlink $interactive --verbose --relative \
+                    --backup "$dotfiles_olddir" \
+                    --copy "${transform[@]}" \
+                    "$fullsrc" "$fullcopy"
+    fi
+    [ -n "${dotfilesperms[$src]}" ] && \
+        chmod "${dotfilesperms[$src]}" "$fullsrc"
+done
 builtin cd "$opwd" || exit 1
 
 exit 0
@@ -72,7 +100,7 @@ exit 0
 :<<'__PODUSAGE__'
 =head1 NAME
 
-makesymlinks - create symlinks to dotfiles in a git repo.
+makesymlinks - create symlinks to, of copies of, dotfiles in a git repo.
 
 =head1 SYNOPSIS
 
@@ -128,7 +156,7 @@ Sample:
  ## Not all machines get these.
  ## Key is name of file in dotfiles dir.
  ## Value is logical true indicating the file is optional.
- ## Src/tgt mapping must be defined in dotfiles above.
+ ## Src/tgt mapping must be defined in dotfiles array above.
  declare -A dotfilesopt
  dotfilesopt[builddeb_conf]=1
  dotfilesopt[SecureCRTstart]=1
@@ -136,9 +164,20 @@ Sample:
  ## Key is name of file in dotfiles dir.
  ## Value is permissions of target, not the link.
  ## Use this to override default permissions.
- ## Src/tgt mapping must be defined in dotfiles above.
+ ## Src/tgt mapping must be defined in dotfiles array above.
  declare -A dotfilesperms
  dotfilesperms[pgpass]='a-rwx,u+rw'
+
+ ## Copies. Don't link these, copy them. Do NOT add them to dotfiles array
+ ## above.
+ declare -A dotfilescopies
+ dotfilescopies[gitfuncs_kv]=${TILDAE:-$HOME}/.gitfuncs.kv
+
+ ## Transformations. These should have an entry in dotfilescopies to that we
+ ## don't edit the template.
+ declare -A dotfilestransforms
+ # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+ dotfilestransforms[gitfuncs_kv]='s/<USER>/$USER/g'
 
 =back
 
