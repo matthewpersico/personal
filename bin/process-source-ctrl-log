@@ -178,8 +178,8 @@ sub parse_scl {
 
     # Regexes for misc parts of the file.
     my $chunk_start_re = qr(^\s+\*\s)x;
-    my $date_re = qr(^\d{4,4}-\d{2,2}-\d{2,2})x;
-    my $filetag_re = qr($chunk_start_re
+    my $date_re        = qr(^\d{4,4}-\d{2,2}-\d{2,2})x;
+    my $filetag_re     = qr($chunk_start_re
                         (?<file>[a-zA-Z0-9_./-]+)
                    )x;
     my $functag_re = qr([(]
@@ -209,26 +209,26 @@ sub parse_scl {
 
     # First we chunk the file.
     my $current_date = '';
-    my $in_a_chunk = 0;
+    my $in_a_chunk   = 0;
   LINE: while (<$sclih>) {
         chomp;
-        if ( m/$date_re/ ) {
+        if (m/$date_re/) {
             $current_date = $_;
-            $in_a_chunk = 0;
+            $in_a_chunk   = 0;
             next;
         }
-        next if (!$in_a_chunk and $_ eq q());
+        next if ( !$in_a_chunk and $_ eq q() );
         if ( $_ =~ m/$chunk_start_re/ ) {
             # Start a new chunk
             push @chunks,
               {
-                  date      => $current_date,
-                  chunk_id  => $chunk_id++,
-                  orig_text => [$_],
-                  text      => ''
+                date      => $current_date,
+                chunk_id  => $chunk_id++,
+                orig_text => [$_],
+                text      => ''
               };
             $current_date = undef;
-            $in_a_chunk = 1;
+            $in_a_chunk   = 1;
         } else {
             push @{ $chunks[-1]->{orig_text} }, $_
               if @chunks;
@@ -242,19 +242,19 @@ sub parse_scl {
             # Parsing assumptions:
             # 1) One SourceCtrlLog in git root for whole project.
 
-            # 2) Emacs variable add-log-always-start-new-record is set to
-            # 't'. That means every chunk has a filename, even if functions or
-            # text may be on the next line due to wrapping. In other words, you
-            # might see:
-            #    (some_long_func):
-            # or
-            #    Some text.
-            # but never:
-            #    * (some_long_func):
-            # or
-            #    * Some text.
-            # which simplifies the processing.
-            # 3) With #2, we can use Esc-Q to wrap text, so we have to account for that.
+    # 2) Emacs variable add-log-always-start-new-record is set to
+    # 't'. That means every chunk has a filename, even if functions or
+    # text may be on the next line due to wrapping. In other words, you
+    # might see:
+    #    (some_long_func):
+    # or
+    #    Some text.
+    # but never:
+    #    * (some_long_func):
+    # or
+    #    * Some text.
+    # which simplifies the processing.
+    # 3) With #2, we can use Esc-Q to wrap text, so we have to account for that.
             my $text;
             if (m|${filetag_re}\s*${functag_re}:(?:\s*${text_re})?|) {
 
@@ -263,27 +263,29 @@ sub parse_scl {
                 # * file\s*(function):
                 $chunk->{filespec} = catfile( $gitrootdir, $+{file} );
                 $chunk->{function} = $+{func};
-                $chunk->{text} = strip_text($+{text});
+                $chunk->{text}     = strip_text( $+{text} );
             } elsif (m|${filetag_re}(?::?(?:\s*${text_re})?)|) {
 
-                # Patterns:
-                # * file:\s*text - Normal
-                # * file:        - File and text are too long, text pushed to next line
-                # * file         - File and function are too long, function pushed to next line
+ # Patterns:
+ # * file:\s*text - Normal
+ # * file:        - File and text are too long, text pushed to next line
+ # * file         - File and function are too long, function pushed to next line
                 $chunk->{filespec} = catfile( $gitrootdir, $+{file} );
                 $chunk->{function} = NOFUNC;
-                $chunk->{text} = defined($+{text}) ? strip_text($+{text}) : '';
+                $chunk->{text} =
+                  defined( $+{text} ) ? strip_text( $+{text} ) : '';
             } elsif (m|${functag_re}:(?:\s${text_re})?$|) {
 
-                # Patterns:
-                # (function):\s*text - Normal
-                # (function):        - Function and text are too long, text pushed to next line
+ # Patterns:
+ # (function):\s*text - Normal
+ # (function):        - Function and text are too long, text pushed to next line
                 $chunk->{function} = $+{func};
-                $chunk->{text} = defined($+{text}) ? strip_text($+{text}) : '';
+                $chunk->{text} =
+                  defined( $+{text} ) ? strip_text( $+{text} ) : '';
             } else {
                 my $new_text = strip_text($_);
                 # text
-                if(length($new_text)) {
+                if ( length($new_text) ) {
                     $chunk->{text} .= " $new_text";
                 } else {
                     $chunk->{text} .= "<PARA>";
@@ -292,10 +294,9 @@ sub parse_scl {
         }
 
         # Done processing the chunk here, record it as an entry:
-        $entries{ $chunk->{filespec} }->
-          { $chunk->{function} }->
-          { $chunk->{chunk_id} } = $chunk;
-        if (exists($files_to_process{ $chunk->{filespec} })) {
+        $entries{ $chunk->{filespec} }->{ $chunk->{function} }
+          ->{ $chunk->{chunk_id} } = $chunk;
+        if ( exists( $files_to_process{ $chunk->{filespec} } ) ) {
             $files_to_process{ $chunk->{filespec} } = $chunk;
         }
     }
@@ -374,22 +375,32 @@ sub write_commit_message {
 }
 
 sub write_retained_log {
-    my ( $oh ) = @_;
+    my ($oh) = @_;
     my $iam = ( caller(0) )[3];
 
     ## Get rid of everything we put in the commit message
-    delete @entries{keys %files_to_process};
+    delete @entries{ keys %files_to_process };
 
     for my $chunk (@chunks) {
-        if (exists($entries{ $chunk->{filespec} }->
-                     { $chunk->{function} }->
-                     { $chunk->{chunk_id} })) {
-            $oh->print(join("\n",
-                            (defined ($chunk->{date})
-                               ? ($chunk->{date}, '')
-                               : () ),
-                            @{$chunk->{orig_text}},
-                            ''));
+        if (
+            exists(
+                $entries{ $chunk->{filespec} }->{ $chunk->{function} }
+                  ->{ $chunk->{chunk_id} }
+            )
+          )
+        {
+            $oh->print(
+                join(
+                    "\n",
+                    (
+                        defined( $chunk->{date} )
+                        ? ( $chunk->{date}, '' )
+                        : ()
+                    ),
+                    @{ $chunk->{orig_text} },
+                    ''
+                )
+            );
         }
     }
 }
@@ -441,7 +452,7 @@ qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_o
     # At this point we want to get the current git status output and combine it
     # with the scl data and maybe the git diff data.
     #my @files = map { file_abs_to_git_rel($_) } keys(%files_to_process);
-    my @files = map { file_abs_to_pwd_rel($_) } keys(%files_to_process);
+    my @files  = map { file_abs_to_pwd_rel($_) } keys(%files_to_process);
     my @status = qx(git -c color.status=$opt{color} status @files);
 
     # Start processing. We go line by line over the status output, always first
@@ -661,7 +672,7 @@ sub push_scl_to_output {
               grep { /$opt{sclpick}/ }
               map  { $_->{text} }
               map  { values( %{ $e->{$_} } ) } keys %{$e};
-            if ( ! @match_comment ) {
+            if ( !@match_comment ) {
                 while ( @{ $args{output} } != $pop_to_length ) {
                     pop @{ $args{output} };
                 }
@@ -690,7 +701,7 @@ sub push_scl_to_output {
             my @orders = sort { $b <=> $a } keys %{ $e->{$func} };
 
             for my $order (@orders) {
-                my @paras = split(/<PARA>\s*/, $e->{$func}->{$order}->{text} );
+                my @paras = split( /<PARA>\s*/, $e->{$func}->{$order}->{text} );
                 my $para_lead = $lead;
                 for my $para (@paras) {
                     my @wrapped =
@@ -704,10 +715,10 @@ sub push_scl_to_output {
                     push @{ $args{output} }, $line1,
                       ## Line 2+
                       ( map { join( '', $args{format_over}, $indent, $_ ) }
-                        @wrapped ),
-                        ( $args{is_commit} ? () : '' );
-                    if($para ne $paras[-1]) {
-                        if ($args{output}->[-1] ne '') {
+                          @wrapped ),
+                      ( $args{is_commit} ? () : '' );
+                    if ( $para ne $paras[-1] ) {
+                        if ( $args{output}->[-1] ne '' ) {
                             push @{ $args{output} }, '';
                         }
                         $para_lead = ' ' x length($para_lead);
@@ -785,7 +796,7 @@ sub names_only {
     my @output;
   FILE: for my $filename ( sort keys %files_to_process ) {
         my $git_rel_filename = file_abs_to_git_rel($filename);
-        my $status = $status{$git_rel_filename} || 'U';
+        my $status           = $status{$git_rel_filename} || 'U';
         if ( $opt{nountracked} and $status eq 'U' ) {
             next FILE;
         }

@@ -5,10 +5,10 @@ use warnings;
 
 use Exporter 'import';
 our @EXPORT_OK = qw(find_perl_code
-                    is_git_repo
-                    git_find_perl_code
-                    code_has_taint_flag
-                    );
+  is_git_repo
+  git_find_perl_code
+  code_has_taint_flag
+);
 
 sub filter {
     ## The -f serves two purposes:
