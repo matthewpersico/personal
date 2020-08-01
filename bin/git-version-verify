@@ -4,16 +4,77 @@
 
 use strict;
 use warnings;
+use IO::File;
 
-my @git_version_i = split( /\s+/, qx($ENV{REALGIT} --version) );
-my @git_version   = split( /\./,  $git_version_i[-1] );
-my @git_version_verified_i =
-  split( /\s+/, $ENV{REALGIT_VERIFIED_VERSION_STRING} );
-my @git_version_verified = split( /\./, $git_version_verified_i[-1] );
+my @tmp;
 
-for my $index ( 0, 1, 2 ) {
-    if ( $git_version[$index] != $git_version_verified[$index] ) {
-        warn ">>> WARNING: $ARGV[0]: Verified against $git_version_verified_i[-1], but $git_version_i[-1] is installed.\n";
+@tmp = split( /\s+/, qx($ENV{REALGIT} --version) );
+my $git_version_installed = $tmp[-1];
+my @git_version_installed = split( /\./, $git_version_installed );
+
+@tmp = split( /\s+/, $ENV{REALGIT_VERIFIED_VERSION_STRING} );
+my $git_version_verified = $tmp[-1];
+my @git_version_verified = split( /\./, $git_version_verified );
+
+my $gvvfile = "$ENV{PERSONALDATA}/git-version-verify.data";
+my %do      = (
+    'write'  => 0,
+    'unlink' => 1,
+    'warn'   => 0
+);
+
+SEMANTIC_CHECK: for my $index ( 0, 1, 2 ) {
+    if ( $git_version_installed[$index] != $git_version_verified[$index] ) {
+        $do{unlink} = 0;
+        if ( !-e $gvvfile ) {
+            # Have not warned on this verified/installed version pair yet.
+            $do{write} = 1;
+            $do{warn}  = 1;
+        } else {
+            my ( $time, $expected, $got ) = read_it($gvvfile);
+            if ( !$ENV{CRON} || $ENV{CRON} eq 'false' ) {
+                # Warn Every. Single. Time. If we are not cron.
+                $do{warn} = 1;
+            } else {
+                if ( time() - $time >= 60 * 60 * 24 ) {
+                    # Warn only once a day in CRON jobs so we don't get a flood
+                    # of emails.
+                    $do{write} = 1;
+                    $do{warn}  = 1;
+                }
+            }
+        }
+        last SEMANTIC_CHECK;
     }
 }
+if ( $do{write} ) {
+    write_it( $gvvfile, $git_version_verified, $git_version_installed );
+}
+if ( $do{unlink} ) {
+    unlink($gvvfile);
+}
+if ( $do{warn} ) {
+    warn ">>> WARNING: "
+      . ( $ARGV[0] ? "$ARGV[0]: " : '' )
+      . "Verified against $git_version_verified, but $git_version_installed is installed.\n";
+}
 exit 0;
+
+sub write_it {
+    my ( $gvvfile, $expected, $got ) = @_;
+    my $gvvh = IO::File->new("> $gvvfile");
+    $gvvh->print("time:@{[time()]},expected:$expected,got:$got\n");
+}
+
+sub read_it {
+    my ($gvvfile) = @_;
+    my ( $time, $expected, $got ) = ( 0, 0, 0 );
+    if ( -r $gvvfile ) {
+        my $gvvh = IO::File->new("< $gvvfile");
+        ( $time, $expected, $got ) =
+          map { $_->[1] }
+          map { [ split( /:/, $_ ) ] }
+          map { chomp; split(/,/) } <$gvvh>;
+    }
+    return ( $time, $expected, $got );
+}
