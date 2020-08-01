@@ -200,7 +200,7 @@ LINE: while (<>) {
 sub writeit {
     my $oh = IO::File->new("> ${current_pathfile}.tmp");
     if ( !$current_file_has_pod ) {
-        push @funclines, <<EOF
+        push @funclines, <<EOF;
 ## POD guard
 exit 0
 
