@@ -24,7 +24,8 @@ our %opt = (
     time     => 0,
     rtime    => 0,
     filter   => 0,
-    quiet    => 0
+    quiet    => 0,
+    older    => 0
 );
 my %print;
 my %noprint;
@@ -55,6 +56,8 @@ GetOptions(
       time
       rtime
 
+      older=f
+
       verbose
       help
       )
@@ -67,6 +70,7 @@ if ( $opt{help} ) {
         -exitval => 0
     );
 }
+$opt{older} *= 60 * 60 * 24;
 my $uic = $opt{trunc} + $opt{wrap} + $opt{raw} + $opt{original};
 my $ui  = '';
 if ( $uic == 0 ) {
@@ -266,7 +270,7 @@ my $ascii_normal   = '[m';
 
 my @proc_groups;
 my $current_proc_group = [];
-my $col1read           = 0;
+my $row1read           = 0;
 
 open( IH, '-|', "$ps" );
 
@@ -278,7 +282,7 @@ if ( $opt{original} ) {
 LINE:
 while (<IH>) {
     my $l = $_;
-    if ( not $col1read ) {
+    if ( not $row1read ) {
         my $start = 0;
         my $end   = 0;
         my $ll    = $l;
@@ -293,10 +297,10 @@ while (<IH>) {
                 $headfield = $1;
             }
             next if not defined $headfield;
-            if ( !$col1read ) {
+            if ( !$row1read ) {
                 $map{$colname}{fmt} = 'A' . length($headfield) . 'A1';
                 $packfmt .= $map{$colname}{fmt};
-                $col1read = length($headfield) + 1;
+                $row1read = length($headfield) + 1;
             } else {
                 if ( $colname eq $headcols[-1] ) {
                     $map{$colname}{fmt} = 'A*';
@@ -369,7 +373,9 @@ while (<IH>) {
         }
     }
 
-    if ( defined $print{$pid} ) {
+    $print{$pid} = 0 if ( $etimesec < $opt{older} );
+
+    if ( $print{$pid} ) {
         if ( $cmd !~ m/\s+\\_/ ) {
             if ( @{$current_proc_group} ) {
                 push @proc_groups, $current_proc_group;
@@ -498,6 +504,7 @@ pssearch - ps with filtering
           [ [--[user|U]=s] | --me ]
           [ --[r]time]
           [--verbose]
+          [--older d]
           [[pid|cmd]... ]
 
 =head1 DESCRIPTION
@@ -583,6 +590,11 @@ command.
 =item --verbose
 
 Print the 'ps' command used before the ps output.
+
+=item --older
+
+*After* applying all of the filters above, print only those items that started
+ more than 'f' days ago where 'f' is a decimal; .5 is 12 hours.
 
 =back
 
