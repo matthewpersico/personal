@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
 
-declare o_width=1000
+declare o_width=1056
 declare o_height=500
 declare no_exec=0
 
 # Define the options. ':' suffix for a mandatory value to an option, '::' for
 # an optional one. Note that the long and short don't have to match up.
 declare OPTSARGS
-declare shortopts='w:h:n'
-declare longopts='width:,height:,number;'
+declare shortopts='w:h:na'
+declare longopts='width:,height:,noexec'
 
 # Parse args.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
@@ -20,7 +20,7 @@ eval set -- "$OPTSARGS"
 
 # Reprocess the command line, extracting options and their arguments into
 # variables.
-while true
+while true && [[ $1 =~ ^- ]]
 do
     declare option=$1
     shift
@@ -47,9 +47,36 @@ do
     esac
 done
 
+declare -a zenargs
+zenargs=(--text-info --title="$*" --width="$o_width" --height="$o_height")
+declare do_col
+declare -a cmd
+case $1 in
+    perldoc)
+        shift
+        cmd=('perldoc' '-u' "$@")
+        ;;
+    man)
+        cmd=("$@")
+        do_col=1
+        ;;
+    tail )
+        cmd=("$@")
+        zenargs+=(--auto-scroll)
+        ;;
+    * )
+        cmd=("$@")
+        ;;
+esac
+
 if ((no_exec))
 then
-    echo "$* | zenity --text-info --auto-scroll --title=$* --width=$o_width --height=$o_height"
+    echo "${cmd[*]} | zenity ${zenargs[*]}"
 else
-    "$@" | zenity --text-info --auto-scroll --title="$*" --width="$o_width" --height="$o_height"  &
+    if ((do_col))
+    then
+        "${cmd[@]}" | col -b | zenity "${zenargs[@]}" &
+    else
+        "${cmd[@]}" | zenity  "${zenargs[@]}" &
+    fi
 fi
