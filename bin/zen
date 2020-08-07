@@ -8,7 +8,7 @@ declare no_exec=0
 # an optional one. Note that the long and short don't have to match up.
 declare OPTSARGS
 declare shortopts='w:h:na'
-declare longopts='width:,height:,noexec'
+declare longopts='width:,height:,noexec,help'
 
 # Parse args.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
@@ -26,6 +26,10 @@ do
     shift
     [ "$option" != '--' ] && option=${option##-} && option=${option##-}
     case "$option" in
+        help )
+            bash-usage "$0"
+            exit 0
+            ;;
         w | width )
             o_width=$1
             shift
@@ -80,3 +84,77 @@ else
         "${cmd[@]}" | zenity  "${zenargs[@]}" &
     fi
 fi
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+zen - Run a command and pipe the stdout to a zenity text box
+
+=head1 SYNOPSIS
+
+ zen [--w[idth] pixels] [--h[eight] pixels] [--n[oexec]] some command here
+ zen --help
+
+=head1 DESCRIPTION
+
+Any command that prints to stdout can have its output routed to a zenity text
+box using zen. This is good for long outputs that you would either have to page
+or scroll in a terminal.
+
+=head1 ARGUMENTS
+
+All arguments except for the options below are run as the command and its
+arguments. stdout is piped to a zenity text box whose scrollbar is left at the
+top of the box.
+
+There are three commands currently that have specific processing:
+
+=over 4
+
+=item perldoc
+
+'perldoc' is recognized and called with the '-u' option to strip control
+characters that won't render nicely in the text box.
+
+=item man
+
+'man' is recognized and the output is filtered through 'col -b' strip control
+characters that won't render nicely in the text box.
+
+=item tail
+
+'tail' is recognized and the text box is set to --auto-scroll so that you are
+brought to the end of the output and kept there if using 'tail -f'.
+
+=back
+
+=head1 OPTIONS
+
+Notes:
+
+- Your options to zen should come before the command.
+
+- If your command has options, you need to add a '--' end-of-options marker, or
+  else the option will be reported as unrecognized by zen:
+
+  zen -- command --opt --op2 arg arg
+
+=over 4
+
+=item --width/--height
+
+Specify a starting size for the text box.
+
+=item --noexec
+
+Just print the command and zenity pipe command.
+
+=item --help
+
+This text. And no, you cannot 'zen zen --help'. :-)
+
+=back
+
+=cut
+
+__PODUSAGE__
