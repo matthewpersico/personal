@@ -2,13 +2,13 @@
 
 declare o_width=1056
 declare o_height=500
-declare no_exec=0
+declare do_join=0
 
 # Define the options. ':' suffix for a mandatory value to an option, '::' for
 # an optional one. Note that the long and short don't have to match up.
 declare OPTSARGS
-declare shortopts='w:h:na'
-declare longopts='width:,height:,noexec,help'
+declare shortopts='w:h:nj'
+declare longopts='width:,height:help,join'
 
 # Parse args.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
@@ -38,8 +38,8 @@ do
             o_height=$1
             shift
             ;;
-        n | noexec )
-            no_exec=1
+        j | join)
+            do_join=1
             ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
@@ -52,17 +52,19 @@ do
 done
 
 declare -a zenargs
-zenargs=(--text-info --title="$*" --width="$o_width" --height="$o_height")
-declare do_col
+zenargs=(--text-info --title="$*")
+
+declare do_filt=cat
 declare -a cmd
 case $1 in
     perldoc)
         shift
-        cmd=('perldoc' '-u' "$@")
+        cmd=('perldoc' "$@")
+        do_filt=uncolor
         ;;
     man)
         cmd=("$@")
-        do_col=1
+        do_filt=uncolor
         ;;
     tail )
         cmd=("$@")
@@ -73,16 +75,13 @@ case $1 in
         ;;
 esac
 
-if ((no_exec))
+zenargs+=(--width="$o_width" --height="$o_height")
+
+if ((do_join))
 then
-    echo "${cmd[*]} | zenity ${zenargs[*]}"
+    "${cmd[@]}" 2>&1 | $do_filt | zenity "${zenargs[@]}" &
 else
-    if ((do_col))
-    then
-        "${cmd[@]}" | col -b | zenity "${zenargs[@]}" &
-    else
-        "${cmd[@]}" | zenity  "${zenargs[@]}" &
-    fi
+    "${cmd[@]}" | $do_filt  | zenity "${zenargs[@]}" &
 fi
 
 :<<'__PODUSAGE__'
@@ -92,7 +91,7 @@ zen - Run a command and pipe the stdout to a zenity text box
 
 =head1 SYNOPSIS
 
- zen [--w[idth] pixels] [--h[eight] pixels] [--n[oexec]] some command here
+ zen [-w|-width] pixels] [-h|--height] pixels] [-j|--join] some command here
  zen --help
 
 =head1 DESCRIPTION
@@ -145,9 +144,9 @@ Notes:
 
 Specify a starting size for the text box.
 
-=item --noexec
+=item --join
 
-Just print the command and zenity pipe command.
+Route stderr to the text box also.
 
 =item --help
 
