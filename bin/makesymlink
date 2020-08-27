@@ -10,32 +10,39 @@ declare relative=1
 declare moreopts=1
 declare verbosity=2
 declare interactive=0
-while [[ "$1" =~ ^- ]] && ((moreopts))
-do
-    declare original="$1"
-    declare option
-    option=$(dashstripper "$original")
-    shift
-    ## This bit deals with --foo=bar instead of --foo bar...
-    declare okey
-    declare ovalue
-    ## but only deal with it if we really have an option. Otherwise you
-    ## misinterpret items like this git clone option: --config
-    ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
-    if [[ $option =~ ^- ]]
-    then
-        if [[ "$option" =~ = ]]
-        then
-            okey=${option%%=*}
-            ovalue=${option#*=}
-            option="$okey"
-        fi
-    fi
+declare copy=0
+declare recopy=0
+declare transform=''
+# Define the options. ':' suffix for a mandatory value to an option, '::' for
+# an optional one. Note that the long and short don't have to match up.
+declare OPTSARGS
+# Single letter options. No separator.
+declare shortopts='i'
+# Word options. Comma separator.
+declare longopts='backup:,transform:,recopy,copy,relink,no-relative,relative,verbose,quiet,slient,interactive,help'
 
-    case $option in
+# Process the command line.
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") ## "${FUNCNAME[0]}" -- "$@") ## in functions
+declare status=$?
+((status != 0)) && exit $status ## return $status ## in functions
+
+# Reset the command line ($@).
+eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+while true
+do
+    declare option=$1
+    shift
+    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    case "$option" in
         backup)
-            [ -z "$ovalue" ] && ovalue=$1 && shift
-            backup_dir=$ovalue ;;
+            backup_dir=$1 && shift;;
+        transform)
+            transform=$1 && shift;;
+        recopy) recopy=1;&
+        copy) copy=1;;
         relink) relink=1 ;;
         no-relative) relative=0 ;;
         relative) relative=1 ;;
@@ -47,51 +54,82 @@ do
             bash-usage "$0"
             exit 0
             ;;
-        * )
-            cmd-echo -- "$original is an invalid option. See $0 --help"
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo -e -- "$option is an invalid option. See $0 --help"
             exit 1
             ;;
     esac
 done
 
 declare fullsrc=$1
-declare fulllink=$2
-
+declare fulltgt=$2
 if [ ! -e "$fullsrc" ]
 then
-    (( verbosity > 0 )) && cmd-echo -- "'$fullsrc' not found. Skipping processing of '$fulllink'."
-elif [ -h "$fulllink" ]
+    (( verbosity > 0 )) && cmd-echo -- "'$fullsrc' not found. Skipping processing of '$fulltgt'."
+elif [ -h "$fulltgt" ]
 then
     if ((relink))
     then
-        (( verbosity > 1 )) && cmd-echo -- "'$fulllink' is already a link. --relink specified; relinking."
+        (( verbosity > 1 )) && cmd-echo -- "'$fulltgt' is already a link. --relink specified; relinking."
     else
-        (( verbosity > 0 )) && cmd-echo -- "'$fulllink' is already a link. Skipping processing of '$fulllink'."
+        (( verbosity > 0 )) && cmd-echo -- "'$fulltgt' is already a link. Skipping processing of '$fulltgt'."
+    fi
+elif [ -f "$fulltgt" ]
+then
+    if ((recopy))
+    then
+        (( verbosity > 1 )) && cmd-echo -- "'$fulltgt' is already a copy. --recopy specified; recopying."
+    else
+        (( verbosity > 0 )) && cmd-echo -- "'$fulltgt' is already a copy. Skipping processing of '$fulltgt'."
     fi
 else
+
     resp=y
-    ((interactive)) && resp=$(yesno "Link $fulllink -> $fullsrc")
+    if ((interactive))
+    then
+        if((copy))
+        then
+            resp=$(yesno "Copy $fullsrc to $fulltgt")
+        else
+            resp=$(yesno "Link $fulltgt -> $fullsrc")
+        fi
+    fi
+
     [ "$resp" = 'n' ] && exit 0
     if [ -n "$backup_dir" ]
     then
-        if [ -f "$fulllink" ] || [ -d "$fulllink" ]
+        if [ -f "$fulltgt" ] || [ -d "$fulltgt" ]
         then
-            srctype='directory'; if [ -f "$fulllink" ]; then srctype='file'; fi
-            (( verbosity > 1 )) && cmd-echo -- "Moving existing $srctype '$fulllink' to $backup_dir so we can link it to '$fullsrc'."
-            mv "$fulllink" "$backup_dir/$(basename "$fulllink").$(date '+%Y%m%d%H%M%S.%N')"
+            srctype='directory'; if [ -f "$fulltgt" ]; then srctype='file'; fi
+            (( verbosity > 1 )) && cmd-echo -- "Moving existing $srctype '$fulltgt' to $backup_dir so we can link it to '$fullsrc'."
+            mv "$fulltgt" "$backup_dir/$(basename "$fulltgt").$(date '+%Y%m%d%H%M%S.%N')"
         fi
     fi
-    if ((relative))
+    if ((copy))
+    then
+        (( verbosity > 1 )) && cmd-echo -- "Copying '$fullsrc' to '$fulltgt'."
+        \cp -v "$fullsrc" "$fulltgt"
+        if [[ -n $transform ]]
+        then
+            declare -a transforms
+            asplit "$transform" -s '#' -a transforms
+            (( verbosity > 1 )) && cmd-echo -- "Transforming '$fulltgt'."
+            sedinplace "${transforms[@]}" "$fulltgt"
+            diff "$fullsrc" "$fulltgt"
+        fi
+    elif ((relative))
     then
         (( verbosity > 1 )) && cmd-echo -- "Relativizing src and link"
         declare -a paths
-        asplit "$(relativize_two_paths "$fullsrc" "$fulllink")" -s : paths
+        asplit "$(relativize_two_paths "$fullsrc" "$fulltgt")" -s : -a paths
         (( verbosity > 1 )) && cmd-echo -- "Creating symlink '${paths[2]}' to '${paths[1]}' in '${paths[0]}'."
         (builtin cd "${paths[0]}" || exit 1
          ln -s "${paths[1]}" "${paths[2]}")
     else
-        (( verbosity > 1 )) && cmd-echo -- "Creating symlink '$fulllink' to '$fullsrc'."
-        ln -s "$fullsrc" "$fulllink"
+        (( verbosity > 1 )) && cmd-echo -- "Creating symlink '$fulltgt' to '$fullsrc'."
+        ln -s "$fullsrc" "$fulltgt"
     fi
 fi
 

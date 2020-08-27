@@ -154,18 +154,9 @@ do
     esac
 done
 
-## Everything else is a file. We always get files. We are called from
-## git-commit-with-source-ctrl-log-guts which figures out what files to deal
-## with, including handling '-a'.
-if [ -z "$1" ]
-then
-    cmd-echo --ec -- "No files specified."
-    exit 1
-fi
-
 ## Get the full path for files that could be in play in a SourceCtrlLog and
 ## deal with possibly rm'ed files.
-declare -a filelist
+declare filelist
 declare file
 for file in "$@"
 do
@@ -214,6 +205,10 @@ then
     exit 1
 fi
 
+export PSCL_LEAD_CHAR='*' ## NOTE: If you change the lead character for items
+                          ## here, make sure you also change it in the commit
+                          ## section below.
+
 ##
 ## Status display only
 ##
@@ -250,12 +245,14 @@ then
 fi
 
 ## We rebuild the filelist from the commit message file so that we can account
-## for having changed the file list in process-source-control-log.
-## NOTE: If you change the lead character for items in process-source-control-log,
-## make sure you also change it here -------------------------------------------v
+## for having changed the file list in process-source-control-log or removed
+## some file and its text in the editor.  NOTE: If you change the lead
+## character for items in PSCL_LEAD_CHAR above, make sure you also change it
+## here:
+## -----------------------------------------------------------------------------vv
 declare -a filelist_refreshed
-mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY TEXT HERE|- | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$parsed_cl_commit")
-cmd-echo "About to commit" "${filelist_refreshed[@]}"
+mapfile -t filelist_refreshed < <(perl -ne 'next if $_ =~ m/^(SUMMARY TEXT HERE|\* | |[a-zA-Z0-9_-]+\(\):|\n)/;print $_' "$parsed_cl_commit")
+cmd-echo -- "About to commit" "${filelist_refreshed[@]}"
 if ((opt_confirm))
 then
     declare resp
@@ -270,50 +267,62 @@ then
 fi
 
 ## Do the commit
+
+## Preparations
 declare git_status_before
 git_status_before=$(mktemp -t tmp.git-process-source-ctrl-log.before-status.XXXXXXXXXX)
 rm-on-exit "$git_status_before"
-$REALGIT status --porcelain > "$git_status_before" 2>&1
-if [ -z "$git_editor" ]
-then
-    git commit -F "$parsed_cl_commit" --edit $opt_v "${filelist_refreshed[@]}"
-else
-    GIT_EDITOR=$git_editor git commit -F "$parsed_cl_commit" --edit $opt_v "${filelist_refreshed[@]}"
-fi
-status=$?
-if ((status==0))
-then
-    ## POTENTIAL PROBLEM - even though status==0, it appears that if a git
-    ## commit is aborted due to a coding error in the hook (as opposed to the
-    ## hook finding a non-commitable condition and exiting non-zero), we don't
-    ## get an error return, which means we don't rollback the
-    ## $source_ctrl_log. Sooooo, we defensively try to ferret out that problem
-    ## by looking at git status before the commit (see above) and after (see
-    ## next lines). If the two statuses are the same then the commit did not
-    ## take, so we rollback.
-    declare git_status_after
-    git_status_after=$(mktemp -t tmp.git-process-source-ctrl-log.after-status.XXXXXXXXXX)
-    rm-on-exit "$git_status_after"
-    $REALGIT status --porcelain > "$git_status_after" 2>&1
-    diff -q "$git_status_before" "$git_status_after" 1>/dev/null
-    diffstatus=$?
-    if ((diffstatus==0))
-    then
-        cmd-echo --wc -- \
-                 "The return status from 'git commit' has indicated a successful" \
-                 "execution, but since there appears to have been no change in" \
-                 "git status, we are assuming the pre-commit hook failed." \
-                 "This can also happen if you edit one or more files being" \
-                 "committed while you have the editor open, so DON'T DO THAT." \
-                 "As a precaution we will roll back '$source_ctrl_log'."
-        status=1
-    fi
-fi
+declare git_status_after
+git_status_after=$(mktemp -t tmp.git-process-source-ctrl-log.after-status.XXXXXXXXXX)
+rm-on-exit "$git_status_after"
 
-if((status!=0))
-then
-    rollback
-else
-    rollforward
-fi
+(
+    ## The file names that come out of the control log are repo-root
+    ## relative. Temporarily cd to the repo root so that git can find them, in
+    ## case we are not in the repo root. We do so in subshell "()" so we don't
+    ## have to cd back when done.
+    cd "$(git root)" || exit $?
+    $REALGIT status --porcelain > "$git_status_before" 2>&1
+    if [ -z "$git_editor" ]
+    then
+        git commit -F "$parsed_cl_commit" --edit $opt_v "${filelist_refreshed[@]}"
+    else
+        GIT_EDITOR=$git_editor git commit -F "$parsed_cl_commit" --edit $opt_v "${filelist_refreshed[@]}"
+    fi
+    declare status=$?
+    if ((status==0))
+    then
+        ## POTENTIAL PROBLEM - even though status==0, it appears that if a git
+        ## commit is aborted due to a coding error in the hook (as opposed to
+        ## the hook finding a non-commitable condition and exiting non-zero),
+        ## we don't get an error return, which means we don't rollback the
+        ## $source_ctrl_log. Sooooo, we defensively try to ferret out that
+        ## problem by looking at git status before the commit (see above) and
+        ## after (see next lines). If the two statuses are the same then the
+        ## commit did not take, so we rollback.
+        $REALGIT status --porcelain > "$git_status_after" 2>&1
+        diff -q "$git_status_before" "$git_status_after" 1>/dev/null
+        diffstatus=$?
+        if ((diffstatus==0))
+        then
+            cmd-echo --wc -- \
+                     "The return status from 'git commit' has indicated a successful" \
+                     "execution, but since there appears to have been no change in" \
+                     "git status, we are assuming the pre-commit hook failed." \
+                     "This can also happen if you edit one or more files being" \
+                     "committed while you have the editor open, so DON'T DO THAT." \
+                     "As a precaution we will roll back '$source_ctrl_log'."
+            status=1
+        fi
+    fi
+
+    if((status!=0))
+    then
+        rollback
+    else
+        rollforward
+    fi
+    exit $status
+)
+declare status=$?
 exit $status

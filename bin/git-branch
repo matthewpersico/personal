@@ -172,7 +172,7 @@ git-branch-delete ()
                     resp='y'
                 else
                     declare fetched
-                    fetched=$(git config --get "worktree.$branch.EMfetched")
+                    fetched=$(git config --get "worktree.$branch.extmeta-fetched")
                     if [[ -n $fetched ]]
                     then
                         cmd-echo -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
@@ -181,17 +181,15 @@ git-branch-delete ()
                 fi
                 if [ "$resp" == 'y' ]
                 then
-                    git push --delete "$remote" "$branch" ## This should not fail
-                    ## since we have checked
-                    ## that the branch exists
-                    ## in the remote.
+                    ## This is "best effort". If the branch was part of a PR, then the merge may have auto-deleted it.
+                    git push --delete "$remote" "$branch"
                     brdelstat=$?
                     if ((brdelstat))
                     then
-                        cmd-echo -- "ERROR: git push --delete $remote $branch failed. Returning $brdelstat."
-                        return $brdelstat
+                        cmd-echo --wc "git push --delete $remote $branch failed. Maybe it was already deleted by being merged."
+                    else
+                        cmd-echo -- "Branch deleted remotely."
                     fi
-                    cmd-echo -- "Branch deleted remotely."
                 fi
             fi
         done
@@ -258,9 +256,20 @@ git-branch-orphan()
 
 git-branch-track-remote ()
 {
-    declare remote=$1
-    declare branch=$2
-    declare local_branch=$3
+    declare remote
+    declare branch
+    declare local_branch
+    if (($# == 1))
+    then
+        remote=$(git-get-default-remote --tag)
+        branch=$1
+        local_branch=$2
+    else
+        remote=$1
+        branch=$2
+        local_branch=$3
+    fi
+
     if [ -z "$remote" ] || [ -z "$branch" ]
     then
         usage "Missing one or both arguments (remote, branch)"
@@ -437,11 +446,11 @@ Extensions to the 'git branch' command. Obvious ones are not documented. Any act
 
 =over 4
 
-=orphan
+=item orphan
 
 TBD
 
-=list
+=item list
 
 Lists all branches. By default, lists just the local ones. -c lists only the current one. -r lists remotes. -a lists locals and remotes. --strip removes the spacing and the colors and the current branch indicator.
 

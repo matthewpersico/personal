@@ -26,7 +26,7 @@ usage ()
 
 _git_clone_record_created_date ()
 {
-    git config --replace-all em.git-clone.created "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+    git config --replace-all extmeta.git-clone.created "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
 }
 
 _git-clone-set-triangle()
@@ -53,10 +53,13 @@ _git-clone-set-triangle()
     declare repo
     repo=$4
 
+    declare default_branch
+    default_branch=$(git repo default-branch)
+
     declare -A triangle_workflow
-    triangle_workflow[branch.master.merge]="refs/heads/master"
-    triangle_workflow[branch.master.mergeoptions]="--ff-only"
-    triangle_workflow[branch.master.remote]="upstream"
+    triangle_workflow[branch.${default_branch}.merge]="refs/heads/${default_branch}"
+    triangle_workflow[branch.${default_branch}.mergeoptions]="--ff-only"
+    triangle_workflow[branch.${default_branch}.remote]="upstream"
 
     triangle_workflow[remote.origin.url]="${githost_url}${origin_namespace}/${repo}"
     triangle_workflow[remote.pushdefault]="origin"
@@ -84,7 +87,7 @@ _git-clone-set-triangle()
     ## ^ allows git checkout -b 3 pull/upstream/3
 
     ## Our own metadata
-    git config --replace-all em.git-clone.triangle-remote "${origin_namespace}" || return $?
+    git config --replace-all extmeta.git-clone.triangle-remote "${origin_namespace}" || return $?
 
     return 0
 }
@@ -270,21 +273,8 @@ main ()
             cmd-echo -ec -- "Cannot find '$shouldbein'." "Correct and re-execute."
             return 1
         else
-            declare resp
-            if ((opt_y))
-            then
-                cmd-echo -- "Going to $shouldbein"
-                resp='y'
-            else
-                resp=$(cmd-yesno "cd to $shouldbein")
-            fi
-            if [ "$resp" = 'n' ]
-            then
-                cmd-echo -- "Correct and re-execute."
-                return 1
-            else
-                builtin cd "$shouldbein" || exit $?
-            fi
+            cmd-echo -- "Going to $shouldbein"
+            builtin cd "$shouldbein" || exit $?
         fi
     else
         cmd-echo -id "$cmd_echo_id" -- "Neither --githost nor --tree were specified. Cloning right here (${PWD}/$repo)"
@@ -303,7 +293,7 @@ main ()
         fi
         if [ "$resp" = 'n' ]
         then
-            cmd-echo -n -- "Keeping."
+            cmd-echo -- "Keeping."
             if ((opt_use_githost_dir))
             then
                 if [ -n "$doandcdfile" ]

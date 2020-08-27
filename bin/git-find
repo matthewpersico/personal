@@ -18,8 +18,6 @@ declare opt_edit=0
 declare opt_abspath=0
 declare opt_ls=0
 declare opt_files_only=0
-declare opt_checkout=0
-declare opt_show=0
 declare opt_exact=0
 declare timecompfile=''
 declare timecomp=''
@@ -109,7 +107,7 @@ fi
 if ((opt_conflicts))
 then
     declare -a conflict_files
-    mapfile -t conflict_files < <(git grep "${opt_grep_opts[@]}" '^<<<<<<<' | sed 's/:<<<<<<<.*//g')
+    mapfile -t conflict_files < <(git grep "${opt_grep_opts[@]}" '^<<<<<<<' | sed 's/:.*//g' | sort -u)
     declare cf
     for cf in "${conflict_files[@]}"
     do
@@ -204,7 +202,7 @@ then
     if [ -f "$dotgit" ]
     then
         ## Must be a worktree. Go find the source.
-        dotgit="$(realpath "$(sed 's/gitdir: //' < "$dotgit")" | sed 's/.git\/.*/.git/')"
+        dotgit="$(realpath "$(dirname "$dotgit")/$(sed -e 's/.* //' -e 's|\.git/.*|.git|'< "$dotgit")")"
     fi
     if [ -d "$dotgit" ]
     then
@@ -251,18 +249,21 @@ do
         fi
 
         ffb=$(basename "$ff")
-        if ((opt_exact==0))
-        then
-            if [[ $ffb =~ $f ]]
+        for match in $ff $ffb
+        do
+            if ((opt_exact==0))
             then
-                output+=("$ff")
+                if [[ $match =~ $f ]]
+                then
+                    output+=("$ff")
+                fi
+            else
+                if [[ $match == "$f" ]]
+                then
+                    output+=("$ff")
+                fi
             fi
-        else
-            if [[ $ffb == "$f" ]]
-            then
-                output+=("$ff")
-            fi
-        fi
+        done
     done
 done
 
