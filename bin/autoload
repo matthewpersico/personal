@@ -45,13 +45,15 @@ _aload()
     local exported=0
     local optimized=0
     local summary=0
+    local loaded_from
     while getopts xrvla:oyf opt; do
         case $opt in
             x) doexport=1;;
             r) doreload=1;;
             v) doverbose=1;;
             l) doevalshim=1;;
-            a) mapfile -t loadthese < <(find "$OPTARG" -maxdepth 1 -type f | sort );;
+            a) loaded_from="$OPTARG"
+               mapfile -t loadthese < <(find "$OPTARG" -maxdepth 1 -type f | sort );;
             o) optimize=1;;
             y) summary=1;;
             f) # shellcheck disable=SC2046 # We want the splitting on _autoload_split_fpath
@@ -195,7 +197,16 @@ _aload()
             fi
         fi
     done
-    ((summary)) && echo "autoload: loaded:$loaded exported:$exported optimized:$optimized overhead:$AUTOLOAD_SHIM_OVERHEAD bytes"
+    if ((summary))
+    then
+        echo -n "autoload:"
+        if [[ -n $loaded_from ]]
+        then
+            echo " source:$loaded_from"
+            echo -n "         "
+        fi
+        echo " loaded:$loaded exported:$exported optimized:$optimized overhead:$AUTOLOAD_SHIM_OVERHEAD bytes"
+    fi
 }
 
 _autoload_dump()
@@ -492,9 +503,7 @@ NOTES
           bypass the shim creation and just source in the function's file
           directly. For a few calls, the overhead of repeatedly running the
           shim is not expensive, but in a tight loop, it might be. Caveat
-          Programer.
-
-        o
+          Programmer.
 
         o Although the number of functions in the environment does not change
           by using 'autoload', the amount of memory they take up can be greatly
