@@ -36,9 +36,8 @@ do
             our_opts+=('-vi')
             ;;
         --mirror )
-            opt_mirror=1
-            ## Ditto
-            our_opts+=('-vi')
+            cmd-echo --dc -- "Just use cp -r src src ... tgtdir # tgtdir must exist"
+            exit 0
             ;;
         --help | -h )
             usage ''
@@ -50,65 +49,7 @@ do
     esac
 done
 
-if ((opt_mirror))
-then
-    declare pass_on_idx=0
-    declare pass_on_count=${#pass_on[@]}
-    declare pass_on_tgt_idx=$((pass_on_count-1))
-    declare cparg
-
-    if [ ! -d "${pass_on[$pass_on_tgt_idx]}" ]
-    then
-        cmd-echo -ec -- "The last argument must be the target directory under which to copy all the requested files." \
-                 "'${pass_on[$pass_on_tgt_idx]}' is not a directory:" \
-                 "$(ls -la "${pass_on[$pass_on_tgt_idx]}")"
-        exit 1
-    fi
-
-    while (( pass_on_idx < pass_on_tgt_idx))
-    do
-        cparg=${pass_on[$pass_on_idx]}
-        ((pass_on_idx +=1))
-        if [[ "$cparg" =~ ^- ]]
-        then
-            ## Under opt_mirror, there should be no other options passed into
-            ## 'cp'. All args should be files to copy or the target
-            ## directory. If we eventually do not force -vi, we'll have to
-            ## account for those above.
-            cmd-echo -ec -- "'$cparg' is an option; no other options allowed with --mirror"
-            exit 1
-        fi
-
-        if [ ! -f "$cparg" ]
-        then
-            cmd-echo -ec -- "'$cparg' is not a file; only files can be mirrored" \
-                     "$(ls -la "$cparg")"
-            exit 1
-        fi
-    done
-
-    ## Pull off the target
-    declare tgtroot="${pass_on[$pass_on_tgt_idx]}"
-    unset "pass_on[$pass_on_tgt_idx]"
-
-    ## Copy the sources
-    for cparg in "${pass_on[@]}"
-    do
-        declare tgt="$tgtroot"/"$cparg"
-        yesno --noprint "$REALCP ${our_opts[*]} ${cparg} ${tgt}" "n" || continue
-
-        ## Make the tgt tree
-        declare tgtdir
-        tgtdir=$(dirname "${tgt}")
-        mkdir -p "$tgtdir"
-
-        ## Do the copy
-        "$REALCP" "${our_opts[@]}" "$cparg" "$tgt" || exit $?
-    done
-
-    exit 0
-
-elif ((opt_reverse))
+if ((opt_reverse))
 then
     ## ...then there should be no other options passed into 'cp'. The only args
     ## should be source and target for the copy. If we eventually do not force
@@ -140,12 +81,11 @@ exit $?
 :<<'__PODUSAGE__'
 =head1 NAME
 
-mycp - extensions to the cp command
+cp - extensions to the cp command
 
 =head1 SYNOPSIS
 
- mycp --reverse DEST SOURCE
- mycp --mirror SOURCE [SOURCE...] DIRECTORY
+ cp --reverse DEST SOURCE
 
 =head1 DESCRIPTION
 
@@ -166,21 +106,11 @@ the righthand side of the diff as the desired file.
 
 =item --mirror
 
-For command 'cp SOURCE DIRECTORY', 'SOURCE' consists of a file and a path
-(possibly partial) to that file, 'DIRECTORY' is a target directory, and the
-copy is done such that the result is 'DIRECTORY/SOURCE'. Example:
+Removed. Just use
 
- cp foo/bar/bin/thefile /home/me/tmp
+  cp -r src src ... tgtdir
 
-Result:
-
- $ ls /home/me/tmp/foo/bar/bin/thefile
- /home/me/tmp/foo/bar/bin/thefile
-
-If any directory in the final result does not exist, it will be created, modulo
-permissions.  Very useful for copying files between git worktrees.
-
-B<Note:> For now, this copy will be executed with -v and -i.
+instead. 'tgtdir' must exist.
 
 =back
 
