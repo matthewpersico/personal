@@ -1,4 +1,5 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 
 # git-repo - no .gitaudit, called on every prompt
 
@@ -31,8 +32,6 @@ git-repo-is ()
 
 git-repo-isa () { git-repo-is "$@"; }
 git-repo-ina () { git-repo-is; }
-git-repo-is_a () { git-repo-is "$@"; }
-git-repo-in_a () { git-repo-is; }
 
 git-repo-is_clean ()
 {
@@ -81,7 +80,7 @@ git-repo-is_up_to_date ()
     fi
 }
 
-git-repo-is_a_fork ()
+git-repo-is_fork ()
 {
     declare print=0
     if [[ $1 == '--print' ]]
@@ -112,19 +111,14 @@ $VAR1->{fork} && print $VAR1->{parent}{full_name};
     )
 }
 
-git-repo-is_a_fork_of ()
-{
-    git-repo-is_a_fork --print "$@"
-}
-
-git-repo-is_fork ()
-{
-    git-repo-is_a_fork "$@"
-}
-
 git-repo-is_fork_of ()
 {
-    git-repo-is_a_fork_of "$@"
+    git-repo-is_fork --print "$@"
+}
+
+git-repo-is_forkof ()
+{
+    git-repo-is_fork --print "$@"
 }
 
 git-repo-is_worktree ()
@@ -138,6 +132,59 @@ git-repo-is_worktree ()
         return 0
     else
         return 1
+    fi
+}
+
+git-repo-is_openpr ()
+{
+
+    source "$BASH_INC_DIR/mktemp.binc"
+    source "$BASH_INC_DIR/on_exit.binc"
+
+    git fetch
+    declare server upstream_namespace origin_namespace repo current_branch
+    declare -A namespaces
+
+    server=$(git-get-default-remote --server)
+
+    upstream_namespace=$(git repo is a fork-of | sed 's/\/.*//')
+    [[ -n $upstream_namespace ]] && namespaces["$upstream_namespace"]=1
+
+    origin_namespace=$(git-get-default-remote --namespace)
+    namespaces["$origin_namespace"]=1
+
+    repo=$(git repo name)
+    current_branch=$(git branch --show-current)
+
+    declare -a output
+    for tgt_namespace in "${!namespaces[@]}"
+    do
+        declare tmpfile; tmpfile=$(mktempfile); rm-on-exit "$tmpfile"
+
+        github-api --server "$server" --perl-data pulls "$tgt_namespace/$repo" > "$tmpfile"
+        declare tmpout
+        tmpout=$(perl -e '
+do $ARGV[0];
+for $entry (@$VAR1) {
+    if ( $entry->{user}->{login} eq $ENV{USER}
+         &&
+         $entry->{head}->{ref} eq $ARGV[1] ) {
+        print($entry->{_links}->{html}->{href});
+    }
+}
+' "$tmpfile" "$current_branch")
+        [[ -n $tmpout ]] && output+=("$tmpout")
+    done
+    if [[ "${#output[@]}" == '0' ]]
+    then
+        echo "No open pull requests"
+        return 1
+    else
+        for o in "${output[@]}"
+        do
+            echo "$o"
+        done
+        return 0
     fi
 }
 
@@ -539,9 +586,9 @@ git-repo-pr ()
     declare shortopts='sg'
     declare longopts='silent,get'
 
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") ## "${FUNCNAME[0]}" -- "$@") ## in functions
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     declare status=$?
-    ((status != 0)) && exit $status ## return $status ## in functions
+    ((status != 0)) && return $status
 
     eval set -- "$OPTSARGS"
 
