@@ -15,15 +15,16 @@ do-on-exit set +x
 declare owd
 owd=${PWD}
 
-declare -A repos
+declare -a repos
 
 set_repos ()
 {
     declare repo=$1
     declare option=$2
     declare opt_wt=$3
-
     declare -a repos_tmp
+    declare -A repos_unique ## In case there are multiple patterns and they
+                            ## overlap
     if [ "$repo" = ':all' ]
     then
         repos_tmp[0]=''
@@ -34,19 +35,24 @@ set_repos ()
 
     if [[ "$option" =~ (rp|patt) ]]
     then
+        declare repo_pattern
         for repo_pattern in "${repos_tmp[@]}"
         do
-            for repo in $( git go --listfull "$opt_wt" "$repo_pattern")
+            declare matched
+            for matched in $( git go --listfull "$opt_wt" "$repo_pattern")
             do
-                repos[$repo]=1
+                repos_unique[$matched]=1
             done
         done
     else
         for repo in "${repos_tmp[@]}"
         do
-            repos[$repo]=1
+            repos_unique[$repo]=1
         done
     fi
+
+    mapfile -t repos < <(printf -- '%s\n' "${!repos_unique[@]}" | sort)
+
     return 0
 }
 
@@ -187,7 +193,7 @@ main ()
         fi
     done
 
-    for repo in "${!repos[@]}"
+    for repo in "${repos[@]}"
     do
         # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
         builtin cd "$repo"

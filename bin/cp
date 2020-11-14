@@ -19,7 +19,7 @@ usage ()
 ## require specifying and handling every existing option in 'cp'
 ## and it is just not necessary.
 declare opt_reverse=0
-declare opt_mirror=0
+declare opt_tar=0
 
 declare -a pass_on
 declare -a our_opts
@@ -35,9 +35,8 @@ do
             ## options.
             our_opts+=('-vi')
             ;;
-        --mirror )
-            cmd-echo --dc -- "Just use cp -r src src ... tgtdir # tgtdir must exist"
-            exit 0
+        --tar )
+            opt_tar=1
             ;;
         --help | -h )
             usage ''
@@ -49,9 +48,28 @@ do
     esac
 done
 
+if ((opt_tar))
+then
+    ## ... there should be no other options passed into 'cp'. The only args
+    ## should be one or more sources and a target directory for the copy. If we
+    ## eventually do not force -vi, we'll have to account for those above.
+    declare -a sources
+    sources=("${pass_on[@]}")
+    declare target
+    target="${sources[-1]}"
+    if [[ ! -d $target ]] || [[ ! -w $target ]]
+    then
+        cmd-echo -ec -- "Last argument ($target) must be an existing, writable directory"
+        exit 1
+    fi
+    unset 'sources[-1]'
+    tar cf - "${sources[@]}" | (cd "$target" || exit 1; cmd-echo -- "$PWD" ; tar xvf - )
+    exit 0
+fi
+
 if ((opt_reverse))
 then
-    ## ...then there should be no other options passed into 'cp'. The only args
+    ## ... there should be no other options passed into 'cp'. The only args
     ## should be source and target for the copy. If we eventually do not force
     ## -vi, we'll have to account for those above.
     if ((${#pass_on[@]} != 2)) || \
@@ -86,6 +104,7 @@ cp - extensions to the cp command
 =head1 SYNOPSIS
 
  cp --reverse DEST SOURCE
+ cp --tar path/to/a/file [another/path/to/a/file...] a/target/directory
 
 =head1 DESCRIPTION
 
@@ -104,13 +123,18 @@ with the source file. 'SOURCE' is a source file location. Use this if you are
 doing diffs and you are using the headers to construct copy commands to pick
 the righthand side of the diff as the desired file.
 
-=item --mirror
+=item --tar
 
-Removed. Just use
+Implements the classic
 
-  cp -r src src ... tgtdir
+  tar cf - . | (cd DIR; tar xf - )
 
-instead. 'tgtdir' must exist.
+to copy one or more files, with their paths, to a target location. Useful to
+copy pieces of a git tree out of the way before doing some operation and then
+copying them back.
+
+*Note*: When you copy files from location 'a' to location 'b', when you want to
+copy them back, it is easiest best to 'cd b' and then 'cp -tar * a'.
 
 =back
 

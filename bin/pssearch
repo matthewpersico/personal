@@ -12,7 +12,7 @@ our %opt = (
     original => 0,
     head     => 1,
     help     => 0,
-    this     => 0,
+    this     => 1,
     expid    => [],
     user     => '-e',
     me       => 0,
@@ -27,6 +27,14 @@ our %opt = (
     quiet    => 0,
     older    => 0
 );
+
+my %elapsed_fmt = (
+    '-1' => 's',
+    '-2' => 'm',
+    '-3' => 'h',
+    '-4' => 'd'
+);
+
 my %print;
 my %noprint;
 my $wrap_min = 0;
@@ -116,93 +124,107 @@ for my $search_arg (@ARGV) {
 my %master_map = (
     'Linux' => {
         STARTED => {
-            fmtcol  => 'start',
-            idx     => 0,
-            justify => q(right),
-            std     => 'STARTED',
+            fmtcol       => 'start',
+            idx          => 0,
+            justify      => q(right),
+            justify_plus => 0,
+            std          => 'STARTED',
         },
         ELAPSED => {
-            fmtcol  => 'etime',
-            idx     => 2,
-            justify => q(right),
-            std     => 'ELAPSED',
+            fmtcol       => 'etime',
+            idx          => 2,
+            justify      => q(right),
+            justify_plus => 1,
+            std          => 'ELAPSED',
         },
         UID => {
-            fmtcol  => 'uid',
-            idx     => 4,
-            justify => q(right),
-            std     => 'UID',
-            wid     => 12,
+            fmtcol       => 'uid',
+            idx          => 4,
+            justify      => q(right),
+            justify_plus => 0,
+            std          => 'UID',
+            wid          => 12,
         },
         PID => {
-            fmtcol  => 'pid',
-            idx     => 6,
-            justify => q(right),
-            std     => 'PID',
-            wid     => 8,
+            fmtcol       => 'pid',
+            idx          => 6,
+            justify      => q(right),
+            justify_plus => 0,
+            std          => 'PID',
+            wid          => 8,
         },
         PPID => {
-            fmtcol  => 'ppid',
-            idx     => 8,
-            justify => q(right),
-            std     => 'PPID',
-            wid     => 8,
+            fmtcol       => 'ppid',
+            idx          => 8,
+            justify      => q(right),
+            justify_plus => 0,
+            std          => 'PPID',
+            wid          => 8,
         },
         TT => {
-            fmtcol  => 'tty',
-            idx     => 10,
-            justify => q(left),
-            std     => 'TT',
+            fmtcol       => 'tty',
+            idx          => 10,
+            justify      => q(left),
+            justify_plus => 0,
+            std          => 'TT',
         },
         COMMAND => {
-            fmtcol  => 'command',
-            idx     => 12,
-            justify => q(left),
-            std     => 'COMMAND',
+            fmtcol       => 'command',
+            idx          => 12,
+            justify      => q(left),
+            justify_plus => 0,
+            std          => 'COMMAND',
         },
     },
     'SunOS' => {
         STIME => {
-            fmtcol  => 'stime',
-            idx     => 0,
-            justify => q(right),
-            std     => 'STARTED',
+            fmtcol       => 'stime',
+            idx          => 0,
+            justify      => q(right),
+            justify_plus => 0,
+            std          => 'STARTED',
         },
         ELAPSED => {
-            fmtcol  => 'etime',
-            idx     => 2,
-            justify => q(right),
-            std     => 'ELAPSED',
+            fmtcol       => 'etime',
+            idx          => 2,
+            justify      => q(right),
+            justify_plus => 1,
+            std          => 'ELAPSED',
         },
         UID => {
-            fmtcol  => 'uid',
-            idx     => 4,
-            justify => q(right),
-            std     => 'UID',
+            fmtcol       => 'uid',
+            idx          => 4,
+            justify      => q(right),
+            justify_plus => 0,
+            std          => 'UID',
         },
         PID => {
-            fmtcol  => 'pid',
-            idx     => 6,
-            justify => q(right),
-            std     => 'PID',
+            fmtcol       => 'pid',
+            idx          => 6,
+            justify      => q(right),
+            justify_plus => 0,
+            std          => 'PID',
         },
         PPID => {
-            fmtcol  => 'ppid',
-            idx     => 8,
-            justify => q(right),
-            std     => 'PPID',
+            fmtcol       => 'ppid',
+            idx          => 8,
+            justify      => q(right),
+            justify_plus => 0,
+            std          => 'PPID',
         },
         TT => {
-            fmtcol  => 'tty',
-            idx     => 10,
-            justify => q(left),
-            std     => 'TT',
+            fmtcol       => 'tty',
+            idx          => 10,
+            justify      => q(left),
+            justify_plus => 0,
+            std          => 'TT',
         },
         COMMAND => {
-            fmtcol  => 'args',
-            idx     => 12,
-            justify => q(left),
-            std     => 'COMMAND',
+            fmtcol       => 'args',
+            idx          => 12,
+            justify      => q(left),
+            justify_plus => 0,
+            std          => 'COMMAND',
         },
     }
 );
@@ -264,7 +286,7 @@ my $pidcol     = $map{ $std_head_map{PID} }{idx};
 my $ppidcol    = $map{ $std_head_map{PPID} }{idx};
 my $ttcol      = $map{ $std_head_map{TT} }{idx};
 my $cmdcol     = $map{ $std_head_map{COMMAND} }{idx};
-my $packfmt;
+my $readpackfmt;
 my $ascii_bold_red = '[1;31m';
 my $ascii_normal   = '[m';
 
@@ -289,43 +311,57 @@ while (<IH>) {
       COL:
         for my $colname (@headcols) {
             my $headfield;
+            my $just = ' ' x $map{$colname}{justify_plus};
             if ( $map{$colname}{justify} eq 'right' ) {
                 $ll =~ m/(\s*(?:$colname))\s/;
                 $headfield = $1;
+                if ($just) {
+                    $l =~ s/$colname/$just$colname/;
+                }
             } else {
                 $ll =~ m/((?:$colname)\s*)/;
                 $headfield = $1;
+                if ($just) {
+                    $l =~ s/$colname/$colname$just/;
+                }
             }
             next if not defined $headfield;
             if ( !$row1read ) {
-                $map{$colname}{fmt} = 'A' . length($headfield) . 'A1';
-                $packfmt .= $map{$colname}{fmt};
+                $map{$colname}{readfmt} = 'A' . length($headfield) . 'A1';
+                $readpackfmt .= $map{$colname}{readfmt};
                 $row1read = length($headfield) + 1;
             } else {
                 if ( $colname eq $headcols[-1] ) {
-                    $map{$colname}{fmt} = 'A*';
+                    $map{$colname}{readfmt} = 'A*';
                 } else {
-                    $map{$colname}{fmt} =
+                    $map{$colname}{readfmt} =
                       'A' . ( length($headfield) - 1 ) . 'A1';
                 }
-                $packfmt .= $map{$colname}{fmt};
+                $readpackfmt .= $map{$colname}{readfmt};
             }
+
             $ll =~ s/$headfield//;
         }
         $wrap_min  = index( $l, q(COMMAND) );
         $striplead = 0;
         if ( $opt{head} ) {
-            push @{$current_proc_group}, { sortval => 0, output => $l };
+            push @{$current_proc_group},
+              {
+                sortval => 0,
+                output  => $l
+              };
         }
         next LINE;
     }
 
-    my @f    = unpack( $packfmt, $l );
+    my @f    = unpack( $readpackfmt, $l );
     my $pid  = $f[$pidcol] + 0;
     my $ppid = $f[$ppidcol];
     $ppid += 0 if $ppid =~ m/^[0-9]+$/;
-    my $cmd        = $f[$cmdcol];
-    my $etimesec   = calc_elapsed_seconds( $f[$etimecol] );
+    my $cmd           = $f[$cmdcol];
+    my $etimesec      = calc_elapsed_seconds( $f[$etimecol] );
+    my $etimereformat = format_elapsed( $f[$etimecol] );
+    $l =~ s/$f[$etimecol]/$etimereformat/;
     my $uncoloredl = $l;
 
     if ( !@{ $opt{pid} } && !$opt{expid} && !@{ $opt{cmd} } && $opt{this} ) {
@@ -488,6 +524,19 @@ sub calc_elapsed_seconds {
       ;
 }
 
+sub format_elapsed {
+    my @tmp = split( /:|-/, $_[0] );
+    my @out;
+    for ( sort { $b <=> $a } keys %elapsed_fmt ) {
+        if ( defined( $tmp[$_] ) ) {
+            push @out, $elapsed_fmt{$_}, $tmp[$_];
+        } else {
+            last;
+        }
+    }
+    return join( '', reverse(@out) );
+}
+
 =head1 NAME
 
 pssearch - ps with filtering
@@ -565,7 +614,7 @@ Do or do not print the header. Default is to print it.
 =item --[no]this
 
 Do or do not include the 'pssearch' process itself or it's children in the
-output. Default is to *not* include it.
+output. Default is to include it.
 
 =item --[no]color
 
