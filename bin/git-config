@@ -29,7 +29,9 @@ usage ()
 main ()
 {
     declare -a pass_on_args
-
+    declare expand=0
+    declare value_only=0
+    declare preproc=0
     ## Must be REALGIT or we recurse like mad and forkbomb ourselvesq...
     for i in $($REALGIT config --get git-config.opts)
     do
@@ -61,6 +63,16 @@ main ()
                     pass_on_args+=('-f' "$HOME/.gitconfig.bloomberg")
                     continue
                     ;;
+                expand )
+                    expand=1
+                    preproc=1
+                    continue
+                    ;;
+                value-only )
+                    value_only=1
+                    preproc=1
+                    continue
+                    ;;
                 ## No '*)' case needed; anything else just gets passed on
             esac
         fi
@@ -69,7 +81,36 @@ main ()
         pass_on_args+=("$original")
     done
 
-    $REALGIT config "${pass_on_args[@]}"
+    if ((preproc))
+    then
+        declare -a raws
+        if ((value_only))
+        then
+            mapfile -t raws < <($REALGIT config "${pass_on_args[@]}"| cut -d' ' -f 2 )
+        else
+            mapfile -t raws < <($REALGIT config "${pass_on_args[@]}")
+        fi
+
+        declare raw
+        for raw in "${raws[@]}"
+        do
+            if ((expand))
+            then
+                declare -a exps
+                # shellcheck disable=SC2162 # https://github.com/koalaman/shellcheck/wiki/SC2162
+                read -a exps < <(eval echo "$raw")
+                declare exp
+                for exp in "${exps[@]}"
+                do
+                    echo "$exp"
+                done
+            else
+                echo "$raw"
+            fi
+        done
+    else
+        $REALGIT config "${pass_on_args[@]}"
+    fi
     return $?
 }
 
@@ -84,7 +125,7 @@ git-config - git extention of git config
 
 =head1 SYNOPSIS
 
- git config [--personal|--bloomberg] <all other git config options>
+ git config [--personal|--bloomberg] [--expand] [--value-only] <all other git config options>
 
 =head1 DESCRIPTION
 
@@ -101,6 +142,14 @@ Shortcut for -f "$HOME/.gitconfig.personal". Only needed for writing. "$HOME/.gi
 =item --bloomberg
 
 Shortcut for -f "$HOME/.gitconfig.bloomberg". Only needed for writing. "$HOME/.gitconfig.bloomberg" is [include]ed in .gitconfig, so that it will be searched for read operations.
+
+=item --expand
+
+With this option, each value returned from a '--get' or '--list' command will be passed through a shell 'eval' command. This means that if you have put an environment variable in a git config entry, it will be expanded to its current value.
+
+=item --value-only
+
+When getting multiple values, both the key and the value are printed for each pair. With this option, only the values are printed.
 
 =back
 

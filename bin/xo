@@ -12,8 +12,9 @@ debug=0
 forceX=0
 emacs_exe=$(type -P emacs)
 emacsclient_exe=$(type -P emacsclient)
-declare -a gim
+declare -a git_is_mod ## These are modified files in a git repo
 declare -a which ## We used to use the 'which' utility to find these
+declare -a org ## The org file
 declare as_visual=0
 declare new_frame=0
 declare more_opts=1
@@ -66,8 +67,8 @@ do
             shift
             ;;
         gim )
-            mapfile -t gim < <(git what is mod 2>/dev/null)
-            if [ -z "${gim[0]}" ]
+            mapfile -t git_is_mod < <(git what is mod 2>/dev/null)
+            if [ -z "${git_is_mod[0]}" ]
             then
                 if ! git root 2>/dev/null 1>&2
                 then
@@ -80,6 +81,9 @@ do
             ;;
         nf )
             new_frame=1
+            ;;
+        todo | org )
+            org=("$HOME/todo.org")
             ;;
         help )
             bash-usage "$0"; exit 0;;
@@ -183,6 +187,8 @@ then
     shift
 fi
 
+declare -a allfiles
+allfiles=("$@" "${org[@]}" "${git_is_mod[@]}" "${which[@]}")
 if ((serverup==0))
 then
     if ((as_visual==0)) && ((new_frame==0))
@@ -194,35 +200,35 @@ then
             if ((nobg))
             then
                 $emacs_exe -g "+${rootx}+${rooty}" \
-                           "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}"
+                           "${emacs_opts[@]}" "${allfiles[@]}"
             else
                 $emacs_exe -g "+${rootx}+${rooty}" \
-                           "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" &
+                           "${emacs_opts[@]}" "${allfiles[@]}" &
             fi
         else
             $emacs_exe -nw \
-                       "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" < /dev/tty
+                       "${emacs_opts[@]}" "${allfiles[@]}" < /dev/tty
         fi
     else
         cmd-echo "No emacs server found. Start one and try again or use -m."
     fi
 elif ((serverup==1))
 then
-    if [ ! "$#" = 0 ] || ((${#gim[@]})) || ((${#which[@]}))
+    if ((${#allfiles[@]}))
     then
         if ((new_frame))
         then
             if ((nobg))
             then
-                $emacsclient_exe -c "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" | grep -v 'Waiting for Emacs'
+                $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs'
             else
-                $emacsclient_exe -c "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}" | grep -v 'Waiting for Emacs' &
+                $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs' &
             fi
         elif ((as_visual==1))
         then
-            $emacsclient_exe -c "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}"
+            $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}"
         else
-            $emacsclient_exe -n -a "$emacs_exe" "${emacs_opts[@]}" "$@" "${gim[@]}" "${which[@]}"
+            $emacsclient_exe -n -a "$emacs_exe" "${emacs_opts[@]}" "${allfiles[@]}"
         fi
     else
         cmd-echo "Server already up. Specify a file to edit."
@@ -244,7 +250,7 @@ xo - Start up emacs, using X and client mode where possible.
 =head1 SYNOPSIS
 
   xo [--debug] [--forceX] [--root] \\
-     [--gim] [--which file[,file...]] \\
+     [--org|--todo] [--gim] [--which file[,file...]] \\
      [-- any-emacs-opts] [file [file...]]
 
   xo [--nobg] --geo-only <emacs opts and args>
@@ -287,6 +293,10 @@ to use it anyway.
 
 Root directory of the emacs install, if you are using multiple version in
 places other than the default.
+
+=item --org, --todo
+
+Open the todo.org file for tracking work.
 
 =item --gim
 

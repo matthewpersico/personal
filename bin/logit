@@ -40,7 +40,7 @@ ajoin longopts -s , \
       edit edit-on-fail edit-echo \
       purge purgeprev purgeyesterday \
       notimestamp tpye tppe tpae tpe zpe ts help logonly \
-      env:
+      env: reinvoke:
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
@@ -149,6 +149,17 @@ do
             ;;
         purgeyesterday)
             purge=yesterday
+            ;;
+        reinvoke )
+            declare log=$1; shift
+            if [[ ! -r "$log" ]]
+            then
+                cmd-echo --ec -- "'$log' does not exist"
+                exit 1
+            fi
+            declare -a cmd
+            read -r -a cmd < <(head -4 "$log" | tail -1)
+            exec "${cmd[@]}"
             ;;
         notimestamp)
             notimestamp=1
@@ -535,6 +546,8 @@ logit [ --at time ] \\
       [ -- ] \\
       command [arg ..]
 
+logit [ --reinvoke log ]
+
 logit [ --help | -h ]
 
 Capture all the output of the command and some information about the executing
@@ -646,6 +659,9 @@ OPTIONS:
       --       - Ends options to logit. Command and its options
                  follow. Only needed if one or more logit options
                  are specified.
+
+      --reinvoke
+               - Grab the command from the given log file and rerun it.
 
       --help   - show this text.
 

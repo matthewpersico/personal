@@ -73,6 +73,7 @@ py_short_ver=$(python --version | sed -e 's/Python //' -e 's/..$//' -e 's/\.//')
 ## Actions setup
 declare -a actions_list=(clean flake black mypy test doc end)
 declare -a single_actions_list=(pytest pytestdb pytestdbe pytestdbu activate)
+single_actions_list+=(pyrun pyrundb pyrundbe pyrundbu)
 declare actions_re
 ajoin actions_re -s '|' "${actions_list[@]}" restart
 declare single_actions_re
@@ -284,6 +285,7 @@ do
             # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
             source .tox/py"${py_short_ver}"/bin/activate
 
+            # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
             if [[ $action == pytest ]]
             then
                 cmd-echo --color BLUE -- "pytest ${args[*]}"
@@ -304,6 +306,41 @@ do
                 cmd-echo --ec -- "$action not a valid test action"
                 exit 1
             fi
+            action=single_action_end
+            ;;
+
+        pyrun* )
+            args=("$@")
+
+            cmd-echo --color BLUE -- "source .tox/py${py_short_ver}/bin/activate"
+            # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+            source .tox/py"${py_short_ver}"/bin/activate
+
+            cmd-echo --color BLUE -- "cd .tox/py${py_short_ver} (refroot)"
+            (
+                cd ".tox/py${py_short_ver}" || exit 1
+                # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+                if [[ $action == pyrun ]]
+                then
+                    cmd-echo --color BLUE -- "python ${args[*]}"
+                    python "${args[@]}" || exit 1
+                elif [[ $action == pyrundb ]]
+                then
+                    cmd-echo --color BLUE -- "python --pdb $*"
+                    python -m pdb "$@"
+                elif [[ $action == pyrundbe ]]
+                then
+                    cmd-echo --color BLUE -- "xo --nobg --geo-only --eval \"(pdb \\\"python --pdb $*\\\")\""
+                    xo --nobg --geo-only --eval "(pdb \"python --pdb $*\")"
+                elif [[ $action == pyrundbu ]]
+                then
+                    cmd-echo --color BLUE -- "python --pdbcls pudb.debugger:Debugger --pdb -s $*"
+                    python --pdbcls pudb.debugger:Debugger -m pdb -s "$@"
+                else
+                    cmd-echo --ec -- "$action not a valid run action"
+                    exit 1
+                fi
+            ) || exit "$?"
             action=single_action_end
             ;;
 
@@ -439,30 +476,33 @@ Run a python tox setup.
 
 =over 4
 
-=item pytest
+=item py[test|run]
 
-Runs 'pytest' with any arguments supplied. First sources in the activate script
-(which doesn't stick on exit because of UNIX subprocessing) so that you don't
-have to remember to do so.
+Runs 'pytest'/'python' with any arguments supplied. Sources in the activate
+script (which doesn't stick on exit because of UNIX subprocessing) so that you
+don't have to remember to do so. 'pytest' is used for running tests. 'pyrun' is
+used for running scripts in the virtualenv, so it first does a cd into the root
+of the virtualenv directory, so if, for example, you want to run 'bin/foo',
+,you don't need to supply the full virtualenv path to foo, just 'bin/foo'.
 
-=item pytestdb*
+=item py[test|run]db*
 
-Runs 'pytest' in one of three debug modes
+Runs 'pytest' or 'python' in one of three debug modes
 
 =over 4
 
-=item pytestdb
+=item py[test|run]db
 
-Runs 'pytest -pdb', which uses the line-oriented builtin Python debugger.
+Runs 'py[test|thon] -pdb', which uses the line-oriented builtin Python debugger.
 
-=item pytestdbe
+=item py[test|run]dbe
 
-Runs 'pytest --pdb' in an emacs debugger session with any arguments
+Runs 'py[test|thon] --pdb' in an emacs debugger session with any arguments
 supplied.
 
-=item pytestdbu
+=item py[test|run]dbu
 
-Runs 'pytest' with the 'pudb' test-graphical debugger.
+Runs 'py[test|thon]' with the 'pudb' test-graphical debugger.
 
 =back
 
