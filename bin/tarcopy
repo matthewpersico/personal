@@ -6,6 +6,7 @@
 declare moreopts
 moreopts=1
 declare -a ext_tar_opts
+declare make_tgt=0
 while [[ "$1" =~ ^- ]] && ((moreopts))
 do
     declare original
@@ -21,14 +22,12 @@ do
         v )
             ext_tar_opts+=('-v')
             ;;
-        help )
-            echo "No documentation yet. Look at the code:"
-            cat "$0"
-            exit 0
+        make-tgt)
+            make_tgt=1
             ;;
-        debug | x ) set -x ;;
-        --)
-            moreopts=0
+        help )
+            bash-usage "$0"
+            exit 0
             ;;
         * )
             echo "$original is an invalid option. See $0 --help"; exit 1;;
@@ -45,40 +44,56 @@ declare tgtdir
 tgtdir="${*: -1}"
 if [ ! -d "$tgtdir" ]
 then
-    echo "Target '$tgtdir' must be an existing directory"
-    exit 1
+    if ((make_tgt))
+    then
+        echo "Target '$tgtdir' does not exist. Will be created, as requested."
+        mkdir -p "$tgtdir" || exit $?
+    else
+        echo "Target '$tgtdir' must be an existing directory, or use --make-tgt to request its creation."
+        exit 1
+    fi
+else
+    if ((make_tgt))
+    then
+        echo "Target '$tgtdir' already exists. Will not be created, though requested."
+    fi
 fi
 
-## B - reblock
-tar cf - "${@:1:$# - 1}" | tar -C "$tgtdir" "${ext_tar_opts[@]}" -xBf -
+## -B - reblock
+## -C - instead of (cd "tgtdir"; tar...)
+tar cf - "${@:1:$# - 1}" | tar -C "$tgtdir" "${ext_tar_opts[@]}" -xf -B -
 exit $?
-## POD guard
-exit 0
-
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/.
 
 :<<'__PODUSAGE__'
 =head1 NAME
 
-tarcopy - script that does something
+tarcopy - copy one or more files or directory trees using the classic 'tar <pack> | tar <unpack>' paradigm.
 
 =head1 SYNOPSIS
 
- tarcopy [--option1] [ --option2 optionarg ] arg1 [arg2 ...] 
-     [fee] [dfsdfs] [sfsdfsf]
+ tarcopy [-p] [-v] [--make-tgt] src [src ..] tgtdir
+ tarcopy --help
 
 =head1 DESCRIPTION
 
-Describe in general terms what tarcopy does.
+Copy one or more files or directory trees intact to another directory using the
+classic 'tar <pack> | tar <unpack>' paradigm. The 'tgtdir' must exist (but see
+the --make-tgt option).
 
 =head1 ARGUMENTS
 
 =over 4
 
-=item arg
+=item src
 
-Describe what arg does, should be, etc. Add a new =item for each distinct arg.
+A file or a directory to be copied. The entire directory structure is
+copied. Copying directory structures intact is the raison d'etre for this
+script.
+
+=item tgt
+
+A directory to where the sources are to be copied. The directory must exist, or
+must be requested to be created with the '--make-tgt' option.
 
 =back
 
@@ -86,29 +101,28 @@ Describe what arg does, should be, etc. Add a new =item for each distinct arg.
 
 =over 4
 
-=item --option1
+=item -p
 
-Describe what --option1 does.
+Option to tar, preserving original permissions on the copies.
 
-=item --option2
+=item -v
 
-Describe what --option2 does. Describe what optionarg does.
+Option to tar, verbose.
 
-=over 2
+=item --make-tgt
 
-=item *
-
-A choice for optionarg
-
-=item *
-
-Another choice for optionarg
+Create the target directory if it does not exist. If it already exists, a
+message is printed, and the copy is still executed. 'mkdir -p' is the command
+used to create the directory, so 'tgtdir' can be a multilevel directory.
 
 =back
+
+=item --help
+
+This help text.
 
 =back
 
 =cut
 
 __PODUSAGE__
-
