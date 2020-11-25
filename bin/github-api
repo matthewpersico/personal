@@ -20,29 +20,123 @@ curl-cat ()
     cat -v "${curldata}"*
 }
 
+print-progress ()
+{
+    declare verbose=$1; shift
+    declare no_progress=$1; shift
+    declare progress=$1; shift
+    declare pagenum=$1; shift
+    declare last=0
+    [[ $1 == 'last' ]] && last=1
+    declare print_it=0
+    if ((verbose))
+    then
+        if ((!no_progress))
+        then
+            ## verbose and we didn't shut off progress
+            print_it=1
+        fi
+    else
+        ## Not verbose...
+        ## ...but we asked for printing anyway
+        if ((progress))
+        then
+            ## If the current page matches the print page modulo number or it is the last page
+            if ((pagenum % progress == 0)) \
+                   || ((last))
+            then
+                print_it=1
+            fi
+        fi
+    fi
+    ((print_it)) &&  github-api-echo "Page ${pagenum}..."
+}
+
+declare G_next_link
+declare G_last_link
+
+parse-next-last ()
+{
+    declare curlheaders="$1"; shift
+    declare page_link_string
+    page_link_string=$(grep -E '^Link: ' "$curlheaders" )
+    if [[ -n $page_link_string ]]
+    then
+        ## There is more than one page of data to fetch.
+
+        ## Parse the link for first/prev/next/last urls
+        declare -a plitmp
+        read -r -a plitmp < \
+             <(perl -e'
+use strict; use warnings;
+my @pieces =
+map {
+     s/^<(.*)>;$/$1/;
+     s/^rel="([a-z]+)",*/$1/;
+     $_
+    }
+  grep { ! m/^Link:$/}
+    split(/\s+/,$ARGV[0]);
+for (my $i=0;$i<@pieces;$i+=2){
+    print( "@pieces[$i+1,$i] " )
+}
+' "$page_link_string"
+                  )
+        # Set the globals appropriately
+        declare idx=0
+        G_next_link=''
+        G_last_link=''
+        while((idx < "${#plitmp[@]}"))
+        do
+            if [[ ${plitmp[$idx]} == 'next' ]]
+            then
+                G_next_link=${plitmp[((idx+1))]}
+            elif [[ ${plitmp[$idx]} == 'last' ]]
+            then
+                G_last_link=${plitmp[((idx+1))]}
+            fi
+            ((idx+=2))
+        done
+    fi
+}
+
 main ()
 {
-    ## If there's any chance that this will be in a script that will be dotted in,
-    ## remove the explicit out_cmd calls.
-    declare out_cmd="exit"
-    declare moreopts=1
-    declare server='github'
-    declare token_file="$HOME/.github"
-    declare verbose=0
-    declare silent=0
+    declare opt_override_url ## Only used by re-exec
+    declare opt_server='github'
+    declare opt_page_limit=0
+
+    declare opt_data_mode=0
+    declare opt_stream_data=0
+    declare opt_keep_data=0
+    declare opt_perl_data=0
+
+    declare -a fields
+    declare opt_keyed_fields
+    declare opt_record_fields
+
     declare synchronous=0
-    declare keep_data=0
+
+    declare opt_verbose=0
+    declare opt_silent=0
+    declare opt_no_progress=0
+    declare opt_progress=0
+
+    declare moreopts=1
+
+    ## If there's any chance that this will be in a script that will be dotted
+    ## in, remove the explicit out_cmd calls.
+    declare out_cmd="exit"
+    declare token_file="$HOME/.github"
+
     declare scope='all'
     declare pullId
-    declare stream_data=0
-    declare perl_data=0
     declare doexec=1
     declare -a otherparams
-    declare opt_data_mode=0
-    declare override_url
+    declare per_page
     declare -a override_args
     declare -a re_exec
-
+    declare user
     re_exec=("$@")
 
     ##
@@ -71,22 +165,33 @@ main ()
         fi
 
         case $option in
-            override-url )
-                override_url=${ovalue:-$1}
+            override-url \
+                | server \
+                | page-limit \
+                | progress )
+                declare var="opt_${option//-/_}"
+                eval "${var}"="${ovalue:-$1}"
                 [ -z "$ovalue" ] && shift
                 ;;
 
-            data-mode ) opt_data_mode=1 ;;
+            data-mode \
+                | stream-data \
+                | keep-data \
+                | perl-data \
+                | no-progress )
+                declare var="opt_${option//-/_}"
+                eval "${var}"=1
+                [[ $var == 'opt_perl_data' ]] && opt_stream_data=1
+                ;;
 
-            stream-data ) stream_data=1 ;;
-
-            perl-data ) stream_data=1; perl_data=1 ;;
-
-            keep-data ) keep_data=1 ;;
-
-            server )
-                server=${ovalue:-$1}
-                [ -z "$ovalue" ] && shift
+            *fields )
+                eval opt_${option//-/_}=1
+                ;&
+            fields )
+                declare -a some_fields
+                IFS=, read -ra some_fields <<<"$1"; shift
+                fields+=("${some_fields[@]}")
+                opt_stream_data=1
                 ;;
 
             wait ) synchronous=1 ;;
@@ -94,29 +199,24 @@ main ()
             all | public | private | list-forks | sources | member | contents )
                 scope=$option ;;
 
-            pull )
-                pullId=${ovalue:-$1}
-                [ -z "$ovalue" ] && shift
-                ;;
-
             h | help )
                 bash-usage "$0"
                 $out_cmd 0
                 ;;
 
             v | verbose )
-                verbose=1
-                silent=0
+                opt_verbose=1
+                opt_silent=0
                 ;;
 
             s | silent )
-                verbose=0
-                silent=1
+                opt_verbose=0
+                opt_silent=1
                 ;;
 
             noexec)
                 doexec=0
-                verbose=1
+                opt_verbose=1
                 ;;
             --)
                 moreopts=0
@@ -130,15 +230,15 @@ main ()
     done
 
     declare server_url
-    server_url="$(git kv --get "api-urls.$server")/"
+    server_url="$(git kv --get "api-urls.$opt_server")/"
     if [ -z "$server_url" ]
     then
-        github-api-echo -- "'$server' is an in valid --server option"
+        github-api-echo -- "'$opt_server' is an in valid --server option"
         return 1
     fi
 
     declare token_file
-    token_file="$HOME/$(git kv --get "token-file.$server")"
+    token_file="$HOME/$(git kv --get "token-file.$opt_server")"
     if [ ! -r "$token_file" ]
     then
         github-api-echo -- "Credentials file '$token_file' not found. Do you have the right server?"
@@ -205,7 +305,7 @@ main ()
             fi
             if [[ $action == 'org' ]] && [[ -n $repo ]]
             then
-                cmd-echo --wc -- "Repo ignore for action org"
+                github-api-echo --wc -- "Repo ignore for action org"
                 repo=''
             fi
 
@@ -233,6 +333,14 @@ main ()
             [[ -n ${otherparams[0]} ]] && \
                 [[ ! ${otherparams[0]} =~ ^\+ ]] &&
                 otherparams[0]="+${otherparams[0]}"
+            ;;
+
+        users)
+            user='*'
+            ;;
+
+        user)
+            user="$1"; shift
             ;;
 
         * )
@@ -315,16 +423,24 @@ main ()
             url="repos/$org/$repo/contents/$contents"
             ;;
 
+        users )
+            url="users"
+            per_page='per_page=100'
+            ;;
+
+        user )
+            url="users/$user"
+            ;;
     esac
     ## Override on re-exec
-    if [[ -n $override_url ]]
+    if [[ -n $opt_override_url ]]
     then
         ## Get rid of the option since we may have to use it again. We know we
         ## made it the first option in the command.
         re_exec=("${re_exec[@]:2}")
 
         ## Use it
-        url="${override_url}"
+        url="${opt_override_url}"
         override_args=('--override-url' "${url}")
     fi
 
@@ -338,104 +454,142 @@ main ()
     declare perldata
     perldata=$(mktemp -t tmp.github-api.perldata.$$.XXXXXXXXXX)
 
-    if ((keep_data))
+    if ((opt_keep_data))
     then
         github-api-echo -- "Header and data files are" "$curlheaders" "$curldata"
     else
         rm-on-exit "$curlheaders" "$curldata" "$perldata"
     fi
 
-    if((verbose))
+    if((opt_verbose))
     then
         github-api-echo -- "curl --header \"Authorization: token\$(grep token $token_file | cut -d= -f2)\" ${curlopts[*]} ${server_url}${url}${otherparams[*]} -s"
     fi
 
-    if ((doexec))
+    if ((!doexec))
     then
-        curl \
-            --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
-            "${curlopts[@]}" \
-            "${server_url}${url}${otherparams[*]}" -s > "$curldata" 2>&1
-        declare status=$?
-        if ((status))
+        return 0
+    fi
+
+    curl \
+        --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
+        "${curlopts[@]}" \
+        "${server_url}${url}${otherparams[*]}" -s > "$curldata" 2>&1
+    declare status=$?
+    if ((status))
+    then
+        github-api-echo -- "curl returned with error :$status"
+        curl-cat
+        return $status
+    fi
+
+    ## pagination
+    declare pagenum=1 ## We just fetched page # 1
+
+    parse-next-last "$curlheaders"
+    if [[ -n $G_next_link ]]
+    then
+        declare totalpages=0
+        declare pageprint_ext_size=5
+        if [[ -n $G_last_link ]]
         then
-            github-api-echo -- "curl returned with error :$status"
-            curl-cat
-            return $status
+            ## If there is a 'last' link, we know the number of pages we are going to get.
+            # shellcheck disable=SC2207
+            totalpages=$(perl -e '$ARGV[0] =~ m/.*?page=(\d+)/;print "$1\n";' "${G_last_link}")
         fi
 
-        declare -a pagenums
-        declare page_links
-        page_links=$(grep -E '^Link: ' "$curlheaders" )
-        if [[ -n $page_links ]]
+        if ( ((opt_verbose)) && ((!opt_no_progress)) ) \
+               || ((opt_progress))
         then
-            # shellcheck disable=SC2207
-            pagenums=($(perl -e '$ARGV[0] =~ m/.*?page=(\d+).*?page=(\d+)/;print "$1 $2\n";' "$page_links"))
-            declare pagenum=1
-            declare pagenumfmt
-            pagenumfmt="%0${#pagenums[1]}d"
-            declare pageprint
-            # shellcheck disable=SC2059
-            pageprint="$(printf "$pagenumfmt" $pagenum)"
-            # shellcheck disable=SC2004
-            ((!silent)) && github-api-echo "$pagenum of ${pagenums[1]} pages of data fetched..."
+            declare msg="Page $pagenum of"
+            if ((totalpages))
+            then
+                msg="$msg $totalpages pages"
+            else
+                msg="$msg an unknown number of pages"
+            fi
+            msg="$msg of data to be fetched"
+            if ((opt_page_limit)) && \
+                   ( ((!totalpages)) \
+                         || ((opt_page_limit < totalpages)) )
+            then
+                msg="$msg (limiting to $opt_page_limit)"
+            fi
+            github-api-echo "${msg}..."
+        fi
+
+        while [[ -n $G_next_link ]] && \
+                  ( ((opt_page_limit==0)) || \
+                        ((pagenum < opt_page_limit)) )
+        do
             ((pagenum+=1))
-            while (( pagenum <= "${pagenums[1]}" ))
-            do
-                ((!silent)) && github-api-echo "Page ${pagenum}..."
-                # shellcheck disable=SC2059
-                pageprint="$(printf "$pagenumfmt" "$pagenum")"
-                curl \
-                    --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
-                    "${curlopts[@]}" \
-                    "${server_url}${url}${otherparams[*]}&page=$pagenum" -s > "${curldata}.${pageprint}" 2>&1
-                declare status=$?
+            print-progress "$opt_verbose" "$opt_no_progress" "$opt_progress" "$pagenum"
+            declare pageprint_ext
+            pageprint_ext="$(printf "%0${pageprint_ext_size}d" "$pagenum")"
+            curl \
+                --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
+                "${curlopts[@]}" \
+                "${G_next_link}&${per_page}" -s > "${curldata}.${pageprint_ext}" 2>&1
+            declare status=$?
 
-                if ((status))
-                then
-                    github-api-echo -- "curl returned with error :$status"
-                    curl-cat
-                    return $status
-                fi
+            if ((status))
+            then
+                github-api-echo -- "curl returned with error :$status"
+                curl-cat
+                return $status
+            fi
 
-                declare htmlstatus
-                htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
-                case $htmlstatus in
-                    200 )
-                        ## Consolidate paged data.
+            declare htmlstatus
+            htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
+            case $htmlstatus in
+                200 )
+                    ## Consolidate paged data.
+                    if (( $(wc -l < "${curldata}.${pageprint_ext}") > 3))
+                    then
+                        ## The file is not empty
                         echo ',' >> "$curldata"
-                        cat "${curldata}.${pageprint}" >> "$curldata"
-                        ;;
-                    403 )
-                        ## Forbidden. Probably hit a query limit.
-                        cat "$curlheaders"
-                        ;;
-                    404 )
-                        ## Sometimes, even though pagination of the returned
-                        ## data is indicated, the data is not paginated. If we
-                        ## got here and got a 404, let's assume all the data is
-                        ## in the prior set of data (there must have been at
-                        ## least one good set or we wouldn't have even gotten
-                        ## into this pagination-handing loop) and move on.
+                        if cat "${curldata}.${pageprint_ext}" >> "$curldata"
+                        then
+                            rm -f "${curldata}.${pageprint_ext}"
+                        else
+                            github-api-echo --ec -- "Paging consolidation error. Exiting."
+                            return 1
+                        fi
+                    fi
+                    ;;
+                403 )
+                    ## Forbidden. Probably hit a query limit.
+                    cat "$curlheaders"
+                    ;;
+                404 )
+                    ## Sometimes, even though pagination of the returned
+                    ## data is indicated, the data is not paginated. If we
+                    ## got here and got a 404, let's assume all the data is
+                    ## in the prior set of data (there must have been at
+                    ## least one good set or we wouldn't have even gotten
+                    ## into this pagination-handing loop) and move on.
 
-                        ## Fake a good header
-                        echo "Status: 200 OK" > "$curlheaders"
+                    ## Fake a good header
+                    echo "Status: 200 OK" > "$curlheaders"
 
-                        break ## while
-                        ;;
-                    * )
-                        cat "$curlheaders"
-                        exit
-                        ;;
-                esac
-                ((pagenum+=1))
-            done
-            ## $curldata as invalid json because each page is a list instead of
-            ## all the data in one list. We added the commas above. Now we pull
-            ## out the superfluous ][ here:
-            declare curldata_relist
-            curldata_relist=$(mktemp -t tmp.github-api.curldata_relist.$$.XXXXXXXXXX)
-            perl -e '
+                    break ## while
+                    ;;
+                * )
+                    cat "$curlheaders"
+                    exit
+                    ;;
+            esac
+            parse-next-last "$curlheaders"
+        done
+        ## Print the last progress, maybe
+        print-progress "$opt_verbose" "$opt_no_progress" "$opt_progress" "$pagenum" 'last'
+
+        ## $curldata is invalid json because each page is a list instead of
+        ## all the data in one list. We added the commas above. Now we pull
+        ## out the superfluous ][ here:
+        declare curldata_relist
+        curldata_relist=$(mktemp -t tmp.github-api.curldata_relist.$$.XXXXXXXXXX)
+        perl -e '
 BEGIN { print(qq([\n)); }
 while(<>){
   chomp;
@@ -443,17 +597,17 @@ while(<>){
 }
 END { print(qq(]\n)); }
 ' "$curldata" > "$curldata_relist"
-            mv "$curldata_relist" "$curldata"
-        fi
-        declare htmlstatus
-        htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
-        case $action in
-            repos )
-                if [[ -n $repo ]]
-                then
-                    declare curldata_filter
-                    curldata_filter=$(mktemp -t tmp.github-api.curldata_filter.$$.XXXXXXXXXX)
-                    perl -d:ptkdb -MJSON::XS -e '
+        mv "$curldata_relist" "$curldata"
+    fi
+    declare htmlstatus
+    htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
+    case $action in
+        repos )
+            if [[ -n $repo ]]
+            then
+                declare curldata_filter
+                curldata_filter=$(mktemp -t tmp.github-api.curldata_filter.$$.XXXXXXXXXX)
+                perl -MJSON::XS -e '
 open IH, q(<), $ARGV[0];
 $data = join(q(),<IH>);
 close(IH);
@@ -467,55 +621,55 @@ for my $j (@{$json}) {
 }
 print(JSON::XS->new->pretty(1)->encode(\@js));
 ' "${curldata}" "$repo" > "$curldata_filter" || exit $?
-                    mv "$curldata_filter" "$curldata"
-                fi
-                ;;
-            contents)
-                case $htmlstatus in
-                    200 )
-                        # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
-                        echo '$VAR1=' > "$perldata"
-                        json_xs -t dumper < "$curldata" >> "$perldata"
-                        echo ';'
-                        perl -MMIME::Base64 -e 'do $ARGV[0]; print decode_base64($VAR1->{content})' "$perldata"
-                        ;;
-                    * )
-                        github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
-                        curl-cat
-                        return 1
-                        ;;
-                esac
-                ;;
+                mv "$curldata_filter" "$curldata"
+            fi
+            ;;
+        contents)
+            case $htmlstatus in
+                200 )
+                    # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
+                    echo '$VAR1=' > "$perldata"
+                    json_xs -t dumper < "$curldata" >> "$perldata"
+                    echo ';'
+                    perl -MMIME::Base64 -e 'do $ARGV[0]; print decode_base64($VAR1->{content})' "$perldata"
+                    ;;
+                * )
+                    github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
+                    curl-cat
+                    return 1
+                    ;;
+            esac
+            ;;
 
-            exists )
-                case $htmlstatus in
-                    200 )
-                        ((opt_data_mode==0)) && github-api-echo -- "Repo exists."
-                        ;;
-                    404 )
-                        github-api-echo -e -- "'${server}:$org/$repo' not found."
-                        return 1
-                        ;;
-                    * )
-                        github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
-                        curl-cat
-                        return 1
-                        ;;
-                esac
-                ;;
+        exists )
+            case $htmlstatus in
+                200 )
+                    ((opt_data_mode==0)) && github-api-echo -- "Repo exists."
+                    ;;
+                404 )
+                    github-api-echo -e -- "'${opt_server}:$org/$repo' not found."
+                    return 1
+                    ;;
+                * )
+                    github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
+                    curl-cat
+                    return 1
+                    ;;
+            esac
+            ;;
 
-            list-forks )
-                case $htmlstatus in
-                    200 )
-                        # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
-                        echo '$VAR1=' > "$perldata"
-                        json_xs -t dumper < "$curldata" >> "$perldata"
-                        perl -e 'do $ARGV[0]; print join(qq(\n), sort map {$_->{full_name}} @$VAR1)' "$perldata"
-                        return 1
-                        ;;
-#                    301 )
-#                        declare newurl
-#                        newurl=$(perl -d:ptkdb -MJSON::XS -e '
+        list-forks )
+            case $htmlstatus in
+                200 )
+                    # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
+                    echo '$VAR1=' > "$perldata"
+                    json_xs -t dumper < "$curldata" >> "$perldata"
+                    perl -e 'do $ARGV[0]; print join(qq(\n), sort map {$_->{full_name}} @$VAR1)' "$perldata"
+                    return 1
+                    ;;
+#               301 )
+#                   declare newurl
+#                   newurl=$(perl -MJSON::XS -e '
 #open IH, q(<), $ARGV[0];
 #$data = join(q(),<IH>);
 #close(IH);
@@ -523,30 +677,30 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
 #$url = $json->{url};
 #$url =~ s|$ARGV[1]||;
 #print qq($url);' "${curldata}" "${server_url}")
-#                        cmd-echo -- "Need a --no-fork option below...Re-directing..."
-#                        cmd-echo --dc -- "exec $0 --override-url \"$newurl\" \"${re_exec[@]}\""
-#                        pause
-#                        exec $0 --override-url "$newurl" "${re_exec[@]}"
-#                        ;;
-                    404 )
-                        github-api-echo -e -- "'${server}:$org/$repo' not found."
-                        return 1
-                        ;;
-                    * )
-                        github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
-                        curl-cat
-                        return 1
-                        ;;
-                esac
-                ;;
-
-            pulls )
-                case $htmlstatus in
-                    200 )
+#                   github-api-echo -- "Need a --no-fork option below...Re-directing..."
+#                   github-api-echo --dc -- "exec $0 --override-url \"$newurl\" \"${re_exec[@]}\""
+#                   pause
+#                   exec $0 --override-url "$newurl" "${re_exec[@]}"
+#                   ;;
+                404 )
+                    github-api-echo -e -- "'${opt_server}:$org/$repo' not found."
+                    return 1
                     ;;
-                    301 )
-                        declare newurl
-                        newurl=$(perl -MJSON::XS -e '
+                * )
+                    github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
+                    curl-cat
+                    return 1
+                    ;;
+            esac
+            ;;
+
+        pulls )
+            case $htmlstatus in
+                200 )
+                ;;
+                301 )
+                    declare newurl
+                    newurl=$(perl -MJSON::XS -e '
 open IH, q(<), $ARGV[0];
 $data = join(q(),<IH>);
 close(IH);
@@ -554,42 +708,42 @@ $json = decode_json($data);
 $url = $json->{url};
 $url =~ s|$ARGV[1]||;
 print qq($url);' "${curldata}" "${server_url}")
-                        exec "$0" --override-url "$newurl" "${re_exec[@]}"
-                        ;;
-                    404 )
-                        github-api-echo -e -- "'${server}:$org/$repo' not found."
-                        return 1
-                        ;;
-                    * )
-                        github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
-                        curl-cat
-                        return 1
-                        ;;
-                esac
-                ;;
+                    exec "$0" --override-url "$newurl" "${re_exec[@]}"
+                    ;;
+                404 )
+                    github-api-echo -e -- "'${opt_server}:$org/$repo' not found."
+                    return 1
+                    ;;
+                * )
+                    github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
+                    curl-cat
+                    return 1
+                    ;;
+            esac
+            ;;
 
-            fork )
-                case $htmlstatus in
-                    200 | 202 )
-                        if ((opt_data_mode==0))
-                        then
-                            [[ $htmlstatus == '200' ]] && github-api-echo -- "Fork created."
-                            [[ $htmlstatus == '202' ]] && github-api-echo -- "Fork found."
-                            ## In the 202 case one or both of the repos could have
-                            ## been renamed after the fork was originally created.
-                        else
-                            perl -MJSON::XS -e '
+        fork )
+            case $htmlstatus in
+                200 | 202 )
+                    if ((opt_data_mode==0))
+                    then
+                        [[ $htmlstatus == '200' ]] && github-api-echo -- "Fork created."
+                        [[ $htmlstatus == '202' ]] && github-api-echo -- "Fork found."
+                        ## In the 202 case one or both of the repos could have
+                        ## been renamed after the fork was originally created.
+                    else
+                        perl -MJSON::XS -e '
 open IH, q(<), $ARGV[0];
 $data = join(q(),<IH>);
 close(IH);
 $json = decode_json($data);
 print $json->{name};' "${curldata}"
-                        fi
-                        ;;
+                    fi
+                    ;;
 
-                    307 )
-                        declare newurl
-                        newurl=$(perl -MJSON::XS -e '
+                307 )
+                    declare newurl
+                    newurl=$(perl -MJSON::XS -e '
 open IH, q(<), $ARGV[0];
 $data = join(q(),<IH>);
 close(IH);
@@ -597,59 +751,106 @@ $json = decode_json($data);
 $url = $json->{url};
 $url =~ s|$ARGV[1]||;
 print qq($url);' "${curldata}" "${server_url}")
-                        cmd-echo -- "Re-directing..."
-                        exec "$0" --override-url "$newurl" "${re_exec[@]}"
-                        ;;
-                    404 )
-                        github-api-echo -e -- "either organization '$org' or repo '$repo' does not exist on '$server'."
-                        return 1
-                        ;;
-                    * )
-                        github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
-                        curl-cat
-                        return 1
-                        ;;
-                esac
+                    github-api-echo -- "Re-directing..."
+                    exec "$0" --override-url "$newurl" "${re_exec[@]}"
+                    ;;
+                404 )
+                    github-api-echo -e -- "either organization '$org' or repo '$repo' does not exist on '$opt_server'."
+                    return 1
+                    ;;
+                * )
+                    github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
+                    curl-cat
+                    return 1
+                    ;;
+            esac
 
-                if ((synchronous))
+            if ((synchronous))
+            then
+                declare waiting='Waiting for fork creation...'
+                declare remaining=60
+                while github-api "${override_args[@]}" --server "$opt_server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
+                do
+                    [ -n "$waiting" ] && github-api-echo -- "'$waiting'" && waiting=''
+                    sleep 1
+                    ((remaining-=1))
+                    ((remaining)) || break
+                done
+                if github-api "${override_args[@]}" --server "$opt_server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
                 then
-                    declare waiting='Waiting for fork creation...'
-                    declare remaining=60
-                    while github-api "${override_args[@]}" --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
-                    do
-                        [ -n "$waiting" ] && github-api-echo -- "'$waiting'" && waiting=''
-                        sleep 1
-                        ((remaining-=1))
-                        ((remaining)) || break
-                    done
-                    if github-api "${override_args[@]}" --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
-                    then
-                        github-api-echo -w -- "Fork not yet created"
-                        return 1
-                    else
-                        return 0
-                    fi
+                    github-api-echo -w -- "Fork not yet created"
+                    return 1
+                else
+                    return 0
                 fi
-                ;;
-        esac
-    fi
+            fi
+            ;;
+        user*)
+            echo "No special processing for '$action' yet" >/dev/null
+            ;;
+    esac
 
-    if ((stream_data))
+    if ((opt_stream_data))
     then
-        if((perl_data))
+        if((opt_perl_data))
         then
             # shellcheck disable=SC2016 # We know the variable will not expand.
             echo '$VAR1='
             json_xs -t dump < "${curldata}"
+        elif(("${#fields[@]}"))
+        then
+            declare -a fields_json
+            declare f
+            for f in "${fields[@]}"
+            do
+                if((opt_keyed_fields))
+                then
+                    fields_json+=("$f")
+                else
+                    fields_json+=(".$f")
+                fi
+            done
+            declare fields_string
+            ajoin fields_string -s ', ' "${fields_json[@]}"
+            if((opt_keyed_fields))
+            then
+                fields_string=".[] | {$fields_string}"
+            else
+                fields_string=".[] | $fields_string"
+            fi
+            if ((opt_verbose))
+            then
+                github-api-echo -- "Field filter command: jq -r '$fields_string' '${curldata}'"
+            fi
+            if ((opt_record_fields))
+            then
+                ##jq -r "$fields_string" "${curldata}" > "${curldata}.torecord"
+                perl -ne '
+BEGIN { $count = shift };
+my $idx=$count;
+my @output;
+do {
+    chomp;
+    if(!$idx) {
+        print(qq(@{output}\n));
+        @output=();
+        $idx=$count;
+    }
+    push @output,$_;
+    $idx--;
+} while (<>);' "${#fields[@]}" < <(jq -r "$fields_string" "${curldata}")
+            else
+                jq -r "$fields_string" "${curldata}"
+            fi
         else
             cat -v "${curldata}"
         fi
-    elif ((!silent))
+    elif ((opt_verbose))
     then
         curl-cat
     fi
 
-    if ((keep_data))
+    if ((opt_keep_data))
     then
         github-api-echo -- "Header and data files are" "$curlheaders" "$curldata"
     fi
@@ -666,18 +867,20 @@ github-api - Wrapper around curl calls to the github api
 
 =head1 SYNOPSIS
 
- github-api [--server server] [--stream-data|--perl-data] [--keep-data] ] [--wait] [--verbose|--silent|--noexec] \
+ github-api [--server server] [--stream-data|--perl-data] [--keep-data] [--wait] [--verbose|--silent|--noexec] \
+     [[--fields | --keyed-fields | --record-fields ] field[,field...]]... \
      org <orgname> |
      repos [--user] <orgname> [<reponamepattern>] |
-     exists[|ping] <orgname> <reponame> |
+     exists[|ping] [--data-mode] <orgname> <reponame> |
      repo <orgname <reponame> |
      list-forks <orgname> <reponame> |
-     fork <orgname> <reponame> |
+     fork [--data-mode] <orgname> <reponame> |
      filename <filename-to-search-for> |
      text <text-to-search-for> |
      [--pullId N] pulls |
      contents <orgname> <reponame> path/to/file/from/repo/root[?ref=id] |
      url <serverless-url-of-api-call> |
+     users | user <user-to-search-for>
      raw <full-url-of-api-call>
 
 =head1 DESCRIPTION
@@ -705,8 +908,9 @@ the output is limited to that repos whose names match.
 
 =item exists|ping
 
-Runs repos api call. Requires an orgname and a repo. Exits 0 if repo found, 1
-if not.
+Runs repos api call. Requires an orgname and a repo. Prints "Repo exists." and
+exits 0 if repo found. Prints nothing and exists 1 if not. If you specify
+'--data-mode', skips the print on success.
 
 =item repo
 
@@ -719,7 +923,10 @@ Lists the forks of a repo. Requires an orgname and a repo.
 
 =item fork
 
-Create a fork, in your org, a repo. Requires an orgname and a repo.
+Create a fork, in your org, of a repo. Requires an orgname and a repo. Prints
+"Fork created." or "Fork found." as appropriate. If you specify '--data-mode',
+skips the print of the meessages and prints the JSON returned by the
+call. Handles renames and redirections (status 307) properly.
 
 =item filename
 
@@ -782,6 +989,37 @@ Whe creating a fork, wait for the fork to create before exiting. Default is to s
 'silent' supresses the header and data output when you just want the return code.
 
 'noexec' show the full curl command, sans authentication info, but does not execute it.
+
+=item [--fields | --keyed-fields | --record-fields ]
+
+Limits the output to only those fields you ask for in each record. Multiple
+fields are separated by commas and/or you can specify multiple instances of the
+same option; these two lines are equivilent:
+
+ --fields a,b --fields c
+ --fields a,b,c
+
+The differences in the options are in the output. For a record (in JSON):
+
+ {"name": "matt", "age": "29"}
+
+--fields prints
+
+ matt
+ 29
+
+--keyed-fields prints
+
+  {
+    "name": "matt",
+    "age"": "29"
+  }
+
+--record-fields prints
+
+  matt 29
+
+The last one is problematic for further field parsing if any of the data has spaces in it.
 
 =back
 
