@@ -2,7 +2,7 @@
 #
 # logit
 #
-
+# shellcheck disable=SC2009 #https://github.com/koalaman/shellcheck/wiki/SC2009 - psgrep not on all machines
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
@@ -365,7 +365,6 @@ then
     ((!zenity_only)) && title="$title [log is $logspec]"
     if [[ $termer =~ zenity ]]
     then
-
         $termer --text-info --auto-scroll \
                 "${zenity_geo[@]}" \
                 --title "$title" \
@@ -381,8 +380,11 @@ then
     sleep 2 ## Give the $termer a chance to come up and start tailing so we
             ## see the whole log in the tail
 
-    tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
-    termerpid=$(pstree | grep "$termer" | grep "$logspec" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+    ## Grabs the line that is the process entry for the tail command, prints the first number it finds (the pid)
+    tailpid=$(ps -ef | grep "$logspec" | grep 'tail -f' | grep -v "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+    ## Grabs the line that is the process entry for the output of the tail command, prints the first number it finds (the pid)
+    termerpid=$(ps -ef | grep "$logspec" | grep 'tail -f' | grep "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+
     if [[ $termer =~ zenity ]]
     then
         ## Ending the zenity process doesn't end the tail and exiting this

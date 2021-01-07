@@ -329,15 +329,16 @@ main ()
     fi
 
     declare curlheaders
-    curlheaders=$(mktemp -t tmp.github-api.curlheaders.$$.XXXXXXXXXX)
+    curlheaders=$(mktemp -t tmp.github-api.$$.curlheaders.XXXXXXXXXX)
     curlopts+=('-D' "$curlheaders")
 
     declare curldata
-    curldata=$(mktemp -t tmp.github-api.curldata.$$.XXXXXXXXXX)
+    curldata=$(mktemp -t tmp.github-api.$$.curldata.XXXXXXXXXX)
 
     declare perldata
-    perldata=$(mktemp -t tmp.github-api.perldata.$$.XXXXXXXXXX)
+    perldata=$(mktemp -t tmp.github-api.$$.perldata.XXXXXXXXXX)
 
+    keep_data=1
     if ((keep_data))
     then
         github-api-echo -- "Header and data files are" "$curlheaders" "$curldata"
@@ -434,7 +435,7 @@ main ()
             ## all the data in one list. We added the commas above. Now we pull
             ## out the superfluous ][ here:
             declare curldata_relist
-            curldata_relist=$(mktemp -t tmp.github-api.curldata_relist.$$.XXXXXXXXXX)
+            curldata_relist=$(mktemp -t tmp.github-api.$$.curldata_relist.XXXXXXXXXX)
             perl -e '
 BEGIN { print(qq([\n)); }
 while(<>){
@@ -452,7 +453,7 @@ END { print(qq(]\n)); }
                 if [[ -n $repo ]]
                 then
                     declare curldata_filter
-                    curldata_filter=$(mktemp -t tmp.github-api.curldata_filter.$$.XXXXXXXXXX)
+                    curldata_filter=$(mktemp -t tmp.github-api.$$.curldata_filter.XXXXXXXXXX)
                     perl -d:ptkdb -MJSON::XS -e '
 open IH, q(<), $ARGV[0];
 $data = join(q(),<IH>);
@@ -505,6 +506,7 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
                 ;;
 
             list-forks )
+                set -x
                 case $htmlstatus in
                     200 )
                         # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
@@ -538,6 +540,7 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
                         return 1
                         ;;
                 esac
+                set +x
                 ;;
 
             pulls )
@@ -569,6 +572,7 @@ print qq($url);' "${curldata}" "${server_url}")
                 ;;
 
             fork )
+                set -x
                 case $htmlstatus in
                     200 | 202 )
                         if ((opt_data_mode==0))
@@ -632,6 +636,7 @@ print qq($url);' "${curldata}" "${server_url}")
                 fi
                 ;;
         esac
+        set +x
     fi
 
     if ((stream_data))
