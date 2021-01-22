@@ -1,0 +1,30 @@
+#!/usr/bin/env bash
+
+# Move a large file or directory out of the way and delete it
+# asynchronously. This allows us no only to recover the command line quickly,
+# but when the next command is to recreate what we are deleting, the command
+# and the delete don't conflict.
+
+declare arg
+declare -a args=('-i')
+declare -a tgts
+for arg in "$@"
+do
+    if [[ -e $arg ]]
+    then
+        tgts+=("$arg")
+    else
+        args+=("$arg")
+    fi
+done
+
+declare -a rmtgts
+declare tgt
+for tgt in "${tgts[@]}"
+do
+    declare rmtgt
+    rmtgt="$(dirname "$tgt")/$(mktemp -u rmasyncXXXXXXX)"
+    mv "$tgt" "$rmtgt"
+    rmtgts+=("$rmtgt")
+done
+"rm" "${args[@]}" "${rmtgts[@]}" &
