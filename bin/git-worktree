@@ -109,8 +109,8 @@ git-worktree-create ()
     local status=0
     local opt_m=''
     local message=''
-    local default_branch
-    default_branch=$(git-repo default-branch)
+    local branch_from
+    local branch_from_arg
     local remote=origin
     local localbranchname
     local pull_request=''
@@ -139,7 +139,9 @@ git-worktree-create ()
             no-reset | skip-reset) opt_reset=0 ;;
             f|fetch) fetch_existing=1 ;;
             m|message) opt_m=$1; message="$1"; shift ;;
-            default_branch) default_branch=$1; shift ;;
+            from-branch | branch-from)
+                branch_from=$1; shift
+                branch_from_arg="$option" ;;
             h|help) usage; return 0 ;;
             r|remote) remote=$1; shift ;;
             orphan) echo "Sorry, cannot create orphans this way."
@@ -153,7 +155,15 @@ git-worktree-create ()
         esac
     done
 
+    ## Make sure we are in the right place to start making the work tree.
     ! _git_worktree_check_set_pwd && return 1
+
+    ## Update repo with latest remote info.
+    declare -a git_remotes
+    readarray -t git_remotes < <(git remote)
+    for i in "${git_remotes[@]}"; do git fetch "$i"; git pull; done
+
+    ## Start making the wt dir
     local wtroot
     wtroot="${PWD}"
 
@@ -215,7 +225,6 @@ git-worktree-create ()
     local create_branch="-b"
 
     ## Make sure we do not have a local branch with the same name
-    git pull ## update with latest remote names.
     exists=$(git branch --list --format='%(refname)' | sed 's|.*/||' | \
                  while read -r line
                  do
@@ -318,10 +327,29 @@ git-worktree-create ()
 
             _git_worktree_info_add_fetched_date "$localbranchname"
         else ## ((fetch_existing==0)) && [ -z "$exists" ]
+            declare -a branch_from_ref
+            if [[ -n $branch_from ]]
+            then
+                ## $branch_from is the branch name. We need the full branch ref
+                ## here. Get it and check it.
+                readarray -t branch_from_ref < <(git branch -a | grep -e "/${branch_from}$" | sed -E 's/^\s+//')
+                case ${#branch_from_ref[@]} in
+                    0 ) declare -a all_refs=(git branch -a)
+                        cmd-echo --ec -- "Branch '$branch_from' not found in refs list:" "${all_refs[@]}" "Aborting"
+                        return 1;;
+                    1 ) : # noop
+                        ;;
+                    * ) cmd-echo --ec -- "Branch '$branch_from' found more than once in refs list:" "${all_refs[@]}" \
+                                 "Re-run and specify full reference for --$branch_from_arg"
+                        return 1;;
+                esac
+            else
+                branch_from_ref[0]="$(git-repo default-branch)"
+            fi
 
             ## Now create the worktree and the branch.
-            ((verbose)) && cmd-echo -- "$REALGIT worktree add -b ${wtsubdir} ${wtbranch}"
-            $REALGIT worktree add $create_branch "${wtsubdir}" "${wtbranch}" "$default_branch"
+            ((verbose)) && cmd-echo -- "$REALGIT worktree add -b ${wtsubdir} ${wtbranch} ${branch_from_ref[0]}"
+            $REALGIT worktree add $create_branch "${wtsubdir}" "${wtbranch}" "${branch_from_ref[0]}"
             status=$?
             if ((status))
             then
@@ -704,13 +732,18 @@ $(ls -la)"
     mv "$old_wtpath" "$new_wtpath" || return 1
 
     ## Register the rename
+    declare -a paths
+    IFS='/' read -ra paths <<< "$new_wtpath"
+    declare sliceindex=$((${#paths[@]} - 4 ))
+    declare gitgoto
+    gitgoto="$(printf "%s/" "${paths[@]:$sliceindex:3}")${paths[-1]}"
     if ((opt_reset))
     then
         cmd-echo -- "Resetting git list..."
         git-go-set
         if ((opt_current))
         then
-            git go "$repo/wt/$(basename "$new_wtpath")"
+            git go "$gitgoto"
         fi
     else
         cmd-echo -- "--skip-reset. Run 'git-go-set' at some point."
@@ -722,7 +755,7 @@ $(ls -la)"
         then
             cmd-echo -- \
                      "Done. Execute" \
-                     "    git go $repo/wt/$(basename "$new_wtpath")" \
+                     "    git go $gitgoto" \
                      "to use."
         else
             echo "go $new_wtpath" > "$doandcdfile"
@@ -912,7 +945,6 @@ git-worktree-purge()
     for wt in "${wts[@]}"
     do
         (
-            declare -a msg
             cd "$wt" || exit 0;
             cmd-echo -- "$wt"
             declare ok_to_purge=1
@@ -1050,14 +1082,16 @@ A synonymn for 'add' but one that respects our conventions.
 
 For branches:
 
- git worktree cre[ate] [-f] [-r remote] [-m 'message'] [--default_branch somebranch] [-l localbranchname] worktree-name
+ git worktree cre[ate] [-f] [-r remote] [-m 'message'] \
+              [--[branch-from|from-branch] somebranch] [-l localbranchname] \
+              worktree-name
        -f|--fetch
            - Do not create the branch, but fetch an existing branch.
        -r|--remote
            - Use 'remote' as the source; the default is 'origin'.
        -m|--message
            - Record a short description readable with git-st-ext.
-       --default_branch
+       --branch_from
            - use 'somebranch' as the worktree basis. The default is read from the repo.
        -l localbranchname
            - When fetching an existing remote branch 'X', use 'localbranchname'
@@ -1079,12 +1113,12 @@ For pull requests:
        --pull ID
            - The pull request #
 
-Note that there is not worktree-name argument. Unless overriden withe the '-l'
-flag, the worktree name will be 'pull-<remote>-<ID>'.
+Note that there is no worktree-name argument for the pull request form. Unless
+overriden withe the '-l' flag, the worktree name will be 'pull-<remote>-<ID>'.
 
 =item delete
 
-A synonymn 'remove' but one that respects our conventions.
+A synonym for 'remove', but one that respects our conventions.
 
  git worktree delete [-y] [-f] [--current | worktree-name ]
        -y|--yes     - Assume 'yes' to all prompts
