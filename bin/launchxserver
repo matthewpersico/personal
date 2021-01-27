@@ -2,18 +2,22 @@
 
 # launchxserver
 
+if [ "$1" = '--silent' ]
+then
+    exec 1>>/dev/null
+    exec 2>>/dev/null
+fi
 ## Yes this code is duped from profile, but this script is called from
 ## xterminit, which can be called before profile at Bloomberg.
 if [ "$(uname -r | sed 's/.*\(Microsoft\).*/\1/')" = 'Microsoft' ]
 then
     wh=$(winhome)
-    if [ "$1" = '--silent' ]
-    then
-        exec 1>>/dev/null
-        exec 2>>/dev/null
-    fi
     declare cmount
     cmount=$(df | grep C:  | cols --keep -1)
     # shellcheck disable=SC1117 # the backslashes will be fine in Windows process space.
     "$cmount"/Program\ Files/VcXsrv/xlaunch.exe -run "$wh\local\bin\config.xlaunch"
+    return $?
+else
+    echo "Not Microsoft WSL. Cannot launch an X server, shouldn't even call this on a UNIX box."
+    return 1
 fi
