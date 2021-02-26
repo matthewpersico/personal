@@ -188,6 +188,22 @@ for $entry (@$VAR1) {
     fi
 }
 
+git-repo-info ()
+{
+    declare -a lines
+    mapfile -t lines < <(git config --get-regexp "$(git branch list --current)" | sort)
+
+    declare -a display
+    for line in "${lines[@]}"
+    do
+        read key value <<< "$line"
+        (( ${#key} > max )) && max=${#key}
+        display+=("$key" "$value")
+    done
+    ((max+=1))
+    printf "%-${max}s: %s\n" "${display[@]}"
+}
+
 git-repo-name ()
 {
     [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
@@ -574,6 +590,7 @@ for $openpull (@{$VAR1}) {
         exit 0;
     }
 }
+print qq(No open pull requests associated with this repo.\n);
 exit 1;' "$perldata" "$USER" "$cb" "$opt_silent"
     declare status=$?
     return $status ## Instead of return $? in case we are debugging and need a
@@ -625,17 +642,16 @@ git-repo-sync ()
 git-repo-sync-with ()
 {
     declare arg1=$1
-    declare deftext=""
     if [[ -z $arg1 ]]
     then
-        arg1='--def'
-        deftext="default "
-    fi
-    if [[ $arg1 =~ ^--def ]]
-    then
-        shift
+        declare deftext='source'
         declare branch_name
-        branch_name=$(git-repo-default-branch)
+        branch_name=$(git-repo-source-branch)
+        if [[ -z $branch_name ]]
+        then
+            deftext="default"
+            branch_name=$(git-repo-default-branch)
+        fi
         ## clone-and-fork repos need to sync with the default branch in the
         ## canonical upstream branch.  If there is no 'upstream', then it's
         ## probably a clone only, so sync against the default branch in origin.
@@ -808,6 +824,17 @@ git-repo-default-branch ()
         cmd-echo --ec -- "Cannot find default branch for ${PWD}"
         return 1
     fi
+}
+
+git-repo-source-branch ()
+{
+    declare current_branch
+    current_branch=$(git branch --show-current)
+
+    declare source_branch
+    source_branch=$(git config --get "branch.$current_branch.extmeta-from-branch")
+    [[ -n $source_branch ]] && echo "$source_branch" && return 0
+    return 1
 }
 
 main()

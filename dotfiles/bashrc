@@ -64,6 +64,12 @@ fi
 _PS1_where='where   : \u@\h'
 _PS1_since="since   : $(date +'%a %b %d %H:%M:%S')"
 _PS1_as_of='as-of   : \d \t'
+
+_PS1_local_perl ()
+{
+    echo -n "perl    : $PERL5LIB_ROOT"
+}
+
 _PS1_tmux ()
 {
     declare tmux_count=0
@@ -72,14 +78,25 @@ _PS1_tmux ()
 }
 # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
 typeset -fx _PS1_tmux
+
 _PS1_pyvenv ()
 {
-    [[ -n $VIRTUAL_ENV ]] && echo && echo -n "pyvenv  : $VIRTUAL_ENV"
+    [[ -n $VIRTUAL_ENV ]] && echo && echo -n "pyvenv : $VIRTUAL_ENV"
 }
 # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
 typeset -fx _PS1_pyvenv
+
+_PS1_from_branch ()
+{
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+    declare b=$(git repo ina && git config --value-only  --get-regexp "branch.$(git branch --current).*from-branch")
+    [[ -n $b ]] && echo -n " (from $b)"
+}
+# shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+typeset -fx _PS1_from_branch
+
 # shellcheck disable=SC2089,SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2089,SC2016
-_PS1_git='$(__git_ps1 "\nbranch  : %s")$(git-stash-get-count -no0 "\nstashes : ")$(git-get-default-remote "\nremote  : ")'
+_PS1_git='$(__git_ps1 "\nbranch  : %s")$(_PS1_from_branch)$(git-stash-get-count -no0 "\nstashes : ")$(git-get-default-remote "\nremote  : ")'
 _PS1_pwd='pwd     : \w'
 _PS1_pid='[$$]'
 
@@ -89,7 +106,8 @@ _PS1_pid='[$$]'
 PS1_FULL="${_PS1_lcstatus}
 ${_PS1_xterm_title_cmds}${_PS1_where}
 ${_PS1_since}
-${_PS1_as_of}\$(_PS1_tmux)\$(_PS1_pyvenv)${_PS1_git}
+${_PS1_as_of}
+\$(_PS1_local_perl)\$(_PS1_tmux)\$(_PS1_pyvenv)${_PS1_git}
 ${_PS1_pwd}
 ${_PS1_pid} \$ "
 # shellcheck disable=SC2090 #https://github.com/koalaman/shellcheck/wiki/SC2090
@@ -102,7 +120,11 @@ PS1_TINY='$ '
 export PS1_TINY
 
 # Default prompt.
-export PS1="$PS1_FULL"
+if [[ -z $DPKG_ENV_SANITIZED ]]
+then
+    ## Bloomberg stuff.
+    export PS1="$PS1_FULL"
+fi
 
 # You can switch between prompts with the 'switch-ps1' command.
 

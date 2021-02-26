@@ -1,0 +1,101 @@
+#!/opt/bb/bin/perl
+
+use 5.16.3;
+
+use lib "/home/mpersico5/perl/@{[substr($^V,1,rindex($^V,'.')-1)]}/lib/perl5";
+
+use Data::Dumper;
+use Email::Sender::Simple qw(sendmail);
+use Email::Sender::Transport::Mbox;
+use Email::Simple;
+use File::Slurp;
+use Getopt::Long;
+use List::MoreUtils qw(uniq);
+use POSIX qw(strftime);
+use Sys::Hostname;
+
+my %opt = ( trailer => 1 );
+
+sub main {
+    #<<< perltidy
+    GetOptions( \%opt,
+                "from|f=s",
+                "to|t=s@",
+                "subject|s=s",
+                "body|b=s",
+                "trailer!",
+                "help" )
+      or die "Bad option";
+    #>>> perltidy
+
+    if ( $opt{help} ) {
+        say join( "\n",
+            "usage: $0 --from[|-f]=name --to[|-t] name[,name...]...\\ ",
+            "          --subject[|-s] 'the subject'\\ ",
+            "          [ [--body [file|'string']] | <<EOBODY",
+            "" );
+        exit 0;
+    }
+    !$opt{from}    and die "--from required\n";
+    !$opt{to}      and die "--to required\n";
+    !$opt{subject} and die "--subject required\n";
+    $opt{to} = join( ',', uniq map { split(/,/) } @{ $opt{to} } );
+
+    my $mailmsg;
+    if ( defined( $opt{body} ) ) {
+        if ( -f $opt{body} ) {
+            $mailmsg = join( '', read_file( $opt{body} ) );
+        } else {
+            $mailmsg = $opt{body};
+        }
+    } else {
+        $mailmsg = join( '', <> );
+    }
+    $opt{body} = $mailmsg;
+    if ( $opt{trailer} ) {
+        $opt{body} .= join( "\n",
+            '',
+'--- local-mailme- -----------------------------------------------------',
+            "Sent by $0",
+            "        on @{[hostname]}",
+            "        at " . strftime( "%Y/%m/%d %H:%M:%S%z", localtime ),
+            '' );
+    }
+
+    my $message = Email::Simple->create(
+        header => [
+            From    => $opt{from},
+            To      => $opt{to},
+            Subject => $opt{subject}
+        ],
+        body => $opt{body}
+    );
+
+    my $mbox_root = '/var/spool/mail';
+    my $rc        = 0;
+    for ( split( /,/, $opt{to} ) ) {
+        ( my $t = $_ ) =~ s/\@.*//;
+        my $mbox = "$mbox_root/$t";
+        eval {
+            sendmail(
+                $message,
+                {
+                    transport => Email::Sender::Transport::Mbox->new(
+                        filename => $mbox
+                    )
+                }
+            );
+        };
+        if ($@) {
+            warn join( qq(\n),
+                "Failed to send message:",
+                $@, Data::Dumper->Dump( [$message], [qw(*message)] ) );
+            $rc = 1;
+        } else {
+            chmod 0666, $mbox;
+        }
+    }
+    return $rc;
+}
+
+exit main();

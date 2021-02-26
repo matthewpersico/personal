@@ -37,8 +37,9 @@ my %elapsed_fmt = (
 
 my %print;
 my %noprint;
-my $wrap_min = 0;
-my $this     = basename($0);
+my $wrap_min    = 0;
+my $this        = basename($0);
+my $this_marker = " <===== this proc";
 use Getopt::Long;
 GetOptions(
     \%opt,
@@ -68,7 +69,7 @@ GetOptions(
 
       verbose
       help
-      )
+    )
 ) or die("Error in command line options\n");
 
 if ( $opt{help} ) {
@@ -346,8 +347,9 @@ my $ppidcol    = $map{ $std_head_map{PPID} }{idx};
 my $ttcol      = $map{ $std_head_map{TT} }{idx};
 my $cmdcol     = $map{ $std_head_map{COMMAND} }{idx};
 my $readpackfmt;
-my $ascii_bold_red = '[1;31m';
-my $ascii_normal   = '[m';
+my $ascii_bold_red   = '[1;31m';
+my $ascii_bold_green = '[1;32m';
+my $ascii_normal     = '[m';
 
 my @proc_groups;
 my $current_proc_group = [];
@@ -413,8 +415,11 @@ while (<IH>) {
         next LINE;
     }
 
-    my @f    = unpack( $readpackfmt, $l );
-    my $pid  = $f[$pidcol] + 0;
+    my @f   = unpack( $readpackfmt, $l );
+    my $pid = $f[$pidcol] + 0;
+    if ( $$ == $f[$pidcol] ) {
+        substr( $l, -1, 0 ) = $this_marker;
+    }
     my $ppid = $f[$ppidcol];
     $ppid += 0 if $ppid =~ m/^[0-9]+$/;
     my $cmd           = $f[$cmdcol];
@@ -471,12 +476,16 @@ while (<IH>) {
     $print{$pid} = 0 if ( $etimesec < $opt{older} );
 
     if ( $print{$pid} ) {
+        my $isthis = $l =~ m /$this_marker/;
+        $isthis and $l =~ s/$this_marker//;
+
         if ( $cmd !~ m/\s+\\_/ ) {
             if ( @{$current_proc_group} ) {
                 push @proc_groups, $current_proc_group;
                 $current_proc_group = [];
             }
         }
+
         if ( $opt{trunc} ) {
             chomp $l;
             my $output = join(
@@ -490,6 +499,7 @@ while (<IH>) {
                 ),
                 "\n"
             );
+            $isthis and $output = "${ascii_bold_green}${output}${ascii_normal}";
             push @{$current_proc_group},
               { sortval => $etimesec, output => $output };
         } elsif ( $opt{wrap} ) {
@@ -505,13 +515,17 @@ while (<IH>) {
             if ($indent_idx) {
                 $Text::Wrap::columns = $opt{wrap};
                 $output = wrap( q(), ( q( ) x ( $indent_idx + 4 ) ), $ll );
+                $isthis
+                  and $output = "${ascii_bold_green}${output}${ascii_normal}";
                 push @{$current_proc_group},
                   { sortval => $etimesec, output => $output };
             } else {
+                $isthis and $l = "${ascii_bold_green}${l}${ascii_normal}";
                 push @{$current_proc_group},
                   { sortval => $etimesec, output => $l };
             }
         } else {
+            $isthis and $l = "${ascii_bold_green}${l}${ascii_normal}";
             push @{$current_proc_group}, { sortval => $etimesec, output => $l };
         }
     }
