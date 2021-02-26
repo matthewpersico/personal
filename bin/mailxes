@@ -1,0 +1,61 @@
+#!/usr/bin/env perl
+
+use 5.16.3;
+
+use lib '/home/mpersico5/perl5/lib/perl5';
+
+use IO::Dir;
+use Term::Menu;
+
+sub mbox_status {
+    my $mbox = $_[0];
+    my %status;
+    my @status = qx (mailx -H -f $mbox);
+    for (@status) {
+        ( my $k = ( substr( $_, 1, 1 ) . 'R' ) ) =~ s/\s+//;
+        $status{ substr( $k, 0, 1 ) }++;
+    }
+    return join '/', map { "$_:$status{$_}" } sort keys %status;
+}
+
+sub main {
+    my $spooldir = '/var/spool/mail';
+    my $answer;
+    my $idh = IO::Dir->new($spooldir);
+    my @mboxes;
+    while ( defined( $_ = $idh->read ) ) {
+        my $mboxpath = "$spooldir/$_";
+        if ( -f $mboxpath and -s _ ) {
+            push @mboxes,
+              {
+                mbox   => $_,
+                status => mbox_status($mboxpath)
+              };
+        }
+    }
+    if ( @mboxes == 0 ) {
+        say "No mail in any box";
+        exit 0;
+    }
+    if ( @mboxes == 1 ) {
+        $answer = $mboxes[0]->{mbox};
+    } else {
+        @mboxes = sort { $a->{mbox} cmp $b->{mbox} } @mboxes;
+        my $prompt = Term::Menu->new(
+            'beforetext' => 'Choose a mailbox"',
+            'aftertext'  => '',
+        );
+        my $idx = 1;
+        $answer = $prompt->menu(
+            (
+                map { $_->{mbox} => [ "$_->{mbox} ($_->{status})", $idx++ ] }
+                  @mboxes
+            ),
+            quit => [ 'quit', 'q' ]
+        );
+        ( $answer eq 'quit' ) && exit 0;
+    }
+    exec 'mailx', '-u', $answer;
+}
+
+main();

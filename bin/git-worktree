@@ -46,12 +46,21 @@ _git_worktree_check_set_pwd ()
 
 _git_worktree_info_remove ()
 {
+    ## There is no git-sanctioned worktree section. It's all us, so we have to
+    ## manage it. The 'branch' stuff we add will be taken care of when the
+    ## branch is deleted.
     git config --remove-section "worktree.$1" || return $?
 }
 
 _git_worktree_info_add_created_date ()
 {
-    git config --replace-all "worktree.$1.extmeta-created" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+    declare cr
+    cr="$(date "$GIT_EXT_META_DATE_FMT")"
+    declare key
+    for key in 'worktree' 'branch'
+    do
+        git config --replace-all "$key.$1.extmeta-created" "$cr" || return $?
+    done
 }
 
 _git_worktree_info_add_fetched_date ()
@@ -61,12 +70,20 @@ _git_worktree_info_add_fetched_date ()
 
 _git_worktree_was_fetched ()
 {
-    [[ -n $(git config --get "worktree.$1.extmeta-fetched") ]]
+    [[ -n $(git config --get "^worktree.$1.extmeta-fetched" 2>/dev/null) ]]
 }
 
 _git_worktree_is_a_pull ()
 {
     [[ $(git branch --show-current) =~ ^pull ]]
+}
+
+_git_worktree_info_add_from_branch_and_ref ()
+{
+    git config --replace-all "worktree.$1.extmeta-from-ref" "$2"
+    git config --replace-all "worktree.$1.extmeta-from-branch" "$(basename "$2")"
+    git config --replace-all "branch.$1.extmeta-from-ref" "$2"
+    git config --replace-all "branch.$1.extmeta-from-branch" "$(basename "$2")"
 }
 
 # shellcheck disable=SC2120
@@ -97,10 +114,12 @@ git-worktree-get-name ()
     git-worktree-ina -v
     return $?
 }
-
-git-worktree-cre ()
+git-worktree-get-source-branch ()
 {
-    git-worktree-create "$@"
+    declare current_branch
+    current_branch=$(git branch --show-current)
+    git config --get "worktree.${current_branch}.extmeta-from-branch"
+    return $?
 }
 
 git-worktree-create ()
@@ -139,9 +158,10 @@ git-worktree-create ()
             no-reset | skip-reset) opt_reset=0 ;;
             f|fetch) fetch_existing=1 ;;
             m|message) opt_m=$1; message="$1"; shift ;;
-            from-branch | branch-from)
+            from | from-branch | branch-from)
                 branch_from=$1; shift
-                branch_from_arg="$option" ;;
+                branch_from_arg="$option"
+                ;;
             h|help) usage; return 0 ;;
             r|remote) remote=$1; shift ;;
             orphan) echo "Sorry, cannot create orphans this way."
@@ -222,7 +242,6 @@ git-worktree-create ()
     local wtbranch=$localbranchname
 
     ((verbose)) && cmd-echo -- "Check for existing branch."
-    local create_branch="-b"
 
     ## Make sure we do not have a local branch with the same name
     exists=$(git branch --list --format='%(refname)' | sed 's|.*/||' | \
@@ -332,12 +351,22 @@ git-worktree-create ()
             then
                 ## $branch_from is the branch name. We need the full branch ref
                 ## here. Get it and check it.
-                readarray -t branch_from_ref < <(git branch -a | grep -e "/${branch_from}$" | sed -E 's/^\s+//')
+                declare -a all_refs=(git branch -a)
+                readarray -t branch_from_ref < <(git branch -a | grep -e "upstream/${branch_from}$" | sed -E 's/^\s+//')
                 case ${#branch_from_ref[@]} in
-                    0 ) declare -a all_refs=(git branch -a)
-                        cmd-echo --ec -- "Branch '$branch_from' not found in refs list:" "${all_refs[@]}" "Aborting"
+                    0 ) cmd-echo --ec -- "Branch '$branch_from' not found in refs list:" "${all_refs[@]}" "Aborting"
                         return 1;;
-                    1 ) : # noop
+                    1 ) # Set up "triangle workflow'.Only need the branch
+                        # specific pieces. The rest of it was set up when the
+                        # fork was cloned.
+                        declare -A triangle_workflow
+                        triangle_workflow[branch.${branch_from}.merge]="refs/heads/${branch_from}"
+                        triangle_workflow[branch.${branch_from}.mergeoptions]="--ff-only"
+                        triangle_workflow[branch.${branch_from}.remote]="upstream"
+                        for key in "${!triangle_workflow[@]}"
+                        do
+                            git config --replace-all "$key" "${triangle_workflow[$key]}" || return $?
+                        done
                         ;;
                     * ) cmd-echo --ec -- "Branch '$branch_from' found more than once in refs list:" "${all_refs[@]}" \
                                  "Re-run and specify full reference for --$branch_from_arg"
@@ -349,7 +378,7 @@ git-worktree-create ()
 
             ## Now create the worktree and the branch.
             ((verbose)) && cmd-echo -- "$REALGIT worktree add -b ${wtsubdir} ${wtbranch} ${branch_from_ref[0]}"
-            $REALGIT worktree add $create_branch "${wtsubdir}" "${wtbranch}" "${branch_from_ref[0]}"
+            $REALGIT worktree add -b "${wtsubdir}" "${wtbranch}" "${branch_from_ref[0]}"
             status=$?
             if ((status))
             then
@@ -364,8 +393,8 @@ git-worktree-create ()
             ## cmd-echo -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
 
             _git_worktree_info_add_created_date "${wtbranch}"
-
-            ## Finally push the branch upstream as a tracking branch
+            _git_worktree_info_add_from_branch_and_ref "${wtbranch}" "${branch_from_ref[0]}"
+            ## Finally push the branch up as a tracking branch
             ((verbose)) && cmd-echo -- "git push --set-upstream $remote ${wtbranch}"
             git push --set-upstream "$remote" "${wtbranch}"
         fi
@@ -392,6 +421,11 @@ git-worktree-create ()
         cmd-echo -- "--skip-reset. Run 'git-go-set' at some point."
     fi
 
+    ## Show some info
+    cmd-echo -- "Branch and worktree metadata..."
+    git repo info
+
+    ## Deal with the cd shenanigans
     if [ -z "$doandcdfile" ]
     then
         cmd-echo -- \
@@ -558,6 +592,15 @@ $(ls -la)"
 
     ## Now fix the administrative files.
     $REALGIT worktree prune
+
+    # Hold onto some info..
+    declare was_fetched
+    was_fetched=$(_git_worktree_was_fetched "$current_branch"; echo $?)
+
+    ## ...before we trash the metadata
+    cmd-echo --dc -- "Removing the local wt info" "Before:" "$(git config --get-regexp "worktree.${current_branch}*")"
+    _git_worktree_info_remove "$current_branch"
+    cmd-echo --dc -- "After:" "$(git config --get-regexp "worktree.${current_branch}*")"
     cmd-echo -- "Local admin files updated."
 
     ## Now the take care of the branch.
@@ -568,6 +611,10 @@ $(ls -la)"
     then
         resp='n'
     else
+        if [[ $was_fetched == "$(true; echo $?)" ]]
+        then
+            cmd-echo -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
+        fi
         resp=$(cmd-yesno "Delete associated branch $current_branch" 'n')
     fi
     if [ "$resp" = 'n' ]
@@ -582,10 +629,7 @@ $(ls -la)"
         builtin cd .. || { cmd-echo -- "Cannot cd .." && return 1; }
         if [ "$resp" = 'y' ]
         then
-            if git-branch delete --no-go-set $opt_yes_string "$current_branch"
-            then
-                _git_worktree_info_remove "$current_branch"
-            fi
+            git-branch delete --no-go-set $opt_yes_string "$current_branch"
         fi
     fi
 
@@ -603,11 +647,6 @@ $(ls -la)"
     cmd-echo -- "Done."
 
     return 0
-}
-
-git-worktree-del ()
-{
-    git-worktree-delete "$@"
 }
 
 git-worktree-rename ()
@@ -998,6 +1037,16 @@ main ()
         usage
         return  0
     fi
+
+    ## abbrevs
+    for abbrevable in 'create' 'delete'
+    do
+        if [[ $abbrevable =~ $action ]]
+        then
+            action=$abbrevable
+            break
+        fi
+    done
 
     action_func_name="git-worktree-${action}"
     if declare -F "$action_func_name" >/dev/null

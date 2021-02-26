@@ -20,6 +20,26 @@ usage ()
     ) 2>&1 | ${PAGER:-less}
 }
 
+_git_branch_info_remove ()
+{
+    git config --remove-section "branch.$1" || return $?
+}
+
+_git_branch_info_add_created_date ()
+{
+    git config --replace-all "branch.$1.extmeta-created" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+}
+
+_git_branch_info_add_fetched_date ()
+{
+    git config --replace-all "branch.$1.extmeta-fetched" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+}
+
+_git_branch_was_fetched ()
+{
+    [[ -n $(git config --get "^branch.$1.extmeta-fetched") ]]
+}
+
 _git_branch_is_a_pull ()
 {
     [[ $1 =~ ^pull ]]
@@ -51,6 +71,7 @@ git-branch-checkout ()
     fi
 
     git checkout "$tgt_branch"
+    _git_branch_info_add_created_date "$tgt_branch"
 
 }
 git-branch-delete ()
@@ -133,6 +154,9 @@ git-branch-delete ()
             return 1
         fi
 
+        declare was_fetched
+        was_fetched=$(_git_branch_was_fetched "$current_branch"; echo $?)
+
         declare -a delarg
         if _git_branch_is_a_pull "$branch"
         then
@@ -152,6 +176,7 @@ git-branch-delete ()
             cmd-echo -- "ERROR: git branch ${delarg[*]} $branch failed. Returning $brdelstat."
             return $brdelstat
         fi
+        _git_branch_info_remove "$branch"
         cmd-echo -- "Branch deleted locally."
 
         if [ "$no_remote" = '1' ]
@@ -171,9 +196,7 @@ git-branch-delete ()
                 then
                     resp='y'
                 else
-                    declare fetched
-                    fetched=$(git config --get "worktree.$branch.extmeta-fetched")
-                    if [[ -n $fetched ]]
+                    if [[ $was_fetched == $(true; $?) ]]
                     then
                         cmd-echo -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
                     fi
@@ -281,8 +304,9 @@ git-branch-track-remote ()
     local_branch_exists="$(git branch --list "$local_branch")"
     if [ -z "$local_branch_exists" ]
     then
-        ## Does not exists, create and track
+        ## Does not exist, create and track
         git checkout -b "$local_branch" --track "$remote/$branch"
+        _git_branch_info_add_created_date "$local_branch"
     else
         declare already_tracking_remote
         already_tracking_remote="$(git config branch."$local_branch".remote)"
@@ -290,6 +314,7 @@ git-branch-track-remote ()
         then
             ## Exists, not tracking, track
             git branch --set-upstream-to "$remote/$branch" "$local_branch"
+            _git_branch_info_add_fetched_date "$local_branch"
         else
             declare already_tracking_branch
             already_tracking_branch=$(git config branch."$local_branch".merge | sed 's|refs/heads/||')
@@ -406,6 +431,12 @@ main ()
         return  0
     fi
 
+    if [[ "$action" =~ ^-+current ]]
+    then
+        git-branch-list --current
+        return $?
+    fi
+
     action_func_name="git-branch-${action}"
     if declare -F "$action_func_name" >/dev/null
     then
@@ -435,6 +466,7 @@ git-branch - git extention of git branch
  git branch fetch-remote|remote-fetch
  git branch prune-remote|remote-prune
  git branch list [[-c|--current]| [-r|--remote]| [-a|--all]] [--[no]strip]
+ git branch --current
  git branch comment
 
 
@@ -452,7 +484,7 @@ TBD
 
 =item list
 
-Lists all branches. By default, lists just the local ones. -c lists only the current one. -r lists remotes. -a lists locals and remotes. --strip removes the spacing and the colors and the current branch indicator.
+Lists all branches. By default, lists just the local ones. -c lists only the current one. -r lists remotes. -a lists locals and remotes. --strip removes the spacing and the colors and the current branch indicator. --current is a short cut for 'list --current'.
 
 =item comment
 

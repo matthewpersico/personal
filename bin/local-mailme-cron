@@ -1,0 +1,88 @@
+#!/opt/bb/bin/perl
+
+use 5.16.3;
+
+use lib "/home/mpersico5/perl/@{[substr($^V,1,rindex($^V,'.')-1)]}/lib/perl5";
+
+use POSIX qw(strftime);
+use Sys::Hostname;
+
+my $in_headers    = 1;    # When we start reading input, the headers are first;
+my $print_headers = 0;    # in the debug section at message end.
+my ( $from, $to, $subject, @headers, @body );
+
+sub normalize_address {
+    my $address = $_[0];
+    if ( $address !~ /\@/ ) {
+        $address .= '@' . hostname();
+    }
+    return $address;
+}
+
+sub main {
+    while (<>) {
+        chomp;
+        /^From:\s+.*<(.*)>/ && do {
+            $from = normalize_address($1);
+            push @headers, $_;
+            next;
+        };
+
+        /^To:\s+(.*)/ && do {
+            $to = normalize_address($1);
+            push @headers, $_;
+            next;
+        };
+
+        /^Subject: (.*)/ && do {
+            $subject = $1;
+            $subject =~ s/"/\\"/g;
+            push @headers, $_;
+            next;
+        };
+
+        /^[A-Z][a-zA-Z0-9-]+:/ && do {
+            if ($in_headers) {
+                push @headers, "$_";
+                next;
+            }
+            ## else drop-through
+        };
+
+        # Headers are separated from the first line of the body by a blank
+        # line.
+        length($_) == 0 && $in_headers && do {
+            $in_headers = 0;
+            next;
+        };
+
+        ## else drop-through
+        push @body, "$_";
+    }
+
+    my $mailer = $0;
+    $mailer =~ s/-cron//;
+    my $mail_cmd = qq($mailer --notrailer -t $to --f $from -s '$subject');
+    my $body     = join(
+        qq(\n), @body,
+'--- local-mailme-cron -------------------------------------------------',
+        "Sent by $0",
+        "  using $mailer",
+        "     on @{[hostname]}",
+        "     at " . strftime( "%Y/%m/%d %H:%M:%S%z", localtime ),
+        (
+            $print_headers
+            ? (
+                "Headers:", '[', @headers, "]",
+                "Command: $mail_cmd " . '<<EOBODY\n$body\nEOBODY\n',
+              )
+            : ()
+        ),
+        ''
+    );
+
+    print qx($mail_cmd <<EOBODY\n$body\nEOBODY\n);
+    return $?;
+}
+
+exit main();
