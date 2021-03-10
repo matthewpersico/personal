@@ -1,41 +1,43 @@
 #!/usr/bin/env bash
 
-cmd-echo "Processing clean, non-open-pr worktrees"
-for i in $(git-go --listfull --wto)
-do
-    if [[ $i =~ personal ]] || [[ $i =~ 1750 ]]
-    then
-        cmd-echo --head --wc "Skipping $i"
-    else
-        (
-            if cd "$i"
-            then
-                if ! git repo pr --get
-                then
-                    cmd-echo --head "$(pwd)"
-                    cmd-yesno "Delete" "n" && git wt del --current
-                fi
-            fi
-        )
-    fi
-done
+cmd-echo "Processing clean, non-open-pr repos"
 
-cmd-echo "Processing clean repos"
-for i in $(git-go --listfull --nowt)
+declare -A skip
+
+# | reverse is so that we do worktrees before their parent directories
+for i in $(git-go --listfull | reverse )
 do
-    if [[ $i =~ personal ]] || [[ $i =~ 1750 ]]
+    if [[ $i =~ personal|bloomberg ]]
     then
-        cmd-echo --head --wc "Skipping $i"
-    else
-        (
-            if cd "$i"
+        cmd-echo --head --wc "Skipping $i, by request"
+        continue
+    if [[ -n ${skip[$i]} ]]
+    then
+        cmd-echo --head --wc "Skipping $i, worktrees still exist"
+        continue
+    fi
+    (
+        if cd "$i"
+        then
+            if git repo is pristine -v \
+                    && ! git repo pr --get \
+                    && cmd-echo --head "$(pwd)"
             then
-                cmd-echo --head "$(pwd)"
-                if git repo is pristine -v && cmd-yesno --nop "git repo del --current" "n"
+                if cmd-yesno "Delete" "n"
                 then
-                    git repo del --current
+                    git wt del --current
+                else
+                    # If this is a worktree, we cannot delete the parent
+                    # dir it lives in, so mark in order to skip it later.
+                    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+                    declare isawto=$(git repo is a worktree of)
+                    if [[ -n $isawto ]]
+                    then
+                        skip[$isawto]=1
+                    fi
                 fi
             fi
-        )
+        fi
+    )
     fi
 done

@@ -1,101 +1,41 @@
 #!/opt/bb/bin/bash
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+# shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
+# shellcheck disable=SC1090 ## cannot find sourced file at shellcheck time
 
-## Control when cron jobs mail output
+## Control when cron jobs mail their output. This could probably use a refactor
+## into functions but I'm not sure if we would leak functions into the call,
+## so...
 
-declare mailtype=''
-declare mailto=$MAILTO
-declare -a mailfrom
-mailfrom=(--from "$USER@$(hostname)") ## default
-declare mailsubject=''
-declare checkkinit=0
-declare setx=0
-declare setv=0
-declare keeplog=0
-declare endofopts=0
-while [[ "$1" =~ ^- ]] && ((!endofopts))
-do
-    ## Strip all leading dashes here so that -foo and --foo can both
-    ## be processed as 'foo'.
-    original="$1"
-    option="$1"
-    declare new=''
-    while [ ! "$new" = "$option" ] && [ ! "$option" = '--' ]
-    do
-        new=$option
-        option=${option##-}
-    done
-    shift ## That way you avoid endless loops on invalid options.
+## CW variables are taken from the cronjob env, set in the crontab file.
+declare mailtype=${CW_mail_type,,}
+mailtype=${mailtype:=always}
+declare mailfrom=${CW_from:-$USER@$(hostname)}
+declare mailto=${CW_to:-${MAILTO:-$USER}}
+declare mailsubject="$CW_mail_subject"
+declare checkkinit=${CW_checkkinit:-0}
+declare keeplog=${CW_keeplog:-0}
+declare setx=${CW_setx:-0}
+declare setv=${CW_setv:=0}
 
-    case $option in
-        x)
-            setx=1
-            ;;
-        v)
-            setv=1
-            ;;
-        mailtype)
-            mailtype="${1,,}"
-            shift
-            ;;
-        to)
-            mailto="$1"
-            MAILTO=$mailto; export MAILTO
-            shift
-            ;;
-        from)
-            mailfrom=('--from' "$1")
-#            cat <<EODEBUG >> /tmp/cron_wrap_debug
-#via \$1, --from = $1
-#EODEBUG
-            shift
-            ;;
-        keeplog)
-            keeplog=1
-            ;;
-        subject)
-            mailsubject="$1"
-            shift
-            ;;
-        checkkinit)
-            checkkinit=1
-            ;;
-        id )
-            shift ## Specified so that there is something unique on the command
-                  ## line for cron email subjects if there's a hard die. Not
-                  ## used in the script anywhere.
-            ;;
-        help )
-            echo "No documentation yet. Look at the code:"
-            cat "$0"
-            exit 0
-            ;;
-        --)
-            endofopts=1 ## end of opts, remaining $*, if any, are args
-            ;;
-        *)
-            echo "$original is an invalid option. See $0 --help"
-            exit 1
-            ;;
-    esac
+## Pops the last two args to the this command if they are '--CW-id' and
+## '"string"' so that we don't pass them to the command. We put them there so
+## that there is something unique on the command line for cron email subjects
+## if there's a hard die.
+declare next_to_last="${*: -2: 1}"
+if [[ $next_to_last == '--CW-id' ]]
+then
+    set -- "${@:1:$#-2}"
+fi
 
-
-done
-
-[ -z "$mailtype" ] && echo "Mail type required" && exit 1
-
+## Mail schedule processing.
 dayofweek=$(date +%a)
 dayofweek=${dayofweek,,}
 args_ok=0
 while ((!args_ok))
 do
     case $mailtype in
-        never )
-            args_ok=1
-            break
-            ;;
-        non-zero | if-output | if-no-output | today | always )
-            [ -z "$mailto" ] && echo "Need valid email" && exit 1
-            [ -z "$mailsubject" ] && echo "Need valid email subject" && exit 1
+        never | non-zero | if-output | if-no-output | today | always )
             args_ok=1
             break
             ;;
@@ -117,12 +57,16 @@ do
     esac
 done
 
+## Logging setup. We keep all output and then we keep profile's output as a
+## separate subset.
 declare filesubject=${mailsubject// /-}
 temproot=$(mktemp -t "tmp.cron_wrapper.${filesubject}.XXXXXXXXXX")
 alllog=${temproot}.alllog
 profilelog=${temproot}.profilelog
 did_profile=0
 
+## Run the user's profiles and log their output. If you ever need to check the
+## environment before and after, bracket the for loop with 'env' calls.
 for p in ${TILDAE:-$HOME}/.bash_profile.${USER} \
                          ${TILDAE:-$HOME}/.bash_profile \
                          ${TILDAE:-$HOME}/.profile.${USER} \
@@ -130,8 +74,7 @@ for p in ${TILDAE:-$HOME}/.bash_profile.${USER} \
 do
     if [ -r "$p" ] && ((!did_profile))
     then
-        # Environment setup here.
-        # shellcheck disable=SC1090 ## cannot find sourced file at shellcheck time
+        ## Environment setup here.
         . "$p" > "$profilelog" 2>&1
         did_profile=1
     fi
@@ -146,10 +89,16 @@ then
     exit 42
 fi
 
-# shellcheck disable=SC1090 ## cannot find sourced file at shellcheck time
+##
+## Temp file handling. We clean up after ourselves. Unless we want to keep the
+## logs, but we handle that below.
+##
 source "$BASH_INC_DIR/on_exit.binc"
 rm-on-exit "$temproot" "$alllog" "$profilelog"
 
+##
+## Kerberos cr-p.
+##
 if((checkkinit))
 then
     klist -s
@@ -180,13 +129,16 @@ then
     fi
 fi
 
+##
+## Now we shunt all output to files we control.
+##
 holdstdout=$(get-next-descriptor)
-eval "exec $holdstdout>&1"  # Link file descriptor with stdout, which saves stdout.
-exec 1>> "$alllog"  # Re-point stdout to the log.
+eval "exec $holdstdout>&1"  ## Link file descriptor with stdout, which saves stdout.
+exec 1>> "$alllog"  ## Re-point stdout to the log.
 
 holdstderr=$(get-next-descriptor)
-eval "exec $holdstderr>&2"  # Link file descriptor with stderr, which saves stderr.
-exec 2>> "$alllog"  # Re-point stderr to the log.
+eval "exec $holdstderr>&2"  ## Link file descriptor with stderr, which saves stderr.
+exec 2>> "$alllog"  ## Re-point stderr to the log.
 
 ##
 ## Here is where the command gets executed
@@ -197,8 +149,8 @@ status=0
 ## rest of this script does not run, we get something from the shunted output.
 # shellcheck disable=SC1078
 # shellcheck disable=SC1079
-trap "eval ""exec 1>&$holdstdout $holdstdout>&-""      # Restore stdout and close file descriptor.
-      eval ""exec 2>&$holdstderr $holdstderr>&-""      # Restore stderr and close file descriptor.
+trap "eval ""exec 1>&$holdstdout $holdstdout>&-""      ## Restore stdout and close file descriptor.
+      eval ""exec 2>&$holdstderr $holdstderr>&-""      ## Restore stderr and close file descriptor.
       [ -f $profilelog ] && cat $profilelog
       [ -f $alllog ]     && cat $alllog
      " SIGTERM SIGINT SIGFPE SIGBUS
@@ -211,22 +163,24 @@ status=$?
 ((setv)) && set +v
 ((setx)) && set +x
 
-# The restorations will cause any mail errors to be sent to you via the regular
-# cron error channels.
-eval "exec 1>&$holdstdout $holdstdout>&-"      # Restore stdout and close file descriptor.
-eval "exec 2>&$holdstderr $holdstderr>&-"      # Restore stderr and close file descriptor.
+## The restorations will cause any mail errors to be sent to you via the regular
+## cron error channels.
+eval "exec 1>&$holdstdout $holdstdout>&-"      ## Restore stdout and close file descriptor.
+eval "exec 2>&$holdstderr $holdstderr>&-"      ## Restore stderr and close file descriptor.
 
+##
+## Mail the output
+##
 subsubject=''
 mailthelog=0
 if ((status))
 then
+    mailthelog=1 ## We always grab the log if there is an issue.
     if [ "$mailtype" = 'non-zero' ]
     then
-        mailthelog=1
         subsubject="Non-zero exit ($status)"
     elif [ ! "$mailtype" = 'never' ]
     then
-        mailthelog=1 ## We always grab the log if there is an issue.
         subsubject="Issue - Exit status: $status"
     fi
 else
@@ -260,53 +214,45 @@ fi
 
 exitstatus=0
 
+declare logmsg
+if ((keeplog))
+then
+    ## If we are keeping logs, we need to be notified so we mail the log
+    ## information, despite any mail settings above to the contrary.
+    mailthelog=1
+    logmsg="--keeplog specified. Logs are alllog - $alllog, profilelog - $profilelog"
+    dont-on-exit "$temproot" "$alllog" "$profilelog"
+fi
+
 if ((mailthelog))
 then
     if [ -n "$mailto" ]
     then
-#        cat <<EODEBUG >> /tmp/cron_wrap_debug
-#About to mail:
-#        /home/mpersico5/personal/bin/local-mailme \
-#            ${mailfrom[@]} \
-#            -t "$mailto" \
-#            -s "$subsubject - $mailsubject" \
-#            <<EOM
-#$subsubject
-#$( ((status)) && cat "$profilelog";cat "$alllog")
-#EOM
-#EODEBUG
-
         /home/mpersico5/personal/bin/local-mailme \
-            "${mailfrom[@]}" \
+            -f "$mailfrom" \
             -t "$mailto" \
             -s "$subsubject - $mailsubject" \
             <<EOM
 $subsubject
-$( ((status)) && cat "$profilelog";cat "$alllog")
+$logmsg
+$( ((status)) && [[ -f "$profilelog" ]] && cat "$profilelog";[[ -f "$alllog" ]] && cat "$alllog")
 EOM
         exitstatus=0 ## we mailed off the error, if any
         exit 0
     else
         cat <<EOM
 $subsubject
-$( ((status)) && cat "$profilelog";cat "$alllog")
+$logmsg
+$( ((status)) && [[ -f "$profilelog" ]] && cat "$profilelog";[[ -f "$alllog" ]] && cat "$alllog")
 EOM
         exitstatus=$status ## we need to force the mail of the log, to at least
                            ## the cron owner.
     fi
 fi
 
-if ((keeplog))
-then
-    ## Writing anything to stdout or stderr forces what is written to be
-    ## mailed. This will happen despite any settings to the contrary above. It
-    ## will also use the default MAILTO, unless you have specified --to, in
-    ## which case we override MAILTO with the argument of --to.
-    echo "--keeplog specified. Logs are"
-    echo "alllog - $alllog"
-    echo "profilelog - $profilelog"
-else
-    \rm -f "$temproot" "$alllog" "$profilelog"
-fi
 
 exit $exitstatus
+
+#  LocalWords:  checkkinit args koalaman bb cron cronjob env crontab
+#  LocalWords:  profilelog backoff mailfrom mailto mailme
+#  LocalWords:  mailsubject
