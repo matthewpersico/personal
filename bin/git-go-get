@@ -6,6 +6,8 @@
 source "$BASH_INC_DIR/on_exit.binc"
 
 declare update
+declare wt=1
+declare only_wt=0
 declare fields
 declare filter
 declare exact
@@ -18,7 +20,7 @@ declare OPTSARGS
 declare shortopts='eurmwofh'
 declare longopts
 longopts="exact,et,exact-tail,eh,exact-head,update"
-longopts="$longopts,fields,limited:,help"
+longopts="$longopts,wt,nowt,wto,fields,limited:,help"
 longopts="$longopts,wpr,with-pr,npr,no-pr"
 
 # Process the command line.
@@ -41,6 +43,9 @@ do
         et | exact-tail) exact='tail' ;;
         eh | exact-head) exact='head' ;;
         u | update) update=1 ;;
+        wt)   wt=1; only_wt=0 ;;
+        nowt) wt=0; only_wt=0 ;;
+        wto ) wt=1; only_wt=1 ;;
         f | fields) fields=1 ;;
         wpr | with-pr ) with_pr=1 ;;
         npr | no-pr ) with_pr=2 ;;
@@ -58,7 +63,7 @@ do
             ;;
         esac
     done
-
+set +x
 filter="$1"
 
 declare tmpfile
@@ -84,10 +89,24 @@ else
     fi
     cp "$gitfuncs_git_go_file" "$tmpfile"
 
+    if ((wt==0))
+    then
+        grep -v '/wt/' "$tmpfile" > "${tmpfile}.001"
+        mv "${tmpfile}.001" "$tmpfile"
+    fi
+
+    if ((only_wt==1))
+    then
+        grep '/wt/' "$tmpfile" > "${tmpfile}.001"
+        mv "${tmpfile}.001" "$tmpfile"
+    fi
+
     if ((with_pr))
     then
         cmd-echo -- 'Options --(with|no)-pr not yet implemented'
     fi
+
+    set +x
 fi
 
 if [ -n "$filter" ]
