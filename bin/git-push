@@ -69,8 +69,7 @@ fi
 ## Then we tack on our actions if requested.
 if ((opt_popup || opt_pr))
 then
-
-    # Get info for our fork.
+    # Get info for our repo.
     declare remote
     remote=$(git-get-default-remote)
     declare svc
@@ -80,9 +79,11 @@ then
     declare org
     org=${orgrepo%/*}
 
-    # Get info for the upstream.
+    # Get info for the upstream (or the origin, if we are not a fork).
     declare upstream_svcorgrepo
     upstream_svcorgrepo=$(git remote get-url --push upstream)
+    [[ -z $upstream_svcorgrepo ]] && upstream_svcorgrepo=$(git remote get-url --push origin)
+
     declare upstream_orgrepo
     upstream_orgrepo=${upstream_svcorgrepo#*:}
 
@@ -111,9 +112,9 @@ then
         if ! url=$(git repo pr --get)
         then
             cmd-echo -- "No existing PR found, popping up create URL..."
-set -x
+
             declare current_branch
-            current_branch="$(git branch --show-current)"
+            current_branch="$(git repo current-branch)"
 
             declare default_branch
             default_branch=$(git repo default-branch)
@@ -124,24 +125,17 @@ set -x
                 exit 1
             fi
 
-            ## This url does not let us PR against an arbitrary branch. If this
-            ## branch is not based on the default  branch, you have to remember
-            ## that and set the PR accordingly at the GUI after we pop it up.
-            url="$url_svc/$orgrepo/pull/new/$current_branch"
-
-            ## This url does let us PR against an arbitrary branch. For now use
-            ## the default branch.
+            ## This url does let us PR against an arbitrary branch. Use the
+            ## extra information we wrote at branch/worktree creation time.
             declare from_branch
             from_branch=$(git config --get "worktree.${current_branch}.extmeta-from-branch")
 
-            ## Only for a worktree created before we started writing the
-            ## from-branch. We always write it even if it is the default.
+            ## Fallback for a worktree created before we started writing the
+            ## extmeta-from-branch. Going forward, we always write
+            ## extmeta-from-branch, even if it is the default.
             [[ -z $from_branch ]] && from_branch=$(git repo default-branch)
 
             url="$url_svc/$upstream_orgrepo/compare/$from_branch...$org:$current_branch"
-            cmd-echo --dc -- \
-                     "Here is the url for the pull that allows the pull to be against non-default branches:" \
-                     "$url"
         else
             cmd-echo -- "Existing PR found, popping it up..."
         fi

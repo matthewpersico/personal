@@ -75,7 +75,7 @@ _git_worktree_was_fetched ()
 
 _git_worktree_is_a_pull ()
 {
-    [[ $(git branch --show-current) =~ ^pull ]]
+    [[ $(git repo current-branch) =~ ^pull ]]
 }
 
 _git_worktree_info_add_from_branch_and_ref ()
@@ -117,7 +117,7 @@ git-worktree-get-name ()
 git-worktree-get-source-branch ()
 {
     declare current_branch
-    current_branch=$(git branch --show-current)
+    current_branch=$(git repo current-branch)
     git config --get "worktree.${current_branch}.extmeta-from-branch"
     return $?
 }
@@ -423,7 +423,7 @@ git-worktree-create ()
 
     ## Show some info
     cmd-echo -- "Branch and worktree metadata..."
-    git repo info
+    git-repo info --no-pulls
 
     ## Deal with the cd shenanigans
     if [ -z "$doandcdfile" ]
@@ -545,7 +545,7 @@ $(ls -la)"
 
     ## Current branch
     local current_branch
-    current_branch=$(git branch --show-current)
+    current_branch=$(git repo current-branch)
 
     ## Checking cleanliness and consistency
     local current_dir
@@ -553,7 +553,7 @@ $(ls -la)"
     if [ "$current_branch" != "$current_dir" ]
     then
         cmd-echo -- "Branch name '$current_branch' does not match current subdir name '$current_dir'." \
-                    "I'm bailing; you fix this mess."
+                 "I'm bailing; you fix this mess."
         return 1
     fi
     git status
@@ -598,9 +598,7 @@ $(ls -la)"
     was_fetched=$(_git_worktree_was_fetched "$current_branch"; echo $?)
 
     ## ...before we trash the metadata
-    cmd-echo --dc -- "Removing the local wt info" "Before:" "$(git config --get-regexp "worktree.${current_branch}*")"
     _git_worktree_info_remove "$current_branch"
-    cmd-echo --dc -- "After:" "$(git config --get-regexp "worktree.${current_branch}*")"
     cmd-echo -- "Local admin files updated."
 
     ## Now the take care of the branch.
@@ -733,7 +731,7 @@ $(ls -la)"
     local new_wtpath="$wtroot/$new_wtname"
     builtin cd "$old_wtpath" || { cmd-echo -- "Cannot cd $old_wtpath" && return 1; }
     local cb
-    cb="$(git branch --show-current)"
+    cb="$(git repo current-branch)"
     if [ "$cb" = "$old_wtname" ]
     then
         cmd-echo -- "Renaming the branch..."
@@ -963,7 +961,7 @@ $(ls -la)"
     local worktreekey="worktree.$worktreename.em-markedmerged"
 
     local branchname
-    branchname="$(git branch --show-current)"
+    branchname="$(git repo current-branch)"
     local branchkey="branch.$branchname.em-markedmerged"
 
     local markdate
