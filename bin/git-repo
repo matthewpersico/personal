@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
 
 # git-repo - no .gitaudit, called on every prompt
 
@@ -154,7 +155,7 @@ git-repo-is_openpr ()
     namespaces["$origin_namespace"]=1
 
     repo=$(git repo name)
-    current_branch=$(git branch --show-current)
+    current_branch=$(git-repo-current-branch)
 
     declare -a output
     for tgt_namespace in "${!namespaces[@]}"
@@ -190,13 +191,24 @@ for $entry (@$VAR1) {
 
 git-repo-info ()
 {
-    declare -a lines
-    mapfile -t lines < <(git config --get-regexp "$(git branch list --current)" | sort)
+    cmd-echo --title "Configs:"
+    git-repo-config
+    if [[ $1 != '--no-pulls' ]]
+    then
+        cmd-echo --title "Pull Requests:"
+        git-repo-pr-get --state
+    fi
+}
 
+git-repo-config ()
+{
+    declare -a lines
+    mapfile -t                 lines < <(git config --get-regexp "$(git-repo-current-branch)" | sort)
+    mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "remote.*.url" | sort)
     declare -a display
     for line in "${lines[@]}"
     do
-        read key value <<< "$line"
+        read -r key value <<< "$line"
         (( ${#key} > max )) && max=${#key}
         display+=("$key" "$value")
     done
@@ -207,7 +219,17 @@ git-repo-info ()
 git-repo-name ()
 {
     [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
-    name=$(git remote -v 2>/dev/null | grep origin | sed 's|.*/||' | sed 's/ .*//' | sort -u)
+    name=$(git remote -v 2>/dev/null | grep origin | sed -e 's|.*/||' -e 's/ .*//' | sort -u)
+    [[ "$1" ]] && [[ $1 != . ]] && { cd - || return 1; }
+    [ -z "$name" ] && return 1
+    echo "$name"
+    return 0
+}
+
+git-repo-org ()
+{
+    [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
+    name=$(git remote -v 2>/dev/null | grep origin |  sed -e 's/.*://' -e 's/\/.*//' | sort -u)
     [[ "$1" ]] && [[ $1 != . ]] && { cd - || return 1; }
     [ -z "$name" ] && return 1
     echo "$name"
@@ -548,7 +570,34 @@ git-repo-delete ()
 
 git-repo-pr-get ()
 {
-    declare opt_silent=$1; shift
+    declare OPTSARGS
+    declare shortopts=''
+    declare longopts='silent,state'
+
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
+    declare status=$?
+    ((status != 0)) && return $status
+
+    eval set -- "$OPTSARGS"
+
+    declare opt_silent=0
+    declare opt_state=0
+    while true
+    do
+        declare option=$1
+        shift
+        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+        case "$option" in
+            silent ) opt_silent=1;;
+            state ) opt_state=1;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                return 1
+                ;;
+        esac
+    done
 
     declare remote
     for remote in upstream origin
@@ -564,35 +613,77 @@ git-repo-pr-get ()
         cmd-echo -wc -- "Cannot find a remote upstream or origin to check for pull requests"
         return 1
     fi
-
     declare remote_svc=${remote_url%:*}
     declare remote_repo=${remote_url#*:}
 
-    declare cb
-    cb="$(git branch --show-current)"
+    #
+    # See if we have cached it
+    #
+    declare pr_url
+    declare wt=$(git-worktree ina -v)
+    declare cb=$(git-repo-current-branch)
+    pr_url=$(git config --get "worktree.${wt}.extmeta-pr")
+    if [[ -z $pr_url ]]
+    then
+        pr_url=$(git config --get "branch.${cb}.extmeta-pr")
+        if [[ -z $pr_url ]]
+        then
+            ((!opt_silent)) && echo 'No open pull requests associated with this repo'
+            return 0
+        fi
+    fi
+    if [[ -n $pr_url ]]
+    then
+        if ((!opt_silent))
+        then
+            if ((opt_state))
+            then
+                # We don't cache the state.
+                declare pullId=${pr_url##*/}
+                declare state=$(github-api --stream-data --server "$remote_svc" --pull $pullId pulls "$remote_repo" | jq .state)
+                state=${state//\"/}
+                state=${state^}
+                echo -n "${state}: "
+            fi
+            echo "$pr_url"
+        fi
+        return 0
+    fi
 
-    declare perldata
-    perldata=$(mktemp -t tmp.git-repo-pr-get.perldata.$$.XXXXXXXXXX)
+    #
+    # Not cached. Search and record.
+    #
+    declare perldata=$(mktemp -t tmp.git-repo-pr-get.perldata.$$.XXXXXXXXXX)
     rm-on-exit "$perldata"
-
     github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
-
-    perl -MData::Dumper -e '
+    pr_url=$(perl -MData::Dumper -e '
 ## $ARGV[0] - file with perl data
 ## $ARGV[1] - org or current repo
 ## $ARGV[2] - current branch name
-## $ARGV[3] - "silent" - 0:print the pull request URL, 1:no print
+## $ARGV[3] - "state" - 0:do not add the state of the PR to the output, 1:add the state
 do $ARGV[0];
 for $openpull (@{$VAR1}) {
     if ($openpull->{head}{label} eq "$ARGV[1]:$ARGV[2]") {
         ## debug: print Data::Dumper->Dump([$openpull],[qw(*pull)]);
-        print qq($openpull->{html_url}\n) if !$ARGV[3];
+        if($ARGV[3]) {
+            print ucfirst($openpull->{state}), q(: );
+        }
+        print $openpull->{html_url}, qq(\n);
         exit 0;
     }
 }
-print qq(No open pull requests associated with this repo.\n);
-exit 1;' "$perldata" "$USER" "$cb" "$opt_silent"
+exit 1;' "$perldata" "$USER" "$cb" "$opt_state")
     declare status=$?
+    if [[ -z $pr_url ]]
+    then
+        ((!opt_silent)) && echo 'No open pull requests associated with this repo'
+    else
+        ((!opt_silent)) && echo "$pr_url"
+        ((opt_state)) && pr_url=${pr_url#*: }
+        # Cache the PR
+        [[ -n $wt ]] && git config --replace-all "worktree.${wt}.extmeta-pr" "$pr_url"
+        [[ -n $cb ]] && git config --replace-all "branch.${cb}.extmeta-pr" "$pr_url"
+    fi
     return $status ## Instead of return $? in case we are debugging and need a
                    ## set +x after we get status but before return.
 }
@@ -601,7 +692,7 @@ git-repo-pr ()
 {
     declare OPTSARGS
     declare shortopts='sg'
-    declare longopts='silent,get'
+    declare longopts='silent,state,get'
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     declare status=$?
@@ -609,7 +700,7 @@ git-repo-pr ()
 
     eval set -- "$OPTSARGS"
 
-    declare opt_silent=0
+    declare -a passthru
     declare opt_get=1 ## default for now, maybe we add create later.
     while true
     do
@@ -618,7 +709,8 @@ git-repo-pr ()
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
             get | g) opt_get=1 ;;
-            silent | s) opt_silent=1;;
+            silent | s) passthru+=('--silent');;
+            state ) passthru+=('--state');;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
@@ -630,7 +722,7 @@ git-repo-pr ()
 
     if ((opt_get))
     then
-        git-repo-pr-get $opt_silent
+        git-repo-pr-get "${passthru[@]}"
     fi
 }
 
@@ -806,6 +898,36 @@ git-repo-tags ()
 }
 
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
+git-repo-current-branch ()
+{
+    if [[ -n $1 ]]
+    then
+        cmd-echo --ec -- "Cannot set current branch yet"
+        false;return $?
+    else
+        declare cb
+        cb=$($REALGIT branch --show-current)
+        if [[ -z $cb ]]
+        then
+            cmd-echo --wc -- "--show-current can't find current branch. Are you in a rebase? Falling back to alt method" >&2
+            cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
+            if [[ -z $cb ]]
+            then
+                cmd-echo --ec -- "Cannot get current branch"
+                false;return $?
+            fi
+        fi
+        echo "$cb"
+    fi
+    true
+}
+
+git-repo-show-current-branch ()
+{
+    git-repo-current-branch
+}
+
+# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-default-branch ()
 {
     if [[ -n $1 ]]
@@ -817,24 +939,34 @@ git-repo-default-branch ()
         do
             [[ -n $base_repo ]] && break
         done;
-        [[ -z $base_repo ]] && return 1
+        [[ -z $base_repo ]] && { false; return $?; }
         declare default_branch
         default_branch=$(sed 's/.*\///' < "$base_repo"/.git/refs/remotes/origin/HEAD)
         [[ -n $default_branch ]] && echo "$default_branch" && return 0
         cmd-echo --ec -- "Cannot find default branch for ${PWD}"
-        return 1
+        false; return $?
     fi
+}
+
+git-repo-show-default-branch ()
+{
+    git-repo-default-branch
 }
 
 git-repo-source-branch ()
 {
     declare current_branch
-    current_branch=$(git branch --show-current)
+    current_branch=$(git-repo-current-branch)
 
     declare source_branch
     source_branch=$(git config --get "branch.$current_branch.extmeta-from-branch")
-    [[ -n $source_branch ]] && echo "$source_branch" && return 0
-    return 1
+    [[ -n $source_branch ]] && echo "$source_branch" && { true; return $?; }
+    false
+}
+
+git-repo-show-source-branch ()
+{
+    git-repo-source-branch
 }
 
 main()
