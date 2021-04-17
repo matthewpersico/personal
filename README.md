@@ -35,7 +35,6 @@ $ cd dotfiles
 $ . ./dotfilesbootstrap
 $ cd ..
 $ bin/makesymlinks -i dotfiles
-$ bin/makepstree
 ```
 
 ## Test

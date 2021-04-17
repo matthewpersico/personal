@@ -17,7 +17,7 @@ GetOptions(
       match-dir=s
       hostname=s
       epoch-ago=i
-      )
+    )
 );
 my $pattern = shift;
 $pattern = "(?i)$pattern" if $opt{i};
@@ -94,35 +94,40 @@ FILE: for my $file (@files) {
     }
 }
 
-@entries = sort { $a->{time} <=> $b->{time} } @entries;
-if ( !$ENV{HISTTIMEFORMAT} ) {
-    $ENV{HISTTIMEFORMAT} = '%m/%d - %H:%M:%S';
-    if ( $entries[-1]->{time} - $entries[0]->{time} >= 60 * 60 * 24 * 365 ) {
-        $ENV{HISTTIMEFORMAT} = '%Y/%m/%d - %H:%M:%S';
+if (@entries) {
+    @entries = sort { $a->{time} <=> $b->{time} } @entries;
+    if ( !$ENV{HISTTIMEFORMAT} ) {
+        $ENV{HISTTIMEFORMAT} = '%m/%d - %H:%M:%S';
+        if ( $entries[-1]->{time} - $entries[0]->{time} >= 60 * 60 * 24 * 365 )
+        {
+            $ENV{HISTTIMEFORMAT} = '%Y/%m/%d - %H:%M:%S';
+        }
     }
-}
-my $datelen = 0;
-my @output;
-my %unique;
-for (@entries) {
-    if ( $opt{l} ) {
-        $unique{ $_->{file} }++;
-    } else {
-        $datelen = length( strftime( $ENV{HISTTIMEFORMAT}, localtime(1) ) )
-          if not $datelen;
-        push @output,
-          sprintf(
-            "%s %s%s%s\n",
-            strftime( $ENV{HISTTIMEFORMAT}, localtime( $_->{time} ) ),
-            $_->{cmd},
-            ( $_->{dir} ? "\n" . ' ' x ( $datelen + 5 ) . "($_->{dir})" : '' ),
-            (
-                $_->{file}
-                ? "\n" . ' ' x ( $datelen + 5 ) . "($_->{file})"
-                : ''
-            )
-          );
+    my $datelen = 0;
+    my @output;
+    my %unique;
+    for (@entries) {
+        if ( $opt{l} ) {
+            $unique{ $_->{file} }++;
+        } else {
+            $datelen = length( strftime( $ENV{HISTTIMEFORMAT}, localtime(1) ) )
+              if not $datelen;
+            push @output,
+              sprintf(
+                "%s %s%s%s\n",
+                strftime( $ENV{HISTTIMEFORMAT}, localtime( $_->{time} ) ),
+                $_->{cmd},
+                (
+                    $_->{dir} ? "\n" . ' ' x ( $datelen + 5 ) . "($_->{dir})"
+                    : ''
+                ),
+                (
+                    $_->{file} ? "\n" . ' ' x ( $datelen + 5 ) . "($_->{file})"
+                    : ''
+                )
+              );
+        }
     }
+    @output = map { "$_\n" } sort keys %unique if $opt{l};
+    print @output                              if (@output);
 }
-@output = map { "$_\n" } sort keys %unique if $opt{l};
-print @output if (@output);

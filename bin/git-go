@@ -5,13 +5,32 @@
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
+tail-number-strip ()
+{
+    declare a
+    for a in "$@"
+    do
+        echo "${a% (*}"
+    done
+}
+
+tail-number-add ()
+{
+    declare i=0
+    for a in "$@"
+    do
+        ((i+=1))
+        printf '%s (%d\n' "$a" "$i"
+    done
+}
+
 declare PS3
 PS3="Choose by number, /string to rematch, q to quit: "
 declare -a git_get_opts
 declare opt_list
 opt_list=0
 declare opt_wt
-opt_wt='-w'
+opt_wt='--wt'
 declare opt_stat
 opt_stat=0
 declare opt_mod
@@ -38,8 +57,8 @@ shortopts='elmrubhi:'
 declare longopts
 longopts="upstream,exact,et,exact-tail,eh,exact-head"
 longopts="$longopts,wc,with-comments,wco,with-comments-only"
-longopts="$longopts,list,lf,listfull,size,mbig,roots,update"
-longopts="$longopts,wt,nowt,subwt,wto"
+longopts="$longopts,list,lf,listfull,size,update"
+longopts="$longopts,wt,nowt,wto"
 longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
 longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,set"
 
@@ -82,12 +101,10 @@ do
         lf | listfull ) opt_list=2 ;;
         comma ) opt_comma=1 ;;
         size ) opt_size=1; opt_list=1 ;;
-        m | mbig ) git_get_opts+=('-m') ;;
-        r | roots ) git_get_opts+=('-r') ;;
         u | update ) git_get_opts+=('-u') ;;
-        wt ) opt_wt='-w' ;;
-        nowt ) opt_wt='' ;;
-        subwt | wto ) git_get_opts+=('--wto');;
+        wt ) opt_wt='--wt' ;;
+        nowt ) opt_wt='--nowt' ;;
+        wto ) opt_wt='--wto';;
         stat ) opt_stat=1; opt_list=1 ;;
         dirty ) opt_stat=2; opt_list=1 ;;
         b| brief ) opt_brief=1 ;;
@@ -145,7 +162,7 @@ tgts=("${tgts[@]:1}")
 ## The rest need the REPOS feedback.
 for tgt in "${tgts[@]}"
 do
-    readarray -t tns < <(tail_number_strip "${REPOS[@]}")
+    readarray -t tns < <(tail-number-strip "${REPOS[@]}")
     declare alltgts
     ajoin alltgts -s ',' "${tns[@]}"
     readarray -t REPOS < <(git-go-get --limited "$alltgts" "$tgt")
@@ -288,7 +305,7 @@ else
             cmd-echo -- "Matches only ${REPOS[0]}. Going there."
             REPO=${REPOS[0]}
         else
-            readarray -t REPOS < <(tail_number_add "${REPOS[@]}")
+            readarray -t REPOS < <(tail-number-add "${REPOS[@]}")
             COLUMNS=1 ## One character wide terminal, forces list to be one
                       ## column.
 
@@ -300,7 +317,7 @@ else
                 fi
                 if [ -n "$REPO" ]
                 then
-                    REPO=$(tail_number_strip "$REPO")
+                    REPO=$(tail-number-strip "$REPO")
                     break
                 elif [ "${REPLY,,}" = 'q' ]
                 then
@@ -312,9 +329,9 @@ else
                     # Wants to quote "$(trail_number_strip...), but we need the
                     # output to be individual items so that ajoin works. Will
                     # be an issue if a path has a space in it.
-                    ## TODO - tail_number_strip should take an array as a target and not
+                    ## TODO - tail-number-strip should take an array as a target and not
                     ## use 'echo' to return its output.
-                    ajoin repolist -s ',' $(tail_number_strip "${REPOS[@]}")
+                    ajoin repolist -s ',' $(tail-number-strip "${REPOS[@]}")
                     git go --limited "$repolist" "${REPLY#/}"
                     break
                 else
@@ -324,10 +341,18 @@ else
         fi
     fi
 fi
+
 if [ -n "$REPO" ]
 then
+    if [[ ! -d "${TILDAE:-$HOME}/$REPO" ]]
+    then
+        cmd-echo --ec -- "'$REPO' does not exist. It will be removed from consideration."
+        set +x
+        git-go-set
+        exit 1
+    fi
     ## dirlist, not builtin cd, to take advantage this cd enhancement
-    dirlist "${TILDAE:-$HOME}/${REPO//(repo)/}"
+    dirlist "${TILDAE:-$HOME}/${REPO}"
     git hook check
 fi
 
@@ -398,13 +423,6 @@ Usage: git-go [options] [ filter [filter...] ]
 
    --update
        Rescan to pick up new and deleted repos and worktrees.
-
-   --roots
-       Include the non-git directories where gits live as choices so you
-       can add new repos.
-
-   --mbig
-       Include the directories in MBIG as choices.
 
    --wt
        Include the worktree subdirectories in repos as choices. This is the

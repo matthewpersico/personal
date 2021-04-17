@@ -34,11 +34,9 @@ _git-clone-set-triangle()
     declare githost_url
     githost_url=$1
     declare githostkeycheck
-    # "kvstore replacement: githostkeycheck=\$(kvstore keys gitfuncs_git_svcs | grep -E \"^$githost_url\$\""
     githostkeycheck=$( git kv --key-only --section svcs | grep -E "^$githost_url$")
     if [ -n "$githostkeycheck" ] ; then
         echo "Supposed to provide a URL, not a service name. Converting..."
-        # "kvstore replacement: githost_url=\$(kvstore get gitfuncs_git_svcs \"$githostkeycheck\""
         githost_url=$(git kv --get "svcs.githostkeycheck")
         if [ -z "$githost_url" ]
         then
@@ -87,7 +85,7 @@ _git-clone-set-triangle()
     ## ^ allows git checkout -b 3 pull/upstream/3
 
     ## Our own metadata
-    git config --replace-all extmeta.git-clone.triangle-remote "${origin_namespace}" || return $?
+    git config --replace-all extmeta.git-clone.triangle-remote "${upstream_namespace}" || return $?
 
     return 0
 }
@@ -238,11 +236,9 @@ main ()
     ashift pass_on
 
     declare githost_url
-    ## "kvstore replacement: githost_url=\"\$(kvstore get gitfuncs_git_urls \"$githost\")"
     githost_url="$(git kv --get "urls.${githost}")"
     if [ -z "$githost_url" ]
     then
-        ## "kvstore replacement: Valid githosts are:\$(kvstore vals gitfuncs_git_svcs)"
         cmd-echo -id "$cmd_echo_id" -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
         return 1
     fi
@@ -256,6 +252,12 @@ main ()
         ashift pass_on repo
     fi
 
+    if [[ -z $namespace ]] || [[ -z $repo ]]
+    then
+        cmd-echo -id "$cmd_echo_id" -e -- "Missing one or both of namespace and repo args."
+        return 1
+    fi
+
     declare cwpath
     cwpath="$(realpath "${PWD}")"
     declare local_githost
@@ -265,9 +267,8 @@ main ()
         cmd-echo -- "You must be in a directory path ending in"\
                  "   $githost" \
                  "You are in $cwpath"
-        # gitfuncs_root set externally
-        # shellcheck disable=SC2154
-        declare shouldbein="$GITFUNCS_GITROOT/$githost"
+        declare shouldbein
+        shouldbein="$(git config --get --expand git-repo-root.root)/$githost"
         if [ ! -d "$shouldbein" ]
         then
             cmd-echo -ec -- "Cannot find '$shouldbein'." "Correct and re-execute."
@@ -495,9 +496,9 @@ The URL of the repo to clone in githost:org/repo format.
 
 Use the githost of the repoURL to determine where in the ~/gits tree to place this clone.
 
-=item --fork org
+=item --forkof org
 
-Create a repo in your namespce that is a form of the same-named repo in the 'org' namespace. Clone the fork locally. Establish the 'origin' and 'upstream' remotes as the fork and the fork source, respectively. If the fork exists, we use it and continue.
+Create a repo in your namespace on the remote server that is a form of the same-named repo in the 'org' namespace. Clone the fork locally. Establish the 'origin' and 'upstream' remotes as the fork and the fork source, respectively. If the fork exists, we use it and continue.
 
 =item --worktree new-worktree
 

@@ -1,0 +1,68 @@
+#!/usr/bin/env perl
+## uncolor — remove terminal escape sequences such as color changes
+while (<>) {
+    s/ \e[ #%()*+\-.\/]. |
+    \r | # Remove extra carriage returns also
+    (?:\e\[|\x9b) [ -?]* [@-~] | # CSI ... Cmd
+    (?:\e\]|\x9d) .*? (?:\e\\|[\a\x9c]) | # OSC ... (ST|BEL)
+    (?:\e[P^_]|[\x90\x9e\x9f]) .*? (?:\e\\|\x9c) | # (DCS|PM|APC) ... ST
+    \e.|[\x80-\x9f] //xg;
+    1 while s/[^\b][\b]//g;    # remove all non-backspace followed by backspace
+    print;
+}
+
+=for source-of-code
+
+https://unix.stackexchange.com/questions/14684/removing-control-chars-including-console-codes-colours-from-script-output
+
+Gilles:
+
+while (<>) {
+    s/ \e[ #%()*+\-.\/]. |
+       \e\[ [ -?]* [@-~] | # CSI ... Cmd
+       \e\] .*? (?:\e\\|[\a\x9c]) | # OSC ... (ST|BEL)
+       \e[P^_] .*? (?:\e\\|\x9c) | # (DCS|PM|APC) ... ST
+       \e. |
+       \x08 //xg;
+    print;
+}
+
+Known issues:
+
+Doesn't complain about malformed sequences. That's not what this script is for.
+
+Multi-line string arguments to DCS/PM/APC/OSC are not supported.
+
+Bytes in the range 128–159 may be parsed as control characters, though this is
+rarely used. Here's a version which parses non-ASCII control characters (this
+will mangle non-ASCII text in some encodings including UTF-8).
+
+## uncolor — remove terminal escape sequences such as color changes
+while (<>) {
+    s/ \e[ #%()*+\-.\/]. |
+       (?:\e\[|\x9b) [ -?]* [@-~] | # CSI ... Cmd
+       (?:\e\]|\x9d) .*? (?:\e\\|[\a\x9c]) | # OSC ... (ST|BEL)
+       (?:\e[P^_]|[\x90\x9e\x9f]) .*? (?:\e\\|\x9c) | # (DCS|PM|APC) ... ST
+       \e.|[\x80-\x9f] |
+       \x08 //xg;
+    print;
+}
+
+dewtell:
+
+Updating Gilles' answer to also remove carriage returns and do
+backspace-erasing of previous characters, which were both important to me for a
+typescript generated on Cygwin:
+
+while (<>) {
+  s/ \e[ #%()*+\-.\/]. |
+    \r | # Remove extra carriage returns also
+    (?:\e\[|\x9b) [ -?]* [@-~] | # CSI ... Cmd
+    (?:\e\]|\x9d) .*? (?:\e\\|[\a\x9c]) | # OSC ... (ST|BEL)
+    (?:\e[P^_]|[\x90\x9e\x9f]) .*? (?:\e\\|\x9c) | # (DCS|PM|APC) ... ST
+    \e.|[\x80-\x9f] //xg;
+    1 while s/[^\b][\b]//g;  # remove all non-backspace followed by backspace
+  print;
+}
+
+=cut

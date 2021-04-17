@@ -69,13 +69,25 @@ fi
 ## Then we tack on our actions if requested.
 if ((opt_popup || opt_pr))
 then
+    # Get info for our repo.
     declare remote
     remote=$(git-get-default-remote)
     declare svc
     svc=${remote%:*}
-    declare repo
-    repo=${remote#*:}
+    declare orgrepo
+    orgrepo=${remote#*:}
+    declare org
+    org=${orgrepo%/*}
 
+    # Get info for the upstream (or the origin, if we are not a fork).
+    declare upstream_svcorgrepo
+    upstream_svcorgrepo=$(git config --get remote.upstream.url)
+    [[ -z $upstream_svcorgrepo ]] && upstream_svcorgrepo=$(git config --get remote.origin.url)
+
+    declare upstream_orgrepo
+    upstream_orgrepo=${upstream_svcorgrepo#*:}
+
+    # Make sure we realize we are not clean, in case that's unexpected.
     declare statusdata
     statusdata=$(mktemp -t tmp.git-web.statusdata.$$.XXXXXXXXXX)
     rm-on-exit "$statusdata"
@@ -90,31 +102,49 @@ then
         git status
     fi
 
-    declare url_svc
-    url_svc="$(git kv --get "browser-urls.$svc")"
     declare url
+    declare url_svc
+
+    url_svc="$(git kv --get "browser-urls.$svc")"
+
     if ((opt_pr))
     then
         if ! url=$(git repo pr --get)
         then
             cmd-echo -- "No existing PR found, popping up create URL..."
-            declare cb
-            cb="$(git branch --show-current)"
-            url="$url_svc/$repo/pull/new/$cb"
+
+            declare current_branch
+            current_branch="$(git repo current-branch)"
+
             declare default_branch
             default_branch=$(git repo default-branch)
-            if [ "$cb" = "$default_branch" ]
+
+            if [ "$current_branch" = "$default_branch" ]
             then
-                cmd-echo -wc -- "Using the default branch '${default_branch}' branch on a clone won't work; you've already pushed to ${default_branch}."
+                cmd-echo -wc -- "Not generating a PR. Using the default branch '${default_branch}' branch on a clone won't work; you've already pushed to ${default_branch}."
+                exit 1
             fi
+
+            ## This url does let us PR against an arbitrary branch. Use the
+            ## extra information we wrote at branch/worktree creation time.
+            declare from_branch
+            from_branch=$(git config --get "worktree.${current_branch}.extmeta-from-branch")
+
+            ## Fallback for a worktree created before we started writing the
+            ## extmeta-from-branch. Going forward, we always write
+            ## extmeta-from-branch, even if it is the default.
+            [[ -z $from_branch ]] && from_branch=$(git repo default-branch)
+
+            url="$url_svc/$upstream_orgrepo/compare/$from_branch...$org:$current_branch"
         else
             cmd-echo -- "Existing PR found, popping it up..."
         fi
     else
-        url="$url_svc/$repo"
+        url="$url_svc/$orgrepo"
     fi
 
     git web--browse "$url" &
+    set +x
 fi
 
 exit 0

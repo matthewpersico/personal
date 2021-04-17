@@ -1,0 +1,91 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+
+echo "$(date): git-ls-remote" >> "$HOME/.gitaudit"
+
+# git-ls-remote
+
+# shellcheck disable=SC1090
+source "$BASH_INC_DIR/on_exit.binc"
+
+if ! git-version-verify 'git-ls-remote'
+then
+    exit 1
+fi
+
+# shellcheck disable=SC2034 # We'll use it eventually
+cmd_echo_id='git-ls-remote'
+
+usage ()
+{
+    (
+        [ -n "$*" ] && cmd-echo -- "$@"
+        echo "** Extended actions **"
+        bash-usage "$0"
+        echo
+        echo "** Standard actions **"
+        "$REALGIT" ls-remote --help
+    ) 2>&1 | ${PAGER:-less}
+}
+
+declare opt_default_branch=0
+
+declare -a pass_on
+
+## DO NOT attempt to convert this to a 'getopt' implementation; it would
+## require specifying and handling every existing option in 'git ls-remote',
+## and it is just not necessary.
+while (( $# ))
+do
+    declare arg=$1
+    shift
+    case "$arg" in
+        ##
+        ## Our options
+        ##
+        --default-branch )
+            opt_default_branch=1
+            ;;
+        --help | -h )
+            usage ''
+            exit 0
+            ;;
+        * )
+            pass_on+=("$arg")
+            ;;
+    esac
+done
+
+if ((opt_default_branch==1))
+then
+    "$REALGIT" ls-remote --symref "${pass_on[@]}" HEAD | grep '^ref:' | sed -E -e 's|.*/||' -e 's/\s+HEAD//'
+else
+    "$REALGIT" ls-remote "${pass_on[@]}"
+fi
+
+exit 0
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-ls-remote - extension to git ls-remote
+
+=head1 SYNOPSIS
+
+ git-ls-remote --default-branch remote_url
+
+=head1 DESCRIPTION
+
+git ls-remote with enhancements.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --default-branch
+
+Prints the default branch name of a remote repo
+
+=back
+
+__PODUSAGE__

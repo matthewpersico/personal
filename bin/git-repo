@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
 
 # git-repo - no .gitaudit, called on every prompt
 
@@ -31,8 +33,6 @@ git-repo-is ()
 
 git-repo-isa () { git-repo-is "$@"; }
 git-repo-ina () { git-repo-is; }
-git-repo-is_a () { git-repo-is "$@"; }
-git-repo-in_a () { git-repo-is; }
 
 git-repo-is_clean ()
 {
@@ -81,7 +81,7 @@ git-repo-is_up_to_date ()
     fi
 }
 
-git-repo-is_a_fork ()
+git-repo-is_fork ()
 {
     declare print=0
     if [[ $1 == '--print' ]]
@@ -112,19 +112,14 @@ $VAR1->{fork} && print $VAR1->{parent}{full_name};
     )
 }
 
-git-repo-is_a_fork_of ()
-{
-    git-repo-is_a_fork --print "$@"
-}
-
-git-repo-is_fork ()
-{
-    git-repo-is_a_fork "$@"
-}
-
 git-repo-is_fork_of ()
 {
-    git-repo-is_a_fork_of "$@"
+    git-repo-is_fork --print "$@"
+}
+
+git-repo-is_forkof ()
+{
+    git-repo-is_fork --print "$@"
 }
 
 git-repo-is_worktree ()
@@ -141,10 +136,100 @@ git-repo-is_worktree ()
     fi
 }
 
+git-repo-is_openpr ()
+{
+
+    source "$BASH_INC_DIR/mktemp.binc"
+    source "$BASH_INC_DIR/on_exit.binc"
+
+    git fetch
+    declare server upstream_namespace origin_namespace repo current_branch
+    declare -A namespaces
+
+    server=$(git-get-default-remote --server)
+
+    upstream_namespace=$(git repo is a fork-of | sed 's/\/.*//')
+    [[ -n $upstream_namespace ]] && namespaces["$upstream_namespace"]=1
+
+    origin_namespace=$(git-get-default-remote --namespace)
+    namespaces["$origin_namespace"]=1
+
+    repo=$(git repo name)
+    current_branch=$(git-repo-current-branch)
+
+    declare -a output
+    for tgt_namespace in "${!namespaces[@]}"
+    do
+        declare tmpfile; tmpfile=$(mktempfile); rm-on-exit "$tmpfile"
+
+        github-api --server "$server" --perl-data pulls "$tgt_namespace/$repo" > "$tmpfile"
+        declare tmpout
+        tmpout=$(perl -e '
+do $ARGV[0];
+for $entry (@$VAR1) {
+    if ( $entry->{user}->{login} eq $ENV{USER}
+         &&
+         $entry->{head}->{ref} eq $ARGV[1] ) {
+        print($entry->{_links}->{html}->{href});
+    }
+}
+' "$tmpfile" "$current_branch")
+        [[ -n $tmpout ]] && output+=("$tmpout")
+    done
+    if [[ "${#output[@]}" == '0' ]]
+    then
+        echo "No open pull requests"
+        return 1
+    else
+        for o in "${output[@]}"
+        do
+            echo "$o"
+        done
+        return 0
+    fi
+}
+
+git-repo-info ()
+{
+    cmd-echo --title "Configs:"
+    git-repo-config
+    if [[ $1 != '--no-pulls' ]]
+    then
+        cmd-echo --title "Pull Requests:"
+        git-repo-pr-get --state
+    fi
+}
+
+git-repo-config ()
+{
+    declare -a lines
+    mapfile -t                 lines < <(git config --get-regexp "$(git-repo-current-branch)" | sort)
+    mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "remote.*.url" | sort)
+    declare -a display
+    for line in "${lines[@]}"
+    do
+        read -r key value <<< "$line"
+        (( ${#key} > max )) && max=${#key}
+        display+=("$key" "$value")
+    done
+    ((max+=1))
+    printf "%-${max}s: %s\n" "${display[@]}"
+}
+
 git-repo-name ()
 {
     [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
-    name=$(git remote -v 2>/dev/null | grep origin | sed 's|.*/||' | sed 's/ .*//' | sort -u)
+    name=$(git remote -v 2>/dev/null | grep origin | sed -e 's|.*/||' -e 's/ .*//' | sort -u)
+    [[ "$1" ]] && [[ $1 != . ]] && { cd - || return 1; }
+    [ -z "$name" ] && return 1
+    echo "$name"
+    return 0
+}
+
+git-repo-org ()
+{
+    [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
+    name=$(git remote -v 2>/dev/null | grep origin |  sed -e 's/.*://' -e 's/\/.*//' | sort -u)
     [[ "$1" ]] && [[ $1 != . ]] && { cd - || return 1; }
     [ -z "$name" ] && return 1
     echo "$name"
@@ -485,7 +570,34 @@ git-repo-delete ()
 
 git-repo-pr-get ()
 {
-    declare opt_silent=$1; shift
+    declare OPTSARGS
+    declare shortopts=''
+    declare longopts='silent,state'
+
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
+    declare status=$?
+    ((status != 0)) && return $status
+
+    eval set -- "$OPTSARGS"
+
+    declare opt_silent=0
+    declare opt_state=0
+    while true
+    do
+        declare option=$1
+        shift
+        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+        case "$option" in
+            silent ) opt_silent=1;;
+            state ) opt_state=1;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                return 1
+                ;;
+        esac
+    done
 
     declare remote
     for remote in upstream origin
@@ -499,53 +611,92 @@ git-repo-pr-get ()
     if [ -z "$remote_url" ]
     then
         cmd-echo -wc -- "Cannot find a remote upstream or origin to check for pull requests"
-        return 1
+        false; return $?
     fi
-
     declare remote_svc=${remote_url%:*}
     declare remote_repo=${remote_url#*:}
 
-    declare cb
-    cb="$(git branch --show-current)"
+    #
+    # See if we have cached it.
+    #
+    declare pr_url
+    declare wt=$(git-worktree ina -v)
+    declare cb=$(git-repo-current-branch)
+    pr_url=$(git config --get "worktree.${wt}.extmeta-pr")
+    [[ -z $pr_url ]] && pr_url=$(git config --get "branch.${cb}.extmeta-pr")
 
-    declare perldata
-    perldata=$(mktemp -t tmp.git-repo-pr-get.perldata.$$.XXXXXXXXXX)
-    rm-on-exit "$perldata"
-
-    github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
-
-    perl -MData::Dumper -e '
+    if [[ -z $pr_url ]]
+    then
+        #
+        # Not cached. Search and record.
+        #
+        declare perldata=$(mktemp -t tmp.git-repo-pr-get.perldata.$$.XXXXXXXXXX)
+        rm-on-exit "$perldata"
+        github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
+        pr_url=$(perl -MData::Dumper -e '
 ## $ARGV[0] - file with perl data
 ## $ARGV[1] - org or current repo
 ## $ARGV[2] - current branch name
-## $ARGV[3] - "silent" - 0:print the pull request URL, 1:no print
+## $ARGV[3] - "state" - 0:do not add the state of the PR to the output, 1:add the state
 do $ARGV[0];
 for $openpull (@{$VAR1}) {
     if ($openpull->{head}{label} eq "$ARGV[1]:$ARGV[2]") {
         ## debug: print Data::Dumper->Dump([$openpull],[qw(*pull)]);
-        print qq($openpull->{html_url}\n) if !$ARGV[3];
+        if($ARGV[3]) {
+            print ucfirst($openpull->{state}), q(: );
+        }
+        print $openpull->{html_url}, qq(\n);
         exit 0;
     }
 }
-exit 1;' "$perldata" "$USER" "$cb" "$opt_silent"
-    declare status=$?
-    return $status ## Instead of return $? in case we are debugging and need a
-                   ## set +x after we get status but before return.
+exit 1;' "$perldata" "$USER" "$cb" "$opt_state")
+        declare status=$?
+        if [[ -z $pr_url ]]
+        then
+            ((!opt_silent)) && echo 'No open pull requests associated with this repo'
+            return $status
+        else
+            ((opt_state)) && pr_url=${pr_url#*: }
+            # Cache the PR
+            [[ -n $wt ]] && git config --replace-all "worktree.${wt}.extmeta-pr" "$pr_url"
+            [[ -n $cb ]] && git config --replace-all "branch.${cb}.extmeta-pr" "$pr_url"
+        fi
+    fi
+
+    if ((!opt_silent))
+    then
+        if ((opt_state))
+        then
+            # We don't cache the state.
+            declare pullId=${pr_url##*/}
+            declare state=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .state)
+            state=${state//\"/}
+            state=${state^}
+            if [[ $state == 'Closed' ]]
+            then
+                declare merged=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .merged)
+                [[ $merged == 'true' ]] && state='Merged'
+            fi
+            echo -n "${state}: "
+        fi
+        echo "$pr_url"
+    fi
+    true; return $?
 }
 
 git-repo-pr ()
 {
     declare OPTSARGS
     declare shortopts='sg'
-    declare longopts='silent,get'
+    declare longopts='silent,state,get'
 
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") ## "${FUNCNAME[0]}" -- "$@") ## in functions
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     declare status=$?
-    ((status != 0)) && exit $status ## return $status ## in functions
+    ((status != 0)) && return $status
 
     eval set -- "$OPTSARGS"
 
-    declare opt_silent=0
+    declare -a passthru
     declare opt_get=1 ## default for now, maybe we add create later.
     while true
     do
@@ -554,7 +705,8 @@ git-repo-pr ()
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
             get | g) opt_get=1 ;;
-            silent | s) opt_silent=1;;
+            silent | s) passthru+=('--silent');;
+            state ) passthru+=('--state');;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
@@ -566,7 +718,7 @@ git-repo-pr ()
 
     if ((opt_get))
     then
-        git-repo-pr-get $opt_silent
+        git-repo-pr-get "${passthru[@]}"
     fi
 }
 
@@ -578,17 +730,16 @@ git-repo-sync ()
 git-repo-sync-with ()
 {
     declare arg1=$1
-    declare deftext=""
     if [[ -z $arg1 ]]
     then
-        arg1='--def'
-        deftext="default "
-    fi
-    if [[ $arg1 =~ ^--def ]]
-    then
-        shift
+        declare deftext='source'
         declare branch_name
-        branch_name=$(git-repo-default-branch)
+        branch_name=$(git-repo-source-branch)
+        if [[ -z $branch_name ]]
+        then
+            deftext="default"
+            branch_name=$(git-repo-default-branch)
+        fi
         ## clone-and-fork repos need to sync with the default branch in the
         ## canonical upstream branch.  If there is no 'upstream', then it's
         ## probably a clone only, so sync against the default branch in origin.
@@ -743,6 +894,36 @@ git-repo-tags ()
 }
 
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
+git-repo-current-branch ()
+{
+    if [[ -n $1 ]]
+    then
+        cmd-echo --ec -- "Cannot set current branch yet"
+        false;return $?
+    else
+        declare cb
+        cb=$($REALGIT branch --show-current)
+        if [[ -z $cb ]]
+        then
+            cmd-echo --wc -- "--show-current can't find current branch. Are you in a rebase? Falling back to alt method" >&2
+            cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
+            if [[ -z $cb ]]
+            then
+                cmd-echo --ec -- "Cannot get current branch"
+                false;return $?
+            fi
+        fi
+        echo "$cb"
+    fi
+    true
+}
+
+git-repo-show-current-branch ()
+{
+    git-repo-current-branch
+}
+
+# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-default-branch ()
 {
     if [[ -n $1 ]]
@@ -754,13 +935,34 @@ git-repo-default-branch ()
         do
             [[ -n $base_repo ]] && break
         done;
-        [[ -z $base_repo ]] && return 1
+        [[ -z $base_repo ]] && { false; return $?; }
         declare default_branch
         default_branch=$(sed 's/.*\///' < "$base_repo"/.git/refs/remotes/origin/HEAD)
         [[ -n $default_branch ]] && echo "$default_branch" && return 0
         cmd-echo --ec -- "Cannot find default branch for ${PWD}"
-        return 1
+        false; return $?
     fi
+}
+
+git-repo-show-default-branch ()
+{
+    git-repo-default-branch
+}
+
+git-repo-source-branch ()
+{
+    declare current_branch
+    current_branch=$(git-repo-current-branch)
+
+    declare source_branch
+    source_branch=$(git config --get "branch.$current_branch.extmeta-from-branch")
+    [[ -n $source_branch ]] && echo "$source_branch" && { true; return $?; }
+    false
+}
+
+git-repo-show-source-branch ()
+{
+    git-repo-source-branch
 }
 
 main()
@@ -819,6 +1021,7 @@ git-repo - act on or interrogate the current repo
  git-repo diff
  git-repo is
  git-repo ina
+ git-repo info
  git-repo name
  git-repo pr-get
  git-repo reset/revert/restore
@@ -894,6 +1097,12 @@ With 'pristine|spotless', is the current or specified git repo 'clean' with no u
 With 'up-to-date', is the current or specified git repo up to date with its remote branch. If there is no remote branch, the return is always true.
 
 Note that 'pristine|spotless' and 'up-to-date' are unrelated. The branch can be 'up-to-date', yet have editable files.
+
+=item info
+
+Prints items that have been stashed in the config for the repo including branch
+and worktree information, any PRs created with git push --pr and any reference
+to the spec for this work, when prompted by git worktree create.
 
 =item name
 

@@ -1,0 +1,192 @@
+#!/usr/bin/env bash
+
+# <Function Class: n/a>
+# <Function Justification: env>
+
+_shoptplus-flag-to-word ()
+{
+    if [[ $1 == '-u' ]]
+    then
+        echo -n off
+    else
+        echo -n on
+    fi
+}
+
+_shoptplus-word-to-flag ()
+{
+    if [[ $1 == 'off' ]]
+    then
+        echo -n '-u'
+    else
+        echo -n '-s'
+    fi
+}
+
+shopt+ ()
+{
+    if [[ $1 =~ -h ]]
+    then
+        bash-usage shopt+
+        return 0
+    fi
+
+    declare verbose=1
+    if [[ $1 == '-v' ]]
+    then
+        verbose=2
+        shift
+    elif [[ $1 == '-s' ]]
+    then
+        verbose=0
+        shift
+    fi
+
+    declare option=$1
+    declare direction=$2
+
+    shopt -q "$option"
+    declare status=$?
+    declare current='-u'
+    ((status==0)) && current='-s'
+    case "$direction" in
+        restore) : ;;
+        -s | on ) direction='-s' ;;
+        -u | off) direction='-u' ;;
+    esac
+
+    declare restore_var
+    restore_var="TOGGLE_SHOPT_RESTORE_$option"
+    if [[ -z $direction ]]
+    then
+        if ((verbose > 0))
+        then
+            shopt "$option"
+        fi
+    elif [[ $direction == 'restore' ]]
+    then
+        if [[ -n ${!restore_var} ]]
+        then
+            if ((verbose > 1))
+            then
+                echo -n "Setting option '$option' to its previous value '"; _shoptplus-flag-to-word "${!restore_var}"; echo "'."
+            fi
+            shopt -q "${!restore_var}" "$option"
+            ((verbose > 0)) && shopt "$option"
+            unset "${restore_var}"
+            ((verbose > 1)) && echo 'Previous value un-stored from memory.'
+        else
+            if ((verbose > 1)); then echo "$restore_var not found. No value to which to restore '$option'.";
+            elif ((verbose > 0)); then echo "$restore_var not found."; fi
+            ((verbose > 0)) && shopt "$option"
+        fi
+    elif [[ $current == "$direction" ]]
+    then
+        if ((verbose > 1))
+        then
+            echo -n "The requested value '"; _shoptplus-flag-to-word $direction; echo "' for option '$option' is already in effect. No action taken."
+        fi
+    else
+        shopt -q "$direction" "$option"
+        ((verbose > 0 )) && shopt "$option"
+        if [[ -z "${!restore_var}" ]]
+        then
+            export "${restore_var}"=$current
+            ((verbose > 1)) && echo 'Previous value saved in memory.'
+        else
+            if ((verbose > 1))
+            then
+                echo -n "There is a value saved in memory already: '";  _shoptplus-flag-to-word "${!restore_var}"; echo "'. Not overwriting."
+            fi
+        fi
+    fi
+
+    shopt -q "$option" ## -q for silent; we just want the return value
+    return $?
+}
+
+return 0 ## POD guard
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+shopt+ - shopt with some restorative memory
+
+=head1 SYNOPSIS
+
+ shopt+ [-s|-v] option [direction]
+ shopt+ -h
+
+=head1 EXAMPLE
+
+ $ shopt+ nullglob
+ nullglob        off
+
+ $ shopt+ nullglob on
+ nullglob        on
+
+ $ shopt+ nullglob
+ nullglob        on
+
+ $ shopt+ nullglob restore
+ nullglob        off
+
+=head1 DESCRIPTION
+
+When you turn on or off an option, you typically want to do so for a short
+period of time and then return to the default setting. 'shopt' doesn't tell you
+what the original setting was when you change it. Therefore, you can't just
+restore the previous setting by setting to the "other" value because it may
+have already been the value syou weanted to set it to. This function takes care
+of all that.
+
+Returns an indicator of the current value of the option:
+
+ 0=on(set)
+ 1=off(unset).
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item option
+
+The option in shopt that you want to set.
+
+=item direction
+
+'on' or '-s' turn the option on, 'off' or '-u' turn the option off. If setting
+the option would change it, we store the current setting in the environment
+variable TOGGLE_SHOPT_RESTORE_$option. Multiple settings won't override the
+environment value.
+
+'restore' attempts to set the value of the option to whatever
+TOGGLE_SHOPT_RESTORE_$option is, which should be the value prior to first being
+changed by 'shopt+'. If that envvar is not defined, the option is not
+changed.
+
+No direction just runs 'shopt <option>', which will cause the function to
+return 0 if set, 1 if unset and print a messasge to that effect (unless -s has
+been specified).
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -v
+
+If you ask for verbosity, the script tells you what it is doing and why.
+
+=item -s
+
+If you ask for silence, the script tells you nothing.
+
+=item -h
+
+This help text.
+
+=cut
+
+__PODUSAGE__

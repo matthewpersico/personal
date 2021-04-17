@@ -2,7 +2,7 @@
 #
 # logit
 #
-
+# shellcheck disable=SC2009 #https://github.com/koalaman/shellcheck/wiki/SC2009 - psgrep not on all machines
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
@@ -40,21 +40,22 @@ ajoin longopts -s , \
       edit edit-on-fail edit-echo \
       purge purgeprev purgeyesterday \
       notimestamp tpye tppe tpae tpe zpe ts help logonly \
-      env:
+      env: reinvoke:
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 declare status=$?
 if ((status != 0))
 then
-    cmd-echo -ec -- \
-             "If the error was" \
-             "     logit: unrecognized option..." \
-             "then logit read an option to your program" \
-             "as its own. Add -- as the last logit option" \
-             "right before your command. If you did, then check" \
-             "that any option requiring an argument (like --at)" \
-             "has one. Exiting."
+    declare d0
+    d0=$(basename "$0")
+    cmd-echo -- \
+             "If the error here ^ was" \
+             "     ${d0}: unrecognized option..." \
+             "then ${d0} read an option to your program as its own."\
+             "Add -- as the last ${d0} option right before your command."\
+             "Otherwise, did you type a wrong option, like maybe"\
+             "--tail instead of --tee?"
     exit $status
 fi
 
@@ -150,6 +151,17 @@ do
         purgeyesterday)
             purge=yesterday
             ;;
+        reinvoke )
+            declare log=$1; shift
+            if [[ ! -r "$log" ]]
+            then
+                cmd-echo --ec -- "'$log' does not exist"
+                exit 1
+            fi
+            declare -a cmd
+            read -r -a cmd < <(head -4 "$log" | tail -1)
+            exec "${cmd[@]}"
+            ;;
         notimestamp)
             notimestamp=1
             ;;
@@ -241,6 +253,7 @@ logfile="${logfileroot}"
 if [ "$notimestamp" = '' ]
 then
     logfile="${logfile}.${now}.$$"
+    export LOGIT_TIMESTAMP="$now"
 fi
 today=${now%%T*}
 
@@ -258,6 +271,7 @@ fi
 
 logspec="$logdir/$logfile"
 logspecroot="$logdir/$logfileroot"
+export LOGIT_SPEC="$logspec"
 if [ -n "$purge" ]
 then
     declare -a rmlist
@@ -352,7 +366,6 @@ then
     ((!zenity_only)) && title="$title [log is $logspec]"
     if [[ $termer =~ zenity ]]
     then
-
         $termer --text-info --auto-scroll \
                 "${zenity_geo[@]}" \
                 --title "$title" \
@@ -368,8 +381,11 @@ then
     sleep 2 ## Give the $termer a chance to come up and start tailing so we
             ## see the whole log in the tail
 
-    tailpid=$(pstree | grep "$logspec" | grep 'tail -f' | grep -v "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
-    termerpid=$(pstree | grep "$termer" | grep "$logspec" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+    ## Grabs the line that is the process entry for the tail command, prints the first number it finds (the pid)
+    tailpid=$(ps -ef | grep "$logspec" | grep 'tail -f' | grep -v "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+    ## Grabs the line that is the process entry for the output of the tail command, prints the first number it finds (the pid)
+    termerpid=$(ps -ef | grep "$logspec" | grep 'tail -f' | grep "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
+
     if [[ $termer =~ zenity ]]
     then
         ## Ending the zenity process doesn't end the tail and exiting this
@@ -535,6 +551,8 @@ logit [ --at time ] \\
       [ -- ] \\
       command [arg ..]
 
+logit [ --reinvoke log ]
+
 logit [ --help | -h ]
 
 Capture all the output of the command and some information about the executing
@@ -647,11 +665,24 @@ OPTIONS:
                  follow. Only needed if one or more logit options
                  are specified.
 
+      --reinvoke
+               - Grab the command from the given log file and rerun it.
+
       --help   - show this text.
 
       FOO=BAR  - Any environment variables you want to set before
                  running your command should be set before calling
                  logit.
+
+ENVIRONMENT VARIABLES
+
+The following are exported and available for use in the logged command:
+
+      LOGIT_TIMESTAMP - the timestamp that is apploed to the log file name. Use it to
+                        name files and directories that match the log file for ease
+                        of tracking.
+
+      LOGIT_SPEC      - the name of the log file.
 
 __USAGE__
 

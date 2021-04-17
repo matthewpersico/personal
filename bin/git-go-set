@@ -2,175 +2,69 @@
 
 # git-go-set
 
-declare set_x
-set_x=0
-
-declare gitfuncs_git_go_file
-gitfuncs_git_go_file="${TILDAE:-$HOME}/gits/.git-go.$(date +%Y%m%d)"
-
-declare current_git_go_file
-# shellcheck disable=SC2012 ## We use ls to get
-current_git_go_file=$(ls -rt "${TILDAE:-$HOME}"/gits/.git-go.* | head -1)
-
-declare -a repo_find_roots
-declare -a search_roots
-# GITFUNCS_GITROOT is an envvar
-# shellcheck disable=SC2154
-search_roots=("$GITFUNCS_GITROOT")
-declare addmbig
-addmbig="$1"
-if [ "$addmbig" = '' ]
+if [[ $1 =~ -h ]]
 then
-    grep MBIG "$current_git_go_file" 1>/dev/null 2>&1
-    status=$?
-    if ((status==0))
-    then
-        addmbig=1
-    fi
+    bash-usage "$0"
+    exit 0
 fi
-if [ "$addmbig" = '1' ]
+
+#set -x
+# Grab all the paths were we keep repos. The keys have numeric suffixes to
+# produce a specific sort order.
+declare -a repo_paths
+mapfile -t repo_paths < <(git config --get-regexp --value-only --expand git-repo-paths.path)
+
+for repo_path in "${repo_paths[@]}"
+do
+    if [[ ! -d $repo_path ]]
+    then
+        cmd-echo --wc -- "$repo_path not found. Consider removing its root from the 'git-repo-paths.path' entry in git config."
+        continue
+    fi
+    # Search the expanded paths for repos and work trees by finding '.git'
+    # files and directories. Strip the '.git', order asciibetically,
+    # leaving the repo and worktree root dirs.
+    mapfile -O "${#repos[@]}" -t repos < \
+            <(find "$repo_path" -maxdepth 2 -name .git | sort -u | sed 's/\/.git$//g')
+    [[ -d "${repo_path}/wt" ]] && \
+        mapfile -O "${#repos[@]}" -t repos < \
+                <(find "${repo_path}/wt" -maxdepth 2 -name .git | sort -u | sed 's/\/.git$//g')
+done
+
+if [[ $1 != -p ]]
 then
-    # GITFUNCS_GITROOT_MBIG is an envvar
-    # shellcheck disable=SC2154
-    search_roots+=("$GITFUNCS_GITROOT_MBIG")
+    # Write the list.
+    declare gitfuncs_git_go_file
+    gitfuncs_git_go_file="${TILDAE:-$HOME}/gits/.git-go.$(date +%Y%m%d)"
+    echo "${repos[@]}" | tr ' ' '\n' | sed "s|${TILDAE:-$HOME}/||" > "$gitfuncs_git_go_file"
+
+    # Trim prior days' files
+    find ~/gits -maxdepth 1 -name .git-go\* | grep -v "$gitfuncs_git_go_file"  | xargs rm -f
+else
+    echo "${repos[@]}" | tr ' ' '\n' | sed "s|${TILDAE:-$HOME}/||"
 fi
-declare i
-for i in "${search_roots[@]}"
-do
-    if [ -e "$i" ]
-    then
-        repo_find_roots+=("$i")
-    fi
-done
-declare -a repo_tops
-mapfile -t repo_tops < <(find "${repo_find_roots[@]}" -maxdepth 1 -mindepth 1 -type d -follow)
-## We can use -maxdepth to speed things up drastically because of the
-## host/namespace/repo setup similarly for other git hosts.
-declare -a repo_tops
-declare -A finds
-for d in $(git kv --val --section locs-extra) \
-             "${repo_tops[@]}"
-do
-    declare dir
-    dir=${d%%:*}
-    declare depth
-    depth=${d##*=}
-    [ "$depth" = "$dir" ] && depth=3
-    if [ -d "$dir" ]
-    then
-        [ -n "${finds[$depth]}" ] \
-            && finds[$depth]="${finds[$depth]} $dir" \
-                || finds[$depth]="$dir"
-    fi
-done
-declare depth
-declare -a repos
-declare -a repotmp
-for depth in "${!finds[@]}"
-do
-    # shellcheck disable=SC2086
-    mapfile -t repotmp < <(find ${finds[$depth]} -maxdepth "$depth" -name .git -type d | sed 's|/.git$||g' | sort -u)
-    repos+=("${repotmp[@]}")
-done
 
-## And then we do worktree (wt) search
-declare repo
-declare -a wts
-declare -a wttemp
-for repo in "${repos[@]}"
-do
-    mapfile -t wttemp < <(find "$repo/wt" -name .git -type f 2>/dev/null | sed 's|/.git$||g')
-    wts+=("${wttemp[@]}")
-done
-
-## We add $HOME here and set repo_tops_re after we find the repos so that
-## the two repos in the home dir don't mess everything up.
-declare repo_tops_re
-repo_tops_re=":$(echo "${repo_tops[@]}" "${TILDAE:-$HOME}"| sed 's/ /:/g'):"
-declare -a repo_roots
-mapfile -t repo_roots < <(
-    declare i j
-    for i in "${repos[@]}" "${wts[@]}"
-    do
-        echo "$i(repo)"
-        j=$i
-        while [ -n "$j" ] && [ "$j" != 'done' ]
-        do
-            if [ "$j" != "$i" ]
-            then
-                echo "$j"
-            fi
-            if [[ $repo_tops_re =~ :$j: ]]
-            then
-                j='done'
-            else
-                j=$(dirname $j)
-            fi
-            #for debugging:
-            if [ "$set_x" = '1' ]
-            then
-                pause 'DEBUG MODE: Hit exit to continue: '
-            fi
-        done
-    done)
-echo "${repo_roots[@]}" "${repo_tops[@]}" | tr ' ' '\n' | sort -u | sed "s|${TILDAE:-$HOME}/||" > "$gitfuncs_git_go_file"
-find ~/gits -maxdepth 1 -name .git-go\* | grep -v "$gitfuncs_git_go_file"  | xargs rm -f
-## POD guard
 exit 0
-
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/.
 
 :<<'__PODUSAGE__'
 =head1 NAME
 
-git-go-set - script that does something
+git-go-set - find and write the list of tracked repos
 
 =head1 SYNOPSIS
 
- git-go-set [--option1] [ --option2 optionarg ] arg1 [arg2 ...]
-     [fee] [dfsdfs] [sfsdfsf]
+ git-go-set
 
 =head1 DESCRIPTION
 
-Describe in general terms what git-go-set does.
-
-=head1 ARGUMENTS
-
-=over 4
-
-=item arg
-
-Describe what arg does, should be, etc. Add a new =item for each distinct arg.
-
-=back
-
-=head1 OPTIONS
-
-=over 4
-
-=item --option1
-
-Describe what --option1 does.
-
-=item --option2
-
-Describe what --option2 does. Describe what optionarg does.
-
-=over 2
-
-=item *
-
-A choice for optionarg
-
-=item *
-
-Another choice for optionarg
-
-=back
-
-=back
+Pull a list of locations from git-repo-paths.path\.* entries in git configs,
+which define where we store repos that we want to track. In those locations
+(which can have filesystem wildcards), find all the repos and write them to
+${TILDAE:-$HOME}/gits/.git-go.$(date +%Y%m%d), cleaning up files from yesterday
+and earlier.
 
 =cut
 
 __PODUSAGE__
+
+#  LocalWords:  mapfile

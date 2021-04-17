@@ -3,17 +3,31 @@
 declare o_width=1056
 declare o_height=500
 declare do_join=0
+declare -a zenargs
 
 # Define the options. ':' suffix for a mandatory value to an option, '::' for
 # an optional one. Note that the long and short don't have to match up.
 declare OPTSARGS
-declare shortopts='w:h:nj'
-declare longopts='width:,height:help,join'
+declare shortopts='w:h:njt'
+declare longopts='width:,height:,help,join,tail'
 
 # Parse args.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 declare status=$?
-((status != 0)) && exit $status
+if ((status != 0))
+then
+    declare d0
+    d0=$(basename "$0")
+    cmd-echo -ec -- \
+             "If the error was" \
+             "     ${d0}: unrecognized option..." \
+             "then ${d0} read an option to your program" \
+             "as its own. Add -- as the last ${d0} option" \
+             "right before your command. If you did, then check" \
+             "that any option requiring an argument (like --at)" \
+             "has one. Exiting."
+    exit $status
+fi
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -41,6 +55,9 @@ do
         j | join)
             do_join=1
             ;;
+        t | tail)
+            zenargs+=(--auto-scroll)
+            ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
@@ -51,8 +68,7 @@ do
     esac
 done
 
-declare -a zenargs
-zenargs=(--text-info --title="$*")
+zenargs+=(--text-info --title="$*")
 
 declare do_filt=cat
 declare -a cmd
@@ -76,14 +92,14 @@ case $1 in
 esac
 
 zenargs+=(--width="$o_width" --height="$o_height")
-
+set -x
 if ((do_join))
 then
     "${cmd[@]}" 2>&1 | $do_filt | zenity "${zenargs[@]}" &
 else
     "${cmd[@]}" | $do_filt  | zenity "${zenargs[@]}" &
 fi
-
+set +x
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -91,7 +107,8 @@ zen - Run a command and pipe the stdout to a zenity text box
 
 =head1 SYNOPSIS
 
- zen [-w|-width] pixels] [-h|--height] pixels] [-j|--join] some command here
+ zen [-w|-width] pixels] [-h|--height] pixels] \
+     [-j|--join] [-t|--tail] some command here
  zen --help
 
 =head1 DESCRIPTION
@@ -123,7 +140,7 @@ characters that won't render nicely in the text box.
 =item tail
 
 'tail' is recognized and the text box is set to --auto-scroll so that you are
-brought to the end of the output and kept there if using 'tail -f'.
+brought to the end of the output and kept there as if using 'tail -f'.
 
 =back
 
@@ -147,6 +164,13 @@ Specify a starting size for the text box.
 =item --join
 
 Route stderr to the text box also.
+
+=item --tail
+
+This is different than handling for the 'tail' command. Use this option if the
+command puts out continuous output and you want to be brought to the end of the
+output and kept there.
+
 
 =item --help
 

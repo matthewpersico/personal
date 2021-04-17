@@ -6,11 +6,31 @@
 git-get-default-remote ()
 {
     # NO_SHIM
+    # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+    declare comment="<Function Justification:  Efficiency - in PS1>"
+    declare do_out='url'
 
-    declare do_url=1
+    if [[ $1 == -h ]] || [[ $1 == --help ]]
+    then
+        bash-usage git-get-default-remote
+        return 0
+    fi
+
     if [[ $1 == --tag ]]
     then
-        do_url=0
+        do_out='tag'
+        shift
+    fi
+
+    if [[ $1 == --host ]] || [[ $1 == --server ]]
+    then
+        do_out='host'
+        shift
+    fi
+#set -x
+    if [[ $1 == --namespace ]] || [[ $1 == --org ]]
+    then
+        do_out='namespace'
         shift
     fi
 
@@ -22,17 +42,63 @@ git-get-default-remote ()
         if [ "$(git config --global push.default 2>/dev/null)" = 'simple' ]
         then
             declare current_branch
-            current_branch=$(git branch --show-current)
+            current_branch=$(git repo current-branch)
             declare tag
             tag=$(git config --get branch."$current_branch".remote 2>/dev/null)
             declare out
-            if ((do_url))
-            then
-                out=$(git config --get remote."$tag".url 2>/dev/null)
-            else
-                out="$tag"
-            fi
+            case $do_out in
+                url)
+                    out=$(git config --get remote."$tag".url 2>/dev/null)
+                    ;;
+                tag)
+                    out="$tag"
+                    ;;
+                host)
+                    out=$(git config --get remote."$tag".url 2>/dev/null | sed 's/:.*//')
+                    ;;
+                namespace)
+                    out=$(git config --get remote."$tag".url 2>/dev/null | sed -e 's/.*://' -e 's/\/.*//')
+                    ;;
+            esac
             echo "${pre}${out}${post}"
         fi
     fi
+    set +x
 }
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-get-default-remote - Return the default remote for the repo.
+
+=head1 SYNOPSIS
+
+ git-get-default-remote [ --tag | [--host|-server ] | [ --namespace | -org ] ]
+ git-get-default-remote [ --help ]
+
+=head1 DESCRIPTION
+
+Best described by example:
+
+  ## The upstream remote if a fork, otherwise the origin
+  $ git-get-default-remote
+  bbgithub:dpkg/blp-dpkg-portal
+
+  ## Various information about the remote
+  $ git-get-default-remote --tag
+  upstream
+
+  $ git-get-default-remote --host
+  bbgithub
+
+  $ git-get-default-remote --server
+  bbgithub
+
+  $ git-get-default-remote --namespace
+  dpkg
+
+  $ git-get-default-remote --org
+  dpkg
+
+=cut
+
+__PODUSAGE__

@@ -94,7 +94,7 @@ main ()
             all | public | private | list-forks | sources | member | contents )
                 scope=$option ;;
 
-            pull )
+            pull | pullId )
                 pullId=${ovalue:-$1}
                 [ -z "$ovalue" ] && shift
                 ;;
@@ -309,6 +309,7 @@ main ()
         pulls)
             url="repos/$org/$repo/pulls"
             [ -n "$pullId" ] && url="${url}/$pullId"
+            [ -n "$scope" ] && url="${url}?state=$scope"
             ;;
 
         contents)
@@ -329,14 +330,14 @@ main ()
     fi
 
     declare curlheaders
-    curlheaders=$(mktemp -t tmp.github-api.curlheaders.$$.XXXXXXXXXX)
+    curlheaders=$(mktemp -t tmp.github-api.$$.curlheaders.XXXXXXXXXX)
     curlopts+=('-D' "$curlheaders")
 
     declare curldata
-    curldata=$(mktemp -t tmp.github-api.curldata.$$.XXXXXXXXXX)
+    curldata=$(mktemp -t tmp.github-api.$$.curldata.XXXXXXXXXX)
 
     declare perldata
-    perldata=$(mktemp -t tmp.github-api.perldata.$$.XXXXXXXXXX)
+    perldata=$(mktemp -t tmp.github-api.$$.perldata.XXXXXXXXXX)
 
     if ((keep_data))
     then
@@ -434,7 +435,7 @@ main ()
             ## all the data in one list. We added the commas above. Now we pull
             ## out the superfluous ][ here:
             declare curldata_relist
-            curldata_relist=$(mktemp -t tmp.github-api.curldata_relist.$$.XXXXXXXXXX)
+            curldata_relist=$(mktemp -t tmp.github-api.$$.curldata_relist.XXXXXXXXXX)
             perl -e '
 BEGIN { print(qq([\n)); }
 while(<>){
@@ -452,7 +453,7 @@ END { print(qq(]\n)); }
                 if [[ -n $repo ]]
                 then
                     declare curldata_filter
-                    curldata_filter=$(mktemp -t tmp.github-api.curldata_filter.$$.XXXXXXXXXX)
+                    curldata_filter=$(mktemp -t tmp.github-api.$$.curldata_filter.XXXXXXXXXX)
                     perl -d:ptkdb -MJSON::XS -e '
 open IH, q(<), $ARGV[0];
 $data = join(q(),<IH>);
@@ -640,7 +641,7 @@ print qq($url);' "${curldata}" "${server_url}")
         then
             # shellcheck disable=SC2016 # We know the variable will not expand.
             echo '$VAR1='
-            json_xs -t dump < "${curldata}"
+            json_xs -t dumper < "${curldata}"
         else
             cat -v "${curldata}"
         fi

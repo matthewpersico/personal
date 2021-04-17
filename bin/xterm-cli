@@ -5,7 +5,7 @@
 # Control the xterm from the command line
 
 declare ticker_tmp
-ticker_tmp="/tmp/ticker.$(hostname).$(ps -o ppid= $$)"
+ticker_tmp="/tmp/ticker.$(hostname).$PPID"
 
 xterm-cli-id ()
 {
@@ -23,63 +23,73 @@ xterm-cli-info ()
 
 xterm-cli-raw-csi ()
 {
-    set -x
     echo -ne "${CSI}$*t"
 }
 
 _xterm-cli-xground ()
 {
     declare col
-    col=$1
-    if [ -n "$XTERM_SHELL" ]
+    col=$1; shift
+    if [[ -z $1 ]]
     then
-        ## from http://superuser.com/questions/157563/programmatic-access-to-current-xterm-background-color
-        exec < /dev/tty
-        oldstty=$(stty -g)
-        stty raw -echo min 0
-        #          OSC    Ps  ;Pt ST
-        echo -en "\\033]${col};?\\033\\" >/dev/tty  # echo opts differ w/ OSes
-        result=
-        if IFS=';' read -r -d \\ color ; then
-            result=$(echo "$color" | sed 's/^.*\;//;s/[^rgb:0-9a-f/]//g')
-            idxresult=$(echo "$result" | sed 's/[:/]//g')
-        fi
-        stty "$oldstty"
-        declare var
-        var=XTERM_XGROUND_MAP_${idxresult^^}
-        declare color
-        color=$(eval echo "\$$var")
-        if [ -n "${color}" ]
+        if [ -n "$XTERM_SHELL" ]
         then
-            echo "${color}"
+            ## from http://superuser.com/questions/157563/programmatic-access-to-current-xterm-background-color
+            exec < /dev/tty
+            oldstty=$(stty -g)
+            stty raw -echo min 0
+            #          OSC    Ps  ;Pt ST
+            echo -en "\\033]${col};?\\033\\" >/dev/tty  # echo opts differ w/ OSes
+            result=
+            if IFS=';' read -r -d \\ color ; then
+                result=$(echo "$color" | sed 's/^.*\;//;s/[^rgb:0-9a-f/]//g')
+                idxresult=$(echo "$result" | sed 's/[:/]//g')
+            fi
+            stty "$oldstty"
+            declare var
+            var=XTERM_XGROUND_MAP_${idxresult^^}
+            declare color
+            color=$(eval echo "\$$var")
+            if [ -n "${color}" ]
+            then
+                echo "${color}"
+                exit
+            else
+                echo "## WARNING: - no mapped color found for $result" >&2
+            fi
+        elif [ ! "$TERM" = 'rxvt' ]
+        then
+            # We don't need the warning when we expect it not to be defined.
+            echo "## WARNING: - XTERM_SHELL not defined, probably not an xterm" >&2
+        fi
+
+        if [ -n "$NEWXCOLOR" ]
+        then
+            echo "$NEWXCOLOR"
             exit
         else
-            echo "## WARNING: - no mapped color found for $result" >&2
+            echo "## WARNING: - NEWXCOLOR not defined" >&2
         fi
-    else
-        echo "## WARNING: - XTERM_SHELL not defined, probably not an xterm" >&2
-    fi
 
-    if [ -n "$NEWXCOLOR" ]
-    then
-        echo "$NEWXCOLOR"
-        exit
+        echo "## WARNING: - default color is GREY" >&2
+        echo GREY
     else
-        echo "## WARNING: - NEWXCOLOR not defined" >&2
+        declare color=$1
+        declare var="FOREBACKMAP_${color^^}_RGB"
+        [ -z "${!var}" ] && echo "'$color' not a defined color scheme" && return 1
+        declare rgb="${!var}"
+        echo -ne "${CSI}38:2:${rgb%%,*}m" "${CSI}48:2:${rgb##*,}m"
     fi
-
-    echo "## WARNING: - default color is GREY" >&2
-    echo GREY
 }
 
 xterm-cli-foreground ()
 {
-    _xterm-cli-xground 10
+    _xterm-cli-xground 10 "$@"
 }
 
 xterm-cli-background ()
 {
-    _xterm-cli-xground 11
+    _xterm-cli-xground 11 "$@"
 }
 
 xterm-location ()
@@ -323,23 +333,27 @@ main ()
         bash-usage "$0"
         return  0
     fi
-
-    # xterm-cli-* are functions defined in this script. The rest are functions
-    # or scripts.
-    declare name
-    for name in "xterm-cli-${action}" "xterm-${action}"
-    do
-        declare type
-        type=$(type -t "$name")
-        if [[ -n $type ]]
-        then
-            "$name" "$@"
-            return $?
-        fi
-    done
-
-    cmd-echo --ec "'$action' is not an xterm-cli action"
-    return 1
+    if x-is-available
+    then
+        # xterm-cli-* are functions defined in this script. The rest are functions
+        # or scripts.
+        declare name
+        for name in "xterm-cli-${action}" "xterm-${action}"
+        do
+            declare type
+            type=$(type -t "$name")
+            if [[ -n $type ]]
+            then
+                "$name" "$@"
+                return $?
+            fi
+        done
+        cmd-echo --ec "'$action' is not an xterm-cli action"
+        return 1
+    else
+        cmd-echo --oii -- "xterm-cli:X is not available to run '$action'"
+        return 1
+    fi
 }
 
 main "$@"
@@ -356,6 +370,7 @@ xterm-cli - xterm commands/queries unified
            info
 
            [fore|back]ground
+           background colorscheme
            location [-x|-y]
            size get | set [-x[+|-]n]
            size set -x[+|-]n
