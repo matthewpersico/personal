@@ -611,52 +611,29 @@ git-repo-pr-get ()
     if [ -z "$remote_url" ]
     then
         cmd-echo -wc -- "Cannot find a remote upstream or origin to check for pull requests"
-        return 1
+        false; return $?
     fi
     declare remote_svc=${remote_url%:*}
     declare remote_repo=${remote_url#*:}
 
     #
-    # See if we have cached it
+    # See if we have cached it.
     #
     declare pr_url
     declare wt=$(git-worktree ina -v)
     declare cb=$(git-repo-current-branch)
     pr_url=$(git config --get "worktree.${wt}.extmeta-pr")
+    [[ -z $pr_url ]] && pr_url=$(git config --get "branch.${cb}.extmeta-pr")
+
     if [[ -z $pr_url ]]
     then
-        pr_url=$(git config --get "branch.${cb}.extmeta-pr")
-        if [[ -z $pr_url ]]
-        then
-            ((!opt_silent)) && echo 'No open pull requests associated with this repo'
-            return 0
-        fi
-    fi
-    if [[ -n $pr_url ]]
-    then
-        if ((!opt_silent))
-        then
-            if ((opt_state))
-            then
-                # We don't cache the state.
-                declare pullId=${pr_url##*/}
-                declare state=$(github-api --stream-data --server "$remote_svc" --pull $pullId pulls "$remote_repo" | jq .state)
-                state=${state//\"/}
-                state=${state^}
-                echo -n "${state}: "
-            fi
-            echo "$pr_url"
-        fi
-        return 0
-    fi
-
-    #
-    # Not cached. Search and record.
-    #
-    declare perldata=$(mktemp -t tmp.git-repo-pr-get.perldata.$$.XXXXXXXXXX)
-    rm-on-exit "$perldata"
-    github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
-    pr_url=$(perl -MData::Dumper -e '
+        #
+        # Not cached. Search and record.
+        #
+        declare perldata=$(mktemp -t tmp.git-repo-pr-get.perldata.$$.XXXXXXXXXX)
+        rm-on-exit "$perldata"
+        github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
+        pr_url=$(perl -MData::Dumper -e '
 ## $ARGV[0] - file with perl data
 ## $ARGV[1] - org or current repo
 ## $ARGV[2] - current branch name
@@ -673,19 +650,38 @@ for $openpull (@{$VAR1}) {
     }
 }
 exit 1;' "$perldata" "$USER" "$cb" "$opt_state")
-    declare status=$?
-    if [[ -z $pr_url ]]
-    then
-        ((!opt_silent)) && echo 'No open pull requests associated with this repo'
-    else
-        ((!opt_silent)) && echo "$pr_url"
-        ((opt_state)) && pr_url=${pr_url#*: }
-        # Cache the PR
-        [[ -n $wt ]] && git config --replace-all "worktree.${wt}.extmeta-pr" "$pr_url"
-        [[ -n $cb ]] && git config --replace-all "branch.${cb}.extmeta-pr" "$pr_url"
+        declare status=$?
+        if [[ -z $pr_url ]]
+        then
+            ((!opt_silent)) && echo 'No open pull requests associated with this repo'
+            return $status
+        else
+            ((opt_state)) && pr_url=${pr_url#*: }
+            # Cache the PR
+            [[ -n $wt ]] && git config --replace-all "worktree.${wt}.extmeta-pr" "$pr_url"
+            [[ -n $cb ]] && git config --replace-all "branch.${cb}.extmeta-pr" "$pr_url"
+        fi
     fi
-    return $status ## Instead of return $? in case we are debugging and need a
-                   ## set +x after we get status but before return.
+
+    if ((!opt_silent))
+    then
+        if ((opt_state))
+        then
+            # We don't cache the state.
+            declare pullId=${pr_url##*/}
+            declare state=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .state)
+            state=${state//\"/}
+            state=${state^}
+            if [[ $state == 'Closed' ]]
+            then
+                declare merged=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .merged)
+                [[ $merged == 'true' ]] && state='Merged'
+            fi
+            echo -n "${state}: "
+        fi
+        echo "$pr_url"
+    fi
+    true; return $?
 }
 
 git-repo-pr ()
@@ -1025,6 +1021,7 @@ git-repo - act on or interrogate the current repo
  git-repo diff
  git-repo is
  git-repo ina
+ git-repo info
  git-repo name
  git-repo pr-get
  git-repo reset/revert/restore
@@ -1100,6 +1097,12 @@ With 'pristine|spotless', is the current or specified git repo 'clean' with no u
 With 'up-to-date', is the current or specified git repo up to date with its remote branch. If there is no remote branch, the return is always true.
 
 Note that 'pristine|spotless' and 'up-to-date' are unrelated. The branch can be 'up-to-date', yet have editable files.
+
+=item info
+
+Prints items that have been stashed in the config for the repo including branch
+and worktree information, any PRs created with git push --pr and any reference
+to the spec for this work, when prompted by git worktree create.
 
 =item name
 
