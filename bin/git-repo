@@ -572,7 +572,7 @@ git-repo-pr-get ()
 {
     declare OPTSARGS
     declare shortopts=''
-    declare longopts='silent,state'
+    declare longopts='silent,state,open,closed,merged'
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     declare status=$?
@@ -581,7 +581,8 @@ git-repo-pr-get ()
     eval set -- "$OPTSARGS"
 
     declare opt_silent=0
-    declare opt_state=0
+    declare opt_show_state=0
+    declare opt_match_state;
     while true
     do
         declare option=$1
@@ -589,7 +590,8 @@ git-repo-pr-get ()
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
             silent ) opt_silent=1;;
-            state ) opt_state=1;;
+            state ) opt_show_state=1;;
+            open | merged | closed ) opt_match_state=$option;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
@@ -633,14 +635,16 @@ git-repo-pr-get ()
         declare perldata=$(mktemp -t tmp.git-repo-pr-get.perldata.$$.XXXXXXXXXX)
         rm-on-exit "$perldata"
         github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
-        pr_url=$(perl -MData::Dumper -e '
+        pr_url=$(perl -d:ptkdb -MData::Dumper -e '
 ## $ARGV[0] - file with perl data
 ## $ARGV[1] - org or current repo
 ## $ARGV[2] - current branch name
 ## $ARGV[3] - "state" - 0:do not add the state of the PR to the output, 1:add the state
+## $ARGV[4] - match PRs with this state
 do $ARGV[0];
 for $openpull (@{$VAR1}) {
     if ($openpull->{head}{label} eq "$ARGV[1]:$ARGV[2]") {
+        next if $ARGV[4] and lc($openpull->{state}) ne $ARGV[4];
         ## debug: print Data::Dumper->Dump([$openpull],[qw(*pull)]);
         if($ARGV[3]) {
             print ucfirst($openpull->{state}), q(: );
@@ -649,35 +653,40 @@ for $openpull (@{$VAR1}) {
         exit 0;
     }
 }
-exit 1;' "$perldata" "$USER" "$cb" "$opt_state")
+exit 1;' "$perldata" "$USER" "$cb" "$opt_show_state" "$opt_match_state")
         declare status=$?
         if [[ -z $pr_url ]]
         then
             ((!opt_silent)) && echo 'No open pull requests associated with this repo'
             return $status
         else
-            ((opt_state)) && pr_url=${pr_url#*: }
+            ((opt_show_state)) && pr_url=${pr_url#*: }
             # Cache the PR
             [[ -n $wt ]] && git config --replace-all "worktree.${wt}.extmeta-pr" "$pr_url"
             [[ -n $cb ]] && git config --replace-all "branch.${cb}.extmeta-pr" "$pr_url"
         fi
     fi
 
+    # We don't cache the state. But that's ok since the direct lookup of one PR is quick.
+    declare pullId=${pr_url##*/}
+    declare state=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .state)
+    state=${state//\"/}
+    if [[ $state == 'closed' ]]
+    then
+        declare merged=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .merged)
+        [[ $merged == 'true' ]] && state='merged'
+    fi
+    if [[ -n $opt_match_state ]] \
+           && [[ $opt_match_state != "$state" ]]
+    then
+        false; return $?
+    fi
+
     if ((!opt_silent))
     then
-        if ((opt_state))
+        if ((opt_show_state))
         then
-            # We don't cache the state.
-            declare pullId=${pr_url##*/}
-            declare state=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .state)
-            state=${state//\"/}
-            state=${state^}
-            if [[ $state == 'Closed' ]]
-            then
-                declare merged=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .merged)
-                [[ $merged == 'true' ]] && state='Merged'
-            fi
-            echo -n "${state}: "
+            echo -n "${state^}: "
         fi
         echo "$pr_url"
     fi
@@ -688,7 +697,7 @@ git-repo-pr ()
 {
     declare OPTSARGS
     declare shortopts='sg'
-    declare longopts='silent,state,get'
+    declare longopts='silent,state,get,open,closed,merged'
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     declare status=$?
@@ -706,7 +715,7 @@ git-repo-pr ()
         case "$option" in
             get | g) opt_get=1 ;;
             silent | s) passthru+=('--silent');;
-            state ) passthru+=('--state');;
+            state | open | closed | merged ) passthru+=("--$option");;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
@@ -1110,9 +1119,29 @@ Print the name of the remote repo.
 
 =item pr
 
-  git repo pr --get [--silent]
+  git repo pr --get [--silent] [--state] [--open|--closed|--merged]
 
-Deal with pull requests related to the current repo. --get will look for an open pull request for this branch against remotes 'upstream' and then 'origin'. --silent will supress printing the PR reference so that you can just used the return value; 0 if there is an open pull request, 1 if not.
+Deal with pull requests related to the current repo.
+
+=over 4
+
+=item --get
+
+Looks for an open or merged pull request for this branch against remotes 'upstream' and then 'origin'.
+
+=item --silent
+
+Will supress printing the PR reference so that you can just used the return value; 0 if there is a matching pull request, 1 if not.
+
+=item --state
+
+Print the state of the PR before the PR URL.
+
+=item --open|--closed|--merged
+
+Match this state of any PRs found.
+
+=back
 
 =item revert/reset/restore
 
