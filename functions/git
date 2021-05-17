@@ -42,6 +42,32 @@ git ()
         return $?
     fi
 
+    if [[ $1 == '-x' ]]
+    then
+        shift
+        set -x
+    fi
+
+    if [[ $1 =~ -help ]]
+    then
+        if [[ -n $2 ]]
+        then
+            git "$2" "$1"
+            return $?
+        else
+            # Must be inline, can't use another function for usage or else that
+            # function will live in every process, since this file is sourced.
+            (
+                echo "** Extended actions **"
+                bash-usage git
+                echo
+                echo "** Standard actions **"
+                "$REALGIT" --help
+            ) 2>&1 | ${PAGER:-less}
+            true; return $?
+        fi
+    fi
+
     declare doandcdfile
     declare -A doandcdlist
     doandcdlist[clone]=1
@@ -94,3 +120,39 @@ git ()
     [[ -n $doandcdfile ]] && \rm -f "$doandcdfile"
     return $status
 }
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git - A wrapper around 'git' to extend it.
+
+=head1 SYNOPSIS
+
+ git ...
+
+=head1 DESCRIPTION
+
+If you want to add the command 'foo' to 'git', you can simply create the file
+'git-foo', put it on your PATH, and invoke it as 'git foo'.
+
+However, if you want to add to an EXISTING command, this doesn't work;
+'git-worktree' on your PATH will not be called instead of 'git worktree'.
+
+Soooooo, we have this wrapper that will see if a script exists on the path for
+the given command, and if so, call that command. Otherwise, pass the command
+off to git.
+
+Note that your script 'git-bar' that extends an EXISTING command 'git bar' must
+be able to determine when to handle the extended request itself and when to
+hand off to the existing command. Handing off is done by executing
+
+  "$REALGIT" bar ...
+
+We do this because $REALGIT will not run YOUR git-bar (which is why we have
+THIS script at all), meaning you won't end up in an endless loop.
+
+The variables REALGIT and REALGIT_EXEC_PATH are defined in git.env
+
+=cut
+
+__PODUSAGE__

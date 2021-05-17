@@ -637,13 +637,17 @@ git-repo-pr-get ()
         github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
         pr_url=$(perl -d:ptkdb -MData::Dumper -e '
 ## $ARGV[0] - file with perl data
-## $ARGV[1] - org or current repo
+## $ARGV[1] - org
 ## $ARGV[2] - current branch name
 ## $ARGV[3] - "state" - 0:do not add the state of the PR to the output, 1:add the state
 ## $ARGV[4] - match PRs with this state
 do $ARGV[0];
 for $openpull (@{$VAR1}) {
-    if ($openpull->{head}{label} eq "$ARGV[1]:$ARGV[2]") {
+    my($pull_org, $pull_label) = split(/:/,$openpull->{head}{label});
+    if ($pull_org eq $ARGV[1]
+        and ( $ARGV[2] eq $pull_label
+              or
+              $ARGV[2] =~ m/pull-$openpull->{number}/) ) {
         next if $ARGV[4] and lc($openpull->{state}) ne $ARGV[4];
         ## debug: print Data::Dumper->Dump([$openpull],[qw(*pull)]);
         if($ARGV[3]) {
@@ -662,8 +666,8 @@ exit 1;' "$perldata" "$USER" "$cb" "$opt_show_state" "$opt_match_state")
         else
             ((opt_show_state)) && pr_url=${pr_url#*: }
             # Cache the PR
-            [[ -n $wt ]] && git config --replace-all "worktree.${wt}.extmeta-pr" "$pr_url"
-            [[ -n $cb ]] && git config --replace-all "branch.${cb}.extmeta-pr" "$pr_url"
+            git-repo-pr-store "$pr_url"
+
         fi
     fi
 
@@ -691,6 +695,15 @@ exit 1;' "$perldata" "$USER" "$cb" "$opt_show_state" "$opt_match_state")
         echo "$pr_url"
     fi
     true; return $?
+}
+
+git-repo-pr-store ()
+{
+    declare pr_url=$1
+    declare wt=$(git-worktree ina -v)
+    declare cb=$(git-repo-current-branch)
+    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.extmeta-pr" "$pr_url"
+    [[ -n $cb ]] && git config --replace-all "branch.${cb}.extmeta-pr" "$pr_url"
 }
 
 git-repo-pr ()
@@ -907,7 +920,7 @@ git-repo-current-branch ()
 {
     if [[ -n $1 ]]
     then
-        cmd-echo --ec -- "Cannot set current branch yet"
+        cmd-echo --ec -- "Cannot set current branch yet" >&2
         false;return $?
     else
         declare cb
@@ -918,7 +931,7 @@ git-repo-current-branch ()
             cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
             if [[ -z $cb ]]
             then
-                cmd-echo --ec -- "Cannot get current branch"
+                cmd-echo --ec -- "Cannot get current branch" >&2
                 false;return $?
             fi
         fi
