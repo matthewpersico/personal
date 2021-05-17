@@ -2,27 +2,11 @@
 
 # git-clone
 
-# shellcheck disable=SC1090
-source "$BASH_INC_DIR/on_exit.binc"
+use on_exit
 
-if ! git-version-verify 'git-clone'
-then
-    exit 1
-fi
+! git-version-verify 'git-clone' && exit 1
 
 cmd_echo_id='git-clone'
-
-usage ()
-{
-    (
-        [ -n "$*" ] && cmd-echo -- "$@"
-        echo "** Extended actions **"
-        bash-usage "$0"
-        echo
-        echo "** Standard actions **"
-        "$REALGIT" clone --help
-    ) 2>&1 | ${PAGER:-less}
-}
 
 _git_clone_record_created_date ()
 {
@@ -191,7 +175,7 @@ main ()
                 fi
                 ;;
             --help | -h )
-                usage; return 0 ;;
+                git-usage "$0"; return 0 ;;
             --debug | -x )
                 dispatch_to_real_git=0; set -x; do-on-exit set +x;;
             * )
@@ -217,7 +201,7 @@ main ()
         opt_make_triangle=0
     fi
 
-    [ -z "${pass_on[0]}" ] && usage "Missing arguments" && return 1
+    [ -z "${pass_on[0]}" ] && usage "$0" "Missing arguments" && return 1
 
     if [ -z "${githost}" ]
     then
@@ -268,7 +252,7 @@ main ()
                  "   $githost" \
                  "You are in $cwpath"
         declare shouldbein
-        shouldbein="$(git config --get --expand git-repo-root.root)/$githost"
+        shouldbein="$(git config --get --expand ext.git-repo-root.root)/$githost"
         if [ ! -d "$shouldbein" ]
         then
             cmd-echo -ec -- "Cannot find '$shouldbein'." "Correct and re-execute."
@@ -315,6 +299,7 @@ main ()
 
     if ((opt_make_fork))
     then
+        set -x
         ## Then try to make a fork of the repo from the upstream org
         ## supplied. If the fork exists, no harm no foul; we just continue on
         ## with what we found.
