@@ -1,0 +1,69 @@
+#!/usr/bin/env bash
+
+# <Function Class: bash env>
+# <Function Justification: env mod, sourcing file>
+
+declare -A _bash_inc_loaded # Keep track of sourced bincs. Only good per
+                            # process, not cross process.
+
+use ()
+{
+    if [[ -z $1 ]]
+    then
+        bash-usage use
+        false; return $?
+    fi
+
+    local name=$1
+    if [[ -n ${_bash_inc_loaded[$name]} ]]
+    then
+        [[ -n $BASH_INC_VERBOSE ]] && echo "use(bash): '$name' already sourced"
+        set +x && true && return $?
+    fi
+
+    local libpath="$BASH_INC_DIR/${name}.binc"
+    if [[ ! -r $libpath ]]
+    then
+        echo "use(bash): Cannot read '$libpath' to load it"
+        set +x && false; return $?
+    fi
+    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+    if . "$libpath"
+    then
+        _bash_inc_loaded[$name]="$libpath"
+        [[ -n $BASH_INC_VERBOSE ]] && echo "use(bash): '$libpath' sourced"
+        set +x && true; return $?
+    fi
+    echo "use(bash): Error sourcing '$libpath'"
+    set +x && false; return $?
+}
+
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+use - include bash include files, idempotently per process.
+
+=head1 SYNOPSIS
+
+ use file [file...]
+
+=head1 DESCRIPTION
+
+Source in files of bash utils.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item file
+
+For file "foo", find "$BASH_INC_DIR/foo.binc" and source it in if not sourced
+already. All "*binc" files must return true when sourced. Call 'true' at the
+end of the file (like putting a 1; at the end of a Perl module).
+
+=back
+
+=cut
+
+__PODUSAGE__
