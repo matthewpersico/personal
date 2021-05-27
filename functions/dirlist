@@ -19,6 +19,7 @@ dirlist ()
     local target
     local current
     local do_list=0
+    local do_menu=0
 
     ## Have to pull off any negative numbers or ^ args, both of which signify
     ## 'up', first so as not to confuse getopt
@@ -28,8 +29,7 @@ dirlist ()
     while [ -n "$1" ]
     do
         neg_carr=${1//\^/-}
-        if is-neg "$neg_carr"
-        then
+        if is-neg "$neg_carr"; then
             negs+=("$neg_carr")
         else
             args+=("$1")
@@ -41,8 +41,8 @@ dirlist ()
     eval set -- "${args[@]}"
 
     declare OPTSARGS
-    declare shortopts='h'
-    declare longopts='nosavetarget,nosavecurrent,up:,clear,init,list,show,prune'
+    declare shortopts='hm'
+    declare longopts='nosavetarget,nosavecurrent,up:,clear,init,list,show,menu,prune,help'
     # Process the command line
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     declare status=$?
@@ -63,6 +63,7 @@ dirlist ()
                 DIRLIST=''
                 return 0;;
             list|show) do_list=1 ;;
+            menu|m) do_menu=1 ;;
             prune)
                 local tmplist
                 tmplist=$(echo "${DIRLIST}" | tr ' ' '\n' | sort -ur)
@@ -71,8 +72,7 @@ dirlist ()
                 local i
                 for i in $tmplist
                 do
-                    if [[ "${lastdir}" != "${i}"* ]]
-                    then
+                    if [[ "${lastdir}" != "${i}"* ]]; then
                         newlist="$newlist $i"
                     fi
                     lastdir=$i
@@ -89,15 +89,13 @@ dirlist ()
         esac
     done
 
-    if ((${#negs[@]}))
-    then
+    if ((${#negs[@]})); then
         eval set -- "${negs[@]}" "$@"
     fi
 
     _dirlist_set $current
 
-    if [ -z "$1" ]
-    then
+    if ((do_menu)); then
         ## ----
         ## Menu
         ## ----
@@ -112,10 +110,8 @@ dirlist ()
         ## --------------
         ## Parse the args
         ## --------------
-        if (($#==2))
-        then
-            if is-neg "$1"
-            then
+        if (($#==2)); then
+            if is-neg "$1"; then
                 ## We're doing cd -4 a/c, i.e; cd up then down.  The oldpwd
                 ## save and the --nosave* args prevent saving the intermediate
                 ## dir in the list.
@@ -138,17 +134,19 @@ dirlist ()
                 builtin cd $(pwd | sed "s|$1|$2|") || return 1
             fi
         else
-            local tgt=$1;shift
+            local tgt
+            if [[ -n $1 ]]; then
+                tgt=$1;shift
+            else
+                tgt=$HOME
+            fi
             ## Simplest case - the arg is a directory we can reach or prior
             ## directory syntax.
-            if [ -d "$tgt" ] || [ "$tgt" = '-' ]
-            then
+            if [ -d "$tgt" ] || [ "$tgt" = '-' ]; then
                 builtin cd "$tgt" || return 1
             else
-                if is-int "$tgt"
-	            then
-	                if is-neg "$tgt"
-	                then
+                if is-int "$tgt"; then
+	                if is-neg "$tgt"; then
                         ## --------------------
                         ## Negative integer arg
                         ## --------------------
@@ -172,8 +170,7 @@ dirlist ()
                         ## just go there.
 	                    local -a dirlista
                         IFS=" " read -r -a dirlista <<< "$DIRLIST"
-                        if ((tgt>${#dirlista[@]})) || ((tgt==0))
-                        then
+                        if ((tgt>${#dirlista[@]})) || ((tgt==0)); then
                             echo "$tgt" is not a valid choice >&2
                         else
                             local d
@@ -191,10 +188,8 @@ dirlist ()
                     local FILTERED_DIRLIST
                     # shellcheck disable=SC2086 # we want to split DIRLIST
                     FILTERED_DIRLIST="$(echo $DIRLIST | tr ' ' '\n' | grep "$tgt" )"
-                    if [ -n "$FILTERED_DIRLIST" ]
-                    then
-                        if ((do_list))
-                        then
+                    if [ -n "$FILTERED_DIRLIST" ]; then
+                        if ((do_list)); then
                             local d
                             select d in "$FILTERED_DIRLIST"
                             do

@@ -7,8 +7,7 @@ echo "$(date): git-commit" >> "$HOME/.gitaudit"
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
-if ! git-version-verify 'git-commit'
-then
+if ! git-version-verify 'git-commit'; then
     exit 1
 fi
 
@@ -52,8 +51,8 @@ git-commit-with-source-ctrl-log ()
             editor ) opt_edit=(--edit --editor "$1"); shift;;
             s ) opt_skip='--skip-no-source-ctrl-log';;
             sclpick ) opt_scl_pick=("$original" "$1"); shift;;
-            sclonly ) opt_skip='--sclonly' ;;
-            nosclonly ) opt_skip='--nosclonly' ;;
+            sclonly | sclo ) opt_skip='--sclonly' ;;
+            nosclonly | nosclo ) opt_skip='--nosclonly' ;;
             c | confirm ) opt_confirm='--confirm';;
             exclude | ex) opt_exclude["$(realpath "$1")"]=1; shift;;
             h | help )
@@ -70,13 +69,11 @@ git-commit-with-source-ctrl-log ()
 
     ## Locate all the files to process
     declare -a filenames
-    if (($#))
-    then
+    if (($#)); then
         ## Process what's specified
         filenames=("$@")
     else
-        if [ -z "$opt_a" ]
-        then
+        if [ -z "$opt_a" ]; then
             ## We want to mimic the same behavior as git commit with no filenames
             ## (default to only staged files), but we need to pass files into
             ## git-process-source-ctrl-log, so we grab the staged files.
@@ -89,16 +86,14 @@ git-commit-with-source-ctrl-log ()
     fi
 
     ## Process any exclusions
-    if (( ${#opt_exclude[@]} > 0 ))
-    then
+    if (( ${#opt_exclude[@]} > 0 )); then
         declare -a included
         declare i
         for i in $(seq 0 $((${#filenames[@]}-1)))
         do
             declare filepath
             filepath="$(realpath "${filenames[$i]}")"
-            if [ "${opt_exclude[$filepath]}" = '' ]
-            then
+            if [ "${opt_exclude[$filepath]}" = '' ]; then
                 included+=("$filepath")
             fi
         done
@@ -131,8 +126,7 @@ main ()
     do
         declare original="$1"
         shift
-        if [[ "$original" =~ ^- ]]
-        then
+        if [[ "$original" =~ ^- ]]; then
             declare option
             option=$(dashstripper "$original")
             ## This bit deals with --foo=bar instead of --foo bar
@@ -141,10 +135,8 @@ main ()
             ## but only deal with it if we really have an option. Otherwise you
             ## misinterpret items like this git clone option: --config
             ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
-            if [[ $option =~ ^- ]]
-            then
-                if [[ "$option" =~ = ]]
-                then
+            if [[ $option =~ ^- ]]; then
+                if [[ "$option" =~ = ]]; then
                     okey=${option%%=*}
                     ovalue=${option#*=}
                     option="$okey"
@@ -164,9 +156,9 @@ main ()
                     ## no pass_on_args here, we use the flag as a switch later
                     continue
                     ;;
-                sclonly )
+                sclonly | sclo | nosclonly | nosclo )
                     opt_scl=1
-                    ## We DO pass this option on
+                    ## We DO pass these options on to the next call.
                     ;;
                 sclpick )
                     opt_scl=1
@@ -258,28 +250,23 @@ ${message:$limidx} - $(git worktree get-name)"
     done
 
     ((do_push)) && cmd-echo -- 'Committing...'
-    if ((opt_scl))
-    then
+    if ((opt_scl)); then
         git-commit-with-source-ctrl-log "${pass_on_args[@]}"
     else
-        if [ -n "${opt_message[1]}" ]
-        then
+        if [ -n "${opt_message[1]}" ]; then
             opt_message[1]="${opt_message[1]}$opt_extref"
         fi
         "${REALGIT}" commit "${opt_message[@]}" "${pass_on_args[@]}"
     fi
     status=$?
 
-    if ((status== 0 && do_push))
-    then
+    if ((status== 0 && do_push)); then
         cmd-echo -- 'Pushing...'
         git push $opt_pr
         status=$?
-        if [[ -z $opt_pr ]]
-        then
+        if [[ -z $opt_pr ]]; then
             declare pr_or_msg
-            if pr=$(git repo pr-get)
-            then
+            if pr_or_msg=$(git repo pr-get); then
                 cmd-echo -- "Pull request is $pr_or_msg"
                 git repo pr-store "$pr_or_msg"
             else
@@ -302,8 +289,8 @@ git-commit - git extention of git commit
 
 =head1 SYNOPSIS
 
- git commit -scl | --sclonly | --sclpick
- git commit -m[emojid] "message" [-eref reference |-dref]
+ git commit --scl | --[no]sclonly | --sclpick "text"
+ git commit --m[emojid] "message" [-eref reference |-dref]
  git commit --no[[-]hook[s]|verify]
  git commit --push|--pr
 
@@ -320,20 +307,24 @@ Extensions to the 'git commit' command. Any action not described here will be pa
 Use the local $GITFUNCS_SOURCE_CTRL_LOG_NAME file for commit
 messages.
 
-=item --sclonly
+=item --[no]sclonly
 
-Only process files that have entries in $GITFUNCS_SOURCE_CTRL_LOG_NAME. The
-default is to fail if a file to be considered is missing an entry in
-$GITFUNCS_SOURCE_CTRL_LOG_NAME. In general, do not specify particlar files when
-using this flag. Let the contents of the file determine which files to
-commit. **Note** - you still need to use the '-a' flag to consider files that
-have been modifed but not yet added to the index.
+Aliases: --[no]sclo
+
+Only commit files that have (or do not have, with --no) entries in
+$GITFUNCS_SOURCE_CTRL_LOG_NAME. The default is to fail if a file to be
+committed is missing an entry in $GITFUNCS_SOURCE_CTRL_LOG_NAME. In general,
+do not specify particular files when using this flag. Let the contents of the
+file determine which files to commit.
+
+**Note** - you still need to use the '-a' flag to consider files that have been
+modifed but not yet added to the index.
 
 =item --sclpick
 
-TBD
+Only commit files whose comment exactly matches the supplied text.
 
-=item -m[emjoid]
+=item --m[emjoid]
 
 Add a text tag to the start of the commit message. There is supposed to be an
 associated emoji, but I think they are UTF 16 and the current OS settings are
@@ -351,11 +342,11 @@ using UTF 8 at best.
 
  mtst - TEST:
 
-=item -eref reference
+=item --eref reference
 
 Add the text "- reference" to the end of the commit message.
 
-=item -dref
+=item --dref
 
 Add the text "- $(basename $(git root))" to the end of the commit message. Good
 if your repo dirs are worktrees whose names correspond to the workflow system
