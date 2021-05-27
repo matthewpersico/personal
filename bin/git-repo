@@ -4,8 +4,7 @@
 
 # git-repo - no .gitaudit, called on every prompt
 
-if ! git-version-verify 'git-repo'
-then
+if ! git-version-verify 'git-repo'; then
     exit 1
 fi
 
@@ -15,11 +14,15 @@ source "$BASH_INC_DIR/on_exit.binc"
 ## Global used to control 'cd'ing around
 doandcdfile=''
 
+_git_repo_date_to_epoch ()
+{
+    date -d "${1/./ }" +%s
+}
+
 git-repo-is ()
 {
     declare verbose=0
-    if [[ "$1" =~ -v ]]
-    then
+    if [[ "$1" =~ -v ]]; then
         verbose=1
         shift
     fi
@@ -49,11 +52,9 @@ git-repo-is_pristine ()
     (( $(git st --porcelain | wc -l) == 0 )) \
         && ( git worktree ina || (( $(git worktree list | wc -l) == 1 )) ) \
         && return 0
-    if [[ $1 == '-v' ]]
-    then
+    if [[ $1 == '-v' ]]; then
         (( $(git st --porcelain | wc -l) != 0 )) && git status
-        if ! git worktree ina && (( $(git worktree list | wc -l) != 1 ))
-        then
+        if ! git worktree ina && (( $(git worktree list | wc -l) != 1 )); then
             echo Found worktrees:
             git worktree list | tail -n +2 # Do not print the root repo for the
                                            # worktrees, which is always the
@@ -69,12 +70,10 @@ git-repo-is_up_to_date ()
     declare branch_status
     branch_status=$(git status | grep 'Your branch is')
     declare verbose=0
-    if [[ "$1" =~ -v ]]
-    then
+    if [[ "$1" =~ -v ]]; then
         echo "$branch_status"
     fi
-    if [[ -z $branch_status ]] || [[ $branch_status =~ 'Your branch is up to date' ]]
-    then
+    if [[ -z $branch_status ]] || [[ $branch_status =~ 'Your branch is up to date' ]]; then
         return 0
     else
         return 1
@@ -84,8 +83,7 @@ git-repo-is_up_to_date ()
 git-repo-is_fork ()
 {
     declare print=0
-    if [[ $1 == '--print' ]]
-    then
+    if [[ $1 == '--print' ]] || [[ $1 == 'of' ]]; then
         shift
         print=1
     fi
@@ -96,8 +94,7 @@ git-repo-is_fork ()
         declare origin
         declare fork_of=''
         origin=$(git remote get-url origin)
-        if [[ -n $origin ]]
-        then
+        if [[ -n $origin ]]; then
             declare server=${origin%%:*}
             declare repo_path=${origin##*:}
             fork_of=$(perl -e'
@@ -112,23 +109,11 @@ $VAR1->{fork} && print $VAR1->{parent}{full_name};
     )
 }
 
-git-repo-is_fork_of ()
-{
-    git-repo-is_fork --print "$@"
-}
-
-git-repo-is_forkof ()
-{
-    git-repo-is_fork --print "$@"
-}
-
 git-repo-is_worktree ()
 {
-    if [[ -f $(git root)/.git ]]
-    then
-        if [[ $1 == 'of' ]]
-        then
-            realpath "$(git root)/$(sed 's/gitdir: \(.*\)\/\.git\/worktrees.*/\1/' < "$(git root)/.git")"
+    if [[ -f $(git root)/.git ]]; then
+        if [[ $1 == 'of' ]]; then
+            realpath "$(git root)/$(sed 's/gitdir: \(.*\)\/\.git\/.*/\1/' < "$(git root)/.git")"
         fi
         return 0
     else
@@ -160,7 +145,10 @@ git-repo-is_openpr ()
     declare -a output
     for tgt_namespace in "${!namespaces[@]}"
     do
-        declare tmpfile; tmpfile=$(mktempfile); rm-on-exit "$tmpfile"
+        declare tmpfile;
+        # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
+        tmpfile=$(mktempfile);
+        rm-on-exit "$tmpfile"
 
         github-api --server "$server" --perl-data pulls "$tgt_namespace/$repo" > "$tmpfile"
         declare tmpout
@@ -176,8 +164,7 @@ for $entry (@$VAR1) {
 ' "$tmpfile" "$current_branch")
         [[ -n $tmpout ]] && output+=("$tmpout")
     done
-    if [[ "${#output[@]}" == '0' ]]
-    then
+    if [[ "${#output[@]}" == '0' ]]; then
         echo "No open pull requests"
         return 1
     else
@@ -193,8 +180,7 @@ git-repo-info ()
 {
     cmd-echo --title "Configs:"
     git-repo-config
-    if [[ $1 != '--no-pulls' ]]
-    then
+    if [[ $1 != '--no-pulls' ]]; then
         cmd-echo --title "Pull Requests:"
         git-repo-pr-get --state
     fi
@@ -256,10 +242,8 @@ git-repo-diff ()
         ## but only deal with it if we really have an option. Otherwise you
         ## misinterpret items like this git clone option: --config
         ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
-        if [[ $option =~ ^- ]]
-        then
-            if [[ "$option" =~ = ]]
-            then
+        if [[ $option =~ ^- ]]; then
+            if [[ "$option" =~ = ]]; then
                 okey=${option%%=*}
                 ovalue=${option#*=}
                 option="$okey"
@@ -290,12 +274,10 @@ git-repo-diff ()
     done
 
     declare -A repo
-    if [ -n "$2" ]
-    then
+    if [ -n "$2" ]; then
         repo[left]=$(realpath "$1")
         repo[right]=$(realpath "$2")
-    elif [ -n "$1" ]
-    then
+    elif [ -n "$1" ]; then
         repo[left]=${PWD}
         repo[right]=$(realpath "$1")
     else
@@ -303,8 +285,7 @@ git-repo-diff ()
         bash-usage "$0"; return 1 ;
     fi
 
-    if [ "${repo[left]}" = "${repo[right]}" ]
-    then
+    if [ "${repo[left]}" = "${repo[right]}" ]; then
         cmd-echo -- "Other dir is this dir. Whoops! Bye."
         return 1
     fi
@@ -322,8 +303,7 @@ git-repo-diff ()
     do
         perl -e 'chdir $ARGV[0];
              print qx(git ls-files)' "${repo[$which]}" > "${list[$which]}"
-        if [ -n "$exclude" ]
-        then
+        if [ -n "$exclude" ]; then
             grep -v "$exclude" "${list[$which]}" > "${list[$which]}.filt"
             mv "${list[$which]}.filt" "${list[$which]}"
         fi
@@ -344,16 +324,13 @@ git-repo-diff ()
     declare -A missingright
     for key in "${!leftfiles[@]}"
     do
-        if [ -z "${rightfiles[$key]}" ]
-        then
+        if [ -z "${rightfiles[$key]}" ]; then
             missingright[$key]=${key//%2F/\/}
             unset leftfiles["$key"]
         fi
     done
-    if [ "${#missingright[@]}" != '0' ]
-    then
-        if ((name_only))
-        then
+    if [ "${#missingright[@]}" != '0' ]; then
+        if ((name_only)); then
             cmd-echo -- "These files do not exist in ${repo[right]}" "${missingright[@]}" >&2
         else
             cmd-echo -- "These files do not exist in ${repo[right]}" "${missingright[@]}"
@@ -363,16 +340,13 @@ git-repo-diff ()
     declare -A missingleft
     for key in "${!rightfiles[@]}"
     do
-        if [ -z "${leftfiles[$key]}" ]
-        then
+        if [ -z "${leftfiles[$key]}" ]; then
             missingleft[$key]=${key//%2F/\/}
             unset rightfiles["$key"]
         fi
     done
-    if [ "${#missingleft[@]}" != '0' ]
-    then
-        if ((name_only))
-        then
+    if [ "${#missingleft[@]}" != '0' ]; then
+        if ((name_only)); then
             cmd-echo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}" >&2
         else
             cmd-echo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}"
@@ -387,13 +361,10 @@ git-repo-diff ()
         leftf=${leftfiles["$key"]}
         declare rightf=${rightfiles["$key"]}
         output=$(diff -q "$leftf" "$rightf" 2>&1 | grep -v 'Common subdirectories')
-        if [ -n "$output" ]
-        then
-            if ((name_only))
-            then
+        if [ -n "$output" ]; then
+            if ((name_only)); then
                 echo "$leftf" "$rightf"
-            elif ((edit))
-            then
+            elif ((edit)); then
                 editable+=("$leftf" "$rightf")
             else
                 cmd-echo -- '-----'
@@ -409,10 +380,8 @@ git-repo-diff ()
         fi
     done
 
-    if (( ${#editable[@]} ))
-    then
-        if [ -z "$EDITOR" ]
-        then
+    if (( ${#editable[@]} )); then
+        if [ -z "$EDITOR" ]; then
             cmd-echo -- "No EDITOR env variable found"
             return 1
         else
@@ -437,24 +406,20 @@ git-repo-delete ()
     if [[ $1 = '--pwdmode' ]] \
            || [[ $1 =~ ^--curr ]] \
            || [[ $1 == '-c' ]] \
-           || [[ $1 == '.' ]]
-    then
+           || [[ $1 == '.' ]]; then
         current=1
         shift
-    elif [[ $1 = '--dirmode' ]]
-    then
+    elif [[ $1 = '--dirmode' ]]; then
         dirmode=$2
         shift
         shift
-    elif [[ -n $1 ]]
-    then
+    elif [[ -n $1 ]]; then
         dirmode=$1
         shift
     fi
 
     # If we were given '.', then we are really doing --current.
-    if [[ -n $dirmode ]] && [[ ${PWD} = $(realpath "$dirmode") ]]
-    then
+    if [[ -n $dirmode ]] && [[ ${PWD} = $(realpath "$dirmode") ]]; then
         current=1
         dirmode=''
     fi
@@ -463,23 +428,20 @@ git-repo-delete ()
     declare returnpath
     returnpath=$(realpath "${PWD}")
 
-    if [ -n "$dirmode" ]
-    then
+    if [ -n "$dirmode" ]; then
         ## We were given the directory containing the repo
         builtin cd "$dirmode" || { cmd-echo "Cannot cd $dirmode" && return 1; }
         declare root_or_err
         root_or_err="$(git root 2>&1)"
         declare status=$?
-        if ((status))
-        then
+        if ((status)); then
             cmd-echo -- "$root_or_err"
             builtin cd "$returnpath" || { cmd-echo "Cannot cd $returnpath" && return 1; }
             return $status
         else
             builtin cd "$root_or_err" || { cmd-echo "Cannot cd $root_or_err" && return 1; }
         fi
-    elif ((!current))
-    then
+    elif ((!current)); then
         ## Then we were given a local repo URL; find it and go there
         declare githost=$1;shift
         declare namespace=$1;shift
@@ -487,8 +449,7 @@ git-repo-delete ()
 
         declare githost_url
         githost_url=$(git kv --get "svcs.$githost")
-        if [ -z "$githost_url" ]
-        then
+        if [ -z "$githost_url" ]; then
             cmd-echo -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
             return 1
         fi
@@ -510,8 +471,7 @@ git-repo-delete ()
         ## Subshell to allow cding around to be handled gracefully at the end
 
         ## Make sure it's clean
-        if [ -d wt ] && (($(find wt | wc -l) > 1))
-        then
+        if [ -d wt ] && (($(find wt | wc -l) > 1)); then
             cmd-echo "worktrees found:"
             ls -la wt
             cmd-echo
@@ -520,8 +480,7 @@ git-repo-delete ()
         fi
 
         dirty=$(git status --porcelain)
-        if [ -n "$dirty" ]
-        then
+        if [ -n "$dirty" ]; then
             git status
             cmd-echo
             cmd-echo "Will not delete current repo"
@@ -551,16 +510,14 @@ git-repo-delete ()
     done
 
     ## Go there.
-    if [ ! "$returnpath" = '/' ]
-    then
+    if [ ! "$returnpath" = '/' ]; then
         builtin cd "$returnpath" || { cmd-echo "Cannot cd $returnpath" && return 1; }
     else
         builtin cd ~ || { cmd-echo "Cannot cd ~" && return 1; }
     fi
 
     ## Feed "there" back to the git function to make it stick.
-    if [[ -n "$doandcdfile" ]]
-    then
+    if [[ -n "$doandcdfile" ]]; then
         echo "go ${PWD}" > "$doandcdfile"
         cmd-echo -n -- "Done. "
     fi
@@ -605,13 +562,11 @@ git-repo-pr-get ()
     for remote in upstream origin
     do
         remote_url=$(git config --get remote.${remote}.url)
-        if [ -n "$remote_url" ]
-        then
+        if [ -n "$remote_url" ]; then
             break
         fi
     done
-    if [ -z "$remote_url" ]
-    then
+    if [ -z "$remote_url" ]; then
         cmd-echo -wc -- "Cannot find a remote upstream or origin to check for pull requests"
         false; return $?
     fi
@@ -624,11 +579,26 @@ git-repo-pr-get ()
     declare pr_url
     declare wt=$(git-worktree ina -v)
     declare cb=$(git-repo-current-branch)
-    pr_url=$(git config --get "worktree.${wt}.extmeta-pr")
-    [[ -z $pr_url ]] && pr_url=$(git config --get "branch.${cb}.extmeta-pr")
+    pr_url=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr")
+    [[ -z $pr_url ]] && pr_url=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr")
+    declare cached
 
-    if [[ -z $pr_url ]]
-    then
+    if [[ -z $pr_url ]]; then
+        cached=0;
+    elif [[ $pr_url =~ NOREPO ]]; then
+        local cache_date=$(_git_repo_date_to_epoch "${pr_url##NOREPO:}")
+        local now=$(_git_repo_date_to_epoch "$(date "$GIT_EXT_META_DATE_FMT")")
+
+        if ((now - cache_date < 86400)); then
+            cached=1
+        else
+            cached=0
+        fi
+        pr_url=''
+    fi
+
+    if ((!cached))
+       then
         #
         # Not cached. Search and record.
         #
@@ -659,9 +629,10 @@ for $openpull (@{$VAR1}) {
 }
 exit 1;' "$perldata" "$USER" "$cb" "$opt_show_state" "$opt_match_state")
         declare status=$?
-        if [[ -z $pr_url ]]
-        then
+        if [[ -z $pr_url ]]; then
             ((!opt_silent)) && echo 'No open pull requests associated with this repo'
+            # Cache the no
+            git-repo-pr-store --norepo
             return $status
         else
             ((opt_show_state)) && pr_url=${pr_url#*: }
@@ -675,21 +646,17 @@ exit 1;' "$perldata" "$USER" "$cb" "$opt_show_state" "$opt_match_state")
     declare pullId=${pr_url##*/}
     declare state=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .state)
     state=${state//\"/}
-    if [[ $state == 'closed' ]]
-    then
+    if [[ $state == 'closed' ]]; then
         declare merged=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .merged)
         [[ $merged == 'true' ]] && state='merged'
     fi
     if [[ -n $opt_match_state ]] \
-           && [[ $opt_match_state != "$state" ]]
-    then
+           && [[ $opt_match_state != "$state" ]]; then
         false; return $?
     fi
 
-    if ((!opt_silent))
-    then
-        if ((opt_show_state))
-        then
+    if ((!opt_silent)); then
+        if ((opt_show_state)); then
             echo -n "${state^}: "
         fi
         echo "$pr_url"
@@ -702,8 +669,9 @@ git-repo-pr-store ()
     declare pr_url=$1
     declare wt=$(git-worktree ina -v)
     declare cb=$(git-repo-current-branch)
-    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.extmeta-pr" "$pr_url"
-    [[ -n $cb ]] && git config --replace-all "branch.${cb}.extmeta-pr" "$pr_url"
+    [[ $pr_url == '--norepo' ]] && pr_url="NOREPO:$(date "$GIT_EXT_META_DATE_FMT")"
+    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
+    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
 }
 
 git-repo-pr ()
@@ -738,8 +706,7 @@ git-repo-pr ()
         esac
     done
 
-    if ((opt_get))
-    then
+    if ((opt_get)); then
         git-repo-pr-get "${passthru[@]}"
     fi
 }
@@ -752,13 +719,11 @@ git-repo-sync ()
 git-repo-sync-with ()
 {
     declare arg1=$1
-    if [[ -z $arg1 ]]
-    then
+    if [[ -z $arg1 ]]; then
         declare deftext='source'
         declare branch_name
         branch_name=$(git-repo-source-branch)
-        if [[ -z $branch_name ]]
-        then
+        if [[ -z $branch_name ]]; then
             deftext="default"
             branch_name=$(git-repo-default-branch)
         fi
@@ -768,16 +733,14 @@ git-repo-sync-with ()
         declare status
         declare upstream
         upstream=$(git remote get-url upstream 2>/dev/null)
-        if [ -n "${upstream}" ]
-        then
+        if [ -n "${upstream}" ]; then
             cmd-echo -- "syncing with ${deftext}branch '${branch_name}' in upstream '${upstream}'"
             git-sync-with-remote --remote upstream --branch "$branch_name" "$@"
             status=$?
         else
             declare origin
             origin=$(git remote get-url origin 2>/dev/null)
-            if [ -n "${origin}" ]
-            then
+            if [ -n "${origin}" ]; then
                 cmd-echo -- "syncing with ${deftext}branch '${branch_name}' in origin '${origin}'"
                 git-sync-with-remote --remote origin --branch "$branch_name" "$@"
                 status=$?
@@ -801,8 +764,7 @@ git-repo-check ()
 git-repo-check-with ()
 {
     declare arg1=$1
-    if [[ $arg1 =~ ^--def ]]
-    then
+    if [[ $arg1 =~ ^--def ]]; then
         shift
         declare branch_name
         branch_name=$(git-repo-default-branch)
@@ -813,16 +775,14 @@ git-repo-check-with ()
         declare status
         declare upstream
         upstream=$(git remote get-url upstream 2>/dev/null)
-        if [ -n "${upstream}" ]
-        then
+        if [ -n "${upstream}" ]; then
             cmd-echo -- "checking with branch '${branch_name}' in upstream '${upstream}'"
             git-check-with-remote --remote upstream --branch "$branch_name" "$@"
             status=$?
         else
             declare origin
             origin=$(git remote get-url origin 2>/dev/null)
-            if [ -n "${origin}" ]
-            then
+            if [ -n "${origin}" ]; then
                 cmd-echo -- "checking with branch '${branch_name}' in origin '${origin}'"
                 git-check-with-remote --remote origin --branch "$branch_name" "$@"
                 status=$?
@@ -856,8 +816,7 @@ git-repo-purge()
             cmd-echo -- "$repo"
             declare ok_to_purge=1
             # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
-            if [[ -d wt ]] && (($(ls wt | wc -l)))
-            then
+            if [[ -d wt ]] && (($(ls wt | wc -l))); then
                 declare wt
                 for wt in wt/*
                 do
@@ -871,8 +830,7 @@ git-repo-purge()
                                             ## finds a PR, in which case we
                                             ## can't purge it.
             ! git repo is pristine -v && ok_to_purge=0
-            if ((ok_to_purge))
-            then
+            if ((ok_to_purge)); then
                 resp=$(cmd-yesno -dc "Repo is pristine. Delete it" n)
                 [[ $resp == 'y' ]] && git repo del --current --yes
                 echo
@@ -918,19 +876,16 @@ git-repo-tags ()
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-current-branch ()
 {
-    if [[ -n $1 ]]
-    then
+    if [[ -n $1 ]]; then
         cmd-echo --ec -- "Cannot set current branch yet" >&2
         false;return $?
     else
         declare cb
         cb=$($REALGIT branch --show-current)
-        if [[ -z $cb ]]
-        then
+        if [[ -z $cb ]]; then
             cmd-echo --wc -- "--show-current can't find current branch. Are you in a rebase? Falling back to alt method" >&2
             cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
-            if [[ -z $cb ]]
-            then
+            if [[ -z $cb ]]; then
                 cmd-echo --ec -- "Cannot get current branch" >&2
                 false;return $?
             fi
@@ -948,8 +903,7 @@ git-repo-show-current-branch ()
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-default-branch ()
 {
-    if [[ -n $1 ]]
-    then
+    if [[ -n $1 ]]; then
         cmd-echo --ec -- "Cannot set default branch yet"
     else
         declare base_repo
@@ -959,7 +913,12 @@ git-repo-default-branch ()
         done;
         [[ -z $base_repo ]] && { false; return $?; }
         declare default_branch
-        default_branch=$(sed 's/.*\///' < "$base_repo"/.git/refs/remotes/origin/HEAD)
+        declare src
+        ## The first file is for repos that are clones. The second is for repos
+        ## that were never cloned, but instantiated locally.
+        for src in "$base_repo"/.git/refs/remotes/origin/HEAD "$base_repo"/HEAD; do
+            [[ -r $src ]] && default_branch=$(sed 's/.*\///' < "$src")
+        done
         [[ -n $default_branch ]] && echo "$default_branch" && return 0
         cmd-echo --ec -- "Cannot find default branch for ${PWD}"
         false; return $?
@@ -977,7 +936,7 @@ git-repo-source-branch ()
     current_branch=$(git-repo-current-branch)
 
     declare source_branch
-    source_branch=$(git config --get "branch.$current_branch.extmeta-from-branch")
+    source_branch=$(git config --get "branch.$current_branch.${GIT_EXT_META_PREFIX}-from-branch")
     [[ -n $source_branch ]] && echo "$source_branch" && { true; return $?; }
     false
 }
@@ -991,31 +950,26 @@ main()
 {
     declare action=$1
 
-    if [[ "$action" =~ --doandcd ]]
-    then
+    if [[ "$action" =~ --doandcd ]]; then
         doandcdfile=$2
         shift; shift;
         action=$1
     fi
 
-    if [[ "$action" =~ ^-+h ]]
-    then
+    if [[ "$action" =~ ^-+h ]]; then
         bash-usage "$0"
         return  0
     fi
-    if [[ $action = 'is' ]]
-    then
+    if [[ $action = 'is' ]]; then
         [[ "$2" = 'a' ]] && shift
-        if [[ -n $2 ]]
-        then
+        if [[ -n $2 ]]; then
             shift
             action="${action}_${1//-/_}"
         fi
     fi
 
     action_func_name="git-repo-${action}"
-    if declare -F "$action_func_name" >/dev/null
-    then
+    if declare -F "$action_func_name" >/dev/null; then
         shift ## the $action
         "$action_func_name" "$@"
     else

@@ -5,8 +5,7 @@
 # shellcheck disable=SC1090
 source "$BASH_INC_DIR/on_exit.binc"
 
-if ! git-version-verify 'git-commit'
-then
+if ! git-version-verify 'git-commit'; then
     exit 1
 fi
 
@@ -29,16 +28,17 @@ main ()
     declare opt_highest_only=0
     declare opt_verbose=1
     declare opt_delete=0
-    declare opt_date=1
+    declare opt_date=0
+    declare prefix="${GIT_EXT_META_PREFIX}"
 
     declare -A keys
-    keys[repo]='core.em.em-comment'
+    keys[repo]="core.${prefix}.comment"
     declare branchname
     branchname="$(git repo current-branch)"
-    keys[branch]="branch.$branchname.em-comment"
+    keys[branch]="branch.$branchname.${prefix}-comment"
     declare worktreename
     worktreename="$(basename "${PWD}")"
-    keys[worktree]="worktree.$worktreename.em-comment"
+    keys[worktree]="worktree.$worktreename.${prefix}-comment"
 
     declare -A write_keys
 
@@ -112,16 +112,13 @@ main ()
     declare commentdate
     ((opt_date)) && commentdate="$(date "$GIT_EXT_META_DATE_FMT") - "
 
-    if [[ ${#write_keys[*]} = '0' ]]
-    then
-        if ((opt_show)) || ( (( $# == 0 )) && ((! opt_delete)) )
-        then
+    if [[ ${#write_keys[*]} = '0' ]]; then
+        if ((opt_show)) || ( (( $# == 0 )) && ((! opt_delete)) ); then
             ## With no args, no options, just show all keys.
             exec git-comment -r -b -w --show "${orig_args[@]}"
         else
             cmd-echo -n -- "Need at least one of --repo, --branch, --worktree to determine which comment to "
-            if ((opt_delete))
-            then
+            if ((opt_delete)); then
                 cmd-echo -a -- "delete."
                 return 1
             else
@@ -131,8 +128,7 @@ main ()
         fi
     fi
 
-    if ((opt_delete || opt_show )) && (( $# > 0 ))
-    then
+    if ((opt_delete || opt_show )) && (( $# > 0 )); then
         ((opt_verbose)) && cmd-echo -ec -- "Cannot provide comment text with --delete or --show."
         return 1
     fi
@@ -140,16 +136,13 @@ main ()
     declare -A output
     for configtype in repo branch worktree
     do
-        if [[ ${write_keys[$configtype]} = '1' ]]
-        then
+        if [[ ${write_keys[$configtype]} = '1' ]]; then
             declare configkey=${keys[$configtype]}
-            if ((opt_show))
-            then
+            if ((opt_show)); then
                 value="$(git config --get "$configkey")"
                 [[ -n $value ]] && \
                     output[$configtype]="$(printf '%8s: %s\n' $configtype "$value")"
-            elif ((opt_delete))
-            then
+            elif ((opt_delete)); then
                 git config --unset "$configkey" || return $?
                 ((opt_verbose)) && cmd-echo -- "Comment removed for $configtype"
             else
@@ -159,13 +152,11 @@ main ()
         fi
     done
 
-    if (( ${#output[@]} ))
-    then
+    if (( ${#output[@]} )); then
         declare -a order
         order=(repo branch worktree)
         bail='echo'
-        if (( opt_highest_only ))
-        then
+        if (( opt_highest_only )); then
             order=(worktree branch repo)
             bail='return 1'
         fi
