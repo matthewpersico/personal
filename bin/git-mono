@@ -25,16 +25,14 @@ set_repos ()
     declare -a repos_tmp
     declare -A repos_unique ## In case there are multiple patterns and they
                             ## overlap
-    if [ "$repo" = ':all' ]
-    then
+    if [ "$repo" = ':all' ]; then
         repos_tmp[0]=''
         option=pattern
     else
         IFS=, read -ra repos_tmp <<< "$repo"
     fi
 
-    if [[ "$option" =~ (rp|patt) ]]
-    then
+    if [[ "$option" =~ (rp|patt) ]]; then
         declare repo_pattern
         for repo_pattern in "${repos_tmp[@]}"
         do
@@ -80,10 +78,8 @@ main ()
         ## but only deal with it if we really have an option. Otherwise you
         ## misinterpret items like this git clone option: --config
         ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
-        if [[ $option =~ ^- ]]
-        then
-            if [[ "$option" =~ = ]]
-            then
+        if [[ $option =~ ^- ]]; then
+            if [[ "$option" =~ = ]]; then
                 okey=${option%%=*}
                 ovalue=${option#*=}
                 option="$okey"
@@ -141,8 +137,7 @@ main ()
         esac
     done
 
-    if ((${#repos[@]} == 0))
-    then
+    if ((${#repos[@]} == 0)); then
         ## Grab them all
         set_repos ':all' 'pattern'
     fi
@@ -153,8 +148,7 @@ main ()
              && [[ "$2" =~ ^(find|grep|ls-files)$ ]]
        } \
            || [ "$1" = 'git-find' ] \
-           || [ "$1" = 'git-grep' ]
-    then
+           || [ "$1" = 'git-grep' ]; then
         # shellcheck disable=SC2016
         fmt='${repo}/'
     fi
@@ -168,10 +162,8 @@ main ()
     declare use_repo_loc=''
     for arg in "$@"
     do
-        if [[ $arg != '{LSFILES}' ]]
-        then
-            if ((need_lsfiles == 1))
-            then
+        if [[ $arg != '{LSFILES}' ]]; then
+            if ((need_lsfiles == 1)); then
                 execmer+=("$arg")
             else
                 execmel+=("$arg")
@@ -179,11 +171,9 @@ main ()
         else
             need_lsfiles=1
         fi
-        if [[ $arg == '{REPO}' ]]
-        then
+        if [[ $arg == '{REPO}' ]]; then
             use_repo_dir=1
-            if [[ ${execmel[-1]} == '{REPO}' ]]
-            then
+            if [[ ${execmel[-1]} == '{REPO}' ]]; then
                 use_repo_loc='l'
                 use_repo_idx=$((${#execmel[@]}-1))
             else
@@ -202,37 +192,30 @@ main ()
         t=$(mktemp -t tmp.dpkgrefrepos.XXXXXXXXXX)
         rm-on-exit "$t"
         declare status
-        if ((need_lsfiles))
-        then
+        if ((need_lsfiles)); then
             mapfile -t lsfiles < <(git ls-files)
         else
             lsfiles=()
         fi
-        if ((use_repo_dir))
-        then
+        if ((use_repo_dir)); then
             eval execme${use_repo_loc}[${use_repo_idx}]="${PWD}"
         fi
         "${execmel[@]}" "${lsfiles[@]}" "${execmer[@]}" > "$t" 2>&1
         status=$?
-        if (( opt_rcge > -1 ))
-        then
-            if (( status >= opt_rcge ))
-            then
+        if (( opt_rcge > -1 )); then
+            if (( status >= opt_rcge )); then
                 echo
                 cmd-echo -- "*** $repo"
             fi
-        elif (( quiet==0 && silent==0 ))
-        then
+        elif (( quiet==0 && silent==0 )); then
             echo
             cmd-echo -- "*** $repo"
         fi
 
         ## We wc on words (-w) and not lines (-l) because some commands print
         ## blank lines instead of nothing when they do nothing.
-        if (( $(wc -w 2>/dev/null < "$t") ))
-        then
-            if (( quiet ))
-            then
+        if (( $(wc -w 2>/dev/null < "$t") )); then
+            if (( quiet )); then
                 echo
                 cmd-echo -- "*** $repo"
             fi

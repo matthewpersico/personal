@@ -41,8 +41,7 @@ do
     esac
 done
 
-if [ -z "$opt_branch" ]
-then
+if [ -z "$opt_branch" ]; then
     cmd-echo -- "--branch required"
     bash-usage "$0"
     exit 1
@@ -53,8 +52,7 @@ cb=$(git rev-parse --abbrev-ref HEAD)
 status=$?
 ((status != 0 )) && exit 1
 
-if [ "$cb" == '' ]
-then
+if [ "$cb" == '' ]; then
     # shellcheck disable=SC2154
     cat <<EOF
 
@@ -71,8 +69,7 @@ EOF
     exit 1
 fi
 
-if [ "$cb" == "$opt_branch" ]
-then
+if [ "$cb" == "$opt_branch" ]; then
     cat <<EOF
 
 You are trying to check your current git repo DEVELOPMENT branch in your clone
@@ -97,22 +94,19 @@ rm-on-exit "$stcheck"
 git status 1>"$stcheck" 2>&1
 grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null
 status=$?
-if [ "$status" != '0' ]
-then
+if [ "$status" != '0' ]; then
     cat "$stcheck"
     cat <<EOF
 Your branch should be up to date with its origin in order to simplify the
 check.
 EOF
-    if ((opt_bail_on_dirty))
-    then
+    if ((opt_bail_on_dirty)); then
         cmd-echo Exiting.
         exit 1
     else
         declare resp
         resp=$(cmd-yesno "Do you want to continue anyway" n)
-        if [ "$resp" == 'n' ]
-        then
+        if [ "$resp" == 'n' ]; then
             exit 1
         fi
     fi
@@ -124,8 +118,7 @@ gflog=$(mktemp -t tmp.git-check-with-remote.gflog.XXXXXXXXXX)
 rm-on-exit "$gflog"
 git fetch "${opt_remote}" "${opt_branch}" 2>"$gflog"
 declare rc=$?
-if ((rc))
-then
+if ((rc)); then
     cat "$gflog"
     rm -f "$gflog"
     exit 1
@@ -150,13 +143,11 @@ difflog=$(mktemp -t tmp.git-check-with-remote.difflog.XXXXXXXXXX)
 rm-on-exit "$difflog"
 diff "$locallog" "$remotelog" 1> "$difflog" 2>&1
 
-if [ -s "$difflog" ]
-then
+if [ -s "$difflog" ]; then
     # shellcheck disable=SC2002 # Using the cat instead of wc -l file prevents
     # the filename from being printed out,
     if [ "$(cat "$difflog" | wc -l)" = '10' ] \
-           && [ ! "$(grep -E "Merge pull request.*$(git repo current-branch)" "$difflog")" = '' ]
-    then
+           && [ ! "$(grep -E "Merge pull request.*$(git repo current-branch)" "$difflog")" = '' ]; then
         cmd-echo "Only diff to ${opt_remote} is merge pull request."
     else
         cmd-echo -head "*** git repo: ${PWD}"

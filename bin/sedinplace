@@ -10,8 +10,7 @@
 typeset sedcmdfile=$(mktemp -t tmp.sedinplace.XXXXXXXXXX)
 finish ()
 {
-    if [ -e "$sedcmdfile" ]
-    then
+    if [ -e "$sedcmdfile" ]; then
         rm -rf "$sedcmdfile"
     fi
 }
@@ -80,8 +79,7 @@ do
     esac
 done
 
-if ((opt_keepscript==0))
-then
+if ((opt_keepscript==0)); then
     trap finish EXIT SIGINT
 else
     print The sed command script is "$sedcmdfile"
@@ -95,8 +93,7 @@ do
     ## Pathological? Yes. But that's how I roll.
     ## And then we need to deal with links so that we don't overwrite them with
     ## file contents, losing the link.
-    if [ -e "$arg" ]
-    then
+    if [ -e "$arg" ]; then
         [[ -h "$arg" ]] && arg=$(realpath "$arg") ## Follow links
         [[ -f "$arg" ]] && files+=("$arg")
         ## We skip directories.
@@ -106,16 +103,14 @@ do
     fi
 done
 
-if [ $opt_verbose = 1 ]
-then
+if [ $opt_verbose = 1 ]; then
     cmd-echo -- "Processing these files: ${files[*]}"
 fi
 
 sedopts="$sedopt_inplace"
 sed $sedopts -f "$sedcmdfile" "${files[@]}"
 status=$?
-if [ $status != 0 ]
-then
+if [ $status != 0 ]; then
     exitstatus=$status
     cmd-echo -- "Sed editor. Status $status." \
              "The directory where the files live must be writable" \
@@ -124,30 +119,24 @@ fi
 
 for f in "${files[@]}"
 do
-    if [ -e "${f}.sip" ]
-    then
+    if [ -e "${f}.sip" ]; then
 	    diff --text "${f}.sip" "$f" 1>/tmp/sedinplace.diff.$$
 	    status=$?
-	    if [ $status = 0 ]
-	    then
-            if ((opt_verbose))
-            then
+	    if [ $status = 0 ]; then
+            if ((opt_verbose)); then
 		        cmd-echo -- "No changes in $f"
             fi
 		    \rm "${f}.sip"
-        elif ((opt_new))
-        then
+        elif ((opt_new)); then
             \mv "${f}" "${f}.${opt_new}";status=$?;((status)) && cmd-echo -- "Rename ${f} ${f}.${opt_new} error. Exiting." && exit 1
             \mv "${f}.sip" "${f}";status=$?;((status)) && cmd-echo -- "Rename ${f}.sip ${f} error. Exiting." && exit 1
             ((opt_verbose)) && cmd-echo -- "${f}.${opt_new}"
-        elif ((opt_confirm))
-        then
+        elif ((opt_confirm)); then
             cmd-echo
             cmd-echo -- "diff --text ${f}.sip $f"
             cat /tmp/sedinplace.diff.$$
 		    resp=$(yesno "Keep edits? ('n' reverts the edits)")
-		    if [ "$resp" = 'n' ]
-		    then
+		    if [ "$resp" = 'n' ]; then
 		        mv -v "${f}.sip" "$f"
 		    else
 		        \rm "${f}.sip"

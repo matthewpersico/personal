@@ -45,8 +45,7 @@ ajoin longopts -s , \
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 declare status=$?
-if ((status != 0))
-then
+if ((status != 0)); then
     declare d0
     d0=$(basename "$0")
     cmd-echo -- \
@@ -75,8 +74,7 @@ do
             opt_add_args_to_logfile=1
             ;;
         at )
-            if ((opts_count))
-            then
+            if ((opts_count)); then
                 echo "--at must be first option"
                 exit 1
             fi
@@ -153,8 +151,7 @@ do
             ;;
         reinvoke )
             declare log=$1; shift
-            if [[ ! -r "$log" ]]
-            then
+            if [[ ! -r "$log" ]]; then
                 cmd-echo --ec -- "'$log' does not exist"
                 exit 1
             fi
@@ -197,15 +194,13 @@ done
 if ((isat)) \
        && { (( teeit+zenityit )) \
                 || \
-                [ -n "${edit}${edit_on_fail}" ]; }
-then
+                [ -n "${edit}${edit_on_fail}" ]; }; then
     echo "Cannot use --at with any of --teeit, --zenityit, --edit, --edit_on_fail"
     bash-usage "$0"; exit 1
 fi
 
 # Arg checking
-if [ -z "$1" ]
-then
+if [ -z "$1" ]; then
     echo "Command required."
     bash-usage "$0"; exit 1
 fi
@@ -215,23 +210,19 @@ declare -a cmdargs
 
 for arg in "$@"
 do
-    if [[ -z $command ]]
-    then
+    if [[ -z $command ]]; then
         command="$arg"
     else
         cmdargs+=("$arg")
     fi
 done
 
-if [ ! -x "$command" ]
-then
+if [ ! -x "$command" ]; then
     fullcommand=$(type -P "$command" 2>/dev/null)
-    if [ -z "$fullcommand" ]
-    then
+    if [ -z "$fullcommand" ]; then
         isafunc=$(type -t "$command")
         if [[ $isafunc != "function" ]] \
-        && [[ $isafunc != "alias" ]]
-        then
+        && [[ $isafunc != "alias" ]]; then
             echo "'$command' is not a function or alias and it either cannot not be found on PATH or is not executable."
             exit 1
         fi
@@ -240,8 +231,7 @@ fi
 
 # Log file setup
 [ -z "$logfile" ] && logfile=$(basename "$command")
-if (( opt_add_args_to_logfile ))
-then
+if (( opt_add_args_to_logfile )); then
     declare aatl
     ajoin aatl -s , "${cmdargs[@]}"
     aatl=${aatl// /,,}
@@ -250,17 +240,14 @@ fi
 logfileroot="${logfile}.logit"
 now=$(date +%Y_%m_%dT%H_%M_%S)
 logfile="${logfileroot}"
-if [ "$notimestamp" = '' ]
-then
+if [ "$notimestamp" = '' ]; then
     logfile="${logfile}.${now}.$$"
     export LOGIT_TIMESTAMP="$now"
 fi
 today=${now%%T*}
 
-if [ -z "$logdir" ]
-then
-    if [[ $logfile =~ / ]]
-    then
+if [ -z "$logdir" ]; then
+    if [[ $logfile =~ / ]]; then
         logdir=$(dirname "$logfile")
         logfile=$(basename "$logfile")
     else
@@ -272,28 +259,23 @@ fi
 logspec="$logdir/$logfile"
 logspecroot="$logdir/$logfileroot"
 export LOGIT_SPEC="$logspec"
-if [ -n "$purge" ]
-then
+if [ -n "$purge" ]; then
     declare -a rmlist
-    if [[ "$purge" = 'all' ]]
-    then
+    if [[ "$purge" = 'all' ]]; then
         echo "Purging ${logspecroot}*"
         rm -f "${logspecroot}"*
-    elif [[ "$purge" = 'prev' ]]
-    then
+    elif [[ "$purge" = 'prev' ]]; then
         ## 0th log by time, descending
         echo -n "Purging ${logspecroot}*, removing the latest"
         declare rmlist
         rmlist=$(ls -t "${logspecroot}"* 2>/dev/null)
-        if [ -n "${rmlist[0]}" ]
-        then
+        if [ -n "${rmlist[0]}" ]; then
             rm -f "${rmlist[0]}"
             echo ", ${rmlist[0]}"
         else
             echo
         fi
-    elif [[ "$purge" = 'yesterday' ]]
-    then
+    elif [[ "$purge" = 'yesterday' ]]; then
         ## prior day
         echo "Purging ${logspecroot}*, keeping $today"
         declare tmps
@@ -308,21 +290,18 @@ then
 fi
 
 touch "$logspec" ## Critical for tee below
-if ((zenity_only == 0 ))
-then
+if ((zenity_only == 0 )); then
     logmsg="Logfile is: $logspec"
 else
     logmsg='--zenity-only, log will not be retained'
 fi
 
-if ((! isat))
-then
+if ((! isat)); then
     echo "$logmsg"
     echo "Working..."
 fi
 
-if ((opt_logonly))
-then
+if ((opt_logonly)); then
     echo '--logonly specified. Run these commands:'
     # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
     (( ${#envs[@]} )) && echo -n "${envs[*]} "
@@ -330,8 +309,7 @@ then
     exit 0
 fi
 
-if ((teeit || zenityit))
-then
+if ((teeit || zenityit)); then
     declare termer=''
 
     declare -a terms
@@ -356,16 +334,14 @@ then
     if ((termheight >1024)); then termheight=40; else termheight=20; fi
 
     declare -a colors
-    if [[ $termer =~ xterm ]]
-    then
+    if [[ $termer =~ xterm ]]; then
         colors=('-fg' "$(xterm-cli foreground)" '-bg' "$(xterm-cli background)")
     fi
 
     declare title
     title="logit tee of '$command ${cmdargs[*]}' on $(hostname)"
     ((!zenity_only)) && title="$title [log is $logspec]"
-    if [[ $termer =~ zenity ]]
-    then
+    if [[ $termer =~ zenity ]]; then
         $termer --text-info --auto-scroll \
                 "${zenity_geo[@]}" \
                 --title "$title" \
@@ -386,8 +362,7 @@ then
     ## Grabs the line that is the process entry for the output of the tail command, prints the first number it finds (the pid)
     termerpid=$(ps -ef | grep "$logspec" | grep 'tail -f' | grep "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
 
-    if [[ $termer =~ zenity ]]
-    then
+    if [[ $termer =~ zenity ]]; then
         ## Ending the zenity process doesn't end the tail and exiting this
         ## program doesn't end the tail either. We must arrange for it to
         ## explicitly end when this program exits. Otherwise, the tails pile up
@@ -397,8 +372,7 @@ then
                       && sleep 2 \
                       && ps -p $tailpid >/dev/null 2>/dev/null \
                       && kill $tailpid >/dev/null 2>/dev/null"
-        if((zenity_only))
-        then
+        if((zenity_only)); then
             cmds="$cmds && rm -f $logspec"
         fi
         do-on-exit "$cmds"
@@ -420,8 +394,7 @@ fi
     echo "$logspec"
     echo
 
-    if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]
-    then
+    if [ -n "$(git rev-parse --git-dir 2>/dev/null)" ]; then
         echo "********************"
         echo "      git info"
         echo "********************"
@@ -436,8 +409,7 @@ fi
         tmpf=$(mktemp -t tmp.logit.XXXXXXXXXX)
         rm-on-exit "$tmpf"
         git stash list >>"$tmpf" 2>&1
-        if [ -s "$tmpf" ]
-        then
+        if [ -s "$tmpf" ]; then
             echo "Stashes:"
             cat "$tmpf"
             echo
@@ -466,8 +438,7 @@ fi
     eval "${envs[@]}"
     echo "********************"
 
-    if((tsit))
-    then
+    if((tsit)); then
         $command "${cmdargs[@]}" | perl -pe 'use POSIX strftime; use Time::HiRes gettimeofday;
                     $|=1;
                     select((select(STDERR), $| = 1)[0]);
@@ -490,29 +461,24 @@ fi
     exit "$status"
 ) >> "$logspec" 2>&1
 status=$?
-if (( !isat))
-then
+if (( !isat)); then
     echo "$logmsg"
     echo "Exit status: $status"
     grep 'elapsed seconds:'  "$logspec"
 fi
 
 declare -a editcmd
-if [ -n "$edit" ]
-then
+if [ -n "$edit" ]; then
     read -r -a editcmd < <(echo "$edit")
-elif [ ! "$status" = '0' ] && [ -n "$edit_on_fail" ]
-then
+elif [ ! "$status" = '0' ] && [ -n "$edit_on_fail" ]; then
     read -r -a editcmd < <(echo "$edit_on_fail")
 fi
 
-if [[ "${editcmd[0]}" =~ emacs\  ]]
-then
+if [[ "${editcmd[0]}" =~ emacs\  ]]; then
     width=$(perl -n -e 'length($_)>$x and $x=length($_);END{print $x}' "$logspec");
     lineheight=$(( ($(x-current-root --height)-100) / 30 ))
     logheight=$(wc -l < "$logspec")
-    if (( lineheight <= logheight ))
-    then
+    if (( lineheight <= logheight )); then
         height=$lineheight
     else
         height=$logheight
@@ -523,10 +489,8 @@ then
     declare xtermy=$((${xtermxy##*:}+20))
     editcmd+=('-g' "${width}x${height}+${xtermx}+${xtermy}")
 fi
-if [ -n "${editcmd[0]}" ]
-then
-    if [ -n "$edit_echo" ]
-    then
+if [ -n "${editcmd[0]}" ]; then
+    if [ -n "$edit_echo" ]; then
         echo "${editcmd[@]}" "$logspec"
     else
         "${editcmd[@]}" "$logspec" &

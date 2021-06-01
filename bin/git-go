@@ -83,8 +83,7 @@ do
         upstream) declare tmp
                   tmp=$(git remote get-url upstream 2>/dev/null)
                   # shellcheck disable=SC2154
-                  if [[ -z $tmp ]]
-                  then
+                  if [[ -z $tmp ]]; then
                       cmd-echo -ec -- "No upstream for current repo (${PWD})"
                       exit 1
                   fi
@@ -125,8 +124,7 @@ do
             ;;
     esac
 done
-if ((opt_stat!=2)) && ((opt_brief))
-then
+if ((opt_stat!=2)) && ((opt_brief)); then
     cmd-echo -ec -- "Cannot specify --brief without --dirty"
     bash-usage "$0"; exit 1
 fi
@@ -150,8 +148,7 @@ origtgts=("${tgts[@]}")
 
 ## First call has no REPOS to feed back and may be using a --limited
 ## option. Do it separately.
-if ((${#limited[@]}))
-then
+if ((${#limited[@]})); then
     git_get_opts=()
 fi
 readarray -t REPOS < <(git-go-get "${git_get_opts[@]}" "${limited[@]}" "${tgts[0]}")
@@ -166,19 +163,15 @@ do
     declare alltgts
     ajoin alltgts -s ',' "${tns[@]}"
     readarray -t REPOS < <(git-go-get --limited "$alltgts" "$tgt")
-    if ((${#REPOS[@]}==0))
-    then
+    if ((${#REPOS[@]}==0)); then
         break
     fi
 done
 
-if ((${#REPOS[@]}==0))
-then
-    if (( ${#origtgts[@]} == 0 ))
-    then
+if ((${#REPOS[@]}==0)); then
+    if (( ${#origtgts[@]} == 0 )); then
         cmd-echo -ec -- "No repos available."
-    elif (( ${#origtgts[@]} == 1 ))
-    then
+    elif (( ${#origtgts[@]} == 1 )); then
         cmd-echo -ec -- "Filter '${origtgts[*]}' does not match any repo"
     else
         declare allfilts
@@ -187,26 +180,22 @@ then
     fi
     exit 1
 else
-    if ((opt_mod))
-    then
+    if ((opt_mod)); then
         for r in "${REPOS[@]}"
         do
             (
                 # The exit 1; will exit from the subshell, skipping the git status call
                 cd "${TILDAE:-$HOME}/$r" || { echo "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
-                if (( $(git status --porcelain | wc  -l) ))
-                then
+                if (( $(git status --porcelain | wc  -l) )); then
                     echo
                     cmd-echo -- "$r"
                     git status
                 fi
             )
         done
-    elif ((opt_list))
-    then
+    elif ((opt_list)); then
         declare r
-        if ((opt_size))
-        then
+        if ((opt_size)); then
             ## Re-sort the list of repos by size descending using
             ## byte-level counts.
             repos_size=$(mktemp -t tmp.git-go.size.XXXXXXXXXX)
@@ -221,51 +210,43 @@ else
         for r in "${REPOS[@]}"
         do
             # shellcheck disable=SC2088
-            if((opt_size))
-            then
+            if((opt_size)); then
                 du -hs --exclude wt "${r}"
             else
                 declare rexp
                 ((opt_list==1)) && rexp="~/${r}" || rexp="${TILDAE:-$HOME}/${r}"
-                if ((opt_stat==1))
-                then
+                if ((opt_stat==1)); then
                     echo "$rexp"
                     (
                         cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
                         git status --porcelain
                     )
                     echo
-                elif ((opt_stat==2))
-                then
+                elif ((opt_stat==2)); then
                     (
                         cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
-                        if (( $(git status --porcelain | wc -l) ))
-                        then
+                        if (( $(git status --porcelain | wc -l) )); then
                             echo "$rexp"
-                            if ((opt_brief==0))
-                            then
+                            if ((opt_brief==0)); then
                                 git status --porcelain
                                 echo
                             fi
                         fi
                     )
-                elif ((opt_comments))
-                then
+                elif ((opt_comments)); then
                     (
                         cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
                         declare output
                         output="$(git comment --show --hi)"
                         if ((opt_comments==1)) || \
-                               ( ((opt_comments==2)) && [[ -n $output ]] )
-                        then
+                               ( ((opt_comments==2)) && [[ -n $output ]] ); then
                             echo "$rexp"
                         fi
                         [[ -n $output ]] && echo "    $output" && echo
                     )
                 else
                     echo -n "$rexp"
-                    if ((opt_comma)) && [ "$r" != "${REPOS[-1]}" ] ## and not the last rexp
-                    then
+                    if ((opt_comma)) && [ "$r" != "${REPOS[-1]}" ]; then ## and not the last rexp
                         echo -n ,
                     else
                         echo
@@ -275,22 +256,19 @@ else
             fi
         done
         exit
-    elif ((${#REPOS[@]}==1))
-    then
+    elif ((${#REPOS[@]}==1)); then
         cmd-echo -- "Matches only ${REPOS[0]}. Going there."
         REPO=${REPOS[0]}
     else
         declare REPO
 
-        if ((opt_repo_no))
-        then
+        if ((opt_repo_no)); then
             declare r
             declare ri
             ri=1
             for r in "${REPOS[@]}"
             do
-                if ((ri==opt_repo_no))
-                then
+                if ((ri==opt_repo_no)); then
                     REPOS=("$r")
                     break
                 fi
@@ -298,8 +276,7 @@ else
             done
         fi
 
-        if ((${#REPOS[@]}==1))
-        then
+        if ((${#REPOS[@]}==1)); then
             ## Re-check singlematch condition in case we modified REPOS
             ## above.
             cmd-echo -- "Matches only ${REPOS[0]}. Going there."
@@ -311,19 +288,15 @@ else
 
             select REPO in "${REPOS[@]}"
             do
-                if ((opt_list))
-                then
+                if ((opt_list)); then
                     exit
                 fi
-                if [ -n "$REPO" ]
-                then
+                if [ -n "$REPO" ]; then
                     REPO=$(tail-number-strip "$REPO")
                     break
-                elif [ "${REPLY,,}" = 'q' ]
-                then
+                elif [ "${REPLY,,}" = 'q' ]; then
                     exit
-                elif [[ "$REPLY" =~ ^/ ]]
-                then
+                elif [[ "$REPLY" =~ ^/ ]]; then
                     declare repolist
                     # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
                     # Wants to quote "$(trail_number_strip...), but we need the
@@ -342,10 +315,8 @@ else
     fi
 fi
 
-if [ -n "$REPO" ]
-then
-    if [[ ! -d "${TILDAE:-$HOME}/$REPO" ]]
-    then
+if [ -n "$REPO" ]; then
+    if [[ ! -d "${TILDAE:-$HOME}/$REPO" ]]; then
         cmd-echo --ec -- "'$REPO' does not exist. It will be removed from consideration."
         set +x
         git-go-set

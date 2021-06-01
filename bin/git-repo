@@ -577,16 +577,25 @@ git-repo-pr-get ()
     # See if we have cached it.
     #
     declare pr_url
+    declare pr_cache_as_of
     declare wt=$(git-worktree ina -v)
     declare cb=$(git-repo-current-branch)
     pr_url=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr")
-    [[ -z $pr_url ]] && pr_url=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr")
+    if [[ -n $pr_url ]]; then
+        pr_cache_as_of=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date")
+    else
+        pr_url=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr")
+        if [[ -n $pr_url ]]; then
+            pr_cache_as_of=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date")
+        fi
+    fi
+
     declare cached
 
-    if [[ -z $pr_url ]]; then
+    if [[ -z $pr_cache_as_of ]]; then
         cached=0;
-    elif [[ $pr_url =~ NOREPO ]]; then
-        local cache_date=$(_git_repo_date_to_epoch "${pr_url##NOREPO:}")
+    else
+        local cache_date=$(_git_repo_date_to_epoch "${pr_cache_as_of}")
         local now=$(_git_repo_date_to_epoch "$(date "$GIT_EXT_META_DATE_FMT")")
 
         if ((now - cache_date < 86400)); then
@@ -594,18 +603,16 @@ git-repo-pr-get ()
         else
             cached=0
         fi
-        pr_url=''
     fi
 
-    if ((!cached))
-       then
+    if ((!cached)); then
         #
         # Not cached. Search and record.
         #
         declare perldata=$(mktemp -t tmp.git-repo-pr-get.perldata.$$.XXXXXXXXXX)
         rm-on-exit "$perldata"
         github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
-        pr_url=$(perl -d:ptkdb -MData::Dumper -e '
+        pr_url=$(perl -MData::Dumper -e '
 ## $ARGV[0] - file with perl data
 ## $ARGV[1] - org
 ## $ARGV[2] - current branch name
@@ -629,32 +636,45 @@ for $openpull (@{$VAR1}) {
 }
 exit 1;' "$perldata" "$USER" "$cb" "$opt_show_state" "$opt_match_state")
         declare status=$?
+
         if [[ -z $pr_url ]]; then
             ((!opt_silent)) && echo 'No open pull requests associated with this repo'
             # Cache the no
-            git-repo-pr-store --norepo
-            return $status
+            git-repo-pr-store --noopenpr
+            pr_url="NOOPENPR"
         else
             ((opt_show_state)) && pr_url=${pr_url#*: }
-            # Cache the PR
+            ## Cache the PR
             git-repo-pr-store "$pr_url"
-
         fi
     fi
 
-    # We don't cache the state. But that's ok since the direct lookup of one PR is quick.
-    declare pullId=${pr_url##*/}
-    declare state=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .state)
-    state=${state//\"/}
-    if [[ $state == 'closed' ]]; then
-        declare merged=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .merged)
-        [[ $merged == 'true' ]] && state='merged'
-    fi
-    if [[ -n $opt_match_state ]] \
-           && [[ $opt_match_state != "$state" ]]; then
+    if [[ $pr_url == "NOOPENPR" ]]; then
+        pr_url=''
+        #"No open PRs associated with this"
+        #if [[ -n $wt ]]; then
+        #    pr_url="$pr_url worktree"
+        #elif [[ -n $wt ]]; then
+        #    pr_url="$pr_url branch"
+        #else
+        #    pr_url="$pr_url repo"
+        #fi
         false; return $?
+    else
+        # We don't cache the state. But that's ok since the direct lookup of
+        # one PR is quick.
+        declare pullId=${pr_url##*/}
+        declare state=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .state)
+        state=${state//\"/}
+        if [[ $state == 'closed' ]]; then
+            declare merged=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .merged)
+            [[ $merged == 'true' ]] && state='merged'
+        fi
+        if [[ -n $opt_match_state ]] \
+               && [[ $opt_match_state != "$state" ]]; then
+            false; return $?
+        fi
     fi
-
     if ((!opt_silent)); then
         if ((opt_show_state)); then
             echo -n "${state^}: "
@@ -666,12 +686,16 @@ exit 1;' "$perldata" "$USER" "$cb" "$opt_show_state" "$opt_match_state")
 
 git-repo-pr-store ()
 {
+    set -x
     declare pr_url=$1
     declare wt=$(git-worktree ina -v)
     declare cb=$(git-repo-current-branch)
-    [[ $pr_url == '--norepo' ]] && pr_url="NOREPO:$(date "$GIT_EXT_META_DATE_FMT")"
+    [[ $pr_url == '--noopenpr' ]] && pr_url="NOOPENPR"
+    declare asof="$(date "$GIT_EXT_META_DATE_FMT")"
     [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
+    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date" "$asof"
     [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
+    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date" "$asof"
 }
 
 git-repo-pr ()
