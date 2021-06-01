@@ -11,8 +11,7 @@ git-hook-find-hook-dir ()
 {
     local dotgit
     dotgit=$(git find --git-dir)
-    if [ -n "$dotgit" ] && [ -d "$dotgit/hooks" ]
-    then
+    if [ -n "$dotgit" ] && [ -d "$dotgit/hooks" ]; then
         echo "$dotgit/hooks"
         return 0
     else
@@ -25,20 +24,17 @@ git-hook-check ()
 {
     local hook_dir
     hook_dir=$(git-hook-find-hook-dir)
-    if [ -z "$hook_dir" ] || [ ! -d "$hook_dir" ]
-    then
+    if [ -z "$hook_dir" ] || [ ! -d "$hook_dir" ]; then
         echo "Cannot find hook directory"
         return 1
     fi
     local i
     for i in "${hook_dir}"/*
     do
-        if [[ "$i" =~ \.sample$ ]] || [[ "$i" =~ $GITFUNCS_SOURCE_CTRL_LOG_NAME ]]
-        then
+        if [[ "$i" =~ \.sample$ ]] || [[ "$i" =~ $GITFUNCS_SOURCE_CTRL_LOG_NAME ]]; then
             continue
         fi
-        if [ ! -x "$i" ]
-        then
+        if [ ! -x "$i" ]; then
             echo "INFO: git hook $i is not executable. Making it so."
             chmod a+x "$i"
         fi
@@ -51,14 +47,12 @@ git-hook-dry-run ()
     local hook_name=$1; shift
     local hook_dir
     hook_dir=$(git-hook-find-hook-dir)
-    if [ -z "$hook_dir" ] || [ ! -d "$hook_dir" ]
-    then
+    if [ -z "$hook_dir" ] || [ ! -d "$hook_dir" ]; then
         echo "Cannot find hook directory"
         return 1
     fi
     local hook_path=$hook_dir/$hook_name
-    if [ -x "$hook_path" ]
-    then
+    if [ -x "$hook_path" ]; then
         "$hook_path" "$@"
         return $?
     else
@@ -71,16 +65,14 @@ git-hook-pushpull-guts ()
 {
     declare current_template
     current_template=$(git config --get init.templatedir)
-    if [ "$current_template" != "${GITFUNCS_GITHOOK_ROOT}" ]
-    then
+    if [ "$current_template" != "${GITFUNCS_GITHOOK_ROOT}" ]; then
         echo "Error: Config says init.templatedir = '$current_template'"
         echo "       It should be '${GITFUNCS_GITHOOK_ROOT}'"
         echo "       Please correct."
         return 1
     fi
 
-    if [ ! -d "$current_template" ]
-    then
+    if [ ! -d "$current_template" ]; then
         echo "Error: Can't find '$current_template'"
         echo "       Please correct."
         return 1
@@ -102,8 +94,7 @@ git-hook-pushpull-guts ()
             declare hooktgtdir
             # shellcheck disable=SC2001
             hooktgtdir="${TILDAE:-$HOME}/$(echo "$repo" | sed 's/(repo)//')/.git/hooks"
-            if [ -f "$hooktgtdir" ]
-            then
+            if [ -f "$hooktgtdir" ]; then
                 echo "$hooktgtdir is a file. whoops..."
                 ## Fix up accidental directory overwrite
                 \rm "$hooktgtdir"
@@ -117,37 +108,30 @@ git-hook-pushpull-guts ()
             declare direction
 
             ## Determine which one is out of date.
-            if [ ! -e "$hooktgtpath" ]
-            then
+            if [ ! -e "$hooktgtpath" ]; then
                 echo "$hooktgtpath not found."
                 direction='to-target'
-            elif [ "$h" -nt "$hooktgtpath" ]
-            then
+            elif [ "$h" -nt "$hooktgtpath" ]; then
                 echo "$hooktgtpath out of date."
                 direction='to-target'
                 diffargs=("$hooktgtpath" "$h")
-            elif [ "$h" -ot "$hooktgtpath" ]
-            then
+            elif [ "$h" -ot "$hooktgtpath" ]; then
                 echo "$hooktgtpath newer than template."
                 diffargs=("$h" "$hooktgtpath")
             fi
 
             ## Show the diff
-            if ((${#diffargs[@]}))
-            then
+            if ((${#diffargs[@]})); then
                 diff "${diffargs[@]}" > /tmp/git-hook.diff.$$
-                if [[ -s /tmp/git-hook.diff.$$ ]] || ((!quiet))
-                then
+                if [[ -s /tmp/git-hook.diff.$$ ]] || ((!quiet)); then
                     echo "diff older to newer (${diffargs[*]})"
                     cat /tmp/git-hook.diff.$$
                 fi
             fi
 
             ## Do the needful
-            if ((docopy))
-            then
-                if [[ $direction == 'to-target' ]]
-                then
+            if ((docopy)); then
+                if [[ $direction == 'to-target' ]]; then
                     cp -pv "$h" "$hooktgtpath"
                     chmod +x "$hooktgtpath"
                 fi
@@ -196,15 +180,13 @@ main ()
 {
     declare action=$1
 
-    if [[ "$action" =~ ^-+h ]]
-    then
+    if [[ "$action" =~ ^-+h ]]; then
         usage
         return  0
     fi
 
     action_func_name="git-hook-${action}"
-    if declare -F "$action_func_name" >/dev/null
-    then
+    if declare -F "$action_func_name" >/dev/null; then
         shift ## the $action
         "$action_func_name" "$@"
     else

@@ -60,10 +60,8 @@ main ()
         ## but only deal with it if we really have an option. Otherwise you
         ## misinterpret items like this git clone option: --config
         ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
-        if [[ $option =~ ^- ]]
-        then
-            if [[ "$option" =~ = ]]
-            then
+        if [[ $option =~ ^- ]]; then
+            if [[ "$option" =~ = ]]; then
                 okey=${option%%=*}
                 ovalue=${option#*=}
                 option="$okey"
@@ -131,16 +129,14 @@ main ()
 
     declare server_url
     server_url="$(git kv --get "api-urls.$server")/"
-    if [ -z "$server_url" ]
-    then
+    if [ -z "$server_url" ]; then
         github-api-echo -- "'$server' is an in valid --server option"
         return 1
     fi
 
     declare token_file
     token_file="$HOME/$(git kv --get "token-file.$server")"
-    if [ ! -r "$token_file" ]
-    then
+    if [ ! -r "$token_file" ]; then
         github-api-echo -- "Credentials file '$token_file' not found. Do you have the right server?"
         exit 1
     fi
@@ -156,13 +152,11 @@ main ()
     case $action in
         fork | list-forks | exists | ping | pulls | contents | repo )
             ## Requires a repo
-            if [ -z "$1" ]
-            then
+            if [ -z "$1" ]; then
                 github-api-echo -- "No org/repo specified"
                 return 1
             fi
-            if [[ "$1" =~ / ]]
-            then
+            if [[ "$1" =~ / ]]; then
                 org=${1%/*}
                 repo=${1#*/}
                 shift
@@ -174,37 +168,31 @@ main ()
             [ -z "$repo" ] && github-api-echo -- "No repo specified" && bail=1
             ((bail)) && return 1
 
-            if [[ $action == 'contents' ]]
-            then
+            if [[ $action == 'contents' ]]; then
                 contents="$1"; shift
             fi
             ;;
 
         org | repos )
             ## Requires an org
-            if [ -z "$1" ]
-            then
+            if [ -z "$1" ]; then
                 github-api-echo -- "No org specified"
                 return 1
             fi
-            if [[ $1 =~ -user ]]
-            then
+            if [[ $1 =~ -user ]]; then
                 org_is_user=1
                 shift
             fi
-            if [[ "$1" =~ / ]]
-            then
+            if [[ "$1" =~ / ]]; then
                 org=${1%/*}
                 repo=${1#*/}
             else
                 org=$1; shift
-                if [ -n "$1" ]
-                then
+                if [ -n "$1" ]; then
                     repo=$1; shift
                 fi
             fi
-            if [[ $action == 'org' ]] && [[ -n $repo ]]
-            then
+            if [[ $action == 'org' ]] && [[ -n $repo ]]; then
                 cmd-echo --wc -- "Repo ignore for action org"
                 repo=''
             fi
@@ -236,8 +224,7 @@ main ()
             ;;
 
         * )
-            if [ -n "$1" ]
-            then
+            if [ -n "$1" ]; then
                 github-api-echo -- "$1 is not supported"
             else
                 github-api-echo -- "No action provided"
@@ -245,8 +232,7 @@ main ()
             return 1
     esac
 
-    if [ -n "$org" ]
-    then
+    if [ -n "$org" ]; then
         # shellcheck disable=SC2034
         declare dummy
         ## todo make sure org exists
@@ -276,8 +262,7 @@ main ()
             ;;
 
         repos)
-            if ((org_is_user))
-            then
+            if ((org_is_user)); then
                 url="users/$org/repos?type=$scope"
             else
                 url="orgs/$org/repos?type=$scope"
@@ -318,8 +303,7 @@ main ()
 
     esac
     ## Override on re-exec
-    if [[ -n $override_url ]]
-    then
+    if [[ -n $override_url ]]; then
         ## Get rid of the option since we may have to use it again. We know we
         ## made it the first option in the command.
         re_exec=("${re_exec[@]:2}")
@@ -339,27 +323,23 @@ main ()
     declare perldata
     perldata=$(mktemp -t tmp.github-api.$$.perldata.XXXXXXXXXX)
 
-    if ((keep_data))
-    then
+    if ((keep_data)); then
         github-api-echo -- "Header and data files are" "$curlheaders" "$curldata"
     else
         rm-on-exit "$curlheaders" "$curldata" "$perldata"
     fi
 
-    if((verbose))
-    then
+    if((verbose)); then
         github-api-echo -- "curl --header \"Authorization: token\$(grep token $token_file | cut -d= -f2)\" ${curlopts[*]} ${server_url}${url}${otherparams[*]} -s"
     fi
 
-    if ((doexec))
-    then
+    if ((doexec)); then
         curl \
             --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
             "${curlopts[@]}" \
             "${server_url}${url}${otherparams[*]}" -s > "$curldata" 2>&1
         declare status=$?
-        if ((status))
-        then
+        if ((status)); then
             github-api-echo -- "curl returned with error :$status"
             curl-cat
             return $status
@@ -368,8 +348,7 @@ main ()
         declare -a pagenums
         declare page_links
         page_links=$(grep -E '^Link: ' "$curlheaders" )
-        if [[ -n $page_links ]]
-        then
+        if [[ -n $page_links ]]; then
             # shellcheck disable=SC2207
             pagenums=($(perl -e '$ARGV[0] =~ m/.*?page=(\d+).*?page=(\d+)/;print "$1 $2\n";' "$page_links"))
             declare pagenum=1
@@ -392,8 +371,7 @@ main ()
                     "${server_url}${url}${otherparams[*]}&page=$pagenum" -s > "${curldata}.${pageprint}" 2>&1
                 declare status=$?
 
-                if ((status))
-                then
+                if ((status)); then
                     github-api-echo -- "curl returned with error :$status"
                     curl-cat
                     return $status
@@ -448,15 +426,13 @@ END { print(qq(]\n)); }
         fi
         declare htmlstatus
         htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
-        if [[ -z $htmlstatus ]]
-        then
+        if [[ -z $htmlstatus ]]; then
             # github has no Status: field in the headers. Bummner.
             htmlstatus=$(grep 'HTTP/1.1' "$curlheaders" | tail -1 | sed -e's/HTTP.1.1.//' -e 's/ .*//')
         fi
         case $action in
             repos )
-                if [[ -n $repo ]]
-                then
+                if [[ -n $repo ]]; then
                     declare curldata_filter
                     curldata_filter=$(mktemp -t tmp.github-api.$$.curldata_filter.XXXXXXXXXX)
                     perl -d:ptkdb -MJSON::XS -e '
@@ -577,8 +553,7 @@ print qq($url);' "${curldata}" "${server_url}")
             fork )
                 case $htmlstatus in
                     200 | 202 )
-                        if ((opt_data_mode==0))
-                        then
+                        if ((opt_data_mode==0)); then
                             [[ $htmlstatus == '200' ]] && github-api-echo -- "Fork created."
                             [[ $htmlstatus == '202' ]] && github-api-echo -- "Fork found."
                             ## In the 202 case one or both of the repos could have
@@ -617,8 +592,7 @@ print qq($url);' "${curldata}" "${server_url}")
                         ;;
                 esac
 
-                if ((synchronous))
-                then
+                if ((synchronous)); then
                     declare waiting='Waiting for fork creation...'
                     declare remaining=60
                     while github-api "${override_args[@]}" --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
@@ -628,8 +602,7 @@ print qq($url);' "${curldata}" "${server_url}")
                         ((remaining-=1))
                         ((remaining)) || break
                     done
-                    if github-api "${override_args[@]}" --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'
-                    then
+                    if github-api "${override_args[@]}" --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'; then
                         github-api-echo -w -- "Fork not yet created"
                         return 1
                     else
@@ -640,23 +613,19 @@ print qq($url);' "${curldata}" "${server_url}")
         esac
     fi
 
-    if ((stream_data))
-    then
-        if((perl_data))
-        then
+    if ((stream_data)); then
+        if((perl_data)); then
             # shellcheck disable=SC2016 # We know the variable will not expand.
             echo '$VAR1='
             json_xs -t dumper < "${curldata}"
         else
             cat -v "${curldata}"
         fi
-    elif ((!silent))
-    then
+    elif ((!silent)); then
         curl-cat
     fi
 
-    if ((keep_data))
-    then
+    if ((keep_data)); then
         github-api-echo -- "Header and data files are" "$curlheaders" "$curldata"
     fi
     return 0

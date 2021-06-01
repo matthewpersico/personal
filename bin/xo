@@ -30,8 +30,7 @@ do
         geo-only )
             declare rootx=$(( $(x-current-root -w)/2 ))
             declare rooty=$(( $(x-current-root -h)/6 ))
-            if ((nobg))
-            then
+            if ((nobg)); then
                 $emacs_exe -g +${rootx}+${rooty} "$@"
             else
                 $emacs_exe -g +${rootx}+${rooty} "$@" &
@@ -49,8 +48,7 @@ do
             declare tmp
             tmp=$(type -P "$1")
             shift
-            if [ -z "$tmp" ]
-            then
+            if [ -z "$tmp" ]; then
                 cmd-echo -wc -- "$1 not found; skipping"
             else
                 which+=("$tmp")
@@ -68,10 +66,8 @@ do
             ;;
         gim )
             mapfile -t git_is_mod < <(git what is mod 2>/dev/null)
-            if [ -z "${git_is_mod[0]}" ]
-            then
-                if ! git root 2>/dev/null 1>&2
-                then
+            if [ -z "${git_is_mod[0]}" ]; then
+                if ! git root 2>/dev/null 1>&2; then
                     cmd-echo -- "--gim not allowed; not in a git repo"
                 else
                     cmd-echo -- "No modified git files found."
@@ -133,17 +129,13 @@ cutrange="${cutstart}-${cutend}"
 ## Assume X or some other windowing system is available and do the needful if
 ## not.
 hasX=1
-if [ "$forceX" = '1' ]
-then
+if [ "$forceX" = '1' ]; then
     hasX=1
-elif [ ! "$OS" = 'Cygwin' ]
-then
-    if ! type -P xmodmap >/dev/null
-    then
+elif [ ! "$OS" = 'Cygwin' ]; then
+    if ! type -P xmodmap >/dev/null; then
         hasX=0
     else
-        if xmodmap 2>&1 | grep -q 'unable to open display'
-        then
+        if xmodmap 2>&1 | grep -q 'unable to open display'; then
             hasX=0
         fi
     fi
@@ -158,47 +150,38 @@ $pscmd | grep "$grepargs" | grep -v grep | \
     grep -vi "$emacsclient_exe -c" | \
     grep -vi " emacsclient -c " | \
     grep -i '/emacs' >"$procs" 2>&1
-if ((debug))
-then
+if ((debug)); then
     cat "$procs"
 fi
 
 ## Count how many
-if((hasX))
-then
+if((hasX)); then
     serverup=$(cut -c "$cutrange" "$procs" | sed 's/ //g' | grep -c -E '^1$')
 else
     serverup=$(grep -c "$emacs_exe -nw" "$procs")
 fi
-if ((debug))
-then
+if ((debug)); then
     echo "serverup = $serverup"
 fi
 
 ## If we are being used as the git editor or EDITOR, we don't want to start up
 ## such that the underlying process thinks we're done editing before we are.
-if [ "$1" = '--visual' ]
-then
+if [ "$1" = '--visual' ]; then
     as_visual=1
     shift
-elif [ "$1" = '--nf' ] || [ "$1" = '-nf' ]
-then
+elif [ "$1" = '--nf' ] || [ "$1" = '-nf' ]; then
     new_frame=1
     shift
 fi
 
 declare -a allfiles
 allfiles=("$@" "${org[@]}" "${git_is_mod[@]}" "${which[@]}")
-if ((serverup==0))
-then
-    if ((as_visual==0)) && ((new_frame==0))
-    then
-        if (( hasX ))
-        then
+if ((serverup==0)); then
+    if ((as_visual==0)) && ((new_frame==0)); then
+        if (( hasX )); then
             declare rootx=$XTERMGEO_X
             declare rooty=$XTERMGEO_Y
-            if ((nobg))
-            then
+            if ((nobg)); then
                 $emacs_exe -g "+${rootx}+${rooty}" \
                            "${emacs_opts[@]}" "${allfiles[@]}"
             else
@@ -212,20 +195,15 @@ then
     else
         cmd-echo "No emacs server found. Start one and try again or use -m."
     fi
-elif ((serverup==1))
-then
-    if ((${#allfiles[@]}))
-    then
-        if ((new_frame))
-        then
-            if ((nobg))
-            then
+elif ((serverup==1)); then
+    if ((${#allfiles[@]})); then
+        if ((new_frame)); then
+            if ((nobg)); then
                 $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs'
             else
                 $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs' &
             fi
-        elif ((as_visual==1))
-        then
+        elif ((as_visual==1)); then
             $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}"
         else
             $emacsclient_exe -n -a "$emacs_exe" "${emacs_opts[@]}" "${allfiles[@]}"

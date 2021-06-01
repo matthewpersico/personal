@@ -30,10 +30,8 @@ do
     ## but only deal with it if we really have an option. Otherwise you
     ## misinterpret items like this git clone option: --config
     ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
-    if [[ $option =~ ^- ]]
-    then
-        if [[ "$option" =~ = ]]
-        then
+    if [[ $option =~ ^- ]]; then
+        if [[ "$option" =~ = ]]; then
             okey=${option%%=*}
             ovalue=${option#*=}
             option="$okey"
@@ -68,8 +66,7 @@ declare holddir
 holddir=$1
 shift
 
-if [[ ! "$holddir" =~ ^/ ]]
-then
+if [[ ! "$holddir" =~ ^/ ]]; then
     cmd-echo -- "rooting in ~/.git-hold"
     mkdir -p "$HOME/.git-hold" || exit 1
     holddir="$HOME/.git-hold/$holddir"
@@ -77,33 +74,27 @@ fi
 
 (
     builtin cd "$repo" || exit 1
-    if ! git repo name . > /dev/null
-    then
+    if ! git repo name . > /dev/null; then
         cmd-echo -- "'$repo' is not a git repo"
         exit 1
     fi
     exit 0
 ) || exit 1
 
-if (( drop ))
-then
-    if [ ! -d "$holddir" ]
-    then
+if (( drop )); then
+    if [ ! -d "$holddir" ]; then
         cmd-echo -- "'$holddir' not found, cannot drop"
         exit 1;
     else
         builtin cd "$holddir"/.. || exit 1 ## cd command will spit out an error message
         resp=$(yesno "About to remove $holddir. OK")
-        if [ "$resp" = 'y' ]
-        then
+        if [ "$resp" = 'y' ]; then
             rm -rf "$holddir"
             exit $?
         fi
     fi
-elif (( restore ))
-then
-    if [ ! -d "$holddir" ]
-    then
+elif (( restore )); then
+    if [ ! -d "$holddir" ]; then
         cmd-echo -- "'$holddir' not found, cannot restore"
         exit 1;
     else
@@ -122,35 +113,30 @@ then
                 declare fullfile
                 fullfile=$(realpath "$file")
                 declare diffst
-                if (( diff ))
-                then
+                if (( diff )); then
                     cmd-echo -- "diff $fullfile $repo/$file"
                     diff "$fullfile" "$repo/$file"
                 else
                     diff -q "$fullfile" "$repo/$file" > /dev/null
                 fi
                 diffst=$?
-                if ((diffst==0))
-                then
+                if ((diffst==0)); then
                     cmd-echo -- "Skipping target same as source '$fullfile'..."
                     continue
                 fi
 
                 declare resp=y
-                if (( confirm ))
-                then
+                if (( confirm )); then
                     resp=$(yesno -q "cp $verbose_flag $fullfile $repo/$file")
                 fi
-                if [ "$resp" = 'y' ]
-                then
+                if [ "$resp" = 'y' ]; then
                     ## We don't mkdir -p @(dirname $repo/$file) on the theory
                     ## that the restore should be to the same structure you
                     ## backed up. If the structure has changed so that
                     ## directories have been deleted, the copy may be of
                     ## dubious use. If that is not the case, change the code.
                     cp $verbose_flag "$fullfile" "$repo/$file" || exit 1 ## cp command will spit out an error message
-                elif [ "$resp" = 'n' ]
-                then
+                elif [ "$resp" = 'n' ]; then
                     echo "Skipping"
                 else
                     echo "Aborting"
@@ -161,10 +147,8 @@ then
     fi
 else
     ## not restore, but hold (copy)
-    if [ -d "$holddir" ]
-    then
-        if (( overwrite ))
-        then
+    if [ -d "$holddir" ]; then
+        if (( overwrite )); then
             cmd-echo -- "'$holddir' exists, --overwrite specified, will copy to it"
         else
             cmd-echo -- "'$holddir' exists, will not copy to it"
@@ -190,8 +174,7 @@ else
                                            ## keep stdin clear for yesno
         for file in "${files[@]}"
         do
-            if ((git_is_deleted[$file]))
-            then
+            if ((git_is_deleted[$file])); then
                 ((verbose)) && cmd-echo -- "Skipping git rm'ed '$file'..."
                 continue ## skipping git rm'ed file
             fi
@@ -199,21 +182,18 @@ else
             declare fullfile
             fullfile=$(realpath "$file")
 
-            if [ -h "$fullfile" ]
-            then
+            if [ -h "$fullfile" ]; then
                 ((verbose)) && cmd-echo -- "Skipping link '$file'..."
                 continue
             fi
 
             declare diffst
-            if (( diff ))
-            then
+            if (( diff )); then
                 cmd-echo -- "diff $fullfile $holddir/$file"
                 diff "$fullfile" "$holddir/$file"
                 diffst=$?
             else
-                if [ ! -e "$holddir/$file" ]
-                then
+                if [ ! -e "$holddir/$file" ]; then
                     diffst=2
                 else
                     diff -q "$fullfile" "$holddir/$file" > /dev/null
@@ -221,29 +201,24 @@ else
                 fi
             fi
 
-            if ((diffst==0))
-            then
+            if ((diffst==0)); then
                 cmd-echo -- "Skipping target same as source '$file'..."
                 continue
             fi
 
             declare cprecurse_flag
-            if [ -d "$fullfile" ]
-            then
+            if [ -d "$fullfile" ]; then
                 cprecurse_flag='-r'
             fi
 
             declare resp=y
-            if (( confirm ))
-            then
+            if (( confirm )); then
                 resp=$(yesno -q "cp $verbose_flag $cprecurse_flag $fullfile $holddir/$file")
             fi
-            if [ "$resp" = 'y' ]
-            then
+            if [ "$resp" = 'y' ]; then
                 mkdir -p "$(dirname "$holddir/$file")" || exit 1 ## mkdir command will spit out an error message
                 cp $verbose_flag $cprecurse_flag "$fullfile" "$holddir/$file" || exit 1 ## cp command will spit out an error message
-            elif [ "$resp" = 'n' ]
-            then
+            elif [ "$resp" = 'n' ]; then
                 echo "Skipping"
             else
                 echo "Aborting"

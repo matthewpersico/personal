@@ -3,15 +3,13 @@
 ## func-to-exec
 
 if [[ "${PWD}" =~ functions ]] || \
-       [[ "${PWD}" =~ bin ]]
-then
+       [[ "${PWD}" =~ bin ]]; then
     cmd-echo 'Cannot be in functions or bin subdir for conversion.' \
                 'cd .. and re-exec.'
     exit 1
 fi
 
-if [ -z "$1" ] || [[ $1 =~ ^-+h ]]
-then
+if [ -z "$1" ] || [[ $1 =~ ^-+h ]]; then
     cmd-echo "usage: $0 [--convert-only] [--force] func [func...]" \
                 "       You can use or not use the 'function/'" \
                 "       prefix;we will adjust."
@@ -21,12 +19,10 @@ fi
 convert_only=0
 while [[ "$1" =~ ^- ]]
 do
-    if [[ "$1" = '--convert-only' ]]
-    then
+    if [[ "$1" = '--convert-only' ]]; then
         convert_only=1
         shift
-    elif [[ "$1" = '--force' ]]
-    then
+    elif [[ "$1" = '--force' ]]; then
         force='--force'
         shift
     fi
@@ -52,20 +48,17 @@ do
     funcname="$(basename "$raw_src_path")"
 
     src_path="functions/$funcname"
-    if [ ! -r "$src_path" ]
-    then
+    if [ ! -r "$src_path" ]; then
         cmd-echo -- "$src_path not found"
         ((bad+=1))
     else
-        if [ "$force" = '--force' ]
-        then
+        if [ "$force" = '--force' ]; then
             justified=''
         else
             justified=$(grep 'Function Justification' "$src_path" | \
                             grep -i -v none)
         fi
-        if [ -n "$justified" ]
-        then
+        if [ -n "$justified" ]; then
             cmd-echo "Not converting $src_path: $(grep 'Function Justification' "$src_path")"
             ((bad+=1))
         else
@@ -88,8 +81,8 @@ done
 
 ## Do the conversions
 cmd-echo "Converting to scripts..."
-if ! perl -S -d:ptkdb func-to-exec.pl $force "${tgt_paths[@]}" ## Each conversion of bin/foo will be in bin/foo.new
-then
+if ! perl -S -d:ptkdb func-to-exec.pl $force "${tgt_paths[@]}"; then
+    ## Each conversion of bin/foo will be in bin/foo.new
     exit $?
 fi
 
@@ -114,8 +107,7 @@ do
         do
             shellcheck "$tmp_path" > /tmp/func-to-exec.$$
             scstatus=$?
-            if((scstatus))
-            then
+            if((scstatus)); then
                 $EDITOR "${tmp_path}" /tmp/func-to-exec.$$
             fi
             \rm /tmp/func-to-exec.$$
@@ -125,11 +117,9 @@ do
                                                     ## trigger an exit due to
                                                     ## the -e setting
         resp=$(pick "$funcname - Keep conversion" "y/n/e" )
-        if [ "$resp" = 'y' ]
-        then
+        if [ "$resp" = 'y' ]; then
             commit_list+=("$funcname")
-        elif [ "$resp" = 'e' ]
-        then
+        elif [ "$resp" = 'e' ]; then
             $EDITOR "${tmp_path}"
         else
             revert_list+=("$funcname")
@@ -149,11 +139,9 @@ do
     unset tmp_paths["$funcname"]
 done
 
-if (( convert_only == 0 ))
-then
+if (( convert_only == 0 )); then
 
-    if ((!${#commit_list[@]}))
-    then
+    if ((!${#commit_list[@]})); then
         cmd-echo 'Nothing to commit.'
         exit 0
     fi
