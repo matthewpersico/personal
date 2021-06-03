@@ -9,35 +9,43 @@ fi
 ## Global used to control 'cd'ing around
 doandcdfile=''
 
-usage ()
-{
-    (
-        [ -n "$*" ] && cmd-echo -- "$@"
-        echo "** Extended actions **"
-        bash-usage "$0"
-        echo
-        echo "** Standard actions **"
-        "${REALGIT}" worktree --help
-    ) 2>&1 | ${PAGER:-less}
-}
-
 _git_worktree_check_set_pwd ()
 {
-    local opt_current_ok=$1
-    ## Make sure pwd ends in wt
-    if [[ ! "${PWD}" =~ /wt$ ]]; then
-        if [ -d ./wt ]; then
-            builtin cd ./wt || { cmd-echo -- "Cannot cd ./wt" && return 1; }
-        elif [ -d ../../wt ] && ((opt_current_ok)); then
-            builtin cd .. || { cmd-echo -- "Cannot cd .. (wt)" && return 1; }
-        else
-            cmd-echo --ec -- "Current directory is ${PWD}." \
-                      'No wt subdir.' \
-                      'Will not manipulate worktrees outside of wt dir. Aborting.'
-            return 1
-        fi
+    local action=$1
+    local opt_current_ok=$2
+    local cwd="${PWD}"
+
+    ## Make sure pwd is the wt subdir or under that.
+    if [[ ! $cwd =~ /wt ]]; then
+        cmd-echo --ec -- "Current directory is ${cwd}." \
+                 'No wt path component found.' \
+                 'Will not manipulate worktrees outside of wt dir. Aborting.'
+        false; return $?
     fi
-    return 0
+
+    ## Yes you have to do this twice: once for when there's anything after the
+    ## wt and once for when there's not.
+    declare wtroot="${cwd%%/wt/*}"
+    wtroot="${wtroot%%/wt}/wt"
+
+    ## Make sure we don't process ourselves unless --current flag is thrown
+    local newwd=$cwd
+    while [[ $newwd != "$wtroot" ]]; do
+        if [[ -f $newwd/.git ]]; then
+            if ((opt_current_ok!=1)); then
+                cmd-echo --ec -- "Will not $action current worktree without -c flag"
+                false; return $?
+            fi
+        fi
+        newwd=$(dirname "$newwd")
+        pause RTC
+    done
+
+    pause RTC
+    ## Go to root so we can start working
+    builtin cd "$wtroot" || { cmd-echo -- "Cannot cd $wtroot"; false; return $?; }
+
+    true; return $?
 }
 
 _git_worktree_info_remove ()
@@ -84,10 +92,22 @@ _git_worktree_is_a_pull ()
 
 _git_worktree_info_add_from_branch_and_ref ()
 {
+    ## TODO: Check that basename works in all conditions. Probably not when the
+    ## from branch has a / in it, as in Berg at Bloomberg.
     git config --replace-all "worktree.$1.${GIT_EXT_META_PREFIX}-from-ref" "$2"
     git config --replace-all "worktree.$1.${GIT_EXT_META_PREFIX}-from-branch" "$(basename "$2")"
     git config --replace-all "branch.$1.${GIT_EXT_META_PREFIX}-from-ref" "$2"
     git config --replace-all "branch.$1.${GIT_EXT_META_PREFIX}-from-branch" "$(basename "$2")"
+}
+
+_git_worktree_name_from_path ()
+{
+    local path=$1
+    path="${path##*wt/}"
+    local -a tmp
+    asplit "$path" -s / -a tmp
+    ajoin path -s / "${tmp[@]}"
+    echo "$path"
 }
 
 # shellcheck disable=SC2120
@@ -161,7 +181,7 @@ git-worktree-create ()
                 branch_from=$1; shift
                 branch_from_arg="$option"
                 ;;
-            h|help) usage; return 0 ;;
+            h|help) git-usage "$0"; return 0 ;;
             r|remote) remote=$1; shift ;;
             orphan) echo "Sorry, cannot create orphans this way."
                     echo "First create the orphan, then create a"
@@ -170,12 +190,12 @@ git-worktree-create ()
                     ;;
             l|local) localbranchname=$1; shift;;
             --) moreopts=0 ;; ## end of opts, remaining $*, if any, are args
-            *) usage "Error getting options!"; return 1 ;;
+            *) git-usage "$0" "Error getting options!"; return 1 ;;
         esac
     done
 
     ## Make sure we are in the right place to start making the work tree.
-    ! _git_worktree_check_set_pwd && return 1
+    ! _git_worktree_check_set_pwd create && return 1
 
     ## Update repo with latest remote info.
     declare -a git_remotes
@@ -185,16 +205,25 @@ git-worktree-create ()
     ## Start making the wt dir
     local wtroot
     wtroot="${PWD}"
-
+pause RTC
     declare repo
-    repo="$(basename "$(dirname "${PWD}")")" ## we are in /wt by now.
-
+    repo="$(basename "$(dirname "${PWD}")")" ## We are in /wt when we do this.
+pause RTC
     local wtname="$1"
     shift
+    if git repo named-branches && \
+            [[ ! $(dirname "$wtname") == "$USER" ]] ; then
+        cmd-echo -- "This repo is using named branches."
+        local resp
+        resp=$(yesno "Use $USER/$wtname" y)
+        [[ $resp == 'y' ]] && wtname="$USER/$wtname"
+    fi
+    echo $wtname
+pause RTC
     local pull_ref
     if [ -z "${wtname}" ]; then
         if [ -z "$pull_request" ]; then
-            usage "Need a branch name to use for the worktree spec."
+            git-usage "$0" "Need a branch name to use for the worktree spec."
             return 1
         else
             pull_ref="pull/$pull_request/head"
@@ -202,7 +231,7 @@ git-worktree-create ()
         fi
     else
         if [ -n "$pull_request" ]; then
-            usage "Cannot specify both a worktree-name and pull request id."
+            git-usage "$0" "Cannot specify both a worktree-name and pull request id."
             return 1
         fi
     fi
@@ -377,11 +406,27 @@ git-worktree-create ()
             git push --set-upstream "$remote" "${wtbranch}"
         fi
     fi
+
     ## Convert the worktree's .git file to use a relative path to the default
     ## .git location. In that way, we can use the repo on machines where it may
     ## be mounted in a different place, so that the absolute path is different
     ## in those places.
-    sed -i 's|\(gitdir: \).*/\(.git/worktrees\)|\1../../\2|' .git
+    declare wtroot
+    wtroot=$(pwd)
+    declare -a relative_path_parts
+    relative_path_parts=()
+    while [[ $wtroot != '/' ]] && [[ $(basename "$wtroot") != 'wt' ]]; do
+        relative_path_parts+=('..')
+        wtroot=$(dirname "$wtroot");
+    done
+    if [[ $wtroot == '/' ]]; then
+        cmd-echo --wc -- "Cannot find a 'wt' parent dir; not making relative worktree .git entry"
+    else
+        relative_path_parts+=('..')
+    fi
+    declare relative_path_part
+    ajoin relative_path_part -s '/' "${relative_path_parts[@]}"
+    sed -i 's|\(gitdir: \).*/\(.git/worktrees\)|\1'"${relative_path_part}"'/\2|' .git
 
     git-post-new
 
@@ -445,11 +490,11 @@ git-worktree-delete ()
         shift
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
-            c | current) opt_current=1; wtname="$(basename "${PWD}")" ;;
+            c | current) opt_current=1; wtname="$(_git_worktree_name_from_path "${PWD}")" ;;
             no-reset | skip-reset) opt_reset=0; ;;
             y|yes) opt_yes=1; opt_yes_string='--yes'; ;;
             f|force) opt_force=1; ;;
-            h|help) usage; return 0 ;;
+            h|help) git-usage "$0"; return 0 ;;
             k|keep-branch) opt_keep_branch=1 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
@@ -465,7 +510,7 @@ git-worktree-delete ()
         return 1
     fi
 
-    ! _git_worktree_check_set_pwd $opt_current && return 1
+    ! _git_worktree_check_set_pwd delete $opt_current && return 1
     local wtroot
     wtroot="${PWD}"
 
@@ -488,12 +533,12 @@ $(ls -la)"
     local wtpath
     wtpath="$wtroot/$wtname"
 
-    builtin cd "$wtpath" || { cmd-echo -- "Cannot cd $wtpath" && return 1; }
+    builtin cd "$wtpath" || { cmd-echo -- "Cannot cd $wtpath"; false; return $?; }
 
     ## Make sure we are in a proper worktree.
     if ! git-worktree-ina; then
         cmd-echo -- "$wtname is not a proper worktree for deletion"
-        return 1
+        false; return $?
     fi
 
     ## Check for cleanliness.
@@ -503,7 +548,7 @@ $(ls -la)"
             git status
             echo
             cmd-echo --ec -- "Will not delete unclean worktree. Clean worktree or re-run command with --force."
-            return 1
+            false; return $?
         fi
     fi
 
@@ -512,10 +557,10 @@ $(ls -la)"
     current_branch=$(git repo current-branch)
 
     ## Checking cleanliness and consistency
-    local current_dir
-    current_dir=$(basename "${PWD}")
-    if [ "$current_branch" != "$current_dir" ]; then
-        cmd-echo -- "Branch name '$current_branch' does not match current subdir name '$current_dir'." \
+    local current_branch_dir
+    current_branch_dir=$(_git_worktree_name_from_path "${PWD}")
+    if [ "$current_branch" != "$current_branch_dir" ]; then
+        cmd-echo -- "Branch name '$current_branch' does not match current subdir name '$current_branch_dir'." \
                  "I'm bailing; you fix this mess."
         return 1
     fi
@@ -601,8 +646,6 @@ $(ls -la)"
 
 git-worktree-rename ()
 {
-    declare moreopts
-    moreopts=1
     local opt_reset=1
     local opt_current=0
     local old_wtname=''
@@ -628,9 +671,9 @@ git-worktree-rename ()
         shift
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
-            current) opt_current=1; old_wtname="$(basename "${PWD}")" ;;
+            current) opt_current=1; old_wtname="$(_git_worktree_name_from_path "${PWD}")" ;;
             no-reset | skip-reset) opt_reset=0;;
-            h|help) usage; return 0 ;;
+            h|help) git-usage "$0"; return 0 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
@@ -640,22 +683,24 @@ git-worktree-rename ()
         esac
     done
 
-    if (( $# == 0 )) || ( (( $# == 1 )) && [ -z "$old_wtname" ] ); then
-        usage "Missing arguments"
+    # shellcheck disable=SC2030 #https://github.com/koalaman/shellcheck/wiki/SC2030
+    if (( $# == 0 )) || ( (( $# == 1 )) && [[ -z "$old_wtname" ]] ); then
+        git-usage "$0" "Missing arguments"
         return 1
     fi
 
     if (( $# > 2 )); then
-        usage "Too many arguments"
+        git-usage "$0" "Too many arguments"
         return 1
     fi
 
     local status
 
-    ! _git_worktree_check_set_pwd $opt_current && return 1
+    ! _git_worktree_check_set_pwd rename $opt_current && return 1
     local wtroot
     wtroot="${PWD}"
 
+    # shellcheck disable=SC2031 #https://github.com/koalaman/shellcheck/wiki/SC2031
     if [ -z "$old_wtname" ]; then
         old_wtname="$1"
         shift
@@ -811,7 +856,7 @@ git-worktree-diff-from-root ()
 
 git-worktree-show-merged ()
 {
-    git config --get-regexp em-markedmerged
+    git config --get-regexp "${GIT_EXT_META_PREFIX}-markedmerged"
 }
 
 git-worktree-mm ()
@@ -843,7 +888,7 @@ git-worktree-mark-merged ()
         shift
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
-            c | current) opt_current=1; wtname="$(basename "${PWD}")" ;;
+            c | current) opt_current=1; wtname="$(_git_worktree_name_from_path "${PWD}")" ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
@@ -853,7 +898,7 @@ git-worktree-mark-merged ()
         esac
     done
 
-    ! _git_worktree_check_set_pwd $opt_current && return 1
+    ! _git_worktree_check_set_pwd "mark merged" $opt_current && return 1
     local wtroot
     wtroot="${PWD}"
 
@@ -885,12 +930,12 @@ $(ls -la)"
     fi
 
     local worktreename
-    worktreename="$(basename "${PWD}")"
-    local worktreekey="worktree.$worktreename.em-markedmerged"
+    worktreename="$(_git_worktree_name_from_path  "${PWD}")"
+    local worktreekey="worktree.$worktreename.${GIT_EXT_META_PREFIX}-markedmerged"
 
     local branchname
     branchname="$(git repo current-branch)"
-    local branchkey="branch.$branchname.em-markedmerged"
+    local branchkey="branch.$branchname.${GIT_EXT_META_PREFIX}-markedmerged"
 
     local markdate
     markdate="$(date "$GIT_EXT_META_DATE_FMT")"
@@ -952,7 +997,7 @@ main ()
     fi
 
     if [[ "$action" =~ ^-+h ]]; then
-        usage
+        git-usage "$0"
         return  0
     fi
 
@@ -984,7 +1029,9 @@ main ()
                 ;;
         esac
     fi
-    return $?
+    declare dq=$?
+    set +x
+    return $dq
 }
 
 main "$@"
@@ -1142,13 +1189,13 @@ synonym for <C>get worktree ina -v</C>.
 
 =item mark-merged
 
-Write configs 'worktree.<worktreename>.em-markmerged' and
-'branch.<branchname>.em-markmerged' as the current date and time. Use this if
+Write configs 'worktree.<worktreename>.${GIT_EXT_META_PREFIX}-markmerged' and
+'branch.<branchname>.${GIT_EXT_META_PREFIX}-markmerged' as the current date and time. Use this if
 the worktree has been merged and can be deleted by some periodic sweep process.
 
 =item show-merged
 
-Show the 'em-markmerged' entries for the current repo.
+Show the '${GIT_EXT_META_PREFIX}-markmerged' entries for the current repo.
 
 =item comment
 
