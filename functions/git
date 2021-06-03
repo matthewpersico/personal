@@ -3,28 +3,7 @@
 ##echo "****** GIT WRAPPER ENTERED!!!!!******" >&2
 # git
 
-# A wrapper around 'git' to extend it.
-
-# If you want to add the command 'foo' to 'git', you can simply create the
-# file 'git-foo', put it on your PATH, and invoke it as 'git foo'.
-
-# However, if you want to add to an EXISTING command, this doesn't work;
-# git-worktree on your PATH will not be called instead of 'git worktree'.
-
-# Soooooo, we have this wrapper that will see if a script exists on the path
-# for the given command, and if so, call that command. Otherwise, pass the
-# command off to git.
-
-# Note that your script git-bar that extends an EXISTING command 'git bar' must
-# be able to determine when to handle the extended request itself and when to
-# hand off to the existing command. Handing off is done by executing
-
-# "$REALGIT" bar ...
-
-# We do this because $REALGIT will not run YOUR git-bar (which is why we have THIS script
-# at all), meaning you won't end up in an endless loop.
-
-# The variables REALGIT and REALGIT_EXEC_PATH are defined in git.env
+# A wrapper around 'git' to extend it. See the docs at file's end.
 git ()
 {
     # shellcheck disable=SC2034
@@ -55,6 +34,18 @@ git ()
         fi
     fi
 
+    # We made 'git' a function so that it would operate in the current process
+    # space, which in turn means that any 'cd's that are executed, "stick" for
+    # the user.  However, this function is still calling scripts in subprocess
+    # space; any 'cd's in that subprocess are not going to stick even if
+    # executed from a function.  So, what we do here is we keep a list of
+    # commands whose 'cd' operations we want to have effect the current process
+    # space.  When we call any of these functions, we pass them the flag
+    # --doandcd with the name of a temp file.  Before those commands exit
+    # successfully, they get their current working directory and write it into
+    # the temp file.  When we return here after the command, we check the temp
+    # file and if it contains a change directory command, we execute it so that
+    # we end up where the command wanted us to be.
     declare doandcdfile
     declare -A doandcdlist
     doandcdlist[clone]=1
@@ -63,6 +54,8 @@ git ()
     doandcdlist[wt]=1
     doandcdlist[repo]=1
 
+    # Set up the temp file to hold the target dir if we've been asked to
+    # execute one of the 'cd'ing commands.
     declare command=$1; shift
     declare -a args
     if [ -n "${doandcdlist[$command]}" ]; then
@@ -71,6 +64,9 @@ git ()
     fi
     args+=("$@")
 
+    # Execute either our command wrapper or the real git command, using the
+    # type -P command to find any wrapper on PATH, just like git does. Except
+    # that we will happily execute a script that matches a real git command.
     [ -n "$GIT_DISPATCHER_VERBOSE" ] && echo GIT WRAPPER sees command as "$command" and args as "${args[@]}" >&2
     declare extend_script="git-${command}"
     if type -P "$extend_script" 1>/dev/null 2>/dev/null; then
@@ -82,6 +78,8 @@ git ()
     fi
     declare status=$?
 
+    # If the command succeeds and we have a valid directory changing command in
+    # the temp file, change directory.
     if ((status == 0)) \
            && [ -n "$doandcdfile" ] \
            && (( $(wc -l < "$doandcdfile") > 0 )); then
@@ -100,7 +98,10 @@ git ()
             status=1
         fi
     fi
+
+    # Whether or not the command succeeded, clean up after ourselves.
     [[ -n $doandcdfile ]] && \rm -f "$doandcdfile"
+
     return $status
 }
 
@@ -135,6 +136,10 @@ We do this because $REALGIT will not run YOUR git-bar (which is why we have
 THIS script at all), meaning you won't end up in an endless loop.
 
 The variables REALGIT and REALGIT_EXEC_PATH are defined in git.env
+
+Note: If, as part of your new command or extended functionality, you want to
+'cd' to someplace other than the current working directory, see the internal
+comments of this function on how to do that.
 
 =cut
 
