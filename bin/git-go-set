@@ -4,14 +4,14 @@
 
 if [[ $1 =~ -h ]]; then
     bash-usage "$0"
-    exit 0
+    true; exit $?
 fi
 
-#set -x
 # Grab all the paths were we keep repos. The keys have numeric suffixes to
 # produce a specific sort order.
 declare -a repo_paths
 mapfile -t repo_paths < <(git config --value-only --expand --get-regexp ext.git-repo-paths.path)
+declare -a repos
 for repo_path in "${repo_paths[@]}"; do
     # ignore random files that are in what should be a list of directories only
     [[ -f $repo_path ]] && continue
@@ -19,13 +19,16 @@ for repo_path in "${repo_paths[@]}"; do
     [[ ! -d $repo_path ]] && continue
 
     # Search the expanded paths for repos and work trees by finding '.git'
-    # files and directories. Strip the '.git', order asciibetically,
-    # leaving the repo and worktree root dirs.
-    mapfile -O "${#repos[@]}" -t repos < \
-            <(find "$repo_path" -maxdepth 2 -name .git | sort -u | sed 's/\/.git$//g')
-    [[ -d "${repo_path}/wt" ]] && \
-        mapfile -O "${#repos[@]}" -t repos < \
-                <(find "${repo_path}/wt" -maxdepth 2 -name .git | sort -u | sed 's/\/.git$//g')
+    # files and directories. Strip the '.git', order asciibetically, leaving
+    # the repo and worktree root dirs. Filter out some known exceptions (local
+    # repos for testing for starters).
+    mapfile -O "${#repos[@]}" -t repos \
+            < <(find "$repo_path" -name .git \
+                    | grep -v /t/data/ \
+                    | grep -v /elpa/ \
+                    | sed 's/\/.git$//g'\
+                    | sort -u \
+               )
 done
 
 if [[ $1 != -p ]]; then
@@ -40,7 +43,7 @@ else
     echo "${repos[@]}" | tr ' ' '\n' | sed "s|${TILDAE:-$HOME}/||"
 fi
 
-exit 0
+true; exit $?
 
 :<<'__PODUSAGE__'
 =head1 NAME

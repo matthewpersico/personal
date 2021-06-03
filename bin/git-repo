@@ -464,7 +464,8 @@ git-repo-delete ()
         ## Make sure it's clean
         if [ -d wt ] && (($(find wt | wc -l) > 1)); then
             cmd-echo "worktrees found:"
-            ls -la wt
+            find wt -type f -name .git  | sed -e 's|\(.*\)/.git|\1|' \
+                | xargs ls -ld
             cmd-echo
             cmd-echo "Will not delete repo"
             return 1
@@ -952,6 +953,46 @@ git-repo-source-branch ()
 git-repo-show-source-branch ()
 {
     git-repo-source-branch
+}
+
+git-repo-set-named-branches-flag ()
+{
+    if [[ ! $1 =~ ^(true|false)$ ]]; then
+        cmd-echo --ec -- "${FUNCNAME[0]}: $1 is not 'true' or false"
+        false; return $?
+    fi
+    git config --type bool --replace-all "${GIT_EXT_META_PREFIX}.named-branches" "$1"
+}
+
+git-repo-named-branches ()
+{
+    set -x
+    local verbose=''
+    if [[ $1 == -v ]]; then
+        verbose=$1;
+        shift
+    fi
+
+    if [[ -z $1 ]]; then
+        git-repo-using-named-branches "$verbose"
+        return $?
+    fi
+
+    if [[ ! $1 =~ ^(true|false)$ ]]; then
+        cmd-echo --ec -- "${FUNCNAME[0]}: $1 is not 'true' or false"
+        false; return $?
+    fi
+    git config --type bool --replace-all "${GIT_EXT_META_PREFIX}.named-branches" "$1"
+}
+
+git-repo-using-named-branches ()
+{
+    set -x
+    local value=$(git config --type bool --get "${GIT_EXT_META_PREFIX}.named-branches")
+    value=${value:-false}
+    [[ $1 == -v ]] && echo "$value"
+pause RTC
+    ${value}
 }
 
 main()
