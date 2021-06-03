@@ -4,18 +4,6 @@
 
 ## Functions that encapsulate the enhanced functionality. main() is defined
 ## last and called last.
-usage ()
-{
-    (
-        [ -n "$*" ] && cmd-echo -- "$@"
-        echo "** Extended actions **"
-        bash-usage "$0"
-        echo
-        echo "** Standard actions **"
-        "${REALGIT}" branch --help
-    ) 2>&1 | ${PAGER:-less}
-}
-
 _git_branch_info_remove ()
 {
     git config --remove-section "branch.$1" || return $?
@@ -80,7 +68,7 @@ git-branch-delete ()
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     declare status=$?
-    ((status != 0)) && usage && return $status
+    ((status != 0)) && git-usage "$0" && return $status
 
     eval set -- "$OPTSARGS"
     while true; do
@@ -90,7 +78,7 @@ git-branch-delete ()
             -y|--yes) opt_yes=1 ;;
             --no-remote|--declare-only) no_remote=1 ;;
             --no-go-set) do_go_set=0 ;;
-            -h|--help) usage; return 0 ;;
+            -h|--help) git-usage "$0"; return 0 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
@@ -199,14 +187,14 @@ git-branch-delete ()
 git-branch-rename ()
 {
     if (($#!=2)); then
-        usage "Need current and new branch names"
+        git-usage "$0" "Need current and new branch names"
         return 1
     fi
 
     local old_branch=$1; shift
     local new_branch=$1; shift
     if (($#)); then
-        usage "       argument(s) '$*' are illegal"
+        git-usage "$0" "       argument(s) '$*' are illegal"
         return 1
     fi
 
@@ -262,7 +250,7 @@ git-branch-track-remote ()
     fi
 
     if [ -z "$remote" ] || [ -z "$branch" ]; then
-        usage "Missing one or both arguments (remote, branch)"
+        git-usage "$0" "Missing one or both arguments (remote, branch)"
         return 1
     fi
     [ -z "$local_branch" ] && local_branch=$branch
@@ -392,7 +380,7 @@ main ()
     declare action=$1
 
     if [[ "$action" =~ ^-+h ]]; then
-        usage
+        git-usage "$0"
         return  0
     fi
 

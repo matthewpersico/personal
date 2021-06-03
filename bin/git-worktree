@@ -9,21 +9,8 @@ fi
 ## Global used to control 'cd'ing around
 doandcdfile=''
 
-usage ()
-{
-    (
-        [ -n "$*" ] && cmd-echo -- "$@"
-        echo "** Extended actions **"
-        bash-usage "$0"
-        echo
-        echo "** Standard actions **"
-        "${REALGIT}" worktree --help
-    ) 2>&1 | ${PAGER:-less}
-}
-
 _git_worktree_check_set_pwd ()
 {
-    set -x
     local action=$1
     local opt_current_ok=$2
     local cwd="${PWD}"
@@ -158,7 +145,6 @@ git-worktree-get-source-branch ()
 
 git-worktree-create ()
 {
-    set -x
     local fetch_existing=0
     local status=0
     local comment=''
@@ -195,7 +181,7 @@ git-worktree-create ()
                 branch_from=$1; shift
                 branch_from_arg="$option"
                 ;;
-            h|help) usage; return 0 ;;
+            h|help) git-usage "$0"; return 0 ;;
             r|remote) remote=$1; shift ;;
             orphan) echo "Sorry, cannot create orphans this way."
                     echo "First create the orphan, then create a"
@@ -204,7 +190,7 @@ git-worktree-create ()
                     ;;
             l|local) localbranchname=$1; shift;;
             --) moreopts=0 ;; ## end of opts, remaining $*, if any, are args
-            *) usage "Error getting options!"; return 1 ;;
+            *) git-usage "$0" "Error getting options!"; return 1 ;;
         esac
     done
 
@@ -237,7 +223,7 @@ pause RTC
     local pull_ref
     if [ -z "${wtname}" ]; then
         if [ -z "$pull_request" ]; then
-            usage "Need a branch name to use for the worktree spec."
+            git-usage "$0" "Need a branch name to use for the worktree spec."
             return 1
         else
             pull_ref="pull/$pull_request/head"
@@ -245,7 +231,7 @@ pause RTC
         fi
     else
         if [ -n "$pull_request" ]; then
-            usage "Cannot specify both a worktree-name and pull request id."
+            git-usage "$0" "Cannot specify both a worktree-name and pull request id."
             return 1
         fi
     fi
@@ -475,7 +461,6 @@ pause RTC
 
 git-worktree-delete ()
 {
-    set -x
     local opt_yes=0
     local opt_yes_string
     local opt_force=0
@@ -509,7 +494,7 @@ git-worktree-delete ()
             no-reset | skip-reset) opt_reset=0; ;;
             y|yes) opt_yes=1; opt_yes_string='--yes'; ;;
             f|force) opt_force=1; ;;
-            h|help) usage; return 0 ;;
+            h|help) git-usage "$0"; return 0 ;;
             k|keep-branch) opt_keep_branch=1 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
@@ -688,7 +673,7 @@ git-worktree-rename ()
         case "$option" in
             current) opt_current=1; old_wtname="$(_git_worktree_name_from_path "${PWD}")" ;;
             no-reset | skip-reset) opt_reset=0;;
-            h|help) usage; return 0 ;;
+            h|help) git-usage "$0"; return 0 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
@@ -700,12 +685,12 @@ git-worktree-rename ()
 
     # shellcheck disable=SC2030 #https://github.com/koalaman/shellcheck/wiki/SC2030
     if (( $# == 0 )) || ( (( $# == 1 )) && [[ -z "$old_wtname" ]] ); then
-        usage "Missing arguments"
+        git-usage "$0" "Missing arguments"
         return 1
     fi
 
     if (( $# > 2 )); then
-        usage "Too many arguments"
+        git-usage "$0" "Too many arguments"
         return 1
     fi
 
@@ -1012,7 +997,7 @@ main ()
     fi
 
     if [[ "$action" =~ ^-+h ]]; then
-        usage
+        git-usage "$0"
         return  0
     fi
 
