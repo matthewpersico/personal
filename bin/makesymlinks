@@ -35,6 +35,7 @@ fi
 
 # shellcheck disable=SC1090
 . "$dotfiles_manifest"
+echo "${dotfilescopies[gitfuncs_kv]}"
 
 echo "Changing to the $dotfiles_dir directory ..."
 builtin cd "$dotfiles_dir" || exit 1
@@ -44,47 +45,47 @@ builtin cd "$dotfiles_dir" || exit 1
 # ~/dotfiles directory.
 
 # shellcheck disable=SC2154 #dotfiles assigned in dotfiles_manifest source above
-for src in "${!dotfiles[@]}"; do
-    declare fullsrc
-    fullsrc=$dotfiles_dir/$src
-    declare fulllink
-    fulllink=${dotfiles[$src]}
+for src in "${!dotfiles[@]}" "${!dotfilescopies[@]}"; do
+    echo
+    declare fullsrc=$dotfiles_dir/$src
     declare resp='y'
-    # Don't ask here if we are in interactive mode; we'll ask in makesymlink.
-    [ -z "$interactive" ] && \
-          [ -n "${dotfilesopt[$src]}" ] && \
-        resp=$(yesno "OPTIONAL FILE: Link $fulllink -> $fullsrc")
-    [ "$resp" = 'y' ] && \
-        makesymlink $interactive --verbose --relative \
-                    --backup "$dotfiles_olddir" \
-                    "$fullsrc" "$fulllink"
-    [ -n "${dotfilesperms[$src]}" ] && \
-        chmod "${dotfilesperms[$src]}" "$fullsrc"
-done
+    declare -a transform
+    declare action
+    declare -a args
 
-# shellcheck disable=SC2154 #dotfiles assigned in dotfiles_manifest source above
-for src in "${!dotfilescopies[@]}"; do
-    declare fullsrc
-    fullsrc=$dotfiles_dir/$src
-    declare fullcopy
-    fullcopy=${dotfilescopies[$src]}
-    declare resp='y'
-    # Don't ask here if we are in interactive mode; we'll ask in makesymlink.
-    [ -z "$interactive" ] && \
-          [ -n "${dotfilesopt[$src]}" ] && \
-        resp=$(yesno "OPTIONAL FILE: Copy $fullsrc to  $fullcopy")
+    if [[ -n ${dotfilestransforms[$src]} ]]; then
+        transform=('--transform' "${dotfilestransforms[$src]}")
+    fi
+
+    if [[ -n ${dotfiles[$src]} ]]; then
+        action='--link'
+        declare fulllink
+        fulllink=${dotfiles[$src]}
+	args=( "$fullsrc" "$fulllink" )
+        # Don't ask here if we are in interactive mode; we'll ask in makesymlink.
+        [ -z "$interactive" ] && \
+            [ -n "${dotfilesopt[$src]}" ] && \
+                resp=$(yesno "OPTIONAL FILE: Link $fulllink -> $fullsrc")
+    else
+        action='--copy'
+        declare fullcopy
+        fullcopy=${dotfilescopies[$src]}
+	args=( "$fullsrc" "$fullcopy" )
+        # Don't ask here if we are in interactive mode; we'll ask in makesymlink.
+        [ -z "$interactive" ] && \
+            [ -n "${dotfilesopt[$src]}" ] && \
+                resp=$(yesno "OPTIONAL FILE: Copy $fullsrc to $fullcopy")
+    fi
+
     if [[ "$resp" = 'y' ]]; then
-        declare -a transform
-        if [[ -n ${dotfilestransforms[$src]} ]]; then
-            transform=('--transform' "${dotfilestransforms[$src]}")
-        fi
         makesymlink $interactive --verbose --relative \
                     --backup "$dotfiles_olddir" \
-                    --copy "${transform[@]}" \
-                    "$fullsrc" "$fullcopy"
+                    $action "${transform[@]}" \
+                    "${args[@]}"
+        [ -n "${dotfilesperms[$src]}" ] && \
+            [ -e "$fullsrc" ] && \
+            chmod "${dotfilesperms[$src]}" "$fullsrc"
     fi
-    [ -n "${dotfilesperms[$src]}" ] && \
-        chmod "${dotfilesperms[$src]}" "$fullsrc"
 done
 builtin cd "$opwd" || exit 1
 
