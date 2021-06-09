@@ -3,6 +3,8 @@ All my UNIX goodies including dotfiles so I can put them on any machine.
 
 ## Grab the repos
 There are two - one for git templates and the personal repo with all the code.
+We assume that you can reach the remote specified. Make sure you have your 'id_rsa' key and your sh config set up to reach the server.
+
 ```
 $ REMOTE=github:matthewpersico # or change as needed
 $ cd $HOME
