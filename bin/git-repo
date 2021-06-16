@@ -532,18 +532,18 @@ _git-repo-pr-get-lookup-pr-state ()
     declare jsondata=$(mktempfile git-repo-pr-get.jsondata)
     rm-on-exit "$jsondata"
     github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" > "$jsondata"
-    pr_state=$(jq .state "$jsondata")
+    pr_state=$(jq -r .state "$jsondata")
     if [[ $pr_state == 'closed' ]]; then
-        declare merged=$(jq .merged "$jsondata")
+        declare merged=$(jq -r .merged "$jsondata")
         if [[ $merged == 'true' ]]; then
             pr_state='merged'
-            pr_timestamp=$(jq .merged_at "$jsondata")
+            pr_timestamp=$(jq -r .merged_at "$jsondata")
         else
-            pr_timestamp=$(jq .closed_at "$jsondata")
+            pr_timestamp=$(jq -r .closed_at "$jsondata")
         fi
     else
         # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
-        pr_timestamp=$(jq .updated_at "$jsondata")
+        pr_timestamp=$(jq -r .updated_at "$jsondata")
     fi
 }
 
@@ -641,7 +641,8 @@ git-repo-pr-get ()
             # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
             if [[ $pr_now_state == "$pr_cache_state" ]]; then
                 # updates the cache date, keeps url and state the same.
-                git_repo-pr-store "$pr_url" "$pr_now_state" "$pr_now_date"
+                git_repo-pr-store "$pr_cache_url" "$pr_now_state" "$pr_now_date"
+                pr_url="$pr_cache_url"
                 pr_state="$pr_now_state"
                 pr_date="$pr_now_date"
             elif [[ $pr_cache_state == 'open' ]]; then
