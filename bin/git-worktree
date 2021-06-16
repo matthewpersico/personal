@@ -17,10 +17,15 @@ _git_worktree_check_set_pwd ()
 
     ## Make sure pwd is the wt subdir or under that.
     if [[ ! $cwd =~ /wt ]]; then
-        cmd-echo --ec -- "Current directory is ${cwd}." \
-                 'No wt path component found.' \
-                 'Will not manipulate worktrees outside of wt dir. Aborting.'
-        false; return $?
+        cwd="${cwd}/wt"
+        if [[ -d ${cwd} ]]; then
+            builtin cd "$cwd" || { cmd-echo -- "Cannot cd $cwd"; false; return $?; }
+        else
+            cmd-echo --ec -- "Current directory is ${cwd}." \
+                     'No wt path component found.' \
+                     'Will not manipulate worktrees outside of wt dir. Aborting.'
+            false; return $?
+        fi
     fi
 
     ## Yes you have to do this twice: once for when there's anything after the
@@ -29,7 +34,7 @@ _git_worktree_check_set_pwd ()
     wtroot="${wtroot%%/wt}/wt"
 
     ## Make sure we don't process ourselves unless --current flag is thrown
-    local newwd=$cwd
+    local newwd="${PWD}"
     while [[ $newwd != "$wtroot" ]]; do
         if [[ -f $newwd/.git ]]; then
             if ((opt_current_ok!=1)); then
@@ -38,10 +43,8 @@ _git_worktree_check_set_pwd ()
             fi
         fi
         newwd=$(dirname "$newwd")
-        pause RTC
     done
 
-    pause RTC
     ## Go to root so we can start working
     builtin cd "$wtroot" || { cmd-echo -- "Cannot cd $wtroot"; false; return $?; }
 
@@ -205,10 +208,8 @@ git-worktree-create ()
     ## Start making the wt dir
     local wtroot
     wtroot="${PWD}"
-pause RTC
     declare repo
     repo="$(basename "$(dirname "${PWD}")")" ## We are in /wt when we do this.
-pause RTC
     local wtname="$1"
     shift
     if git repo named-branches && \
@@ -218,8 +219,7 @@ pause RTC
         resp=$(yesno "Use $USER/$wtname" y)
         [[ $resp == 'y' ]] && wtname="$USER/$wtname"
     fi
-    echo $wtname
-pause RTC
+    echo "$wtname"
     local pull_ref
     if [ -z "${wtname}" ]; then
         if [ -z "$pull_request" ]; then
@@ -957,7 +957,7 @@ git-worktree-purge()
             cd "$wt" || exit 0;
             cmd-echo -- "$wt"
             declare ok_to_purge=1
-            if git repo pr -g; then
+            if git repo pr-get --open; then
                 ok_to_purge=0
             fi
             if ! git repo is pristine -v; then

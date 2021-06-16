@@ -1,5 +1,4 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
 
 # git-repo - no .gitaudit, called on every prompt
@@ -8,7 +7,7 @@ if ! git-version-verify 'git-repo'; then
     exit 1
 fi
 
-# shellcheck disable=SC1090
+source "$BASH_INC_DIR/mktemp.binc"
 source "$BASH_INC_DIR/on_exit.binc"
 
 ## Global used to control 'cd'ing around
@@ -123,30 +122,26 @@ git-repo-is_worktree ()
 
 git-repo-is_openpr ()
 {
-
-    source "$BASH_INC_DIR/mktemp.binc"
-    source "$BASH_INC_DIR/on_exit.binc"
-
     git fetch
     declare server upstream_namespace origin_namespace repo current_branch
     declare -A namespaces
 
     server=$(git-get-default-remote --server)
 
-    upstream_namespace=$(git repo is a fork-of | sed 's/\/.*//')
+    upstream_namespace=$(git-repo-is_fork of | sed 's/\/.*//')
     [[ -n $upstream_namespace ]] && namespaces["$upstream_namespace"]=1
 
     origin_namespace=$(git-get-default-remote --namespace)
     namespaces["$origin_namespace"]=1
 
-    repo=$(git repo name)
+    repo=$(git-repo-name)
     current_branch=$(git-repo-current-branch)
 
     declare -a output
     for tgt_namespace in "${!namespaces[@]}"; do
         declare tmpfile;
         # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
-        tmpfile=$(mktempfile);
+        tmpfile=$(mktempfile git-repo-is_openpr);
         rm-on-exit "$tmpfile"
 
         github-api --server "$server" --perl-data pulls "$tgt_namespace/$repo" > "$tmpfile"
@@ -177,21 +172,30 @@ for $entry (@$VAR1) {
 git-repo-info ()
 {
     cmd-echo --title "Configs:"
-    git-repo-config
+    git-repo-config --no-pr
     if [[ $1 != '--no-pulls' ]]; then
-        cmd-echo --title "Pull Requests:"
-        git-repo-pr-get --state
+        declare pr_data
+        pr_data=$(git-repo-pr-get)
+        # shellcheck disable=SC2181 #https://github.com/koalaman/shellcheck/wiki/SC2181
+        if (($?==0)); then
+            cmd-echo -n -- "Latest pull request:"
+            echo " $pr_data"
+        else
+            cmd-echo -- "No pull request found for this repo/branch."
+        fi
     fi
 }
 
 git-repo-config ()
 {
+    declare no_pr_info=$1
     declare -a lines
     mapfile -t                 lines < <(git config --get-regexp "$(git-repo-current-branch)" | sort)
     mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "remote.*.url" | sort)
     declare -a display
     for line in "${lines[@]}"; do
         read -r key value <<< "$line"
+        [[ -n $no_pr_info ]] && [[ $key =~ ${GIT_EXT_META_PREFIX}-pr ]] && continue
         (( ${#key} > max )) && max=${#key}
         display+=("$key" "$value")
     done
@@ -201,12 +205,14 @@ git-repo-config ()
 
 git-repo-name ()
 {
-    [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
     name=$(git remote -v 2>/dev/null | grep origin | sed -e 's|.*/||' -e 's/ .*//' | sort -u)
-    [[ "$1" ]] && [[ $1 != . ]] && { cd - || return 1; }
-    [ -z "$name" ] && return 1
-    echo "$name"
-    return 0
+    if [[ -n "$name" ]]; then
+        echo "$name"
+        true
+    else
+        false
+    fi
+    return $?
 }
 
 git-repo-org ()
@@ -287,8 +293,8 @@ git-repo-diff ()
     fi
 
     declare -A list
-    list[left]=$(mktemp -t tmp.git-diff-two-repos-on-disk.left.XXXXXXXXXX)
-    list[right]=$(mktemp -t tmp.git-diff-two-repos-on-disk.right.XXXXXXXXXX)
+    list[left]=$(mktempfile git-repo-diff.left)
+    list[right]=$(mktempfile git-repo-diff.right)
     rm-on-exit "${list[left]}" "${list[right]}"
 
     # Get lists of files from each repo
@@ -516,11 +522,38 @@ git-repo-delete ()
     return $status
 }
 
+_git-repo-pr-get-lookup-pr-state ()
+{
+    declare pullId=${1##*/}
+    declare remote_svc=$2
+    declare remote_repo=$3
+    declare -n pr_state=$4
+    declare -n pr_timestamp=$5
+    declare jsondata=$(mktempfile git-repo-pr-get.jsondata)
+    rm-on-exit "$jsondata"
+    github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" > "$jsondata"
+    pr_state=$(jq .state "$jsondata")
+    if [[ $pr_state == 'closed' ]]; then
+        declare merged=$(jq .merged "$jsondata")
+        if [[ $merged == 'true' ]]; then
+            pr_state='merged'
+            pr_timestamp=$(jq .merged_at "$jsondata")
+        else
+            pr_timestamp=$(jq .closed_at "$jsondata")
+        fi
+    else
+        # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+        pr_timestamp=$(jq .updated_at "$jsondata")
+    fi
+}
+
+declare PR_CACHE_VERSION='1'
+
 git-repo-pr-get ()
 {
     declare OPTSARGS
     declare shortopts=''
-    declare longopts='silent,state,open,closed,merged'
+    declare longopts='open,closed,merged,silent'
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     declare status=$?
@@ -528,21 +561,19 @@ git-repo-pr-get ()
 
     eval set -- "$OPTSARGS"
 
-    declare opt_silent=0
-    declare opt_show_state=0
     declare opt_match_state;
+    declare opt_print=1
     while true; do
         declare option=$1
         shift
         [ "$option" != '--' ] && option=${option##-} && option=${option##-}
         case "$option" in
-            silent ) opt_silent=1;;
-            state ) opt_show_state=1;;
+            silent ) opt_print=0;;
             open | merged | closed ) opt_match_state=$option;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
-                cmd-echo -e -- "$option is an invalid option. See $0 --help"
+                cmd-echo -e -- "$option is an invalid option. See $0 --help" >&2
                 return 1
                 ;;
         esac
@@ -556,7 +587,7 @@ git-repo-pr-get ()
         fi
     done
     if [ -z "$remote_url" ]; then
-        cmd-echo -wc -- "Cannot find a remote upstream or origin to check for pull requests"
+        cmd-echo -ec -- "Cannot find a remote upstream or origin to check for pull requests" >&2
         false; return $?
     fi
     declare remote_svc=${remote_url%:*}
@@ -566,159 +597,190 @@ git-repo-pr-get ()
     # See if we have cached it.
     #
     declare pr_url
+    declare pr_state
+    declare pr_date
+
+    declare pr_cache_url
+    declare pr_cache_state
+    declare pr_cache_date
     declare pr_cache_as_of
+    declare pr_cache_version
+
     declare wt=$(git-worktree ina -v)
     declare cb=$(git-repo-current-branch)
-    pr_url=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr")
-    if [[ -n $pr_url ]]; then
-        pr_cache_as_of=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date")
-    else
-        pr_url=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr")
-        if [[ -n $pr_url ]]; then
-            pr_cache_as_of=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date")
-        fi
-    fi
+
+    git-repo-pr-retrieve pr_cache_url pr_cache_state pr_cache_date pr_cache_as_of pr_cache_version
 
     declare cached
-
-    if [[ -z $pr_cache_as_of ]]; then
-        cached=0;
+    if [[ -z $pr_cache_as_of ]] || \
+           [[ -z $pr_cache_state ]] || \
+           [[ -z $pr_cache_date ]] || \
+           [[ -z $pr_cache_version ]] || \
+           [[ ! $pr_cache_version == "$PR_CACHE_VERSION" ]]
+    then
+        cached='no'
     else
         local cache_date=$(_git_repo_date_to_epoch "${pr_cache_as_of}")
         local now=$(_git_repo_date_to_epoch "$(date "$GIT_EXT_META_DATE_FMT")")
 
         if ((now - cache_date < 86400)); then
-            cached=1
+            cached='yes'
         else
-            cached=0
+            cached='expired'
         fi
     fi
 
-    if ((!cached)); then
-        #
-        # Not cached. Search and record.
-        #
-        declare perldata=$(mktemp -t tmp.git-repo-pr-get.perldata.$$.XXXXXXXXXX)
+    if [[ $cached == 'expired' ]] || [[ $cached == 'yes' ]]; then
+        if [[ $pr_cache_url == 'NOOPENPR' ]]; then
+            ## Need to see if one has been created.
+            cached='no'
+        else
+            ## Let's try the inexpensive option of seeing if the state has
+            ## changed.
+            _git-repo-pr-get-lookup-pr-state "$pr_cache_url" "$remote_svc" "$remote_repo" pr_now_state pr_now_date
+            # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
+            if [[ $pr_now_state == "$pr_cache_state" ]]; then
+                # updates the cache date, keeps url and state the same.
+                git_repo-pr-store "$pr_url" "$pr_now_state" "$pr_now_date"
+                pr_state="$pr_now_state"
+                pr_date="$pr_now_date"
+            elif [[ $pr_cache_state == 'open' ]]; then
+                # The pr is now is closed or merged. Still might be the latest
+                # one but we don't know, so we have to check.
+                cached='no'
+            fi
+        fi
+    fi
+
+    if [[ $cached == 'no' ]]; then
+        declare perldata=$(mktempfile git-repo-pr-get.perldata)
         rm-on-exit "$perldata"
         github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
-        pr_url=$(perl -MData::Dumper -e '
-## $ARGV[0] - file with perl data
+        declare -a pr_now
+        #read -r -a pr_now < <(perl -d:ptkdb -MData::Dumper -e '
+        read -r -a pr_now < <(perl -MData::Dumper -e '
+## Gets the latest (because the data is sorted newest to oldest) pull request
+## for this branch on this org.
+## $ARGV[0] - file with perl data, sorted newest to oldest. No "merged" state flags
+##            in this dataset, figure it out from the closed/merged times.
 ## $ARGV[1] - org
 ## $ARGV[2] - current branch name
-## $ARGV[3] - "state" - 0:do not add the state of the PR to the output, 1:add the state
-## $ARGV[4] - match PRs with this state
 do $ARGV[0];
-for $openpull (@{$VAR1}) {
-    my($pull_org, $pull_label) = split(/:/,$openpull->{head}{label});
-    if ($pull_org eq $ARGV[1]
-        and ( $ARGV[2] eq $pull_label
+for $pull (@{$VAR1}) {
+    my %pullinfo;
+    @pullinfo{qw(org label id)} = (
+        split(/:/,$pull->{head}{label}),
+         "pull-$pull->{number}");
+    if ($pullinfo{org} eq $ARGV[1]
+        and ( $ARGV[2] eq $pullinfo{label}
               or
-              $ARGV[2] =~ m/pull-$openpull->{number}/) ) {
-        next if $ARGV[4] and lc($openpull->{state}) ne $ARGV[4];
-        ## debug: print Data::Dumper->Dump([$openpull],[qw(*pull)]);
-        if($ARGV[3]) {
-            print ucfirst($openpull->{state}), q(: );
-        }
-        print $openpull->{html_url}, qq(\n);
+              $ARGV[2] =~ m/$pullinfo{id}/) ) {
+        @pullinfo{qw(state date)} =
+            (defined($pull->{merged_at})
+             ? ( "merged", $pull->{merged_at})
+             : (defined($pull->{closed_at})
+                ? ( "closed", $pull->{closed_at})
+                : ( "open", $pull->{updated_at})
+               )
+             );
+        print join(q( ),
+                      $pull->{html_url},
+                      $pullinfo{state},
+                      $pullinfo{date},
+                  ), qq(\n);
         exit 0;
     }
 }
-exit 1;' "$perldata" "$USER" "$cb" "$opt_show_state" "$opt_match_state")
-        declare status=$?
-
-        if [[ -z $pr_url ]]; then
-            ((!opt_silent)) && echo 'No open pull requests associated with this repo'
+exit 0;' "$perldata" "$USER" "$cb")
+        if [[ -z ${pr_now[0]} ]]; then
             # Cache the no
             git-repo-pr-store --noopenpr
-            pr_url="NOOPENPR"
+            false; return $?
         else
-            ((opt_show_state)) && pr_url=${pr_url#*: }
-            ## Cache the PR
-            git-repo-pr-store "$pr_url"
+            ## Cache the PR and its state
+            git-repo-pr-store "${pr_now[@]}"
+            pr_url=${pr_now[0]}
+            pr_state=${pr_now[1]}
+            pr_date=${pr_now[2]}
         fi
     fi
 
     if [[ $pr_url == "NOOPENPR" ]]; then
-        pr_url=''
-        #"No open PRs associated with this"
-        #if [[ -n $wt ]]; then
-        #    pr_url="$pr_url worktree"
-        #elif [[ -n $wt ]]; then
-        #    pr_url="$pr_url branch"
-        #else
-        #    pr_url="$pr_url repo"
-        #fi
         false; return $?
+    fi
+    if [[ -z $opt_match_state ]]; then
+        # You effectively asked for the latest PR available, so we give
+        # you the state of it with the URL.
+        [[ $pr_state == 'open' ]] && pr_state="open, last updated"
+        ((opt_print)) && echo "${pr_state^} $pr_date - ${pr_url}"
     else
-        # We don't cache the state. But that's ok since the direct lookup of
-        # one PR is quick.
-        declare pullId=${pr_url##*/}
-        declare state=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .state)
-        state=${state//\"/}
-        if [[ $state == 'closed' ]]; then
-            declare merged=$(github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" | jq .merged)
-            [[ $merged == 'true' ]] && state='merged'
-        fi
-        if [[ -n $opt_match_state ]] \
-               && [[ $opt_match_state != "$state" ]]; then
+        if [[ $opt_match_state == "$pr_state" ]]; then
+            # You asked for a particular state, and we matched it, but you
+            # specified the state, you probably don't want it coming back at
+            # you so that you have to get rid of it to use the url, so we just
+            # print the url.
+            ((opt_print)) && echo "$pr_url"
+        else
+            # We didn't find a match
             false; return $?
         fi
-    fi
-    if ((!opt_silent)); then
-        if ((opt_show_state)); then
-            echo -n "${state^}: "
-        fi
-        echo "$pr_url"
     fi
     true; return $?
 }
 
 git-repo-pr-store ()
 {
-    declare pr_url=$1
+    declare pr_url
+    declare pr_state
+    declare pr_date
+    if [[ $1 == '--noopenpr' ]]; then
+        pr_url="NOOPENPR"
+        pr_state="NOSTATE"
+        pr_date="1970-01-01T00:00:01Z"
+    else
+        pr_url=${1}
+        pr_state=${2}
+        pr_date=${3}
+    fi
+
     declare wt=$(git-worktree ina -v)
     declare cb=$(git-repo-current-branch)
-    [[ $pr_url == '--noopenpr' ]] && pr_url="NOOPENPR"
     declare asof="$(date "$GIT_EXT_META_DATE_FMT")"
     [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
-    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date" "$asof"
+    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
+    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
+    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
+    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
     [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
-    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date" "$asof"
+    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
+    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
+    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
+    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
 }
 
-git-repo-pr ()
+git-repo-pr-retrieve ()
 {
-    declare OPTSARGS
-    declare shortopts='sg'
-    declare longopts='silent,state,get,open,closed,merged'
-
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-    declare status=$?
-    ((status != 0)) && return $status
-
-    eval set -- "$OPTSARGS"
-
-    declare -a passthru
-    declare opt_get=1 ## default for now, maybe we add create later.
-    while true; do
-        declare option=$1
-        shift
-        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
-        case "$option" in
-            get | g) opt_get=1 ;;
-            silent | s) passthru+=('--silent');;
-            state | open | closed | merged ) passthru+=("--$option");;
-            --) break ;; ## VITAL!!! Exits the while loop, no more options,
-                         ## remaining $*, if any, are args
-            *)
-                cmd-echo -e -- "$option is an invalid option. See $0 --help"
-                return 1
-                ;;
-        esac
-    done
-
-    if ((opt_get)); then
-        git-repo-pr-get "${passthru[@]}"
+    declare -n pr_url=$1
+    declare -n pr_state=$2
+    declare -n pr_date=$3
+    declare -n pr_cache_as_of=$4
+    declare -n pr_cache_version=$5
+    declare wt=$(git-worktree ina -v)
+    declare cb=$(git-repo-current-branch)
+    pr_url=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr")
+    if [[ -n $pr_url ]]; then
+        pr_state=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state")
+        pr_date=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date")
+        pr_cache_as_of=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of")
+        pr_cache_version=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version")
+    else
+        pr_url=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr")
+        if [[ -n $pr_url ]]; then
+            pr_state=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state")
+            pr_date=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date")
+            pr_cache_as_of=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of")
+            pr_cache_version=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version")
+        fi
     fi
 }
 
@@ -835,13 +897,13 @@ git-repo-purge()
                     [[ -d $wtrp ]] && ok_to_purge=0
                 done
             fi
-            git repo pr -g && ok_to_purge=0 ## func returns 0 (success) if it
-                                            ## finds a PR, in which case we
-                                            ## can't purge it.
-            ! git repo is pristine -v && ok_to_purge=0
+            git-repo-pr-get --open \
+                && ok_to_purge=0 ## func returns success if it finds a open PR,
+                                 ## in which case we can't purge it.
+            ! git-repo-is_pristine -v && ok_to_purge=0
             if ((ok_to_purge)); then
                 resp=$(cmd-yesno -dc "Repo is pristine. Delete it" n)
-                [[ $resp == 'y' ]] && git repo del --current --yes
+                [[ $resp == 'y' ]] && git-repo-delete --current --yes
                 echo
             fi
         )
@@ -916,7 +978,7 @@ git-repo-default-branch ()
         cmd-echo --ec -- "Cannot set default branch yet"
     else
         declare base_repo
-        for base_repo in "$(git repo is a worktree of)" "$(git root)"; do
+        for base_repo in "$(git-repo-is_worktree of)" "$(git root)"; do
             [[ -n $base_repo ]] && break
         done;
         [[ -z $base_repo ]] && { false; return $?; }
@@ -965,7 +1027,6 @@ git-repo-set-named-branches-flag ()
 
 git-repo-named-branches ()
 {
-    set -x
     local verbose=''
     if [[ $1 == -v ]]; then
         verbose=$1;
@@ -986,11 +1047,9 @@ git-repo-named-branches ()
 
 git-repo-using-named-branches ()
 {
-    set -x
     local value=$(git config --type bool --get "${GIT_EXT_META_PREFIX}.named-branches")
     value=${value:-false}
     [[ $1 == -v ]] && echo "$value"
-pause RTC
     ${value}
 }
 
