@@ -15,9 +15,9 @@ _git_clone_record_created_date ()
 
 _git-clone-set-triangle()
 {
-    declare githost_url
+    local githost_url
     githost_url=$1
-    declare githostkeycheck
+    local githostkeycheck
     githostkeycheck=$( git kv --key-only --section svcs | grep -E "^$githost_url$")
     if [ -n "$githostkeycheck" ] ; then
         echo "Supposed to provide a URL, not a service name. Converting..."
@@ -27,17 +27,17 @@ _git-clone-set-triangle()
             return 1
         fi
     fi
-    declare upstream_namespace
+    local upstream_namespace
     upstream_namespace=$2
-    declare origin_namespace
+    local origin_namespace
     origin_namespace=$3
-    declare repo
+    local repo
     repo=$4
 
-    declare default_branch
+    local default_branch
     default_branch=$(git repo default-branch)
 
-    declare -A triangle_workflow
+    local -A triangle_workflow
     triangle_workflow[branch.${default_branch}.merge]="refs/heads/${default_branch}"
     triangle_workflow[branch.${default_branch}.mergeoptions]="--ff-only"
     triangle_workflow[branch.${default_branch}.remote]="upstream"
@@ -46,7 +46,7 @@ _git-clone-set-triangle()
     triangle_workflow[remote.pushdefault]="origin"
     triangle_workflow[remote.upstream.url]="${githost_url}${upstream_namespace}/${repo}"
 
-    declare key
+    local key
     for key in "${!triangle_workflow[@]}"; do
         git config --replace-all "$key" "${triangle_workflow[$key]}" || return $?
     done
@@ -74,34 +74,34 @@ _git-clone-set-triangle()
 
 main ()
 {
-    declare opt_y=0
-    declare opt_t=0
-    declare opt_triangle_namespace=''
-    declare opt_worktree=1
-    declare opt_worktree_name=''
-    declare opt_worktree_fetch=''
-    declare opt_use_githost_dir=0
-    declare opt_make_fork=0
-    declare opt_make_triangle=0
-    declare dispatch_to_real_git=1
-    declare githost
-    declare namespace
-    declare repo
-    declare doandcdfile
+    local opt_y=0
+    local opt_t=0
+    local opt_triangle_namespace=''
+    local opt_worktree=1
+    local opt_worktree_name=''
+    local opt_worktree_fetch=''
+    local opt_use_githost_dir=0
+    local opt_make_fork=0
+    local opt_make_triangle=0
+    local dispatch_to_real_git=1
+    local githost
+    local namespace
+    local repo
+    local doandcdfile
 
     ## --------
     ## DO NOT attempt to convert this to a 'getopt' implementation; it would
     ## require specifying and handling every existing option in 'git clone'
     ## and it is just not necessary.
-    declare -a pass_on
+    local -a pass_on
 
     while (( $# )); do
-        declare option=$1
+        local option=$1
         shift ## That way you avoid endless loops on invalid options.
 
         ## This bit deals with --foo=bar instead of --foo bar...
-        declare okey
-        declare ovalue=''
+        local okey
+        local ovalue=''
         ## but only deal with it if we really have an option. Otherwise you
         ## misinterpret items like this git clone option: --config
         ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
@@ -133,7 +133,7 @@ main ()
             --fo | --forkof | --fork-of )
                 opt_make_fork=1
                 dispatch_to_real_git=0
-                declare tmp_otn=${ovalue:-$1}
+                local tmp_otn=${ovalue:-$1}
                 [ -z "$ovalue" ] && shift ## If ovalue is blank, we used $1
                 if [[ "$tmp_otn" =~ ^- ]]; then
                     ## we got the next option, not an arg to this one
@@ -193,7 +193,7 @@ main ()
     [ -z "${pass_on[0]}" ] && git-usage "$0" "$0" "Missing arguments" && return 1
 
     if [ -z "${githost}" ]; then
-        declare -a tmpa
+        local -a tmpa
         asplit "${pass_on[0]}" -s : -a tmpa
         if [ "${tmpa[0]}" = "${pass_on[0]}" ]; then
             cmd-echo -id "$cmd_echo_id" -e -- "githost specified and no 'githost:' found in '${pass_on[0]}'"
@@ -206,14 +206,14 @@ main ()
     fi
     ashift pass_on
 
-    declare githost_url
+    local githost_url
     githost_url="$(git kv --get "urls.${githost}")"
     if [ -z "$githost_url" ]; then
         cmd-echo -id "$cmd_echo_id" -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
         return 1
     fi
     if [[ "$namespace" == */* ]]; then
-        declare -a tmpa
+        local -a tmpa
         asplit "$namespace" -s / -a tmpa
         namespace=${tmpa[0]}
         repo=${tmpa[1]}
@@ -226,15 +226,15 @@ main ()
         return 1
     fi
 
-    declare cwpath
+    local cwpath
     cwpath="$(realpath "${PWD}")"
-    declare local_githost
+    local local_githost
     local_githost="$(basename "$cwpath")"
     if [ "$local_githost" != "$githost" ] && ((opt_use_githost_dir == 1)); then
         cmd-echo -- "You must be in a directory path ending in"\
                  "   $githost" \
                  "You are in $cwpath"
-        declare shouldbein
+        local shouldbein
         shouldbein="$(git config --get --expand ext.git-repo-root.root)/$githost"
         if [ ! -d "$shouldbein" ]; then
             cmd-echo -ec -- "Cannot find '$shouldbein'." "Correct and re-execute."
@@ -247,9 +247,9 @@ main ()
         cmd-echo -id "$cmd_echo_id" -- "Neither --githost nor --tree were specified. Cloning right here (${PWD}/$repo)"
     fi
 
-    declare tgt="$namespace/$repo"
+    local tgt="$namespace/$repo"
     if [ -e "$tgt" ]; then
-        declare resp
+        local resp
         if ((opt_y)); then
             resp='y'
             ##resp='r'
@@ -275,14 +275,13 @@ main ()
     fi
 
     if ((opt_make_fork)); then
-        set -x
         ## Then try to make a fork of the repo from the upstream org
         ## supplied. If the fork exists, no harm no foul; we just continue on
         ## with what we found.
         cmd-echo -- "github-api --server $githost --data-mode --wait fork $opt_triangle_namespace $repo..."
-        declare forked_repo
+        local forked_repo
         forked_repo=$(github-api --server "$githost" --data-mode --wait fork "$opt_triangle_namespace" "$repo")
-        declare dq="$?"
+        local dq="$?"
         if [[ $dq != '0' ]]; then
             return $?
         fi
@@ -291,7 +290,7 @@ main ()
             repo="$forked_repo"
             tgt="$namespace/$repo"
             if [ -e "$tgt" ]; then
-                declare resp
+                local resp
                 if ((opt_y)); then
                     resp='y'
                     ##resp='r'
@@ -345,7 +344,7 @@ main ()
     if ((opt_make_triangle)); then
         ## If we didn't explicitly ask to make a fork, let's see if this clone
         ## is a fork anyway and set up the triangle workflow if so.
-        declare upstream
+        local upstream
         upstream=$(builtin cd "$namespace/$repo" || exit $?
                    git repo is a fork --print)
         if [[ -n $upstream ]]; then
@@ -361,7 +360,7 @@ main ()
         _git-clone-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo" || return $?
         git pull || return $? # To refresh from the upstream
     else
-        declare key='remote.origin.fetch'
+        local key='remote.origin.fetch'
         git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || return $?
         git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || return $?
         ## ^ allows git checkout -b 3 pull/origin/3

@@ -24,24 +24,24 @@ main ()
 {
     ## If there's any chance that this will be in a script that will be dotted in,
     ## remove the explicit out_cmd calls.
-    declare out_cmd="exit"
-    declare moreopts=1
-    declare server='github'
-    declare token_file="$HOME/.github"
-    declare verbose=0
-    declare silent=0
-    declare synchronous=0
-    declare keep_data=0
-    declare scope='all'
-    declare pullId
-    declare stream_data=0
-    declare perl_data=0
-    declare doexec=1
-    declare -a otherparams
-    declare opt_data_mode=0
-    declare override_url
-    declare -a override_args
-    declare -a re_exec
+    local out_cmd="exit"
+    local moreopts=1
+    local server='github'
+    local token_file="$HOME/.github"
+    local verbose=0
+    local silent=0
+    local synchronous=0
+    local keep_data=0
+    local scope='all'
+    local pullId
+    local stream_data=0
+    local perl_data=0
+    local doexec=1
+    local -a otherparams
+    local opt_data_mode=0
+    local override_url
+    local -a override_args
+    local -a re_exec
 
     re_exec=("$@")
 
@@ -49,13 +49,13 @@ main ()
     ## options parsing
     ##
     while [[ "$1" =~ ^- ]] && ((moreopts)); do
-        declare original="$1"
+        local original="$1"
         shift
-        declare option
+        local option
         option=$(dashstripper "$original")
         ## This bit deals with --foo=bar instead of --foo bar
-        declare okey=''
-        declare ovalue=''
+        local okey=''
+        local ovalue=''
         ## but only deal with it if we really have an option. Otherwise you
         ## misinterpret items like this git clone option: --config
         ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
@@ -126,14 +126,14 @@ main ()
         esac
     done
 
-    declare server_url
+    local server_url
     server_url="$(git kv --get "api-urls.$server")/"
     if [ -z "$server_url" ]; then
         github-api-echo -- "'$server' is an in valid --server option"
         return 1
     fi
 
-    declare token_file
+    local token_file
     token_file="$HOME/$(git kv --get "token-file.$server")"
     if [ ! -r "$token_file" ]; then
         github-api-echo -- "Credentials file '$token_file' not found. Do you have the right server?"
@@ -144,8 +144,8 @@ main ()
     ##
     ## action parsing
     ##
-    declare org_is_user=0
-    declare action=$1
+    local org_is_user=0
+    local action=$1
     shift
 
     case $action in
@@ -233,14 +233,14 @@ main ()
 
     if [ -n "$org" ]; then
         # shellcheck disable=SC2034
-        declare dummy
+        local dummy
         ## todo make sure org exists
     fi
 
     ##
     ## URL fixup, action normalization
     ##
-    declare -a curlopts
+    local -a curlopts
     case $action in
         exists | ping )
             action='exists'
@@ -312,14 +312,14 @@ main ()
         override_args=('--override-url' "${url}")
     fi
 
-    declare curlheaders
+    local curlheaders
     curlheaders=$(mktemp -t tmp.github-api.$$.curlheaders.XXXXXXXXXX)
     curlopts+=('-D' "$curlheaders")
 
-    declare curldata
+    local curldata
     curldata=$(mktemp -t tmp.github-api.$$.curldata.XXXXXXXXXX)
 
-    declare perldata
+    local perldata
     perldata=$(mktemp -t tmp.github-api.$$.perldata.XXXXXXXXXX)
 
     if ((keep_data)); then
@@ -337,23 +337,23 @@ main ()
             --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
             "${curlopts[@]}" \
             "${server_url}${url}${otherparams[*]}" -s > "$curldata" 2>&1
-        declare status=$?
+        local status=$?
         if ((status)); then
             github-api-echo -- "curl returned with error :$status"
             curl-cat
             return $status
         fi
 
-        declare -a pagenums
-        declare page_links
+        local -a pagenums
+        local page_links
         page_links=$(grep -E '^Link: ' "$curlheaders" )
         if [[ -n $page_links ]]; then
             # shellcheck disable=SC2207
             pagenums=($(perl -e '$ARGV[0] =~ m/.*?page=(\d+).*?page=(\d+)/;print "$1 $2\n";' "$page_links"))
-            declare pagenum=1
-            declare pagenumfmt
+            local pagenum=1
+            local pagenumfmt
             pagenumfmt="%0${#pagenums[1]}d"
-            declare pageprint
+            local pageprint
             # shellcheck disable=SC2059
             pageprint="$(printf "$pagenumfmt" $pagenum)"
             # shellcheck disable=SC2004
@@ -367,7 +367,7 @@ main ()
                     --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
                     "${curlopts[@]}" \
                     "${server_url}${url}${otherparams[*]}&page=$pagenum" -s > "${curldata}.${pageprint}" 2>&1
-                declare status=$?
+                local status=$?
 
                 if ((status)); then
                     github-api-echo -- "curl returned with error :$status"
@@ -375,7 +375,7 @@ main ()
                     return $status
                 fi
 
-                declare htmlstatus
+                local htmlstatus
                 htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
                 case $htmlstatus in
                     200 )
@@ -410,7 +410,7 @@ main ()
             ## $curldata as invalid json because each page is a list instead of
             ## all the data in one list. We added the commas above. Now we pull
             ## out the superfluous ][ here:
-            declare curldata_relist
+            local curldata_relist
             curldata_relist=$(mktemp -t tmp.github-api.$$.curldata_relist.XXXXXXXXXX)
             perl -e '
 BEGIN { print(qq([\n)); }
@@ -422,7 +422,7 @@ END { print(qq(]\n)); }
 ' "$curldata" > "$curldata_relist"
             mv "$curldata_relist" "$curldata"
         fi
-        declare htmlstatus
+        local htmlstatus
         htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
         if [[ -z $htmlstatus ]]; then
             # github has no Status: field in the headers. Bummner.
@@ -431,7 +431,7 @@ END { print(qq(]\n)); }
         case $action in
             repos )
                 if [[ -n $repo ]]; then
-                    declare curldata_filter
+                    local curldata_filter
                     curldata_filter=$(mktemp -t tmp.github-api.$$.curldata_filter.XXXXXXXXXX)
                     perl -d:ptkdb -MJSON::XS -e '
 open IH, q(<), $ARGV[0];
@@ -494,7 +494,7 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
                         return 1
                         ;;
 #                    301 )
-#                        declare newurl
+#                        local newurl
 #                        newurl=$(perl -d:ptkdb -MJSON::XS -e '
 #open IH, q(<), $ARGV[0];
 #$data = join(q(),<IH>);
@@ -525,7 +525,7 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
                     200 )
                     ;;
                     301 )
-                        declare newurl
+                        local newurl
                         newurl=$(perl -MJSON::XS -e '
 open IH, q(<), $ARGV[0];
 $data = join(q(),<IH>);
@@ -567,7 +567,7 @@ print $json->{name};' "${curldata}"
                         ;;
 
                     307 )
-                        declare newurl
+                        local newurl
                         newurl=$(perl -MJSON::XS -e '
 open IH, q(<), $ARGV[0];
 $data = join(q(),<IH>);
@@ -591,8 +591,8 @@ print qq($url);' "${curldata}" "${server_url}")
                 esac
 
                 if ((synchronous)); then
-                    declare waiting='Waiting for fork creation...'
-                    declare remaining=60
+                    local waiting='Waiting for fork creation...'
+                    local remaining=60
                     while github-api "${override_args[@]}" --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'; do
                         [ -n "$waiting" ] && github-api-echo -- "'$waiting'" && waiting=''
                         sleep 1
