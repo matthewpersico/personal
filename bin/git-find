@@ -48,6 +48,7 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
         ls) opt_ls=1 ;;
         files-only | fo ) opt_files_only=1 ;;
         exact) opt_exact=1 ;;
+        type) opt_type=$1; shift;;
         --) moreopts=0;;
         *) cmd-echo -- "$original is an invalid option. See $0 --help"
            exit 1 ;;
@@ -67,8 +68,8 @@ else
     fi
 fi
 
-if [ -n "$timecomp" ]; then
-    if [ ! -f "$timecompfile" ]; then
+if [[ -n "$timecomp" ]]; then
+    if [[ ! -f "$timecompfile" ]]; then
         cmd-echo --ec -- "Cannot find file '$timecompfile' for $timecomp comparison"
         exit 1
     fi
@@ -101,7 +102,7 @@ if ((opt_conflicts)); then
     mapfile -t conflict_files < <(git grep "${opt_grep_opts[@]}" '^<<<<<<<' | sed 's/:.*//g' | sort -u)
     declare cf
     for cf in "${conflict_files[@]}"; do
-        if [ "$opt_grep_opts_verbose" = '-l' ]; then
+        if [[ "$opt_grep_opts_verbose" = '-l' ]]; then
             echo "$cf"
         else
             cmd-echo -head -- "Conflicts in $cf"
@@ -125,7 +126,7 @@ my $dummy = 6;
         fi
     done
     if (( opt_edit )); then
-        if [ -z "$EDITOR" ]; then
+        if [[ -z "$EDITOR" ]]; then
             cmd-echo -- "No EDITOR env variable found"
             exit 1
         fi
@@ -182,11 +183,11 @@ fi
 if ((opt_git_dir)); then
     declare dotgit
     dotgit=$(git root)/.git
-    if [ -f "$dotgit" ]; then
+    if [[ -f "$dotgit" ]]; then
         ## Must be a worktree. Go find the source.
         dotgit="$(realpath "$(dirname "$dotgit")/$(sed -e 's/.* //' -e 's|\.git/.*|.git|'< "$dotgit")")"
     fi
-    if [ -d "$dotgit" ]; then
+    if [[ -d "$dotgit" ]]; then
         echo "$dotgit"
         exit 0
     else
@@ -194,16 +195,16 @@ if ((opt_git_dir)); then
     fi
 fi
 
-if [ "$opt_untracked_only" = 1 ] && [ "$opt_all" = 1 ]; then
+if [[ "$opt_untracked_only" = 1 ]] && [[ "$opt_all" = 1 ]]; then
     echo "--untracked_only and --all are mutually exclusive"
     bash-usage "$0"
     exit 1
 fi
 
 declare -a ls_files_opts=('-c')
-if [ "$opt_untracked_only" = 1 ]; then
+if [[ "$opt_untracked_only" = 1 ]]; then
     ls_files_opts=('-o')
-elif [ "$opt_all" = 1 ]; then
+elif [[ "$opt_all" = 1 ]]; then
     ls_files_opts+=('-o')
 fi
 
@@ -216,6 +217,7 @@ else
 fi
 
 declare -a output
+declare f
 for f in "${to_find[@]}"; do
     for ff in $(git ls-files "${ls_files_opts[@]}" "$(git rev-parse --show-toplevel)" | grep "${opt_grep_opts[@]}" "$f" | sort -u ); do
         if ((opt_files_only)) && [[ ! -f $gitfile ]]; then
@@ -227,17 +229,19 @@ for f in "${to_find[@]}"; do
             if ((opt_exact==0)); then
                 if [[ $match =~ $f ]]; then
                     output+=("$ff")
+                    break
                 fi
             else
                 if [[ $match == "$f" ]]; then
                     output+=("$ff")
+                    break
                 fi
             fi
         done
     done
 done
 
-if [ -n "${opt_grep_opts_exclude[0]}" ]; then
+if [[ -n "${opt_grep_opts_exclude[0]}" ]]; then
     mapfile -t output < <(perl -e '
 $res=0;
 $re=0;
@@ -256,8 +260,20 @@ for ($i=0; $i<@ARGV; $i++) {
                          )
 fi
 
+if [[ $opt_type ]]; then
+    declare i=0
+    while ((i<${#output[@]})); do
+        if ! file "${output[$i]}" | grep -q -E "$opt_type"; then
+            # echo -n "skipping "; file "${output[$i]}"
+            output=( "${output[@]:0:$i}" "${output[@]:$((i+1))}" )
+        else
+            ((i+=1))
+        fi
+    done
+fi
+set +x
 if (( opt_edit )); then
-    if [ -z "$EDITOR" ]; then
+    if [[ -z "$EDITOR" ]]; then
         cmd-echo -- "No EDITOR env variable found"
         exit 1
     fi
@@ -299,6 +315,7 @@ git-find - run a 'find'-like command on the current repo
  git-find --git-dir
  git-find --newer markerfile [--abspath] [--files-only]
  git-find --older markerfile [--abspath] [--files-only]
+ git-find --type "a 'file' description'
  git-find [--help|-h]
 
 =head1 DESCRIPTION
@@ -406,6 +423,14 @@ Find all the git files older than the file given.
 =item --abspath
 
 Print the full path to any files found with --newer or --older.
+
+=item --type "a file string"
+
+Run the files found through the 'file' command and filter out those whose descriptions do not match the argument to the option. For example, to find all the shell scripts:
+
+ git-find --type "shell script"
+
+Run C<file $(git ls-files) to see what kind of strings you can match for certain file types.
 
 =item --help
 
