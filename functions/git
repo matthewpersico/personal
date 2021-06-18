@@ -7,7 +7,7 @@
 git ()
 {
     # shellcheck disable=SC2034
-    declare DEBUG__this_function=${FUNCNAME[0]}
+    local DEBUG__this_function=${FUNCNAME[0]}
     if [ -z "$REALGIT" ]; then
         echo "ERROR: git wrapper function 'git' can't find system git because envvar REALGIT is not defined. Bailing..."
         return 1
@@ -46,8 +46,8 @@ git ()
     # the temp file.  When we return here after the command, we check the temp
     # file and if it contains a change directory command, we execute it so that
     # we end up where the command wanted us to be.
-    declare doandcdfile
-    declare -A doandcdlist
+    local doandcdfile
+    local -A doandcdlist
     doandcdlist[clone]=1
     doandcdlist[go]=1
     doandcdlist[worktree]=1
@@ -56,8 +56,8 @@ git ()
 
     # Set up the temp file to hold the target dir if we've been asked to
     # execute one of the 'cd'ing commands.
-    declare command=$1; shift
-    declare -a args
+    local command=$1; shift
+    local -a args
     if [ -n "${doandcdlist[$command]}" ]; then
         doandcdfile=$(mktemp -t "tmp.git.doandcd.$command.XXXXXXXXXX")
         args+=('--doandcd' "$doandcdfile")
@@ -68,7 +68,7 @@ git ()
     # type -P command to find any wrapper on PATH, just like git does. Except
     # that we will happily execute a script that matches a real git command.
     [ -n "$GIT_DISPATCHER_VERBOSE" ] && echo GIT WRAPPER sees command as "$command" and args as "${args[@]}" >&2
-    declare extend_script="git-${command}"
+    local extend_script="git-${command}"
     if type -P "$extend_script" 1>/dev/null 2>/dev/null; then
         [ -n "$GIT_DISPATCHER_VERBOSE" ] && echo GIT WRAPPER calling "$extend_script" "${args[@]}" >&2
         "$extend_script" "${args[@]}"
@@ -76,14 +76,14 @@ git ()
         [ -n "$GIT_DISPATCHER_VERBOSE" ] && echo GIT WRAPPER calling "${REALGIT}" "${command}" "${args[@]}" >&2
         "${REALGIT}" "${command}" "${args[@]}"
     fi
-    declare status=$?
+    local status=$?
 
     # If the command succeeds and we have a valid directory changing command in
     # the temp file, change directory.
     if ((status == 0)) \
            && [ -n "$doandcdfile" ] \
            && (( $(wc -l < "$doandcdfile") > 0 )); then
-        declare -a cdcmd
+        local -a cdcmd
         read -r -a cdcmd < "$doandcdfile"
         if [ -n "${cdcmd[0]}" ] && \
                { [[ "${cdcmd[0]}" =~ ^(go|cd)$ ]] || \
