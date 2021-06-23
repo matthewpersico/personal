@@ -10,7 +10,7 @@ cmd_echo_id='git-clone'
 
 _git_clone_record_created_date ()
 {
-    git config --replace-all ${GIT_EXT_META_PREFIX}.git-clone.created "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+    git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.created "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
 }
 
 _git-clone-set-triangle()
@@ -19,10 +19,10 @@ _git-clone-set-triangle()
     githost_url=$1
     local githostkeycheck
     githostkeycheck=$( git kv --key-only --section svcs | grep -E "^$githost_url$")
-    if [ -n "$githostkeycheck" ] ; then
+    if [[ -n "$githostkeycheck" ]] ; then
         echo "Supposed to provide a URL, not a service name. Converting..."
         githost_url=$(git kv --get "svcs.githostkeycheck")
-        if [ -z "$githost_url" ]; then
+        if [[ -z "$githost_url" ]]; then
             echo "No url found for githost '$1'";
             return 1
         fi
@@ -67,7 +67,7 @@ _git-clone-set-triangle()
     ## ^ allows git checkout -b 3 pull/upstream/3
 
     ## Our own metadata
-    git config --replace-all ${GIT_EXT_META_PREFIX}.git-clone.triangle-remote "${upstream_namespace}" || return $?
+    git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.triangle-remote "${upstream_namespace}" || return $?
 
     return 0
 }
@@ -118,7 +118,7 @@ main ()
             ##
             --doandcd )
                 doandcdfile=${ovalue:-$1}
-                [ -z "$ovalue" ] && shift ## If ovalue is blank, we used $1
+                [[ -z "$ovalue" ]] && shift ## If ovalue is blank, we used $1
                 ;;
             --tree )
                 dispatch_to_real_git=0
@@ -134,14 +134,14 @@ main ()
                 opt_make_fork=1
                 dispatch_to_real_git=0
                 local tmp_otn=${ovalue:-$1}
-                [ -z "$ovalue" ] && shift ## If ovalue is blank, we used $1
+                [[ -z "$ovalue" ]] && shift ## If ovalue is blank, we used $1
                 if [[ "$tmp_otn" =~ ^- ]]; then
                     ## we got the next option, not an arg to this one
                     cmd-echo -id "$cmd_echo_id" -e -- "Fork org ($tmp_otn) cannot start with a '-'."
                     return 1
                 fi
                 opt_triangle_namespace=${tmp_otn%/*}
-                if [ ! "$tmp_otn" = "$opt_triangle_namespace" ]; then
+                if [[ ! "$tmp_otn" = "$opt_triangle_namespace" ]]; then
                     cmd-echo -id "$cmd_echo_id" -w -- \
                              "--$option takes an upstream namespace specification," \
                              "not a full upstream repo specification." \
@@ -155,7 +155,7 @@ main ()
                 dispatch_to_real_git=0
                 opt_worktree=1
                 opt_worktree_name="${ovalue:-$1}"
-                [ -z "$ovalue" ] && shift ## If ovalue is blank, we used $1
+                [[ -z "$ovalue" ]] && shift ## If ovalue is blank, we used $1
                 if [[ "$opt_worktree_name" =~ ^- ]]; then
                     ## we got the next option, not an arg to this one
                     cmd-echo -id "$cmd_echo_id" -e -- "Worktree name ($opt_worktree_name) cannot start with a '-'."
@@ -172,7 +172,7 @@ main ()
             * )
                 ## Eventually, you call the real command with "${pass_on[@]}"
                 pass_on+=("$option");
-                [ -n "$ovalue" ] && pass_on+=("$ovalue")
+                [[ -n "$ovalue" ]] && pass_on+=("$ovalue")
                 ;;
         esac
     done
@@ -190,12 +190,11 @@ main ()
         opt_make_triangle=0
     fi
 
-    [ -z "${pass_on[0]}" ] && git-usage "$0" "$0" "Missing arguments" && return 1
-
-    if [ -z "${githost}" ]; then
+    [[ -z "${pass_on[0]}" ]] && git-usage "$0" "$0" "Missing arguments" && return 1
+    if [[ -z "${githost}" ]]; then
         local -a tmpa
         asplit "${pass_on[0]}" -s : -a tmpa
-        if [ "${tmpa[0]}" = "${pass_on[0]}" ]; then
+        if [[ "${tmpa[0]}" = "${pass_on[0]}" ]]; then
             cmd-echo -id "$cmd_echo_id" -e -- "githost specified and no 'githost:' found in '${pass_on[0]}'"
             return 1
         fi
@@ -208,7 +207,7 @@ main ()
 
     local githost_url
     githost_url="$(git kv --get "urls.${githost}")"
-    if [ -z "$githost_url" ]; then
+    if [[ -z "$githost_url" ]]; then
         cmd-echo -id "$cmd_echo_id" -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
         return 1
     fi
@@ -230,13 +229,13 @@ main ()
     cwpath="$(realpath "${PWD}")"
     local local_githost
     local_githost="$(basename "$cwpath")"
-    if [ "$local_githost" != "$githost" ] && ((opt_use_githost_dir == 1)); then
+    if [[ "$local_githost" != "$githost" ]] && ((opt_use_githost_dir == 1)); then
         cmd-echo -- "You must be in a directory path ending in"\
                  "   $githost" \
                  "You are in $cwpath"
         local shouldbein
         shouldbein="$(git config --get --expand ext.git-repo-root.root)/$githost"
-        if [ ! -d "$shouldbein" ]; then
+        if [[ ! -d "$shouldbein" ]]; then
             cmd-echo -ec -- "Cannot find '$shouldbein'." "Correct and re-execute."
             return 1
         else
@@ -248,7 +247,7 @@ main ()
     fi
 
     local tgt="$namespace/$repo"
-    if [ -e "$tgt" ]; then
+    if [[ -e "$tgt" ]]; then
         local resp
         if ((opt_y)); then
             resp='y'
@@ -256,10 +255,10 @@ main ()
         else
             resp=$(cmd-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
         fi
-        if [ "$resp" = 'n' ]; then
+        if [[ "$resp" = 'n' ]]; then
             cmd-echo -- "Keeping."
             if ((opt_use_githost_dir)); then
-                if [ -n "$doandcdfile" ]; then
+                if [[ -n "$doandcdfile" ]]; then
                     cmd-echo -c -- " Going to $namespace/$repo..."
                     echo "git go $namespace/$repo" > "$doandcdfile"
                 else
@@ -289,7 +288,7 @@ main ()
             cmd-echo -wc -- "Forked repo of $repo is named $forked_repo. Will use $forked_repo going forward."
             repo="$forked_repo"
             tgt="$namespace/$repo"
-            if [ -e "$tgt" ]; then
+            if [[ -e "$tgt" ]]; then
                 local resp
                 if ((opt_y)); then
                     resp='y'
@@ -297,10 +296,10 @@ main ()
                 else
                     resp=$(cmd-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
                 fi
-                if [ "$resp" = 'n' ]; then
+                if [[ "$resp" = 'n' ]]; then
                     cmd-echo -n -- "Keeping."
                     if ((opt_use_githost_dir)); then
-                        if [ -n "$doandcdfile" ]; then
+                        if [[ -n "$doandcdfile" ]]; then
                             cmd-echo -c -- " Going to $namespace/$repo..."
                             echo "git go $namespace/$repo" > "$doandcdfile"
                         else
@@ -355,7 +354,7 @@ main ()
 
     ## dirlist, not builtin cd, to take advantage this cd enhancement
     dirlist "$namespace/$repo"
-    if [ -n "$opt_triangle_namespace" ]; then
+    if [[ -n "$opt_triangle_namespace" ]]; then
         cmd-echo -- "Setting up triangle workflow with ${githost_url}${opt_triangle_namespace}/${repo}..."
         _git-clone-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo" || return $?
         git pull || return $? # To refresh from the upstream
@@ -379,7 +378,7 @@ main ()
         git-go-set
     fi
 
-    if [ -n "$opt_worktree_name" ]; then
+    if [[ -n "$opt_worktree_name" ]]; then
         git go "$namespace/$repo"
         git worktree create $opt_worktree_fetch "$opt_worktree_name"
     else
@@ -389,7 +388,7 @@ main ()
                      "    git go $namespace/$repo" \
                      "to use."
         else
-            [ -n "$doandcdfile" ] && echo "go ${PWD}" > "$doandcdfile"
+            [[ -n "$doandcdfile" ]] && echo "go ${PWD}" > "$doandcdfile"
             cmd-echo -- "Done."
         fi
     fi
