@@ -5,21 +5,29 @@
 ## Defaults for making temp files that tie the temp to the script making it.
 ## Use in conjunction with "on_exit.binc" to get rid of the temps on exit.
 
-## Include the file, with shellcheck exemption
+## Example:
+## Include files
 ##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 ##    source "$BASH_INC_DIR/on_exit.binc"
-##
-## Create a temp
 ##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 ##    source "$BASH_INC_DIR/mktemp.binc"
+## Create the temp
 ##    gitroot=$(mktempfile)
-##
 ## Immediately register it so that it will be removed at script exit
 ##    rm-on-exit $gitroot
+
+## Instead of the 'source' calls, you can:
+##    use on_exit
+##    use mktemp
+## if you have the function "use" loaded.
 
 ## Note: DO NOT source this script into the login environment. It won't work
 ## unless you export each function; subshells and commands won't see the
 ## functions otherwise.
+
+## Note: DO NOT try an wire in an automatic rm-on-exit call into
+## _mktemp_guts. Once you set call rm_on_exit in _mktemp_guts, exiting that
+## function will trigger the removal.
 
 function mktempfile()
 {
@@ -33,20 +41,26 @@ function mktempdir()
 
 function _mktemp_guts ()
 {
-    local dodir=''
-    if [[ $1 == '-d' ]]; then
-        dodir=$1
-        shift
-    fi
-    local tmproot
+    local -a dodir
     local -a args
-    args=("$1" "$(basename "$0")" "${FUNCNAME[2]}" "${FUNCNAME[1]}")
+    while (( $# )); do
+        case $1 in
+            -d )
+                dodir+=("$1")
+                ;;
+            * )
+                args+=("$1")
+                ;;
+        esac
+        shift
+    done
+    args+=("$(basename "$0")" "${FUNCNAME[2]}" "${FUNCNAME[1]}")
+    local tmproot
     for tmproot in "${args[@]}"; do
         ##      not blank                 not a shell
         if [[ -n "$tmproot" ]] && [[ ! $tmproot =~ ^- ]]; then
             local tmp
-            # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
-            tmp=$(mktemp $dodir -t tmp."$tmproot".XXXXXXXXX)
+            tmp=$(mktemp "${dodir[@]}" -t tmp."$tmproot".XXXXXXXXX)
             echo "$tmp"
             return
         fi

@@ -21,7 +21,13 @@ declare opt_files_only=0
 declare opt_exact=0
 declare timecompfile=''
 declare timecomp=''
+declare opt_type=''
 declare moreopts=1
+declare -A type_searches
+type_searches=([shell]="Bourne-Again shell|bash|ksh"
+               [perl]="perl"
+               [py]="python")
+
 while [[ "$1" =~ ^- ]] && ((moreopts)); do
     declare original="$1"
     option=$(dashstripper "$original")
@@ -48,7 +54,7 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
         ls) opt_ls=1 ;;
         files-only | fo ) opt_files_only=1 ;;
         exact) opt_exact=1 ;;
-        type) opt_type=$1; shift;;
+        type) opt_type="${type_searches[$1]:-$1}"; shift;;
         --) moreopts=0;;
         *) cmd-echo -- "$original is an invalid option. See $0 --help"
            exit 1 ;;
@@ -97,7 +103,6 @@ if [[ -n "$timecomp" ]]; then
 fi
 
 if ((opt_conflicts)); then
-    set -x
     declare -a conflict_files
     mapfile -t conflict_files < <(git grep "${opt_grep_opts[@]}" '^<<<<<<<' | sed 's/:.*//g' | sort -u)
     declare cf
@@ -263,7 +268,7 @@ fi
 if [[ $opt_type ]]; then
     declare i=0
     while ((i<${#output[@]})); do
-        if ! file "${output[$i]}" | grep -q -E "$opt_type"; then
+        if ! file "${output[$i]}" | grep -q -i -E ":.*${opt_type}"; then
             # echo -n "skipping "; file "${output[$i]}"
             output=( "${output[@]:0:$i}" "${output[@]:$((i+1))}" )
         else
@@ -271,7 +276,7 @@ if [[ $opt_type ]]; then
         fi
     done
 fi
-set +x
+
 if (( opt_edit )); then
     if [[ -z "$EDITOR" ]]; then
         cmd-echo -- "No EDITOR env variable found"
@@ -431,6 +436,18 @@ Run the files found through the 'file' command and filter out those whose descri
  git-find --type "shell script"
 
 Run C<file $(git ls-files) to see what kind of strings you can match for certain file types.
+
+We also provide the following standard types that are translated into the more complex regular expressions needed for these types:
+
+=over 2
+
+=item * shell
+
+=item * perl
+
+=item * py[thon]
+
+=back
 
 =item --help
 
