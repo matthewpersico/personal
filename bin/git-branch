@@ -32,15 +32,15 @@ _git_branch_is_a_pull ()
 git-branch-checkout ()
 {
     local tgt_branch=$1
-    if [ -z "$tgt_branch" ]; then
+    if [[ -z "$tgt_branch" ]]; then
         local PS3="Choose by number, q to quit: "
         select tgt_branch in $(git branch list --strip); do
-            [ "${REPLY,,}" = 'q' ] && return 1
-            [ -n "$tgt_branch" ] && break
+            [[ "${REPLY,,}" = 'q' ]] && return 1
+            [[ -n "$tgt_branch" ]] && break
         done
     else
         shift
-        if [ "$(git branch list --strip "$tgt_branch")" != "$tgt_branch" ]; then
+        if [[ "$(git branch list --strip "$tgt_branch")" != "$tgt_branch" ]]; then
             cmd-echo -- "$tgt_branch does not exist to be checked out."
             return 1
         fi
@@ -91,10 +91,10 @@ git-branch-delete ()
     branch=$1;
     local current_branch
     current_branch=$(git repo current-branch)
-    if [ -z "$branch" ]; then
+    if [[ -z "$branch" ]]; then
         local branchesa
         readarray -t branchesa < <(git-branch-list --strip)
-        if [ ${#branchesa[@]} == '0' ]; then
+        if [[ ${#branchesa[@]} == '0' ]]; then
             cmd-echo -- "No branches found. Are you in a git repo?"
             return 1
         fi
@@ -103,14 +103,14 @@ git-branch-delete ()
         local selected
         COLUMNS=1 ## One character wide terminal, forces list to be one column
         select selected in "${branchesa[@]}"; do
-            if [ -n "$selected" ]; then
-                if [ "$selected" == "$current_branch" ]; then
+            if [[ -n "$selected" ]]; then
+                if [[ "$selected" == "$current_branch" ]]; then
                     cmd-echo -- "$selected is current. Cannot delete current."
                 else
                     branch=$selected
                     break
                 fi
-            elif [ "${$REPLY,,}" = 'q' ]; then
+            elif [[ "${$REPLY,,}" = 'q' ]]; then
                 return 0
             else
                 cmd-echo -- "'$REPLY' is an invalid choice"
@@ -118,9 +118,9 @@ git-branch-delete ()
         done
     fi
 
-    if [ -n "$branch" ]; then
+    if [[ -n "$branch" ]]; then
         ## $branch was either $1 or we did not ctrl-c out of the select.
-        if [ "$branch" = "$current_branch" ]; then
+        if [[ "$branch" = "$current_branch" ]]; then
             cmd-echo -- "Nope, you can't delete the current branch."
             return 1
         fi
@@ -147,7 +147,7 @@ git-branch-delete ()
         fi
         cmd-echo -- "Branch deleted locally."
 
-        if [ "$no_remote" = '1' ]; then
+        if [[ "$no_remote" = '1' ]]; then
             return 0
         fi
 
@@ -155,7 +155,7 @@ git-branch-delete ()
         for remote in $remotes; do
             local inremote
             inremote=$(git-branch-list --strip -r | grep -E "^$remote/$branch$")
-            if [ -n "$inremote" ]; then
+            if [[ -n "$inremote" ]]; then
                 local resp
                 if ((opt_yes)); then
                     resp='y'
@@ -165,7 +165,7 @@ git-branch-delete ()
                     fi
                     resp=$(cmd-yesno "Try deleting in remote '$remote'($(git config --get "remote.$remote.url"))" n)
                 fi
-                if [ "$resp" == 'y' ]; then
+                if [[ "$resp" == 'y' ]]; then
                     ## This is "best effort". If the branch was part of a PR, then the merge may have auto-deleted it.
                     git push --delete "$remote" "$branch"
                     brdelstat=$?
@@ -220,12 +220,12 @@ git-branch-orphan()
     git checkout --orphan "$branch" || return $?
     local -a files
     readarray -t files < <(git what is new)
-    if [ -n "${files[0]}" ]; then
+    if [[ -n "${files[0]}" ]]; then
         git rm -f "${files[@]}"
     fi
 
     local -a comment
-    if [ "$1" ]; then
+    if [[ "$1" ]]; then
         comment=('-m' "$*")
     fi
 
@@ -249,22 +249,21 @@ git-branch-track-remote ()
         local_branch=$3
     fi
 
-    if [ -z "$remote" ] || [ -z "$branch" ]; then
+    if [[ -z "$remote" ]] || [[ -z "$branch" ]]; then
         git-usage "$0" "Missing one or both arguments (remote, branch)"
         return 1
     fi
-    [ -z "$local_branch" ] && local_branch=$branch
-
+    [[ -z "$local_branch" ]] && local_branch=$branch
     local local_branch_exists
     local_branch_exists="$(git branch --list "$local_branch")"
-    if [ -z "$local_branch_exists" ]; then
+    if [[ -z "$local_branch_exists" ]]; then
         ## Does not exist, create and track
         git checkout -b "$local_branch" --track "$remote/$branch"
         _git_branch_info_add_created_date "$local_branch"
     else
         local already_tracking_remote
         already_tracking_remote="$(git config branch."$local_branch".remote)"
-        if [ -z "$already_tracking_remote" ]; then
+        if [[ -z "$already_tracking_remote" ]]; then
             ## Exists, not tracking, track
             git branch --set-upstream-to "$remote/$branch" "$local_branch"
             _git_branch_info_add_fetched_date "$local_branch"
@@ -340,7 +339,7 @@ git-branch-list ()
         esac
     done
 
-    if [ -n "$remote" ]; then
+    if [[ -n "$remote" ]]; then
         ## Update the local branches with remote. Shunt away the output - not
         ## needed, interferes with functions that call git-branch-list and read
         ## the output.
@@ -349,7 +348,7 @@ git-branch-list ()
 
     local -a opts
     opts=('--list')
-    [ -n "$remote" ] && opts+=("$remote")
+    [[ -n "$remote" ]] && opts+=("$remote")
     [[ -n $show_current ]] && opts=("$show_current")
 
     if ((strip)); then
