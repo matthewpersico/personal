@@ -4,8 +4,8 @@ echo "$(date): git-check-with-remote" >> "$HOME/.gitaudit"
 
 # git-check-with-remote
 
-# shellcheck disable=SC1090
-source "$BASH_INC_DIR/on_exit.binc"
+use mktemp
+use on_exit
 
 declare opt_branch=''
 declare opt_remote='origin'
@@ -88,7 +88,7 @@ fi
 
 ## Check the declare branch against its origin
 declare stcheck
-stcheck=$(mktemp -t tmp.git-check-with-remote.check.XXXXXXXXXX)
+stcheck=$(mktempfile -+ check)
 rm-on-exit "$stcheck"
 git status 1>"$stcheck" 2>&1
 grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null
@@ -113,7 +113,7 @@ fi
 
 ## Now grab the remote branch
 declare gflog
-gflog=$(mktemp -t tmp.git-check-with-remote.gflog.XXXXXXXXXX)
+gflog=$(mktempfile -+ gflog)
 rm-on-exit "$gflog"
 git fetch "${opt_remote}" "${opt_branch}" 2>"$gflog"
 declare rc=$?
@@ -126,19 +126,19 @@ rm -f "$gflog"
 
 ## Log the declare branch
 declare locallog
-locallog=$(mktemp -t tmp.git-check-with-remote.locallog.XXXXXXXXXX)
+locallog=$(mktempfile -+ locallog)
 rm-on-exit "$locallog"
 git log > "$locallog"
 
 ## Log the declare copy of the remote branch
 declare remotelog
-remotelog=$(mktemp -t tmp.git-check-with-remote.remotelog.XXXXXXXXXX)
+remotelog=$(mktempfile -+ remotelog)
 rm-on-exit "$remotelog"
 git log "${opt_remote}/${opt_branch}" > "$remotelog"
 
 ## Diff 'em
 declare difflog
-difflog=$(mktemp -t tmp.git-check-with-remote.difflog.XXXXXXXXXX)
+difflog=$(mktempfile +- difflog)
 rm-on-exit "$difflog"
 diff "$locallog" "$remotelog" 1> "$difflog" 2>&1
 
