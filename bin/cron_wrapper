@@ -3,6 +3,9 @@
 # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
 # shellcheck disable=SC1090 ## cannot find sourced file at shellcheck time
 
+use mktemp
+use on_exit
+
 ## Control when cron jobs mail their output. This could probably use a refactor
 ## into functions but I'm not sure if we would leak functions into the call,
 ## so...
@@ -59,7 +62,7 @@ done
 ## Logging setup. We keep all output and then we keep profile's output as a
 ## separate subset.
 declare filesubject=${mailsubject// /-}
-temproot=$(mktemp -t "tmp.cron_wrapper.${filesubject}.XXXXXXXXXX")
+temproot=$(mktempfile -+ "${filesubject}")
 alllog=${temproot}.alllog
 profilelog=${temproot}.profilelog
 did_profile=0
@@ -91,8 +94,7 @@ fi
 ## Temp file handling. We clean up after ourselves. Unless we want to keep the
 ## logs, but we handle that below.
 ##
-source "$BASH_INC_DIR/on_exit.binc"
-rm-on-exit "$temproot" "$alllog" "$profilelog"
+xzrm-on-exit "$temproot" "$alllog" "$profilelog"
 
 ##
 ## Kerberos cr-p.

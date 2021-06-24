@@ -2,9 +2,8 @@
 #
 # logit
 #
-# shellcheck disable=SC2009 #https://github.com/koalaman/shellcheck/wiki/SC2009 - psgrep not on all machines
-# shellcheck disable=SC1090
-source "$BASH_INC_DIR/on_exit.binc"
+use mktemp
+use on_exit
 
 # Inits
 declare logfile=''
@@ -79,7 +78,7 @@ while true; do
             fi
             attime="$1"
             shift
-            atfile=$(mktemp -t tmp.logit.at.XXXXXXXXXX)
+            atfile=$(mktempfile -+ at)
             echo "logit --isat $*" > "$atfile"
             chmod +x "$atfile"
             at -m -f "$atfile" "$attime"
@@ -354,8 +353,10 @@ if ((teeit || zenityit)); then
             ## see the whole log in the tail
 
     ## Grabs the line that is the process entry for the tail command, prints the first number it finds (the pid)
+    # shellcheck disable=SC2009 #https://github.com/koalaman/shellcheck/wiki/SC2009
     tailpid=$(ps -ef | grep "$logspec" | grep 'tail -f' | grep -v "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
     ## Grabs the line that is the process entry for the output of the tail command, prints the first number it finds (the pid)
+    # shellcheck disable=SC2009 #https://github.com/koalaman/shellcheck/wiki/SC2009
     termerpid=$(ps -ef | grep "$logspec" | grep 'tail -f' | grep "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
 
     if [[ $termer =~ zenity ]]; then
@@ -402,7 +403,7 @@ fi
         git status
         echo
 
-        tmpf=$(mktemp -t tmp.logit.XXXXXXXXXX)
+        tmpf=$(mktempfile logit)
         rm-on-exit "$tmpf"
         git stash list >>"$tmpf" 2>&1
         if [[ -s "$tmpf" ]]; then
