@@ -3,9 +3,6 @@
 # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
 # shellcheck disable=SC1090 ## cannot find sourced file at shellcheck time
 
-use mktemp
-use on_exit
-
 ## Control when cron jobs mail their output. This could probably use a refactor
 ## into functions but I'm not sure if we would leak functions into the call,
 ## so...
@@ -62,7 +59,7 @@ done
 ## Logging setup. We keep all output and then we keep profile's output as a
 ## separate subset.
 declare filesubject=${mailsubject// /-}
-temproot=$(mktempfile -+ "${filesubject}")
+temproot=$(mktemp -t "tmp.cron_wrapper.${filesubject}.XXXXXXXXXX")
 alllog=${temproot}.alllog
 profilelog=${temproot}.profilelog
 did_profile=0
@@ -74,15 +71,14 @@ for p in ${TILDAE:-$HOME}/.bash_profile.${USER} \
                          ${TILDAE:-$HOME}/.profile.${USER} \
                          ${TILDAE:-$HOME}/.profile
 do
-    if [[ -r "$p" ]] && ((!did_profile)); then
+    if [ -r "$p" ] && ((!did_profile)); then
         ## Environment setup here.
         . "$p" > "$profilelog" 2>&1
         did_profile=1
     fi
 done
 
-if ((!did_profile))
-then
+if ((!did_profile)); then
     echo 'ERROR - No profiles found before trying to run'
     echo "$@"
     echo
@@ -94,19 +90,18 @@ fi
 ## Temp file handling. We clean up after ourselves. Unless we want to keep the
 ## logs, but we handle that below.
 ##
-xzrm-on-exit "$temproot" "$alllog" "$profilelog"
+source "$BASH_INC_DIR/on_exit.binc"
+rm-on-exit "$temproot" "$alllog" "$profilelog"
 
 ##
 ## Kerberos cr-p.
 ##
-if((checkkinit))
-then
+if((checkkinit)); then
     klist -s
     status=$?
-    if((status))
-    then
+    if((status)); then
         backoff="$(dirname "$(realpath "$0")")/../data/cron_wrapper.kinit.${mailsubject// /_})"
-        if [[ -e "$backoff" ]]; then
+        if [ -e "$backoff" ]; then
             was=$(cat "$backoff")
             now=$(date +%s)
             if ((now-was<86399)); then
@@ -149,8 +144,9 @@ status=0
 # shellcheck disable=SC1079
 trap "eval ""exec 1>&$holdstdout $holdstdout>&-""      ## Restore stdout and close file descriptor.
       eval ""exec 2>&$holdstderr $holdstderr>&-""      ## Restore stderr and close file descriptor.
-      [[ -f $profilelog ]] && cat $profilelog
-      [[ -f $alllog ]]     && cat $alllog     " SIGTERM SIGINT SIGFPE SIGBUS
+      [ -f $profilelog ] && cat $profilelog
+      [ -f $alllog ]     && cat $alllog
+     " SIGTERM SIGINT SIGFPE SIGBUS
 
 ((setx)) && set -x
 ((setv)) && set -v
@@ -170,31 +166,29 @@ eval "exec 2>&$holdstderr $holdstderr>&-"      ## Restore stderr and close file 
 ##
 subsubject=''
 mailthelog=0
-if ((status))
-then
+if ((status)); then
     mailthelog=1 ## We always grab the log if there is an issue.
-    if [[ "$mailtype" = 'non-zero' ]]; then
+    if [ "$mailtype" = 'non-zero' ];  then
         subsubject="Non-zero exit ($status)"
-    elif [[ ! "$mailtype" = 'never' ]]; then
+    elif [ ! "$mailtype" = 'never' ];  then
         subsubject="Issue - Exit status: $status"
     fi
 else
     subsubject="Success"
-    if [[ "$mailtype" = 'if-no-output' ]]; then
+    if [ "$mailtype" = 'if-no-output' ]; then
         mailthelog=$(wc -c < "$alllog")
-        if ((mailthelog==0))
-        then
+        if ((mailthelog==0)); then
             mailthelog=1
             subsubject='Issue - No output'
         fi
-    elif [[ "$mailtype" = 'if-output' ]]; then
+    elif [ "$mailtype" = 'if-output' ]; then
         mailthelog=$(wc -c < "$alllog")
-    elif [[ "$mailtype" = 'today' ]]; then
+    elif [ "$mailtype" = 'today' ]; then
         mailthelog=1
         subsubject="Success, $(date +%A) check"
-    elif [[ "$mailtype" = 'never' ]] || [[ "$mailtype" = 'non-zero' ]]; then
+    elif [ "$mailtype" = 'never' ] || [ "$mailtype" = 'non-zero' ]; then
         mailthelog=0
-    elif [[ "$mailtype" = 'always' ]]; then
+    elif [ "$mailtype" = 'always' ]; then
         mailthelog=1
     else
         subsubject="Success, but unknown mailtype $mailtype. Mailing the log."
@@ -205,8 +199,7 @@ fi
 exitstatus=0
 
 declare logmsg
-if ((keeplog))
-then
+if ((keeplog)); then
     ## If we are keeping logs, we need to be notified so we mail the log
     ## information, despite any mail settings above to the contrary.
     mailthelog=1
@@ -214,9 +207,8 @@ then
     dont-on-exit "$temproot" "$alllog" "$profilelog"
 fi
 
-if ((mailthelog))
-then
-    if [[ -n "$mailto" ]]; then
+if ((mailthelog)); then
+    if [ -n "$mailto" ]; then
         /home/mpersico5/personal/bin/local-mailme \
             -f "$mailfrom" \
             -t "$mailto" \
@@ -224,7 +216,7 @@ then
             <<EOM
 $subsubject
 $logmsg
-$( ((status)) && [[ -f "$profilelog" ]] && cat "$profilelog"; [[ -f "$alllog" ]] && cat "$alllog")
+$( ((status)) && [[ -f "$profilelog" ]] && cat "$profilelog";[[ -f "$alllog" ]] && cat "$alllog")
 EOM
         exitstatus=0 ## we mailed off the error, if any
         exit 0
@@ -232,7 +224,7 @@ EOM
         cat <<EOM
 $subsubject
 $logmsg
-$( ((status)) && [[ -f "$profilelog" ]] && cat "$profilelog"; [[ -f "$alllog" ]] && cat "$alllog")
+$( ((status)) && [[ -f "$profilelog" ]] && cat "$profilelog";[[ -f "$alllog" ]] && cat "$alllog")
 EOM
         exitstatus=$status ## we need to force the mail of the log, to at least
                            ## the cron owner.
