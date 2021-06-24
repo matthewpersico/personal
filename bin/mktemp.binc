@@ -29,6 +29,7 @@
 ## _mktemp_guts. Once you set call rm_on_exit in _mktemp_guts, exiting that
 ## function will trigger the removal.
 
+# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 function mktempfile()
 {
     _mktemp_guts "$@"
@@ -41,31 +42,78 @@ function mktempdir()
 
 function _mktemp_guts ()
 {
-    local -a dodir
+    local -a mktempopts
     local -a args
+    local appendit
     while (( $# )); do
         case $1 in
-            -d )
-                dodir+=("$1")
+            -d | --directory | \
+                -u | --dry-run |\
+                -q | --quiet )
+                mktempopts+=("$1")
                 ;;
+            -+ )
+                appendit=".$2"
+                shift;;
             * )
                 args+=("$1")
                 ;;
         esac
         shift
     done
-    args+=("$(basename "$0")" "${FUNCNAME[2]}" "${FUNCNAME[1]}")
+
+    # Function in which mktemp* function was called, but not "main" if called
+    # in a script outside all functions.
+    [[ "${FUNCNAME[2]}" != "main" ]] && args+=("${FUNCNAME[2]}")
+
+    # Script in which mktemp.binc was sourced, but not if we are at the command
+    # line in an interactive shell.
+    [[ ! "$0" =~ ^- ]] && args+=("$(basename "$0")")
+
+    # Last resort, use mktemp* function that was called)
+    args+=("${FUNCNAME[1]}")
+
     local tmproot
     for tmproot in "${args[@]}"; do
         ##      not blank                 not a shell
         if [[ -n "$tmproot" ]] && [[ ! $tmproot =~ ^- ]]; then
             local tmp
-            tmp=$(mktemp "${dodir[@]}" -t tmp."$tmproot".XXXXXXXXX)
+            tmp=$(mktemp "${mktempopts[@]}" -t tmp.$$."${tmproot}${appendit}".XXXXXXXXX)
             echo "$tmp"
             return
         fi
     done
 }
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    declare script_level; script_level=$(mktempfile)
+    echo "temp at script level is"
+    ls -la "$script_level"
+    echo
+    afunc ()
+    {
+        declare func_level;
+        func_level=$(mktempfile)
+        echo "temp in a func is"
+        ls -la "$func_level"
+        echo
+    }
+    afunc
+    script_level=$(mktempfile override)
+    echo "temp at script level with overide is"
+    ls -la "$script_level"
+    echo
+
+    script_level=$(mktempfile -+ append)
+    echo "temp at script level with append is"
+    ls -la "$script_level"
+    echo
+
+    script_level=$(mktempfile -u)
+    echo "temp at script level with name $script_level and -u is"
+    ls -la "$script_level"
+    echo
+fi
 
 # Return code for "use".
 true
