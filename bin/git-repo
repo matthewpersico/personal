@@ -191,9 +191,9 @@ git-repo-config ()
     local -a lines
     local cb; cb="$(git-repo-current-branch)"
     local wt; wt="$(git-worktree ina -v)"
-    mapfile -t                 lines < <(git config --get-regexp "extmeta\.[0-9a-z-]+$" | sort)
-    [[ -n $cb ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "$cb" | sort)
-    [[ -n $wt ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "$wt" | sort)
+    mapfile -t                 lines < <(git config --get-regexp "extmeta\." | sort)
+    [[ -n $cb ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "branch.$cb" | sort)
+    [[ -n $wt ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "worktree.$wt" | sort)
     mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "remote.*.url" | sort)
     local -a display
     for line in "${lines[@]}"; do
@@ -218,6 +218,7 @@ git-repo-name ()
     return $?
 }
 
+# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-org ()
 {
     [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
@@ -671,6 +672,7 @@ git-repo-pr-get ()
         local perldata; perldata=$(mktempfile -+perldata)
         rm-on-exit "$perldata"
         github-api --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
+        local corg; corg=$(git-repo-org)
         local -a pr_now
         #read -r -a pr_now < <(perl -d:ptkdb -MData::Dumper -e '
         read -r -a pr_now < <(perl -MData::Dumper -e '
@@ -706,7 +708,7 @@ for $pull (@{$VAR1}) {
         exit 0;
     }
 }
-exit 0;' "$perldata" "$USER" "$cb")
+exit 0;' "$perldata" "$corg" "$cb")
         if [[ -z ${pr_now[0]} ]]; then
             # Cache the no
             git-repo-pr-store --noopenpr
@@ -762,16 +764,20 @@ git-repo-pr-store ()
     local wt; wt=$(git-worktree ina -v)
     local cb; cb=$(git-repo-current-branch)
     local asof; asof="$(date "$GIT_EXT_META_DATE_FMT")"
-    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
-    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
-    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
-    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
-    [[ -n $wt ]] && git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
-    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
-    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
-    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
-    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
-    [[ -n $cb ]] && git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
+    if [[ -n $wt ]]; then
+        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
+        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
+        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
+        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
+        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
+    fi
+    if [[ -n $cb ]]; then
+        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
+        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
+        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
+        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
+        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
+    fi
 }
 
 git-repo-pr-retrieve ()
@@ -1030,15 +1036,6 @@ git-repo-source-branch ()
 git-repo-show-source-branch ()
 {
     git-repo-source-branch
-}
-
-git-repo-set-named-branches-flag ()
-{
-    if [[ ! $1 =~ ^(true|false)$ ]]; then
-        cmd-echo --ec -- "${FUNCNAME[0]}: $1 is not 'true' or false"
-        false; return $?
-    fi
-    git config --type bool --replace-all "${GIT_EXT_META_PREFIX}.named-branches" "$1"
 }
 
 git-repo-named-branches ()
