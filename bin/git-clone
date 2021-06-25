@@ -13,6 +13,11 @@ _git_clone_record_created_date ()
     git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.created "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
 }
 
+_git_clone_record_named_branches ()
+{
+    git-repo named-branches true
+}
+
 _git-clone-set-triangle()
 {
     local githost_url
@@ -83,6 +88,7 @@ main ()
     local opt_use_githost_dir=0
     local opt_make_fork=0
     local opt_make_triangle=0
+    local opt_use_named_branches=0
     local dispatch_to_real_git=1
     local githost
     local namespace
@@ -123,6 +129,9 @@ main ()
             --tree )
                 dispatch_to_real_git=0
                 opt_use_githost_dir=1;;
+            --named-branches | --named | --nb)
+                dispatch_to_real_git=0
+                opt_use_named_branches=1;;
             -y | --yes )
                 dispatch_to_real_git=0; opt_y=1;;
             -t | --timestamp )
@@ -326,6 +335,7 @@ main ()
     (
         builtin cd "$namespace/$repo" || exit $?
         _git_clone_record_created_date
+        ((opt_use_named_branches)) && _git_clone_record_named_branches
     )
 
     if ((opt_t)); then
@@ -408,6 +418,7 @@ git-clone - extension to git clone
            [--fork-of org] \
            [[--wt|--worktree] new-worktree [--fetch]] \
            [--yes|y] [--timestamp|-t] \
+           [--named-branches | --named | --nb] \
            repoURL
 
 =head1 DESCRIPTION2
@@ -453,6 +464,14 @@ Answer yes to all prompts.
 =item --timestamp
 
 Read the git log of the repo and reset the timestamps on all the files to the date of the last commit of the file. Otherwise all files have the timestamp of when the repo is cloned.
+
+==item --named-branches
+
+If the cloned repo is not using the forked, triangle workflow, and the username
+is used to distinguish branches, then specify this option and it will be noted
+in the repo config. Then, when you run 'git worktree create' in the clone, if
+you forget to add it to the branch/worktree name, you will be asked if you want
+the branch to be prefixed with "$USER/".
 
 =back
 
