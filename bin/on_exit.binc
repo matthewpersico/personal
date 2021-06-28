@@ -5,17 +5,21 @@
 ## Stuff to do when you exit a script. From
 ## http://www.linuxjournal.com/content/use-bash-trap-statement-cleanup-temporary-files
 
-## Include the file, with shellcheck exemption
+## Example:
+## Include files
 ##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 ##    source "$BASH_INC_DIR/on_exit.binc"
-##
-## Create a temp
 ##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 ##    source "$BASH_INC_DIR/mktemp.binc"
+## Create the temp
 ##    gitroot=$(mktempfile)
-##
 ## Immediately register it so that it will be removed at script exit
 ##    rm-on-exit $gitroot
+
+## Instead of the 'source' calls, you can:
+##    use on_exit
+##    use mktemp
+## if you have the function "use" loaded.
 
 ## Note: DO NOT source this script into the login environment. It won't work
 ## unless you export each function; subshells and commands won't see the
@@ -28,10 +32,9 @@ declare -a _on_exit_items
 function on-exit ()
 {
     local item
-    for item in "${_on_exit_items[@]}"
-    do
-        [ -z "$item" ] && continue
-        [ "$ON_EXIT_VERBOSE" == '1' ] && echo "on_exit: $item" >&2
+    for item in "${_on_exit_items[@]}"; do
+        [[ -z "$item" ]] && continue
+        [[ "$ON_EXIT_VERBOSE" == '1' ]] && echo "on_exit: $item" >&2
         eval "$item"
     done
 }
@@ -41,7 +44,7 @@ function do-on-exit()
     local n=${#_on_exit_items[@]}
     _on_exit_items[$n]="$*"
     if [[ $n -eq 0 ]]; then
-        [ "$ON_EXIT_VERBOSE" == '1' ] && echo "add_on_exit: Setting trap (on_exit)" >&2
+        [[ "$ON_EXIT_VERBOSE" == '1' ]] && echo "add_on_exit: Setting trap (on_exit)" >&2
         trap on-exit EXIT
     fi
     return "$n"
@@ -49,14 +52,11 @@ function do-on-exit()
 
 function dont-on-exit()
 {
-    declare arg
+    local arg
     local n=${#_on_exit_items[@]}
-    for ((item=0; item<n; item++ ))
-    do
-        for arg in "$@"
-        do
-            if [[ ${_on_exit_items[$item]} =~ $arg ]]
-            then
+    for ((item=0; item<n; item++ )); do
+        for arg in "$@"; do
+            if [[ ${_on_exit_items[$item]} =~ $arg ]]; then
                 _on_exit_items[$item]=''
             fi
         done
@@ -65,8 +65,7 @@ function dont-on-exit()
 
 function rm-on-exit()
 {
-    for rmit in "$@"
-    do
+    for rmit in "$@"; do
         do-on-exit rm -rf "$rmit"
     done
 }
@@ -75,8 +74,10 @@ function show-on-exit ()
 {
     local item
     local n=-1
-    for item in "${_on_exit_items[@]}"
-    do
+    for item in "${_on_exit_items[@]}"; do
         echo "$((n+=1)):'$item'"
     done
 }
+
+# Return code for "use".
+true

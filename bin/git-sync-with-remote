@@ -5,8 +5,8 @@ echo "$(date): git-sync-with-remote" >> "$HOME/.gitaudit"
 
 # git-sync-with-remote
 
-source "$BASH_INC_DIR/on_exit.binc"
-source "$BASH_INC_DIR/mktemp.binc"
+use on_exit
+use mktemp
 
 declare opt_branch=''
 declare opt_remote='origin'
@@ -21,11 +21,10 @@ OPTSARGS=$(getopt -a -o scr:b:h -l stash,confirm,remote:,branch:,help,nopush -n 
 status=$?
 ((status != 0)) && bash-usage "$0" && exit $status
 eval set -- "$OPTSARGS"
-while true
-do
+while true; do
     declare option=$1
     shift
-    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
     case "$option" in
         s|stash) opt_stash=1 ;;
         c|confirm) opt_confirm=1 ;;
@@ -41,8 +40,7 @@ do
     esac
 done
 
-if [ -z "$opt_branch" ]
-then
+if [[ -z "$opt_branch" ]]; then
     cmd-echo "--branch required"
     bash-usage "$0"
     exit 1
@@ -53,8 +51,7 @@ cb=$(git rev-parse --abbrev-ref HEAD)
 status=$?
 ((status != 0 )) && exit 1
 
-if [ "$cb" == '' ]
-then
+if [[ "$cb" == '' ]]; then
     cmd-echo
     # shellcheck disable=SC2154
     cat <<EOF
@@ -72,13 +69,11 @@ EOF
     exit 1
 fi
 
-if [ "$cb" == "$opt_branch" ]
-then
+if [[ "$cb" == "$opt_branch" ]]; then
     cmd-echo
     declare msgoverride
     msgoverride=$(find "$(git root)" -name .git-sync-with-remote.txt)
-    if [ -n "$msgoverride" ] && [ -r "$msgoverride" ]
-    then
+    if [[ -n "$msgoverride" ]] && [[ -r "$msgoverride" ]]; then
         cat "$msgoverride"
     else
         cat <<EOF
@@ -102,16 +97,13 @@ fi
 ## Stash any modified items before checking and proceeding.
 declare needs_stash
 needs_stash=$( (git what is staged && git what is unstaged) | wc -w )
-if ((needs_stash))
-then
-    if ((opt_stash))
-    then
+if ((needs_stash)); then
+    if ((opt_stash)); then
         do_stash=1
     else
         git status
         resp=$(cmd-yesno "Stash" n)
-        if [ "$resp" = 'n' ]
-        then
+        if [[ "$resp" = 'n' ]]; then
             cmd-echo "Will not proceed without a stash"
             exit 1
         else
@@ -119,17 +111,14 @@ then
         fi
     fi
 else
-    if ((opt_stash))
-    then
+    if ((opt_stash)); then
         cmd-echo "stash not needed"
     fi
 fi
-if ((do_stash))
-then
+if ((do_stash)); then
     git stash
     status=$?
-    if [ "$status" != '0' ]
-    then
+    if [[ "$status" != '0' ]]; then
         exit $status
     fi
 fi
@@ -146,13 +135,12 @@ git-log-shas-range "$oldsha" "$oldsha"
 
 ## Check the declare branch against its origin
 declare stcheck
-stcheck=$(mktempfile)
+stcheck=$(mktempfile -+ stcheck)
 rm-on-exit "$stcheck"
 git status 1>"$stcheck" 2>&1
 grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null
 status=$?
-if [ "$status" != '0' ]
-then
+if [[ "$status" != '0' ]]; then
     cmd-echo
     cat "$stcheck"
     cat <<EOF
@@ -160,10 +148,8 @@ Your branch should be up to date with its origin in order to simplify the
 rebase.
 EOF
     resp=$(cmd-yesno "Do you want to continue anyway" n)
-    if [ "$resp" == 'n' ]
-    then
-        if ((do_stash))
-        then
+    if [[ "$resp" == 'n' ]]; then
+        if ((do_stash)); then
             cmd-echo 'Stash pop...'
             git stash pop
         fi
@@ -172,43 +158,37 @@ EOF
 fi
 
 declare diffoutput
-diffoutput=$(mktemp -t tmp.git-sync-with-remote.diff.XXXXXXXXXX)
+diffoutput=$(mktempfile -+ diff)
 rm-on-exit "$diffoutput"
 git diff ..."${opt_remote}" > "$diffoutput" 2>&1
 declare diffc
 diffc=$(wc -l < "$diffoutput")
-if ((diffc)) && ((opt_confirm))
-then
+if ((diffc)) && ((opt_confirm)); then
     cmd-echo --head "===== diffs ====="
     cat "$diffoutput"
     \rm "$diffoutput"
 fi
 
 declare logoutput
-logoutput=$(mktemp -t tmp.git-sync-with-remote.log.XXXXXXXXXX)
+logoutput=$(mktempfile -+ log)
 rm-on-exit "$logoutput"
 git log ..."${opt_remote}" > "$logoutput" 2>&1
 declare logc
 # shellcheck disable=SC2002
 logc=$(wc -l < "$logoutput")
 
-if ((logc)) && ((opt_confirm))
-then
+if ((logc)) && ((opt_confirm)); then
     ((diffc)) && cmd-echo
     cmd-echo "=====  log  ====="
     cat "$logoutput"
     \rm "$logoutput"
 fi
 
-if ((diffc)) || ((logc))
-then
-    if ((opt_confirm))
-    then
+if ((diffc)) || ((logc)); then
+    if ((opt_confirm)); then
         resp=$(cmd-yesno "Ok to pull" n)
-        if [ "$resp" == 'n' ]
-        then
-            if ((do_stash))
-            then
+        if [[ "$resp" == 'n' ]]; then
+            if ((do_stash)); then
                 cmd-echo 'Stash pop...'
                 git stash pop
                 exit 0
@@ -217,8 +197,7 @@ then
     fi
 else
     cmd-echo "No difference with remote."
-    if ((do_stash))
-    then
+    if ((do_stash)); then
         cmd-echo 'Stash pop...'
         git stash pop
     fi
@@ -228,8 +207,7 @@ fi
 cmd-echo 'Pulling to sync...'
 git pull --rebase "${opt_remote}" "${opt_branch}"
 status=$?
-if [ ! "$status" = '0' ]
-then
+if [[ ! "$status" = '0' ]]; then
     cmd-echo --ec -- "It appears the pull --rebase was not successful."
     cmd-echo -- "" \
              "Assuming the issue was not a system issue, but rather related to conflicts:" \
@@ -251,8 +229,7 @@ then
              "your branch." \
              "" \
              "Then push the branch up to your fork so you can submit a pull request."
-    if ((do_stash))
-    then
+    if ((do_stash)); then
         cmd-echo -- "Leaving stash stashed so as not to further complicate the issue." \
                  "Don't forget to 'git stash pop' after correcting the situation."
     fi
@@ -268,16 +245,13 @@ cmd-echo --head 'Log after pull:'
 git-log-shas-range "$oldsha" "$newsha"
 
 ## Push the merged branch back, if desired.
-if ((do_push))
-then
+if ((do_push)); then
     cmd-echo --head "pull --rebase successful. Pushing..."
     git push
     status=$?
-    if [ "$status" != '0' ]
-    then
+    if [[ "$status" != '0' ]]; then
         resp=$(cmd-yesno "'git push' complained. Shall I re-push with --force" n)
-        if [ "$resp" = 'y' ]
-        then
+        if [[ "$resp" = 'y' ]]; then
             git push --force
             status=$?
         fi
@@ -288,8 +262,7 @@ then
     git-log-shas-range "$oldsha" "$newsha"
 
     declare ask_pop=0
-    if [ "$status" = '0' ]
-    then
+    if [[ "$status" = '0' ]]; then
         cmd-echo --head 'Head log record:'
         git log -1
     else
@@ -298,8 +271,7 @@ then
 It appears that the git push was not successful and you declined to use --force,
 or the --force was also unsuccessful.
 EOF
-        if ((do_stash))
-        then
+        if ((do_stash)); then
             cmd-echo
             cat <<EOF
 It may be that you decided not to force the push since you still have work to do,
@@ -310,20 +282,16 @@ EOF
     fi
 fi
 
-if ((do_stash))
-then
+if ((do_stash)); then
     resp='y'
-    if ((ask_pop))
-    then
+    if ((ask_pop)); then
         resp=$(cmd-yesno "Shall I pop the last git stash" n)
     fi
-    if [ "$resp" = 'y' ]
-    then
+    if [[ "$resp" = 'y' ]]; then
         cmd-echo 'Stash pop...'
         git stash pop
         status=$?
-        if ((status != 0))
-        then
+        if ((status != 0)); then
             cmd-echo
             cat <<EOF
 It appears that the stash pop failed. There may be conflicts. Once you fix the

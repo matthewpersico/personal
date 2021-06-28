@@ -2,24 +2,8 @@
 
 # git-branch - no .gitaudit, called on every prompt
 
-# shellcheck disable=SC1090
-# Don't know if we really need this yet:
-# . "$REALGIT_EXEC_PATH/git-sh-setup"
-
 ## Functions that encapsulate the enhanced functionality. main() is defined
 ## last and called last.
-usage ()
-{
-    (
-        [ -n "$*" ] && cmd-echo -- "$@"
-        echo "** Extended actions **"
-        bash-usage "$0"
-        echo
-        echo "** Standard actions **"
-        "${REALGIT}" branch --help
-    ) 2>&1 | ${PAGER:-less}
-}
-
 _git_branch_info_remove ()
 {
     git config --remove-section "branch.$1" || return $?
@@ -27,17 +11,17 @@ _git_branch_info_remove ()
 
 _git_branch_info_add_created_date ()
 {
-    git config --replace-all "branch.$1.extmeta-created" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+    git config --replace-all "branch.$1.${GIT_EXT_META_PREFIX}-created" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
 }
 
 _git_branch_info_add_fetched_date ()
 {
-    git config --replace-all "branch.$1.extmeta-fetched" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+    git config --replace-all "branch.$1.${GIT_EXT_META_PREFIX}-fetched" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
 }
 
 _git_branch_was_fetched ()
 {
-    [[ -n $(git config --get "^branch.$1.extmeta-fetched" 2>/dev/null) ]]
+    [[ -n $(git config --get "^branch.$1.${GIT_EXT_META_PREFIX}-fetched" 2>/dev/null) ]]
 }
 
 _git_branch_is_a_pull ()
@@ -47,26 +31,22 @@ _git_branch_is_a_pull ()
 
 git-branch-checkout ()
 {
-    declare tgt_branch=$1
-    if [ -z "$tgt_branch" ]
-    then
+    local tgt_branch=$1
+    if [[ -z "$tgt_branch" ]]; then
         local PS3="Choose by number, q to quit: "
-        select tgt_branch in $(git branch list --strip)
-        do
-            [ "${REPLY,,}" = 'q' ] && return 1
-            [ -n "$tgt_branch" ] && break
+        select tgt_branch in $(git branch list --strip); do
+            [[ "${REPLY,,}" = 'q' ]] && return 1
+            [[ -n "$tgt_branch" ]] && break
         done
     else
         shift
-        if [ "$(git branch list --strip "$tgt_branch")" != "$tgt_branch" ]
-        then
+        if [[ "$(git branch list --strip "$tgt_branch")" != "$tgt_branch" ]]; then
             cmd-echo -- "$tgt_branch does not exist to be checked out."
             return 1
         fi
     fi
 
-    if (($#))
-    then
+    if (($#)); then
         cmd-echo -- "arguments '$*' ignored"
     fi
 
@@ -76,30 +56,29 @@ git-branch-checkout ()
 }
 git-branch-delete ()
 {
-    declare no_remote
+    local no_remote
     no_remote=0
-    declare opt_yes
+    local opt_yes
     opt_yes=0
-    declare do_go_set
+    local do_go_set
     do_go_set=1
-    declare OPTSARGS
-    declare shortopts='y'
-    declare longopts='yes,no-remote,declare-only,no-go-set'
+    local OPTSARGS
+    local shortopts='y'
+    local longopts='yes,no-remote,declare-only,no-go-set'
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-    declare status=$?
-    ((status != 0)) && usage && return $status
+    local status=$?
+    ((status != 0)) && git-usage "$0" && return $status
 
     eval set -- "$OPTSARGS"
-    while true
-    do
-        declare option=$1
+    while true; do
+        local option=$1
         shift
         case "$option" in
             -y|--yes) opt_yes=1 ;;
             --no-remote|--declare-only) no_remote=1 ;;
             --no-go-set) do_go_set=0 ;;
-            -h|--help) usage; return 0 ;;
+            -h|--help) git-usage "$0"; return 0 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
@@ -108,36 +87,30 @@ git-branch-delete ()
         esac
     done
 
-    declare branch
+    local branch
     branch=$1;
-    declare current_branch
+    local current_branch
     current_branch=$(git repo current-branch)
-    if [ -z "$branch" ]
-    then
-        declare branchesa
+    if [[ -z "$branch" ]]; then
+        local branchesa
         readarray -t branchesa < <(git-branch-list --strip)
-        if [ ${#branchesa[@]} == '0' ]
-        then
+        if [[ ${#branchesa[@]} == '0' ]]; then
             cmd-echo -- "No branches found. Are you in a git repo?"
             return 1
         fi
-        declare PS3
+        local PS3
         PS3="Choose by number, q to quit: "
-        declare selected
+        local selected
         COLUMNS=1 ## One character wide terminal, forces list to be one column
-        select selected in "${branchesa[@]}"
-        do
-            if [ -n "$selected" ]
-            then
-                if [ "$selected" == "$current_branch" ]
-                then
+        select selected in "${branchesa[@]}"; do
+            if [[ -n "$selected" ]]; then
+                if [[ "$selected" == "$current_branch" ]]; then
                     cmd-echo -- "$selected is current. Cannot delete current."
                 else
                     branch=$selected
                     break
                 fi
-            elif [ "${$REPLY,,}" = 'q' ]
-            then
+            elif [[ "${$REPLY,,}" = 'q' ]]; then
                 return 0
             else
                 cmd-echo -- "'$REPLY' is an invalid choice"
@@ -145,69 +118,58 @@ git-branch-delete ()
         done
     fi
 
-    if [ -n "$branch" ]
-    then
+    if [[ -n "$branch" ]]; then
         ## $branch was either $1 or we did not ctrl-c out of the select.
-        if [ "$branch" = "$current_branch" ]
-        then
+        if [[ "$branch" = "$current_branch" ]]; then
             cmd-echo -- "Nope, you can't delete the current branch."
             return 1
         fi
 
-        declare was_fetched
+        local was_fetched
         was_fetched=$(_git_branch_was_fetched "$current_branch"; echo $?)
 
-        declare -a delarg
-        if _git_branch_is_a_pull "$branch"
-        then
+        local -a delarg
+        if _git_branch_is_a_pull "$branch"; then
             delarg=('-D')
         else
             delarg=('-d')
         fi
-        declare brdelstat
+        local brdelstat
         cmd-echo -dc -- "Normal deletes use -d, we seem to need to use -D for pulls." \
                  "That may be because the pull is not merged?" \
                  "We are about to 'git branch ${delarg[*]} $branch'." \
                  "Once you figure out what's going on with pulls, you can remove this diagnostic."
         git branch "${delarg[@]}" "$branch"
         brdelstat=$?
-        if ((brdelstat))
-        then
+        if ((brdelstat)); then
             cmd-echo -- "ERROR: git branch ${delarg[*]} $branch failed. Returning $brdelstat."
             return $brdelstat
         fi
         cmd-echo -- "Branch deleted locally."
 
-        if [ "$no_remote" = '1' ]
-        then
+        if [[ "$no_remote" = '1' ]]; then
             return 0
         fi
 
         remotes=$(git remote)
-        for remote in $remotes
-        do
-            declare inremote
+        for remote in $remotes; do
+            local inremote
             inremote=$(git-branch-list --strip -r | grep -E "^$remote/$branch$")
-            if [ -n "$inremote" ]
-            then
-                declare resp
-                if ((opt_yes))
-                then
+            if [[ -n "$inremote" ]]; then
+                local resp
+                if ((opt_yes)); then
                     resp='y'
                 else
-                    if [[ $was_fetched == $(true && echo $?) ]]
-                    then
+                    if [[ $was_fetched == $(true && echo $?) ]]; then
                         cmd-echo -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
                     fi
                     resp=$(cmd-yesno "Try deleting in remote '$remote'($(git config --get "remote.$remote.url"))" n)
                 fi
-                if [ "$resp" == 'y' ]
-                then
+                if [[ "$resp" == 'y' ]]; then
                     ## This is "best effort". If the branch was part of a PR, then the merge may have auto-deleted it.
                     git push --delete "$remote" "$branch"
                     brdelstat=$?
-                    if ((brdelstat))
-                    then
+                    if ((brdelstat)); then
                         cmd-echo --wc "git push --delete $remote $branch failed. Maybe it was already deleted by being merged."
                     else
                         cmd-echo -- "Branch deleted remotely."
@@ -224,17 +186,15 @@ git-branch-delete ()
 
 git-branch-rename ()
 {
-    if (($#!=2))
-    then
-        usage "Need current and new branch names"
+    if (($#!=2)); then
+        git-usage "$0" "Need current and new branch names"
         return 1
     fi
 
     local old_branch=$1; shift
     local new_branch=$1; shift
-    if (($#))
-    then
-        usage "       argument(s) '$*' are illegal"
+    if (($#)); then
+        git-usage "$0" "       argument(s) '$*' are illegal"
         return 1
     fi
 
@@ -255,19 +215,17 @@ git-branch-rename ()
 git-branch-orphan()
 {
     ##Create an empty branch, for tools you want to keep, but not publish
-    declare remote=origin
-    declare branch=$1; shift
+    local remote=origin
+    local branch=$1; shift
     git checkout --orphan "$branch" || return $?
-    declare -a files
+    local -a files
     readarray -t files < <(git what is new)
-    if [ -n "${files[0]}" ]
-    then
+    if [[ -n "${files[0]}" ]]; then
         git rm -f "${files[@]}"
     fi
 
-    declare -a comment
-    if [ "$1" ]
-    then
+    local -a comment
+    if [[ "$1" ]]; then
         comment=('-m' "$*")
     fi
 
@@ -278,11 +236,10 @@ git-branch-orphan()
 
 git-branch-track-remote ()
 {
-    declare remote
-    declare branch
-    declare local_branch
-    if (($# == 1))
-    then
+    local remote
+    local branch
+    local local_branch
+    if (($# == 1)); then
         remote=$(git-get-default-remote --tag)
         branch=$1
         local_branch=$2
@@ -292,30 +249,26 @@ git-branch-track-remote ()
         local_branch=$3
     fi
 
-    if [ -z "$remote" ] || [ -z "$branch" ]
-    then
-        usage "Missing one or both arguments (remote, branch)"
+    if [[ -z "$remote" ]] || [[ -z "$branch" ]]; then
+        git-usage "$0" "Missing one or both arguments (remote, branch)"
         return 1
     fi
-    [ -z "$local_branch" ] && local_branch=$branch
-
-    declare local_branch_exists
+    [[ -z "$local_branch" ]] && local_branch=$branch
+    local local_branch_exists
     local_branch_exists="$(git branch --list "$local_branch")"
-    if [ -z "$local_branch_exists" ]
-    then
+    if [[ -z "$local_branch_exists" ]]; then
         ## Does not exist, create and track
         git checkout -b "$local_branch" --track "$remote/$branch"
         _git_branch_info_add_created_date "$local_branch"
     else
-        declare already_tracking_remote
+        local already_tracking_remote
         already_tracking_remote="$(git config branch."$local_branch".remote)"
-        if [ -z "$already_tracking_remote" ]
-        then
+        if [[ -z "$already_tracking_remote" ]]; then
             ## Exists, not tracking, track
             git branch --set-upstream-to "$remote/$branch" "$local_branch"
             _git_branch_info_add_fetched_date "$local_branch"
         else
-            declare already_tracking_branch
+            local already_tracking_branch
             already_tracking_branch=$(git config branch."$local_branch".merge | sed 's|refs/heads/||')
             echo "Branch $local_branch is already tracking $already_tracking_branch in $already_tracking_remote"
             return 1
@@ -355,12 +308,12 @@ git-branch-list ()
     local strip=0
     local remote=''
     local show_current=''
-    declare OPTSARGS
-    declare shortopts='rac'
-    declare longopts='strip,nostrip,remote,all,current'
+    local OPTSARGS
+    local shortopts='rac'
+    local longopts='strip,nostrip,remote,all,current'
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-    declare status=$?
+    local status=$?
     ((status != 0)) && cmd-echo -- "Exiting." && return $status
 
     # Reset the command line ($@).
@@ -368,9 +321,8 @@ git-branch-list ()
 
     # Reprocess the command line, extracting options and their arguments into
     # variables.
-    while true
-    do
-        declare option=$1
+    while true; do
+        local option=$1
         shift
         case "$option" in
             -a | --all) remote='-a';;
@@ -387,8 +339,7 @@ git-branch-list ()
         esac
     done
 
-    if [ -n "$remote" ]
-    then
+    if [[ -n "$remote" ]]; then
         ## Update the local branches with remote. Shunt away the output - not
         ## needed, interferes with functions that call git-branch-list and read
         ## the output.
@@ -397,11 +348,10 @@ git-branch-list ()
 
     local -a opts
     opts=('--list')
-    [ -n "$remote" ] && opts+=("$remote")
+    [[ -n "$remote" ]] && opts+=("$remote")
     [[ -n $show_current ]] && opts=("$show_current")
 
-    if ((strip))
-    then
+    if ((strip)); then
         "${REALGIT}" branch --no-color "${opts[@]}" "$@" | sed 's/^[ *] //' | sed 's/ .*//'
     else
         "${REALGIT}" branch "${opts[@]}" "$@"
@@ -411,34 +361,35 @@ git-branch-list ()
 
 git-branch-comment ()
 {
-    if [[ $1 =~ -(show|get) ]]
-    then
+    if [[ $1 =~ -(show|get) ]]; then
         git comment --get --branch
     else
         git comment --branch "$@"
     fi
 }
 
+#git-branch-show-parent-commit ()
+#{
+#    diff -u \
+#         <(git rev-list --first-parent $($REALGIT branch --show-current)\
+#               <(git rev-list --first-parent master) |      sed -ne 's/^ //p' | head -1
 
 main ()
 {
-    declare action=$1
+    local action=$1
 
-    if [[ "$action" =~ ^-+h ]]
-    then
-        usage
+    if [[ "$action" =~ ^-+h ]]; then
+        git-usage "$0"
         return  0
     fi
 
-    if [[ "$action" =~ ^-+current ]]
-    then
+    if [[ "$action" =~ ^-+current ]]; then
         git-branch-list --current
         return $?
     fi
 
     action_func_name="git-branch-${action}"
-    if declare -F "$action_func_name" >/dev/null
-    then
+    if declare -F "$action_func_name" >/dev/null; then
         shift ## the $action
         "$action_func_name" "$@"
     else

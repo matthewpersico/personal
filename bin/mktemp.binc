@@ -5,22 +5,31 @@
 ## Defaults for making temp files that tie the temp to the script making it.
 ## Use in conjunction with "on_exit.binc" to get rid of the temps on exit.
 
-## Include the file, with shellcheck exemption
+## Example:
+## Include files
 ##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 ##    source "$BASH_INC_DIR/on_exit.binc"
-##
-## Create a temp
 ##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 ##    source "$BASH_INC_DIR/mktemp.binc"
+## Create the temp
 ##    gitroot=$(mktempfile)
-##
 ## Immediately register it so that it will be removed at script exit
 ##    rm-on-exit $gitroot
+
+## Instead of the 'source' calls, you can:
+##    use on_exit
+##    use mktemp
+## if you have the function "use" loaded.
 
 ## Note: DO NOT source this script into the login environment. It won't work
 ## unless you export each function; subshells and commands won't see the
 ## functions otherwise.
 
+## Note: DO NOT try an wire in an automatic rm-on-exit call into
+## _mktemp_guts. Once you set call rm_on_exit in _mktemp_guts, exiting that
+## function will trigger the removal.
+
+# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 function mktempfile()
 {
     _mktemp_guts "$@"
@@ -33,25 +42,78 @@ function mktempdir()
 
 function _mktemp_guts ()
 {
-    declare dodir=''
-    if [[ $1 == '-d' ]]
-    then
-        dodir=$1
+    local -a mktempopts
+    local -a args
+    local appendit
+    while (( $# )); do
+        case $1 in
+            -d | --directory | \
+                -u | --dry-run |\
+                -q | --quiet )
+                mktempopts+=("$1")
+                ;;
+            -+ )
+                appendit=".$2"
+                shift;;
+            * )
+                args+=("$1")
+                ;;
+        esac
         shift
-    fi
-    declare tmproot
-    declare -a args
-    args=("$1" "$(basename "$0")" "${FUNCNAME[2]}" "${FUNCNAME[1]}")
-    for tmproot in "${args[@]}"
-    do
+    done
+
+    # Function in which mktemp* function was called, but not "main" if called
+    # in a script outside all functions.
+    [[ "${FUNCNAME[2]}" != "main" ]] && args+=("${FUNCNAME[2]}")
+
+    # Script in which mktemp.binc was sourced, but not if we are at the command
+    # line in an interactive shell.
+    [[ ! "$0" =~ ^- ]] && args+=("$(basename "$0")")
+
+    # Last resort, use mktemp* function that was called)
+    args+=("${FUNCNAME[1]}")
+
+    local tmproot
+    for tmproot in "${args[@]}"; do
         ##      not blank                 not a shell
-        if [[ -n "$tmproot" ]] && [[ ! $tmproot =~ ^- ]]
-        then
-            declare tmp
-            # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
-            tmp=$(mktemp $dodir -t tmp."$tmproot".XXXXXXXXX)
+        if [[ -n "$tmproot" ]] && [[ ! $tmproot =~ ^- ]]; then
+            local tmp
+            tmp=$(mktemp "${mktempopts[@]}" -t tmp.$$."${tmproot}${appendit}".XXXXXXXXX)
             echo "$tmp"
             return
         fi
     done
 }
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    declare script_level; script_level=$(mktempfile)
+    echo "temp at script level is"
+    ls -la "$script_level"
+    echo
+    afunc ()
+    {
+        declare func_level;
+        func_level=$(mktempfile)
+        echo "temp in a func is"
+        ls -la "$func_level"
+        echo
+    }
+    afunc
+    script_level=$(mktempfile override)
+    echo "temp at script level with overide is"
+    ls -la "$script_level"
+    echo
+
+    script_level=$(mktempfile -+ append)
+    echo "temp at script level with append is"
+    ls -la "$script_level"
+    echo
+
+    script_level=$(mktempfile -u)
+    echo "temp at script level with name $script_level and -u is"
+    ls -la "$script_level"
+    echo
+fi
+
+# Return code for "use".
+true

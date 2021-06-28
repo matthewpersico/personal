@@ -2,32 +2,17 @@
 
 # git-stash - no .gitaudit, called on every prompt
 
-if ! git-version-verify 'git-stash'
-then
+if ! git-version-verify 'git-stash'; then
     exit 1
 fi
-
-usage ()
-{
-    (
-        [ -n "$*" ] && cmd-echo -- "$@"
-        echo "** Extended actions **"
-        bash-usage "$0"
-        echo
-        echo "** Standard actions **"
-        "${REALGIT}" stash --help
-    ) 2>&1 | ${PAGER:-less}
-}
 
 ## Create a stash, then create a branch with the stashed items (which drops the
 ## stash).
 git-stash-and-branch () {
-    declare branchname
+    local branchname
     branchname=$(git repo current-branch)-stash-$(date +%Y%m%d.%H%M%S)
-    if "${REALGIT}" stash "$@"
-    then
-        if "${REALGIT}" stash branch "$branchname"
-        then
+    if "${REALGIT}" stash "$@"; then
+        if "${REALGIT}" stash branch "$branchname"; then
             cmd-echo "Created branch $branchname"
             return 0
         fi
@@ -40,17 +25,15 @@ git-stash-and-branch () {
 
 main ()
 {
-    declare action=$1
+    local action=$1
 
-    if [[ "$action" =~ ^-+h ]]
-    then
-        usage
+    if [[ "$action" =~ ^-+h ]]; then
+        git-usage "$0"
         return  0
     fi
 
     action_func_name="git-stash-${action}"
-    if declare -F "$action_func_name" >/dev/null
-    then
+    if declare -F "$action_func_name" >/dev/null; then
         shift ## the $action
         "$action_func_name" "$@"
     else
@@ -61,14 +44,13 @@ main ()
                 "${REALGIT}" stash "$@"
                 ;;
             * )
-                if [ -z "$action" ] || [[ "$action" =~ ^- ]] || [ -f "$action" ]
-                then
+                if [[ -z "$action" ]] || [[ "$action" =~ ^- ]] || [[ -f "$action" ]]; then
                     ## then there is no action specified or it's an option or a
                     ## pathspec. In any of these cases, we assume push.
                     "${REALGIT}" stash push "$@"
                     return $?
                 else
-                    usage "Error: unknown git stash action '$action'"
+                    git-usage "$0" "Error: unknown git stash action '$action'"
                     return 1
                 fi
                 ;;

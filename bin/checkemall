@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 
-# shellcheck disable=SC1090
-source "$BASH_INC_DIR/on_exit.binc"
+use mktemp
+use on_exit
 
 declare -a repos
 repos=(
@@ -12,16 +12,14 @@ repos=(
     "$HOME/.git_template"
 )
 
-for repo in "${repos[@]}"
-do
+for repo in "${repos[@]}"; do
     [[ ! -e $repo ]] && continue
     (
         cd "$repo" || exit 1
         cmd-echo "**** $(pwd) ****"
         git pull
 
-        if git repo is pristine
-        then
+        if git repo is pristine; then
             echo "Your branch is up to date with 'origin/$(git branch list -c)'"
         else
             git -c color.status=always st | \
@@ -36,13 +34,12 @@ if (/Your branch is (ahead|behind).*/) {
 '
         fi
         declare output
-        output=$(mktemp -t tmp.checkemall.git-diff.XXXXXXXXXX)
+        output=$(mktempfile)
         rm-on-exit "$output"
         declare default_branch
         default_branch=$(git repo default-branch)
         git diff --name-only "origin/$default_branch" >"$output" 2>&1
-        if (( $(wc -l < "$output") ))
-        then
+        if (( $(wc -l < "$output") )); then
             cmd-echo --color RED -- "Your branch is NOT up to date with 'origin/$default_branch'." "The differing files are:"
             cat "$output"
             rm -rf "$output"

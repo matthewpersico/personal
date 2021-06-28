@@ -5,34 +5,27 @@ cmd-echo "Processing clean, non-open-pr repos"
 declare -A skip
 
 # | reverse is so that we do worktrees before their parent directories
-for i in $(git-go --listfull | reverse )
-do
-    if [[ $i =~ personal|bloomberg ]]
-    then
+for i in $(git-go --listfull | reverse ); do
+    if [[ $i =~ personal|bloomberg ]]; then
         cmd-echo --head --wc "Skipping $i, by request"
         continue
-    if [[ -n ${skip[$i]} ]]
-    then
+    if [[ -n ${skip[$i]} ]]; then
         cmd-echo --head --wc "Skipping $i, worktrees still exist"
         continue
     fi
     (
-        if cd "$i"
-        then
+        if cd "$i"; then
             if git repo is pristine -v \
                     && ! git repo pr --get \
-                    && cmd-echo --head "$(pwd)"
-            then
-                if cmd-yesno "Delete" "n"
-                then
+                    && cmd-echo --head "$(pwd)"; then
+                if cmd-yesno "Delete" "n"; then
                     git wt del --current
                 else
                     # If this is a worktree, we cannot delete the parent
                     # dir it lives in, so mark in order to skip it later.
                     # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
                     declare isawto=$(git repo is a worktree of)
-                    if [[ -n $isawto ]]
-                    then
+                    if [[ -n $isawto ]]; then
                         skip[$isawto]=1
                     fi
                 fi

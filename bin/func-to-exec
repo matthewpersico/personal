@@ -3,15 +3,13 @@
 ## func-to-exec
 
 if [[ "${PWD}" =~ functions ]] || \
-       [[ "${PWD}" =~ bin ]]
-then
+       [[ "${PWD}" =~ bin ]]; then
     cmd-echo 'Cannot be in functions or bin subdir for conversion.' \
                 'cd .. and re-exec.'
     exit 1
 fi
 
-if [ -z "$1" ] || [[ $1 =~ ^-+h ]]
-then
+if [[ -z "$1" ]] || [[ $1 =~ ^-+h ]]; then
     cmd-echo "usage: $0 [--convert-only] [--force] func [func...]" \
                 "       You can use or not use the 'function/'" \
                 "       prefix;we will adjust."
@@ -19,14 +17,11 @@ then
 fi
 
 convert_only=0
-while [[ "$1" =~ ^- ]]
-do
-    if [[ "$1" = '--convert-only' ]]
-    then
+while [[ "$1" =~ ^- ]]; do
+    if [[ "$1" = '--convert-only' ]]; then
         convert_only=1
         shift
-    elif [[ "$1" = '--force' ]]
-    then
+    elif [[ "$1" = '--force' ]]; then
         force='--force'
         shift
     fi
@@ -46,26 +41,22 @@ raw_src_paths=("$@")
 declare raw_src_path
 declare bad=0
 declare justified=''
-for raw_src_path in "${raw_src_paths[@]}"
-do
+for raw_src_path in "${raw_src_paths[@]}"; do
     declare funcname
     funcname="$(basename "$raw_src_path")"
 
     src_path="functions/$funcname"
-    if [ ! -r "$src_path" ]
-    then
+    if [[ ! -r "$src_path" ]]; then
         cmd-echo -- "$src_path not found"
         ((bad+=1))
     else
-        if [ "$force" = '--force' ]
-        then
+        if [[ "$force" = '--force' ]]; then
             justified=''
         else
             justified=$(grep 'Function Justification' "$src_path" | \
                             grep -i -v none)
         fi
-        if [ -n "$justified" ]
-        then
+        if [[ -n "$justified" ]]; then
             cmd-echo "Not converting $src_path: $(grep 'Function Justification' "$src_path")"
             ((bad+=1))
         else
@@ -81,15 +72,14 @@ done
 
 ## Copy function files to bin
 cmd-echo "Copying function files..."
-for funcname in "${funcnames[@]}"
-do
+for funcname in "${funcnames[@]}"; do
     cp "${src_paths[$funcname]}" "${tgt_paths[$funcname]}"
 done
 
 ## Do the conversions
 cmd-echo "Converting to scripts..."
-if ! perl -S -d:ptkdb func-to-exec.pl $force "${tgt_paths[@]}" ## Each conversion of bin/foo will be in bin/foo.new
-then
+if ! perl -S -d:ptkdb func-to-exec.pl $force "${tgt_paths[@]}"; then
+    ## Each conversion of bin/foo will be in bin/foo.new
     exit $?
 fi
 
@@ -100,22 +90,18 @@ declare -a revert_list ## the list of function files we chose NOT to commit
                        ## after conversion
 declare tgt_path
 declare resp
-for funcname in "${funcnames[@]}"
-do
+for funcname in "${funcnames[@]}"; do
     cmd-echo --head --title "$funcname"
 
     tmp_path="${tmp_paths[$funcname]}"
     src_path="${src_paths[$funcname]}"
     resp='e' ## Assume we want to edit
-    while [ "$resp" = 'e' ]
-    do
+    while [[ "$resp" = 'e' ]]; do
         declare scstatus=1
-        while((scstatus>0))
-        do
+        while((scstatus>0)); do
             shellcheck "$tmp_path" > /tmp/func-to-exec.$$
             scstatus=$?
-            if((scstatus))
-            then
+            if((scstatus)); then
                 $EDITOR "${tmp_path}" /tmp/func-to-exec.$$
             fi
             \rm /tmp/func-to-exec.$$
@@ -125,11 +111,9 @@ do
                                                     ## trigger an exit due to
                                                     ## the -e setting
         resp=$(pick "$funcname - Keep conversion" "y/n/e" )
-        if [ "$resp" = 'y' ]
-        then
+        if [[ "$resp" = 'y' ]]; then
             commit_list+=("$funcname")
-        elif [ "$resp" = 'e' ]
-        then
+        elif [[ "$resp" = 'e' ]]; then
             $EDITOR "${tmp_path}"
         else
             revert_list+=("$funcname")
@@ -138,8 +122,7 @@ do
 done
 
 ## Unwind rejects
-for funcname in "${revert_list[@]}"
-do
+for funcname in "${revert_list[@]}"; do
     cmd-echo "Reverting $funcname..."
     tgt_path="${tgt_paths[$funcname]}"
     tmp_path="${tmp_paths[$funcname]}"
@@ -149,11 +132,9 @@ do
     unset tmp_paths["$funcname"]
 done
 
-if (( convert_only == 0 ))
-then
+if (( convert_only == 0 )); then
 
-    if ((!${#commit_list[@]}))
-    then
+    if ((!${#commit_list[@]})); then
         cmd-echo 'Nothing to commit.'
         exit 0
     fi
@@ -172,8 +153,7 @@ then
     ## Overlay the moves with the converted temps
     cmd-echo "Overlay with converted files..."
     declare -a unset_contents
-    for funcname in "${commit_list[@]}"
-    do
+    for funcname in "${commit_list[@]}"; do
         tgt_path="${tgt_paths[$funcname]}"
         tmp_path="${tmp_paths[$funcname]}"
         \mv "${tmp_path}" "${tgt_path}"

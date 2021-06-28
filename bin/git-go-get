@@ -2,8 +2,8 @@
 
 # git-go-get
 
-# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
-source "$BASH_INC_DIR/on_exit.binc"
+use mktemp
+use on_exit
 
 declare update
 declare wt=1
@@ -33,11 +33,10 @@ eval set -- "$OPTSARGS"
 
 # Reprocess the command line, extracting options and their arguments into
 # variables.
-while true
-do
+while true; do
     declare option=$1
     shift
-    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
     case "$option" in
         e | exact) exact='headtail' ;;
         et | exact-tail) exact='tail' ;;
@@ -67,50 +66,43 @@ set +x
 filter="$1"
 
 declare tmpfile
-tmpfile=$(mktemp -t tmp.git-go-get.XXXXXXXXXX)
+tmpfile=$(mktempfile)
 rm-on-exit "$tmpfile"
 rm-on-exit "${tmpfile}.001"
 
 declare gitfuncs_git_go_file
-if [ -n "$limited" ]
-then
+if [[ -n "$limited" ]]; then
     declare i
     declare -a tmp
     asplit "$limited" -s , -a tmp
-    for i in "${tmp[@]}"
-    do
+    for i in "${tmp[@]}"; do
         echo "$i" >> "$tmpfile"
     done
 else
     gitfuncs_git_go_file="${TILDAE:-$HOME}/gits/.git-go.$(date +%Y%m%d)"
-    if [ ! -e "$gitfuncs_git_go_file" ] || ((update))
-    then
+    if [[ ! -e "$gitfuncs_git_go_file" ]] || ((update)); then
         git-go-set
     fi
     cp "$gitfuncs_git_go_file" "$tmpfile"
 
-    if ((wt==0))
-    then
+    if ((wt==0)); then
         grep -v '/wt/' "$tmpfile" > "${tmpfile}.001"
         mv "${tmpfile}.001" "$tmpfile"
     fi
 
-    if ((only_wt==1))
-    then
+    if ((only_wt==1)); then
         grep '/wt/' "$tmpfile" > "${tmpfile}.001"
         mv "${tmpfile}.001" "$tmpfile"
     fi
 
-    if ((with_pr))
-    then
+    if ((with_pr)); then
         cmd-echo -- 'Options --(with|no)-pr not yet implemented'
     fi
 
     set +x
 fi
 
-if [ -n "$filter" ]
-then
+if [[ -n "$filter" ]]; then
     case $exact in
         headtail ) grep -E -- "^$filter\$" "$tmpfile" > "${tmpfile}.001" ;;
         head     ) grep -E -- "^$filter"   "$tmpfile" > "${tmpfile}.001" ;;
@@ -120,8 +112,7 @@ then
     mv "${tmpfile}.001" "$tmpfile"
 fi
 
-if((fields))
-then
+if((fields)); then
     tr '\n' ' ' < "$tmpfile"
 else
     cat "$tmpfile"

@@ -21,9 +21,14 @@ declare opt_files_only=0
 declare opt_exact=0
 declare timecompfile=''
 declare timecomp=''
+declare opt_type=''
 declare moreopts=1
-while [[ "$1" =~ ^- ]] && ((moreopts))
-do
+declare -A type_searches
+type_searches=([shell]="Bourne-Again shell|bash|ksh"
+               [perl]="perl"
+               [py]="python")
+
+while [[ "$1" =~ ^- ]] && ((moreopts)); do
     declare original="$1"
     option=$(dashstripper "$original")
     shift
@@ -49,50 +54,48 @@ do
         ls) opt_ls=1 ;;
         files-only | fo ) opt_files_only=1 ;;
         exact) opt_exact=1 ;;
+        type) opt_type="${type_searches[$1]:-$1}"; shift;;
+        grep)
+            cmd-echo --ec -j -- '--grep for searching the contents of' \
+                     'found files is not supported. Run git-grep with' \
+                     '''--find "find arguments"''';
+            false; exit $? ;;
         --) moreopts=0;;
         *) cmd-echo -- "$original is an invalid option. See $0 --help"
            exit 1 ;;
     esac
 done
 
-if (( ! opt_last_existed ))
-then
+if (( ! opt_last_existed )); then
     declare local_e=0
     (( opt_le_checkout )) && cmd-echo --ec "Option --checkout only applies to --last-existed" &&  local_e=1
     (( opt_le_get )) && cmd-echo --ec "Option --get only applies to --last-existed" &&  local_e=1
     (( opt_le_show )) && cmd-echo --ec "Option --show only applies to --last-existed" &&  local_e=1
     (( local_e )) && exit 1
 else
-    if (( opt_le_checkout + opt_le_get + opt_le_show > 1))
-    then
+    if (( opt_le_checkout + opt_le_get + opt_le_show > 1)); then
         cmd-echo --ec "Options --checkout, --get, and --show are mutex"
         exit 1
     fi
 fi
 
-if [ -n "$timecomp" ]
-then
-    if [ ! -f "$timecompfile" ]
-    then
+if [[ -n "$timecomp" ]]; then
+    if [[ ! -f "$timecompfile" ]]; then
         cmd-echo --ec -- "Cannot find file '$timecompfile' for $timecomp comparison"
         exit 1
     fi
 
     declare exitval=1 ## bad - no files found
-    for gitfile in $(git ls-files)
-    do
+    for gitfile in $(git ls-files); do
 
-        if ((opt_files_only)) && [[ ! -f $gitfile ]]
-        then
+        if ((opt_files_only)) && [[ ! -f $gitfile ]]; then
             continue
         fi
         declare timecompstat
         test  "$gitfile" "$timecomp" "$timecompfile"; timecompstat=$?
-        if ((timecompstat==0))
-        then
+        if ((timecompstat==0)); then
             exitval=0 ## good - at least one file found
-            if (( opt_abspath ))
-            then
+            if (( opt_abspath )); then
                 ## Preserve symlinks; do not resolve through to the underlying
                 ## file.
                 realpath -s "$gitfile"
@@ -104,16 +107,12 @@ then
     exit $exitval
 fi
 
-if ((opt_conflicts))
-then
-    set -x
+if ((opt_conflicts)); then
     declare -a conflict_files
     mapfile -t conflict_files < <(git grep "${opt_grep_opts[@]}" '^<<<<<<<' | sed 's/:.*//g' | sort -u)
     declare cf
-    for cf in "${conflict_files[@]}"
-    do
-        if [ "$opt_grep_opts_verbose" = '-l' ]
-        then
+    for cf in "${conflict_files[@]}"; do
+        if [[ "$opt_grep_opts_verbose" = '-l' ]]; then
             echo "$cf"
         else
             cmd-echo -head -- "Conflicts in $cf"
@@ -136,15 +135,12 @@ my $dummy = 6;
 } ' -- -n "$cf"
         fi
     done
-    if (( opt_edit ))
-    then
-        if [ -z "$EDITOR" ]
-        then
+    if (( opt_edit )); then
+        if [[ -z "$EDITOR" ]]; then
             cmd-echo -- "No EDITOR env variable found"
             exit 1
         fi
-        if (( ${#conflict_files[@]} ))
-        then
+        if (( ${#conflict_files[@]} )); then
             $EDITOR "${conflict_files[@]}"
         else
             cmd-echo -- "No conflicts found"
@@ -154,17 +150,14 @@ my $dummy = 6;
     exit 0
 fi
 
-if ((opt_deleted))
-then
+if ((opt_deleted)); then
     git rev-list -n 1 HEAD -- "$1"
     exit $?
 fi
 
-if ((opt_last_existed))
-then
+if ((opt_last_existed)); then
     declare file=$1; shift
-    if [[ -f $file ]]
-    then
+    if [[ -f $file ]]; then
         cmd-echo --ec -- "--last-existed does not apply; '$file' still exists"
         exit 1
     fi
@@ -172,17 +165,14 @@ then
     declare le_sha
     le_sha=$(git rev-list -n 1 "$(git rev-list -n 1 HEAD -- "$file")"^ -- "$file")
     [[ -z $le_sha ]] && cmd-echo -- "'$file' not located history" && exit 1
-    if (( opt_le_show ))
-    then
+    if (( opt_le_show )); then
         git show "${le_sha}:${file}" || exit 1
         exit 0
     fi
-    if (( opt_le_get ))
-    then
+    if (( opt_le_get )); then
         declare resp
         resp=$(cmd-yesno 'Do you want to restore the file directly with --checkout instead of --get' 'n')
-        if [[ $resp == 'n' ]]
-        then
+        if [[ $resp == 'n' ]]; then
             git show "${le_sha}:${file}" > "$(git root)/${file}.${le_sha}" || exit $?
             cmd-echo "Contents in ${file}.${le_sha}"
             exit 0
@@ -190,8 +180,7 @@ then
             opt_le_checkout=1
         fi
     fi
-    if (( opt_le_checkout ))
-    then
+    if (( opt_le_checkout )); then
         git checkout "${le_sha}" "${file}" || exit $?
         exit 0
     fi
@@ -201,17 +190,14 @@ then
     exit 0
 fi
 
-if ((opt_git_dir))
-then
+if ((opt_git_dir)); then
     declare dotgit
     dotgit=$(git root)/.git
-    if [ -f "$dotgit" ]
-    then
+    if [[ -f "$dotgit" ]]; then
         ## Must be a worktree. Go find the source.
         dotgit="$(realpath "$(dirname "$dotgit")/$(sed -e 's/.* //' -e 's|\.git/.*|.git|'< "$dotgit")")"
     fi
-    if [ -d "$dotgit" ]
-    then
+    if [[ -d "$dotgit" ]]; then
         echo "$dotgit"
         exit 0
     else
@@ -219,25 +205,21 @@ then
     fi
 fi
 
-if [ "$opt_untracked_only" = 1 ] && [ "$opt_all" = 1 ]
-then
+if [[ "$opt_untracked_only" = 1 ]] && [[ "$opt_all" = 1 ]]; then
     echo "--untracked_only and --all are mutually exclusive"
     bash-usage "$0"
     exit 1
 fi
 
 declare -a ls_files_opts=('-c')
-if [ "$opt_untracked_only" = 1 ]
-then
+if [[ "$opt_untracked_only" = 1 ]]; then
     ls_files_opts=('-o')
-elif [ "$opt_all" = 1 ]
-then
+elif [[ "$opt_all" = 1 ]]; then
     ls_files_opts+=('-o')
 fi
 
 declare -a to_find
-if (($# == 0))
-then
+if (($# == 0)); then
     ## No args, find everything
     to_find=('.')
 else
@@ -245,36 +227,31 @@ else
 fi
 
 declare -a output
-for f in "${to_find[@]}"
-do
-    for ff in $(git ls-files "${ls_files_opts[@]}" "$(git rev-parse --show-toplevel)" | grep "${opt_grep_opts[@]}" "$f" | sort -u )
-    do
-        if ((opt_files_only)) && [[ ! -f $gitfile ]]
-        then
+declare f
+for f in "${to_find[@]}"; do
+    for ff in $(git ls-files "${ls_files_opts[@]}" "$(git rev-parse --show-toplevel)" | grep "${opt_grep_opts[@]}" "$f" | sort -u ); do
+        if ((opt_files_only)) && [[ ! -f $gitfile ]]; then
             continue
         fi
 
         ffb=$(basename "$ff")
-        for match in $ff $ffb
-        do
-            if ((opt_exact==0))
-            then
-                if [[ $match =~ $f ]]
-                then
+        for match in $ff $ffb; do
+            if ((opt_exact==0)); then
+                if [[ $match =~ $f ]]; then
                     output+=("$ff")
+                    break
                 fi
             else
-                if [[ $match == "$f" ]]
-                then
+                if [[ $match == "$f" ]]; then
                     output+=("$ff")
+                    break
                 fi
             fi
         done
     done
 done
 
-if [ -n "${opt_grep_opts_exclude[0]}" ]
-then
+if [[ -n "${opt_grep_opts_exclude[0]}" ]]; then
     mapfile -t output < <(perl -e '
 $res=0;
 $re=0;
@@ -293,31 +270,38 @@ for ($i=0; $i<@ARGV; $i++) {
                          )
 fi
 
-if (( opt_edit ))
-then
-    if [ -z "$EDITOR" ]
-    then
+if [[ $opt_type ]]; then
+    declare i=0
+    while ((i<${#output[@]})); do
+        if ! file "${output[$i]}" | grep -q -i -E ":.*${opt_type}"; then
+            # echo -n "skipping "; file "${output[$i]}"
+            output=( "${output[@]:0:$i}" "${output[@]:$((i+1))}" )
+        else
+            ((i+=1))
+        fi
+    done
+fi
+
+if (( opt_edit )); then
+    if [[ -z "$EDITOR" ]]; then
         cmd-echo -- "No EDITOR env variable found"
         exit 1
     fi
     $EDITOR "${output[@]}"
 else
-    if ((opt_ls))
-    then
+    if ((opt_ls)); then
         # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
         # we want an ls here, not a find
         ls -la "${output[@]}" | uniq
     else
         declare i
-        for i in  "${output[@]}"
-        do
+        for i in  "${output[@]}"; do
             echo "$i"
         done | uniq
         fi
 fi
 
-if ((${#output[@]}))
-then
+if ((${#output[@]})); then
     exit 0 ## found at at least one, success
 else
     exit 1
@@ -341,6 +325,7 @@ git-find - run a 'find'-like command on the current repo
  git-find --git-dir
  git-find --newer markerfile [--abspath] [--files-only]
  git-find --older markerfile [--abspath] [--files-only]
+ git-find --type "a 'file' description'
  git-find [--help|-h]
 
 =head1 DESCRIPTION
@@ -448,6 +433,26 @@ Find all the git files older than the file given.
 =item --abspath
 
 Print the full path to any files found with --newer or --older.
+
+=item --type "a file string"
+
+Run the files found through the 'file' command and filter out those whose descriptions do not match the argument to the option. For example, to find all the shell scripts:
+
+ git-find --type "shell script"
+
+Run C<file $(git ls-files) to see what kind of strings you can match for certain file types.
+
+We also provide the following standard types that are translated into the more complex regular expressions needed for these types:
+
+=over 2
+
+=item * shell
+
+=item * perl
+
+=item * py[thon]
+
+=back
 
 =item --help
 

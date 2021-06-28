@@ -7,44 +7,27 @@ echo "$(date): git-grep" >> "$HOME/.gitaudit"
 # git-grep
 
 # shellcheck disable=SC1090
-source "$BASH_INC_DIR/on_exit.binc"
+use on_exit
 
-if ! git-version-verify 'git-config'
-then
+if ! git-version-verify 'git-config'; then
     exit 1
 fi
 
-usage ()
-{
-    (
-        [ -n "$*" ] && cmd-echo -- "$@"
-        echo "** Extended actions **"
-        bash-usage "$0"
-        echo
-        echo "** Standard actions **"
-        "$REALGIT" config --help
-    ) 2>&1 | ${PAGER:-less}
-}
-
 main ()
 {
-    declare -a pass_on_args
-    declare expand=0
-    declare value_only=0
-    declare preproc=0
+    local -a pass_on_args
+    local expand=0
+    local value_only=0
+    local preproc=0
     ## Must be REALGIT or we recurse like mad and forkbomb ourselvesq...
-    for i in $($REALGIT config --get git-config.opts)
-    do
+    for i in $($REALGIT config --get git-config.opts); do
         pass_on_args+=("$i")
     done
 
-    while [ -n "$1" ]
-    do
-        declare original="$1"
+    while [[ -n "$1" ]]; do        local original="$1"
         shift
-        if [[ "$original" =~ ^- ]]
-        then
-            declare option
+        if [[ "$original" =~ ^- ]]; then
+            local option
             option=$(dashstripper "$original")
 
             ## All of the --foo=bar processing is stripped away because we
@@ -52,7 +35,7 @@ main ()
 
             case $option in
                 h | help )
-                    usage ''
+                    git-usage "$0"
                     exit 0
                     ;;
                 personal )
@@ -73,6 +56,16 @@ main ()
                     preproc=1
                     continue
                     ;;
+                get-regexp)
+                    ## Note: This is a workaround for the fact that (from the
+                    ## man page): Regular expression matching is currently
+                    ## case-sensitive and done against a canonicalized version
+                    ## of the key in which section and variable names are
+                    ## lowercased, but subsection names are not.
+                    local regexp=$1; shift
+                    pass_on_args+=('--get-regexp' ".*${regexp}.*"); shift
+                    continue
+                    ;;
                 ## No '*)' case needed; anything else just gets passed on
             esac
         fi
@@ -81,27 +74,22 @@ main ()
         pass_on_args+=("$original")
     done
 
-    if ((preproc))
-    then
-        declare -a raws
-        if ((value_only))
-        then
+    if ((preproc)); then
+        local -a raws
+        if ((value_only)); then
             mapfile -t raws < <($REALGIT config "${pass_on_args[@]}"| cut -d' ' -f 2 )
         else
             mapfile -t raws < <($REALGIT config "${pass_on_args[@]}")
         fi
 
-        declare raw
-        for raw in "${raws[@]}"
-        do
-            if ((expand))
-            then
-                declare -a exps
+        local raw
+        for raw in "${raws[@]}"; do
+            if ((expand)); then
+                local -a exps
                 # shellcheck disable=SC2162 # https://github.com/koalaman/shellcheck/wiki/SC2162
                 read -a exps < <(eval echo "$raw")
-                declare exp
-                for exp in "${exps[@]}"
-                do
+                local exp
+                for exp in "${exps[@]}"; do
                     echo "$exp"
                 done
             else

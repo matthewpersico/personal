@@ -4,8 +4,7 @@
 
 [[ $1 =~ -h ]] && bash-usage "$0" && exit 0
 
-if [[ -n $VIRTUAL_ENV ]]
-then
+if [[ -n $VIRTUAL_ENV ]]; then
     cmd-echo --ec -- "Cannot run toxic while in VIRTUAL_ENV ($VIRTUAL_ENV)" "Run 'deactivate' first."
     exit 1
 fi
@@ -25,8 +24,7 @@ end_action ()
     ((idx+=1))
     action="${actions_list[$idx]}"
     if [[ $stop_here == '1' ]] \
-           || [[ $stop_here == "$action" ]]
-    then
+           || [[ $stop_here == "$action" ]]; then
         exit 1
     fi
 }
@@ -84,8 +82,7 @@ declare draacc='flake' # default_restart_action_after_code_change
 declare -A actions
 declare action_idx=0
 declare action
-for action in "${actions_list[@]}"
-do
+for action in "${actions_list[@]}"; do
     key="$action"
     actions[$key]=$action_idx
     ((action_idx+=1))
@@ -100,7 +97,7 @@ declare override_action
 ## Read the last thing we were doing or set up the default
 declare rc
 rc="$root_dir"/.toxic
-[ ! -e "$rc" ] && start_action "$draacc"
+[[ ! -e "$rc" ]] && start_action "$draacc"
 last_action=$(cat "$rc")
 
 ##
@@ -126,11 +123,10 @@ eval set -- "$OPTSARGS"
 
 # Reprocess the command line, extracting options and their arguments into
 # variables.
-while true
-do
+while true; do
     declare option=$1
     shift
-    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
     case "$option" in
         only )
             stop_here=1
@@ -159,18 +155,14 @@ do
 done
 
 declare action_type=''
-if [[ -n $1 ]]
-then
+if [[ -n $1 ]]; then
     action=$1; shift
-    if [[ $action =~ $actions_re ]]
-    then
+    if [[ $action =~ $actions_re ]]; then
         action_type=step
-    elif [[ $action =~ $single_actions_re ]]
-    then
+    elif [[ $action =~ $single_actions_re ]]; then
         # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
         action_type=single
-    elif [[ $action =~ ^- ]]
-    then
+    elif [[ $action =~ ^- ]]; then
         ## No action, just options
         echo noop > /dev/null
     else
@@ -179,14 +171,11 @@ then
     fi
 fi
 
-if [[ $action ]]
-then
+if [[ $action ]]; then
     (( repeat > 1 )) && [[ $action != 'pytest' ]] && cmd-echo --wc -- "'--repeat' is ignored for '$action'"
-    if [[ $action =~ ^($single_actions_re)$ ]]
-    then
+    if [[ $action =~ ^($single_actions_re)$ ]]; then
         [[ -n $stop_here ]] && cmd-echo --wc -- "'--only' and '--stop-at' are ignored for '$action'"
-    elif [[ $action =~ ^($actions_re)$ ]]
-    then
+    elif [[ $action =~ ^($actions_re)$ ]]; then
         ## Override check
         override_action=$action
         [[ $override_action == 'restart' ]] && override_action=$draacc
@@ -195,8 +184,7 @@ then
         if ((override_action_int > last_action_int )) \
                && [[ $action != "$draacc" ]] \
                && [[ $action != "clean" ]] \
-               && [[ $stop_here = '0' ]]
-        then
+               && [[ $stop_here = '0' ]]; then
             cmd-echo -ec -- "$override_action cannot be executed; last phase executed was '$last_action'."
             exit 1
         else
@@ -208,46 +196,38 @@ else
     action=$last_action
     declare -a newer
     mapfile -t newer < <(cd "$(git root)" && git find --abspath --newer "$rc")
-    if [ -n "${newer[0]}" ] \
+    if [[ -n "${newer[0]}" ]] \
            && [[ $action != "$draacc" ]] \
            && [[ $action != 'clean' ]] \
-           && [[ $action != 'end' ]]
-    then
+           && [[ $action != 'end' ]]; then
         cmd-echo --wc -- "The following files have changed since the last toxic run:"
         ls -lat "${newer[@]}"
         declare use_draacc=1
         declare newer_entry
-        for newer_entry in "${newer[@]}"
-        do
-            if [[ $(basename "$newer_entry") =~ ^requirements ]]
-            then
+        for newer_entry in "${newer[@]}"; do
+            if [[ $(basename "$newer_entry") =~ ^requirements ]]; then
                 cmd-echo --wc -- "Resuming at 'clean' instead of default resume action of '$draacc' because '$newer_entry' has changed and is a requirements file."
                 action=clean
                 use_draacc=0
                 break
             fi
         done
-        if ((use_draacc))
-        then
+        if ((use_draacc)); then
             cmd-echo --wc -- "Resuming at  default resume action of '$draacc' instead of '$action' due to changed files."
             action="$draacc"
         fi
     fi
 fi
 
-while [[ -n $action ]]
-do
-    if [[ -z $override_action ]] || [[ $override_action != 'clean' ]]
-    then
+while [[ -n $action ]]; do
+    if [[ -z $override_action ]] || [[ $override_action != 'clean' ]]; then
         rm -rf .toxic.clean
     fi
 
     case $action in
         clean )
-            if [[ -e .toxic.clean ]]
-            then
-                if ! cmd-yesno "It appears that you just cleaned. Do you really want to clean again?"
-                then
+            if [[ -e .toxic.clean ]]; then
+                if ! cmd-yesno "It appears that you just cleaned. Do you really want to clean again?"; then
                     cmd-echo 'Re-run without the "clean" action'
                     exit 1
                 fi
@@ -286,20 +266,16 @@ do
             source .tox/py"${py_short_ver}"/bin/activate
 
             # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
-            if [[ $action == pytest ]]
-            then
+            if [[ $action == pytest ]]; then
                 cmd-echo --color BLUE -- "pytest ${args[*]}"
                 pytest "${args[@]}" || exit 1
-            elif [[ $action == pytestdb ]]
-            then
+            elif [[ $action == pytestdb ]]; then
                 cmd-echo --color BLUE -- "pytest --pdb $*"
                 pytest --pdb "$@"
-            elif [[ $action == pytestdbe ]]
-            then
+            elif [[ $action == pytestdbe ]]; then
                 cmd-echo --color BLUE -- "xo --nobg --geo-only --eval \"(pdb \\\"pytest --pdb $*\\\")\""
                 xo --nobg --geo-only --eval "(pdb \"pytest --pdb $*\")"
-            elif [[ $action == pytestdbu ]]
-            then
+            elif [[ $action == pytestdbu ]]; then
                 cmd-echo --color BLUE -- "pytest --pdbcls pudb.debugger:Debugger --pdb -s $*"
                 pytest --pdbcls pudb.debugger:Debugger --pdb -s "$@"
             else
@@ -320,20 +296,16 @@ do
             (
                 cd ".tox/py${py_short_ver}" || exit 1
                 # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
-                if [[ $action == pyrun ]]
-                then
+                if [[ $action == pyrun ]]; then
                     cmd-echo --color BLUE -- "python ${args[*]}"
                     python "${args[@]}" || exit 1
-                elif [[ $action == pyrundb ]]
-                then
+                elif [[ $action == pyrundb ]]; then
                     cmd-echo --color BLUE -- "python --pdb $*"
                     python -m pdb "$@"
-                elif [[ $action == pyrundbe ]]
-                then
+                elif [[ $action == pyrundbe ]]; then
                     cmd-echo --color BLUE -- "xo --nobg --geo-only --eval \"(pdb \\\"python --pdb $*\\\")\""
                     xo --nobg --geo-only --eval "(pdb \"python --pdb $*\")"
-                elif [[ $action == pyrundbu ]]
-                then
+                elif [[ $action == pyrundbu ]]; then
                     cmd-echo --color BLUE -- "python --pdbcls pudb.debugger:Debugger --pdb -s $*"
                     python --pdbcls pudb.debugger:Debugger -m pdb -s "$@"
                 else
@@ -369,11 +341,9 @@ do
             start_action "$action" "mypying"
 
             declare -a mypyarg
-            mapfile -t mypyarg < <(for f in $(git find __init__.py | sort -u | xargs dirname)
-                                   do
+            mapfile -t mypyarg < <(for f in $(git find __init__.py | sort -u | xargs dirname); do
                                        [[ $f =~ ^test ]] && continue
-                                       if [[ -z $last ]] || [[ ! $f =~ $last ]]
-                                       then
+                                       if [[ -z $last ]] || [[ ! $f =~ $last ]]; then
                                            last=$f; echo "$last";
                                        fi
                                    done)
@@ -388,8 +358,7 @@ do
             start_action "$action" "blacking"
 
             cmd-echo --color BLUE -- 'tox -e black'
-            if ! tox -e black
-            then
+            if ! tox -e black; then
                 cmd-echo -wc -- 're-blacking to fix...'
                 cmd-echo --color BLUE -- '.tox/black/bin/python -m black .'
                 "$root_dir"/.tox/black/bin/python -m black .
@@ -414,7 +383,7 @@ do
             #then
             #    declare -a newer
             #    mapfile -t newer < <(cd "$(git root)" && git find --abspath --newer "$rc")
-            #    if [ -n "${newer[0]}" ]
+            #    if [[ -n "${newer[0]}" ]]
             #    then
             #        cmd-echo -- "The following files have changed since the last complete, successful toxic run:"
             #        ls -lat "${newer[@]}"

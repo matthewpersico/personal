@@ -4,30 +4,24 @@ echo "$(date): git-untaint" >> "$HOME/.gitaudit"
 
 # git-untaint
 
-if [ "$1" = '' ]
-then
+if [[ "$1" = '' ]]; then
     echo Need files and dirs or --all in a git repo
     exit 1
 fi
 
 declare -a files
-if [ "$1" = '--all' ] || [ "$1" = '-all' ]
-then
+if [[ "$1" = '--all' ]] || [[ "$1" = '-all' ]]; then
     ## Get only files where the -wT is on the first line and hope that there
     ## are no other switches following the T.
     mapfile -t files  < <(git grep -n -- ' -wT' | grep -E ':1:#!.*perl' | sed 's/:1:#.*//' | sort -u)
 else
     declare i
-    for i in "$@"
-    do
-        if [ -f "$i" ]
-        then
+    for i in "$@"; do
+        if [[ -f "$i" ]]; then
             files+=("$i")
-        elif [ -d "$i" ]
-        then
+        elif [[ -d "$i" ]]; then
             # shellcheck disable=SC2038
-            for j in $(find "$i" -type f | xargs grep -n -- '-wT' | grep -E ':1:#!.*perl' | sed 's/:1:#.*//')
-            do
+            for j in $(find "$i" -type f | xargs grep -n -- '-wT' | grep -E ':1:#!.*perl' | sed 's/:1:#.*//'); do
                 files+=("$j")
             done
         else
@@ -38,8 +32,7 @@ fi
 
 ## Make the change on line 1 only. Set the pattern to something that won't
 ## match if we try and untaint multiple times.
-if ((${#files[@]}))
-then
+if ((${#files[@]})); then
     cmd-echo "Processing these files: ${files[*]}"
     sedinplace -v '1s/-wT/\n##<GCS> -w -T git-untaint/' "${files[@]}" ## <GCSLITERAL>
 else

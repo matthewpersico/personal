@@ -3,54 +3,54 @@
 # git-comment
 
 # shellcheck disable=SC1090
-source "$BASH_INC_DIR/on_exit.binc"
+use on_exit
 
-if ! git-version-verify 'git-commit'
-then
+if ! git-version-verify 'git-commit'; then
     exit 1
 fi
 
 usage ()
 {
     (
-        [ -n "$*" ] && cmd-echo -- "$@"
+        [[ -n "$*" ]] && cmd-echo -- "$@"
         bash-usage "$0"
     ) 2>&1 | ${PAGER:-less}
 }
 
 main ()
 {
-    declare -a orig_args
+    local -a orig_args
     orig_args=("$@")
 
     ## If there's any chance that this will be in a script that will be dotted in,
     ## remove the explicit out_cmd calls.
-    declare opt_show=0
-    declare opt_highest_only=0
-    declare opt_verbose=1
-    declare opt_delete=0
-    declare opt_date=1
+    local opt_show=0
+    local opt_highest_only=0
+    local opt_verbose=1
+    local opt_delete=0
+    local opt_date=0
+    local prefix="${GIT_EXT_META_PREFIX}"
 
-    declare -A keys
-    keys[repo]='core.em.em-comment'
-    declare branchname
+    local -A keys
+    keys[repo]="core.${prefix}.comment"
+    local branchname
     branchname="$(git repo current-branch)"
-    keys[branch]="branch.$branchname.em-comment"
-    declare worktreename
+    keys[branch]="branch.$branchname.${prefix}-comment"
+    local worktreename
     worktreename="$(basename "${PWD}")"
-    keys[worktree]="worktree.$worktreename.em-comment"
+    keys[worktree]="worktree.$worktreename.${prefix}-comment"
 
-    declare -A write_keys
+    local -A write_keys
 
     # Read the options and args from command line. Note that the long and short
     # don't have to match up.
-    declare OPTSARGS
-    declare shortopts='rbwdhvq'
-    declare longopts='repo,branch,worktree,highest,nodate,date,show,get,delete,help,verbose,quiet'
+    local OPTSARGS
+    local shortopts='rbwdhvq'
+    local longopts='repo,branch,worktree,highest,nodate,date,show,get,delete,help,verbose,quiet'
 
     # Process the command line.
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
-    declare status=$?
+    local status=$?
     ((status != 0)) && exit $status ## return $status ## in functions
 
     # Reset the command line ($@).
@@ -58,11 +58,10 @@ main ()
 
     # Reprocess the command line, extracting options and their arguments into
     # variables.
-    while true
-    do
-        declare option=$1
+    while true; do
+        local option=$1
         shift
-        [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+        [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
         case "$option" in
             ## Option with no arg
             r | repo )
@@ -109,19 +108,16 @@ main ()
         esac
     done
 
-    declare commentdate
+    local commentdate
     ((opt_date)) && commentdate="$(date "$GIT_EXT_META_DATE_FMT") - "
 
-    if [[ ${#write_keys[*]} = '0' ]]
-    then
-        if ((opt_show)) || ( (( $# == 0 )) && ((! opt_delete)) )
-        then
+    if [[ ${#write_keys[*]} = '0' ]]; then
+        if ((opt_show)) || ( (( $# == 0 )) && ((! opt_delete)) ); then
             ## With no args, no options, just show all keys.
             exec git-comment -r -b -w --show "${orig_args[@]}"
         else
             cmd-echo -n -- "Need at least one of --repo, --branch, --worktree to determine which comment to "
-            if ((opt_delete))
-            then
+            if ((opt_delete)); then
                 cmd-echo -a -- "delete."
                 return 1
             else
@@ -131,25 +127,20 @@ main ()
         fi
     fi
 
-    if ((opt_delete || opt_show )) && (( $# > 0 ))
-    then
+    if ((opt_delete || opt_show )) && (( $# > 0 )); then
         ((opt_verbose)) && cmd-echo -ec -- "Cannot provide comment text with --delete or --show."
         return 1
     fi
 
-    declare -A output
-    for configtype in repo branch worktree
-    do
-        if [[ ${write_keys[$configtype]} = '1' ]]
-        then
-            declare configkey=${keys[$configtype]}
-            if ((opt_show))
-            then
+    local -A output
+    for configtype in repo branch worktree; do
+        if [[ ${write_keys[$configtype]} = '1' ]]; then
+            local configkey=${keys[$configtype]}
+            if ((opt_show)); then
                 value="$(git config --get "$configkey")"
                 [[ -n $value ]] && \
                     output[$configtype]="$(printf '%8s: %s\n' $configtype "$value")"
-            elif ((opt_delete))
-            then
+            elif ((opt_delete)); then
                 git config --unset "$configkey" || return $?
                 ((opt_verbose)) && cmd-echo -- "Comment removed for $configtype"
             else
@@ -159,18 +150,15 @@ main ()
         fi
     done
 
-    if (( ${#output[@]} ))
-    then
-        declare -a order
+    if (( ${#output[@]} )); then
+        local -a order
         order=(repo branch worktree)
         bail='echo'
-        if (( opt_highest_only ))
-        then
+        if (( opt_highest_only )); then
             order=(worktree branch repo)
             bail='return 1'
         fi
-        for configtype in "${order[@]}"
-        do
+        for configtype in "${order[@]}"; do
             [[ -n ${output[$configtype]} ]] && \
                 echo "${output[$configtype]}" && \
                 $bail >/dev/null

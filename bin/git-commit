@@ -5,43 +5,29 @@ echo "$(date): git-commit" >> "$HOME/.gitaudit"
 # git-commit
 
 # shellcheck disable=SC1090
-source "$BASH_INC_DIR/on_exit.binc"
+use on_exit
 
-if ! git-version-verify 'git-commit'
-then
+if ! git-version-verify 'git-commit'; then
     exit 1
 fi
 
 ## Functions that encapsulate the enhanced functionality. main() is defined
 ## last and called last.
 
-usage ()
-{
-    (
-        [ -n "$*" ] && cmd-echo -- "$@"
-        echo "** Extended actions **"
-        bash-usage "$0"
-        echo
-        echo "** Standard actions **"
-        "$REALGIT" commit --help
-    ) 2>&1 | ${PAGER:-less}
-}
-
 git-commit-with-source-ctrl-log ()
 {
-    declare opt_a
-    declare opt_v
-    declare -a opt_edit
-    declare -A opt_exclude
-    declare opt_skip
-    declare opt_debug
-    declare opt_confirm=''
-    declare -a opt_scl_pick
-    declare moreopts=1
-    while [[ "$1" =~ ^- ]] && ((moreopts))
-    do
-        declare original="$1"
-        declare option
+    local opt_a
+    local opt_v
+    local -a opt_edit
+    local -A opt_exclude
+    local opt_skip
+    local opt_debug
+    local opt_confirm=''
+    local -a opt_scl_pick
+    local moreopts=1
+    while [[ "$1" =~ ^- ]] && ((moreopts)); do
+        local original="$1"
+        local option
         option=$(dashstripper "$original")
         shift
 
@@ -52,12 +38,12 @@ git-commit-with-source-ctrl-log ()
             editor ) opt_edit=(--edit --editor "$1"); shift;;
             s ) opt_skip='--skip-no-source-ctrl-log';;
             sclpick ) opt_scl_pick=("$original" "$1"); shift;;
-            sclonly ) opt_skip='--sclonly' ;;
-            nosclonly ) opt_skip='--nosclonly' ;;
+            sclonly | sclo ) opt_skip='--sclonly' ;;
+            nosclonly | nosclo ) opt_skip='--nosclonly' ;;
             c | confirm ) opt_confirm='--confirm';;
             exclude | ex) opt_exclude["$(realpath "$1")"]=1; shift;;
             h | help )
-                bash-usage "$0"
+                git-usage "$0"
                 exit 0 ;;
             debug | x ) set -x; opt_debug='-x'; trap 'set +x' EXIT ;;
             --)
@@ -69,14 +55,12 @@ git-commit-with-source-ctrl-log ()
     done
 
     ## Locate all the files to process
-    declare -a filenames
-    if (($#))
-    then
+    local -a filenames
+    if (($#)); then
         ## Process what's specified
         filenames=("$@")
     else
-        if [ -z "$opt_a" ]
-        then
+        if [[ -z "$opt_a" ]]; then
             ## We want to mimic the same behavior as git commit with no filenames
             ## (default to only staged files), but we need to pass files into
             ## git-process-source-ctrl-log, so we grab the staged files.
@@ -89,16 +73,13 @@ git-commit-with-source-ctrl-log ()
     fi
 
     ## Process any exclusions
-    if (( ${#opt_exclude[@]} > 0 ))
-    then
-        declare -a included
-        declare i
-        for i in $(seq 0 $((${#filenames[@]}-1)))
-        do
-            declare filepath
+    if (( ${#opt_exclude[@]} > 0 )); then
+        local -a included
+        local i
+        for i in $(seq 0 $((${#filenames[@]}-1))); do
+            local filepath
             filepath="$(realpath "${filenames[$i]}")"
-            if [ "${opt_exclude[$filepath]}" = '' ]
-            then
+            if [[ "${opt_exclude[$filepath]}" = '' ]]; then
                 included+=("$filepath")
             fi
         done
@@ -113,38 +94,34 @@ git-commit-with-source-ctrl-log ()
 
 main ()
 {
-    declare opt_scl=0
+    local opt_scl=0
     # This is a shellcheck bug. Reported https://github.com/koalaman/shellcheck/issues/1913
     # shellcheck disable=SC2178 #https://github.com/koalaman/shellcheck/wiki/SC2178
-    declare opt_scl_pick=0
-    declare moreopts=1
-    declare -a pass_on_args
-    declare -a opt_message
-    declare opt_extref=''
-    declare do_push=0
-    declare opt_pr=''
+    local opt_scl_pick=0
+    local moreopts=1
+    local -a pass_on_args
+    local -a opt_message
+    local opt_extref=''
+    local do_push=0
+    local opt_pr=''
 
     ## This hunk of processing was written after git-clone and is an attempt to
     ## NOT have to duplicate all existing arg process, as is done in git-clone,
     ## because we only need to pick specific options.
-    while [ -n "$1" ] && ((moreopts))
-    do
-        declare original="$1"
+    while [[ -n "$1" ]] && ((moreopts)); do
+        local original="$1"
         shift
-        if [[ "$original" =~ ^- ]]
-        then
-            declare option
+        if [[ "$original" =~ ^- ]]; then
+            local option
             option=$(dashstripper "$original")
             ## This bit deals with --foo=bar instead of --foo bar
-            declare okey=''
-            declare ovalue=''
+            local okey=''
+            local ovalue=''
             ## but only deal with it if we really have an option. Otherwise you
             ## misinterpret items like this git clone option: --config
             ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
-            if [[ $option =~ ^- ]]
-            then
-                if [[ "$option" =~ = ]]
-                then
+            if [[ $option =~ ^- ]]; then
+                if [[ "$option" =~ = ]]; then
                     okey=${option%%=*}
                     ovalue=${option#*=}
                     option="$okey"
@@ -153,7 +130,7 @@ main ()
 
             case $option in
                 h | help )
-                    usage ''
+                    git-usage "$0"
                     exit 0
                     ;;
                 wc | wscl )
@@ -164,16 +141,16 @@ main ()
                     ## no pass_on_args here, we use the flag as a switch later
                     continue
                     ;;
-                sclonly )
+                sclonly | sclo | nosclonly | nosclo )
                     opt_scl=1
-                    ## We DO pass this option on
+                    ## We DO pass these options on to the next call.
                     ;;
                 sclpick )
                     opt_scl=1
                     # This is a shellcheck bug. Reported https://github.com/koalaman/shellcheck/issues/1913
                     # shellcheck disable=SC2178 #https://github.com/koalaman/shellcheck/wiki/SC2178
                     opt_scl_pick=${ovalue:-$1}
-                    [ -z "$ovalue" ] && shift
+                    [[ -z "$ovalue" ]] && shift
                     ## We DO pass this option on, but since it has its own arg, we handle it here
                     # This is a shellcheck bug. Reported https://github.com/koalaman/shellcheck/issues/1913
                     # shellcheck disable=SC2128 #https://github.com/koalaman/shellcheck/wiki/SC2128
@@ -182,7 +159,7 @@ main ()
                     ;;
                 eref )
                     opt_extref=" - ${ovalue:-$1}"
-                    [ -z "$ovalue" ] && shift
+                    [[ -z "$ovalue" ]] && shift
                     ## no pass_on_args here, this is added to the message
                     continue
                     ;;
@@ -193,8 +170,7 @@ main ()
                     ;;
                 m* )
                     message=${ovalue:-$1}
-                    [ -z "$ovalue" ] && shift
-
+                    [[ -z "$ovalue" ]] && shift
                     ## Amend the message
                     case $option in
                         mnew)
@@ -218,7 +194,7 @@ main ()
                         mjira)
                             ## Currently formatted so that it's really easy to
                             ## cut 'n paste in the PR on GitHub.
-                            declare limidx=49
+                            local limidx=49
                             message="${message:0:$limidx}
 ${message:$limidx} - $(git worktree get-name)"
                             pass_on_args+=('-e')
@@ -258,31 +234,30 @@ ${message:$limidx} - $(git worktree get-name)"
     done
 
     ((do_push)) && cmd-echo -- 'Committing...'
-    if ((opt_scl))
-    then
+    if ((opt_scl)); then
         git-commit-with-source-ctrl-log "${pass_on_args[@]}"
     else
-        if [ -n "${opt_message[1]}" ]
-        then
+        if [[ -n "${opt_message[1]}" ]]; then
             opt_message[1]="${opt_message[1]}$opt_extref"
         fi
         "${REALGIT}" commit "${opt_message[@]}" "${pass_on_args[@]}"
     fi
     status=$?
 
-    if ((status== 0 && do_push))
-    then
+    if ((status== 0 && do_push)); then
         cmd-echo -- 'Pushing...'
         git push $opt_pr
         status=$?
-        if [[ -z $opt_pr ]]
-        then
-            declare pr
-            if pr=$(git repo pr-get)
-            then
-                cmd-echo -- "Pull request is $pr"
+        if [[ -z $opt_pr ]]; then
+            # We didn't ask to pop up a browser to create a PR. See if there is
+            # an open one.
+            local pr_url
+            pr_url=$(git repo pr-get --open)
+            # shellcheck disable=SC2181 #https://github.com/koalaman/shellcheck/wiki/SC2181
+            if (($? == 0)); then
+                cmd-echo -- "Open pull request: $pr_url"
             else
-                cmd-echo -- "$pr"
+                cmd-echo -- "No open pull request found for this repo/branch."
             fi
         fi
     fi
@@ -301,8 +276,8 @@ git-commit - git extention of git commit
 
 =head1 SYNOPSIS
 
- git commit -scl | --sclonly | --sclpick
- git commit -m[emojid] "message" [-eref reference |-dref]
+ git commit --scl | --[no]sclonly | --sclpick "text"
+ git commit --m[emojid] "message" [-eref reference |-dref]
  git commit --no[[-]hook[s]|verify]
  git commit --push|--pr
 
@@ -319,20 +294,24 @@ Extensions to the 'git commit' command. Any action not described here will be pa
 Use the local $GITFUNCS_SOURCE_CTRL_LOG_NAME file for commit
 messages.
 
-=item --sclonly
+=item --[no]sclonly
 
-Only process files that have entries in $GITFUNCS_SOURCE_CTRL_LOG_NAME. The
-default is to fail if a file to be considered is missing an entry in
-$GITFUNCS_SOURCE_CTRL_LOG_NAME. In general, do not specify particlar files when
-using this flag. Let the contents of the file determine which files to
-commit. **Note** - you still need to use the '-a' flag to consider files that
-have been modifed but not yet added to the index.
+Aliases: --[no]sclo
+
+Only commit files that have (or do not have, with --no) entries in
+$GITFUNCS_SOURCE_CTRL_LOG_NAME. The default is to fail if a file to be
+committed is missing an entry in $GITFUNCS_SOURCE_CTRL_LOG_NAME. In general,
+do not specify particular files when using this flag. Let the contents of the
+file determine which files to commit.
+
+**Note** - you still need to use the '-a' flag to consider files that have been
+modifed but not yet added to the index.
 
 =item --sclpick
 
-TBD
+Only commit files whose comment exactly matches the supplied text.
 
-=item -m[emjoid]
+=item --m[emjoid]
 
 Add a text tag to the start of the commit message. There is supposed to be an
 associated emoji, but I think they are UTF 16 and the current OS settings are
@@ -350,11 +329,11 @@ using UTF 8 at best.
 
  mtst - TEST:
 
-=item -eref reference
+=item --eref reference
 
 Add the text "- reference" to the end of the commit message.
 
-=item -dref
+=item --dref
 
 Add the text "- $(basename $(git root))" to the end of the commit message. Good
 if your repo dirs are worktrees whose names correspond to the workflow system

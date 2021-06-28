@@ -10,10 +10,11 @@ count=1
 declare lxtermgeo_w
 lxtermgeo_w="$XTERMGEO_W"
 declare -a schemes
+declare -a geo
 declare proc_handling=''
 declare wh
-while ((more_opts)) && [[ "$1" =~ ^- ]]
-do
+declare nogeo=0
+while ((more_opts)) && [[ "$1" =~ ^- ]]; do
     declare original="$1"
     declare option
     option=$(dashstripper "$1")
@@ -36,6 +37,9 @@ do
         s )
             ## std
             ((lxtermgeo_w+-0)) ;;
+        nogeo | ng )
+            nogeo=1
+            ;;
         wh )
             wh=$1; shift ;;
         [0-9]* )
@@ -58,13 +62,12 @@ do
 done
 
 ## Any args are color schemes.
-for scheme in "$@"
-do
+for scheme in "$@"; do
     var="FOREBACKMAP_${scheme^^}"
-    [ -n "${!var}" ] && schemes+=("${!var}") && shift
+    [[ -n "${!var}" ]] && schemes+=("${!var}") && shift
 done
 
-[ -z "${schemes[0]}" ] && var="FOREBACKMAP_$(xterm-cli background)" && schemes=("${!var}")
+[[ -z "${schemes[0]}" ]] && var="FOREBACKMAP_$(xterm-cli background)" && schemes=("${!var}")
 
 ## Yeah this is a little funky - you could end up creating "count"
 ## terminals of each color scheme.
@@ -72,22 +75,23 @@ declare i=0
 declare j=$i
 declare delta_x=36
 declare delta_y=36
-xtg ()
+set_geo ()
 {
-    if [[ -n $wh ]]
-    then
-        echo "${wh}+$((XTERMGEO_X+(j*delta_x)))+$((XTERMGEO_Y+(j*delta_y)))"
+    if (( nogeo )); then
+        geo=()
     else
-        echo "${lxtermgeo_w}x${XTERMGEO_H}+$((XTERMGEO_X+(j*delta_x)))+$((XTERMGEO_Y+(j*delta_y)))"
+        if [[ -n $wh ]]; then
+            geo=('-geometry' "${wh}+$((XTERMGEO_X+(j*delta_x)))+$((XTERMGEO_Y+(j*delta_y)))")
+        else
+            geo=('-geometry' "${lxtermgeo_w}x${XTERMGEO_H}+$((XTERMGEO_X+(j*delta_x)))+$((XTERMGEO_Y+(j*delta_y)))")
+        fi
     fi
 }
 
-while ((i<count))
-do
-    for scheme in "${schemes[@]}"
-    do
-        declare -a cmd=(RXCmd "$HOSTNAME" -geometry "$(xtg)" "$XTERMFONTS" "$@" -fg "${scheme%%,*}" -bg "${scheme##*,}")
-        # shellcheck disable=SC2086 # $XTERMFONTS needs expansion
+while ((i<count)); do
+    for scheme in "${schemes[@]}"; do
+        set_geo
+        declare -a cmd=(RXCmd "$HOSTNAME" "${geo[@]}" '-fa' "$XTERMFONT_NAME" '-fs' "$XTERMFONT_SIZE" "$@" -fg "${scheme%%,*}" -bg "${scheme##*,}")
         case $proc_handling in
             da ) exec "${cmd[@]}" ;;
             bg ) "${cmd[@]}" &
@@ -101,7 +105,7 @@ do
     done
     ((i+=1))
 done
-## POD guard
+
 exit 0
 
 ## You can add sections with =head1, but stick to =item for section breakdowns,

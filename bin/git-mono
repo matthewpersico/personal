@@ -7,8 +7,8 @@ echo "$(date): git-mono" >> "$HOME/.gitaudit"
 # shellcheck disable=SC2034
 declare DEBUG__this_script=$0
 
-# shellcheck disable=SC1090
-source "$BASH_INC_DIR/on_exit.binc"
+use mktemp
+use on_exit
 
 do-on-exit set +x
 
@@ -19,34 +19,29 @@ declare -a repos
 
 set_repos ()
 {
-    declare repo=$1
-    declare option=$2
-    declare opt_wt=$3
-    declare -a repos_tmp
-    declare -A repos_unique ## In case there are multiple patterns and they
+    local repo=$1
+    local option=$2
+    local opt_wt=$3
+    local -a repos_tmp
+    local -A repos_unique ## In case there are multiple patterns and they
                             ## overlap
-    if [ "$repo" = ':all' ]
-    then
+    if [[ "$repo" = ':all' ]]; then
         repos_tmp[0]=''
         option=pattern
     else
         IFS=, read -ra repos_tmp <<< "$repo"
     fi
 
-    if [[ "$option" =~ (rp|patt) ]]
-    then
-        declare repo_pattern
-        for repo_pattern in "${repos_tmp[@]}"
-        do
-            declare matched
-            for matched in $( git go --listfull "$opt_wt" "$repo_pattern")
-            do
+    if [[ "$option" =~ (rp|patt) ]]; then
+        local repo_pattern
+        for repo_pattern in "${repos_tmp[@]}"; do
+            local matched
+            for matched in $( git go --listfull "$opt_wt" "$repo_pattern"); do
                 repos_unique[$matched]=1
             done
         done
     else
-        for repo in "${repos_tmp[@]}"
-        do
+        for repo in "${repos_tmp[@]}"; do
             repos_unique[$repo]=1
         done
     fi
@@ -58,32 +53,29 @@ set_repos ()
 
 main ()
 {
-    declare moreopts=1
-    declare quiet=0
-    declare silent=0
-    declare opt_repo
-    declare opt_update
-    declare opt_pause=0
-    declare repo
-    declare opt_rcge=-1
-    declare opt_wt=''
+    local moreopts=1
+    local quiet=0
+    local silent=0
+    local opt_repo
+    local opt_update
+    local opt_pause=0
+    local repo
+    local opt_rcge=-1
+    local opt_wt=''
     fmt=''
-    while [[ "$1" =~ ^- ]] && ((moreopts))
-    do
-        declare original="$1"
+    while [[ "$1" =~ ^- ]] && ((moreopts)); do
+        local original="$1"
         shift
-        declare option
+        local option
         option=$(dashstripper "$original")
         ## This bit deals with --foo=bar instead of --foo bar
-        declare okey=''
-        declare ovalue=''
+        local okey=''
+        local ovalue=''
         ## but only deal with it if we really have an option. Otherwise you
         ## misinterpret items like this git clone option: --config
         ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
-        if [[ $option =~ ^- ]]
-        then
-            if [[ "$option" =~ = ]]
-            then
+        if [[ $option =~ ^- ]]; then
+            if [[ "$option" =~ = ]]; then
                 okey=${option%%=*}
                 ovalue=${option#*=}
                 option="$okey"
@@ -103,7 +95,7 @@ main ()
                 ;& # unconditional drop-through
             r | rp | repo | repo-patt )
                 opt_repo=${ovalue:-$1}
-                [ -z "$ovalue" ] && shift
+                [[ -z "$ovalue" ]] && shift
                 set_repos "$opt_repo" "$option" "$opt_wt"
                 ;;
             p | pause )
@@ -128,7 +120,7 @@ main ()
                 quiet=0
                 silent=0
                 opt_rcge=${ovalue:-$1}
-                [ -z "$ovalue" ] && shift
+                [[ -z "$ovalue" ]] && shift
                 ;;
             x ) set -x ;;
             --)
@@ -141,37 +133,32 @@ main ()
         esac
     done
 
-    if ((${#repos[@]} == 0))
-    then
+    if ((${#repos[@]} == 0)); then
         ## Grab them all
         set_repos ':all' 'pattern'
     fi
 
     ## These commands return results with relative filenames in them. This code
     ## makes them print out as non-relative.
-    if { [ "$1" = 'git' ] \
+    if { [[ "$1" = 'git' ]] \
              && [[ "$2" =~ ^(find|grep|ls-files)$ ]]
        } \
-           || [ "$1" = 'git-find' ] \
-           || [ "$1" = 'git-grep' ]
-    then
+           || [[ "$1" = 'git-find' ]] \
+           || [[ "$1" = 'git-grep' ]]; then
         # shellcheck disable=SC2016
         fmt='${repo}/'
     fi
 
-    declare -a execmel
-    declare -a execmer
-    declare -a lsfiles
-    declare need_lsfiles=0
-    declare use_repo_dir=0
-    declare use_repo_idx=0
-    declare use_repo_loc=''
-    for arg in "$@"
-    do
-        if [[ $arg != '{LSFILES}' ]]
-        then
-            if ((need_lsfiles == 1))
-            then
+    local -a execmel
+    local -a execmer
+    local -a lsfiles
+    local need_lsfiles=0
+    local use_repo_dir=0
+    local use_repo_idx=0
+    local use_repo_loc=''
+    for arg in "$@"; do
+        if [[ $arg != '{LSFILES}' ]]; then
+            if ((need_lsfiles == 1)); then
                 execmer+=("$arg")
             else
                 execmel+=("$arg")
@@ -179,11 +166,9 @@ main ()
         else
             need_lsfiles=1
         fi
-        if [[ $arg == '{REPO}' ]]
-        then
+        if [[ $arg == '{REPO}' ]]; then
             use_repo_dir=1
-            if [[ ${execmel[-1]} == '{REPO}' ]]
-            then
+            if [[ ${execmel[-1]} == '{REPO}' ]]; then
                 use_repo_loc='l'
                 use_repo_idx=$((${#execmel[@]}-1))
             else
@@ -193,52 +178,43 @@ main ()
         fi
     done
 
-    for repo in "${repos[@]}"
-    do
+    for repo in "${repos[@]}"; do
         # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
         builtin cd "$repo"
         ((opt_update)) && git pull
-        declare t
-        t=$(mktemp -t tmp.dpkgrefrepos.XXXXXXXXXX)
+        local t
+        t=$(mktempfile)
         rm-on-exit "$t"
-        declare status
-        if ((need_lsfiles))
-        then
+        local status
+        if ((need_lsfiles)); then
             mapfile -t lsfiles < <(git ls-files)
         else
             lsfiles=()
         fi
-        if ((use_repo_dir))
-        then
+        if ((use_repo_dir)); then
             eval execme${use_repo_loc}[${use_repo_idx}]="${PWD}"
         fi
         "${execmel[@]}" "${lsfiles[@]}" "${execmer[@]}" > "$t" 2>&1
         status=$?
-        if (( opt_rcge > -1 ))
-        then
-            if (( status >= opt_rcge ))
-            then
+        if (( opt_rcge > -1 )); then
+            if (( status >= opt_rcge )); then
                 echo
                 cmd-echo -- "*** $repo"
             fi
-        elif (( quiet==0 && silent==0 ))
-        then
+        elif (( quiet==0 && silent==0 )); then
             echo
             cmd-echo -- "*** $repo"
         fi
 
         ## We wc on words (-w) and not lines (-l) because some commands print
         ## blank lines instead of nothing when they do nothing.
-        if (( $(wc -w 2>/dev/null < "$t") ))
-        then
-            if (( quiet ))
-            then
+        if (( $(wc -w 2>/dev/null < "$t") )); then
+            if (( quiet )); then
                 echo
                 cmd-echo -- "*** $repo"
             fi
-            declare line
-            while read -r line
-            do
+            local line
+            while read -r line; do
                 echo "$(eval echo ${fmt})${line}"
             done < "$t"
         fi
