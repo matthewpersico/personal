@@ -12,7 +12,9 @@ fi
 main ()
 {
     local opt_edit=0
+    local opt_find=0
     local -a pass_on_args
+    local -a found
 
     for i in $(git config --get "$(basename "$0").opts"); do
         pass_on_args+=("$i")
@@ -37,6 +39,13 @@ main ()
                     opt_edit=1
                     continue
                     ;;
+                find )
+                    opt_find=1
+                    local -a findargs
+                    read -r -a findargs <<< "$1"; shift
+                    mapfile -t found < <(git-find "${findargs[@]}")
+                    continue
+                    ;;
                 ## No '*)' case needed; anything else just gets passed on
             esac
         fi
@@ -45,13 +54,25 @@ main ()
         pass_on_args+=("$original")
     done
 
+    ## If we did a find to limit the search scope, add those files here, if any
+    ## were found.
+    if ((opt_find==1)); then
+        if ((${#found[@]} == 0 )); then
+            cmd-echo --wc -- "No files found with criteria ${findargs[*]}"
+            false; return $?
+        fi
+        pass_on_args+=("${found[@]}")
+    fi
+
+    ## Now, process.
     if ((opt_edit)); then
         local -a files
         readarray -t files < <($REALGIT grep -l "${pass_on_args[@]}")
         if [[ -n "${files[0]}" ]]; then
             $EDITOR "${files[@]}"
         else
-            echo "Pattern not found; no files to edit."
+            cmd-echo --wc -- "Pattern not found; no files to edit."
+            false
         fi
     else
         $REALGIT grep "${pass_on_args[@]}"
@@ -85,6 +106,15 @@ Extensions to the 'git grep' command. Any action not described here will be pass
 Instead of displaying the results of the grep, edit all the files containing the pattern. Functionally equivilent to
 
  $EDITOR $(git grep -l pattern)
+
+=item --find "args"
+
+Run git-find with any args all concatinated into one string:
+
+  git-grep --find "--type shell" -E ' \[ '
+
+greps for a single bracket on shell files only. If no files are "found", no
+grep is run.
 
 =back
 
