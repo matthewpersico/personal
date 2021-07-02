@@ -41,3 +41,37 @@ $ bin/makesymlinks -i dotfiles
 
 ## Test
 Before ending the existing terminal session, start up another one and make sure that all the dotfile links are in place and everything works.
+
+## Syncing from GHE to GH
+It takes a bit of coordination to sync from GHE to GH. Here's how:
+
+### Setup
+* clone repo from GHE
+* add GH remote:
+```
+git remote add gh https://github.com/matthewpersico/personal
+```
+* create a worktree
+```
+git wt create --remote gh syncbbg
+```
+
+### Syncing to GHE -> GH
+* Sync branch/worktree with GHE default branch
+```
+git repo sync
+```
+* Push to GH
+```
+git push gh (--pr?)
+```
+
+### UNTESTED Syncing to GH -> GHE
+* Sync branch/worktree with GH default branch
+```
+git-sync-with-remote --remote gh --branch main
+```
+* Push to GHE
+```
+git push --pr
+```
