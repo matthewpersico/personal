@@ -1,0 +1,84 @@
+#!/usr/bin/env bash
+
+echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
+
+declare scope='git-utils'
+
+git-utils-decode-http ()
+{
+    local http=$1
+
+    local repo
+    repo=${http##*/}
+    http=${http/\/$repo/}
+
+    local org
+    org=${http##*/}
+    http=${http/\/$org/}
+
+    local svc
+    # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+    read -r svc noop < <(git kv --section urls | grep "$http" )
+
+    echo "$svc" "$org" "$repo"
+}
+
+git-utils-main()
+{
+    local action=$1
+
+    if [[ "$action" =~ ^-+h ]]; then
+        bash-usage "$0"
+        return  0
+    fi
+
+    local action_handler="$scope-$action"
+    if declare -F "$action_handler" >/dev/null 2>&1 \
+           || which "$action_handler" >/dev/null 2>&1 ; then
+        shift ## the $action
+        "$action_handler" "$@"
+    else
+        case $action in
+            * )
+                cmd-echo --ec --id $scope -- "unknown action '$action'"
+                false
+                ;;
+        esac
+    fi
+    return $?
+}
+
+git-utils-main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-utils - bits and pieces that don't belong anywhere else
+
+=head1 SYNOPSIS
+
+git-utils decode-http "http-based-git-url"
+
+=head1 DESCRIPTION
+
+Miscellanwous functionality.
+
+=head1 ACTIONS
+
+=over 4
+
+=item decode-http
+
+Given an http reprentation of a git url, give back the service name, org and repo.
+
+  $ url='https://github.com/koalaman/shellcheck'
+  $ read -r svc org repo < <(git utils decode-http "$url")
+  $ echo "$svc $org $repo"
+  github koalaman shellcheck
+
+=back
+
+=cut
+
+__PODUSAGE__

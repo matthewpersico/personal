@@ -1,26 +1,30 @@
 #!/usr/bin/env bash
 
 # <Function Class: util>
-# <Function Justification: io channel access?>
+# <Function Justification: io channel access>
+# Must be a function, not a script. If a script, the next descriptor will be
+# that of the subshell of the script, not the shell of the caller.
 
 get-next-descriptor ()
 {
-    ##@@ none||none||get-next-descriptor||print the next free shell io descriptor number.
     local found=none
     local fd
     local rco
     local rci
     for fd in {0..255}; do
-        rco="$(true 2>/dev/null >&${fd}; echo $?)";
-        rci="$(true 2>/dev/null <&${fd}; echo $?)";
+        # shellcheck disable=SC2261 #https://github.com/koalaman/shellcheck/wiki/SC2261
+        rco="$(ftrue 2>/dev/null >&"${fd}"; echo $?)";
+        rci="$(ftrue 2>/dev/null <&"${fd}"; echo $?)";
         [[ "${rco}${rci}" = "11" ]] && found=${fd} && break
     done
     if [[ -z "$found" ]]; then
-        return 1
+        ffalse
     else
-        echo $found
-        return 0
+        echo "$found"
+        ftrue
     fi
+
+    return $?
 
     ## Note: If you need more than one descriptor, then you must open the
     ## descriptor you get from a call to this function before making the next
