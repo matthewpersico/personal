@@ -57,19 +57,38 @@ if ((opt_popup || opt_pr)); then
     declare remote
     remote=$(git-get-default-remote)
     declare svc
-    svc=${remote%:*}
-    declare orgrepo
-    orgrepo=${remote#*:}
     declare org
-    org=${orgrepo%/*}
+    declare repo
+    declare orgrepo
+    declare url_svc
+    svc=${remote%:*}
+    if [[ $svc =~ ^http(s)? ]]; then
+        read -r svc org repo < <(git utils decode-http "$remote")
+        orgrepo="$org/$repo"
+    else
+        orgrepo=${remote#*:}
+        org=${orgrepo%/*}
+    fi
+    url_svc="$(git kv --get "browser-urls.$svc")"
 
-    # Get info for the upstream (or the origin, if we are not a fork).
-    declare upstream_svcorgrepo
-    upstream_svcorgrepo=$(git config --get remote.upstream.url)
-    [[ -z $upstream_svcorgrepo ]] && upstream_svcorgrepo=$(git config --get remote.origin.url)
-
-    declare upstream_orgrepo
-    upstream_orgrepo=${upstream_svcorgrepo#*:}
+    # Get info 'upstream', or 'origin'.
+    declare remote_svcorgrepo
+    declare remote
+    for remote in upstream origin; do
+        if [[ -n $remote ]]; then
+            remote_svcorgrepo=$(git config --get "remote.${remote}.url")
+            [[ -n $remote_svcorgrepo ]] && break;
+        fi
+    done
+    if [[ $remote_svcorgrepo =~ ^http(s)? ]]; then
+            declare remote_svc
+            declare remote_org
+            declare remote_repo
+            read -r remote_svc remote_org remote_repo < <(git utils decode-http "$remote_svcorgrepo")
+            remote_svcorgrepo="${remote_svc}:${remote_org}/${remote_repo}"
+    fi
+    declare remote_orgrepo
+    remote_orgrepo=${remote_svcorgrepo#*:}
 
     # Make sure we realize we are not clean, in case that's unexpected.
     declare statusdata
@@ -86,12 +105,8 @@ if ((opt_popup || opt_pr)); then
     fi
 
     declare url
-    declare url_svc
-
-    url_svc="$(git kv --get "browser-urls.$svc")"
-
     if ((opt_pr)); then
-        if ! url=$(git repo pr --get --open); then
+        if ! url=$(git repo pr-get --open --remote "$remote" ); then
             cmd-echo -- "No open existing PR found, popping up create URL..."
 
             declare current_branch
@@ -115,7 +130,7 @@ if ((opt_popup || opt_pr)); then
             ## ${GIT_EXT_META_PREFIX}-from-branch, even if it is the default.
             [[ -z $from_branch ]] && from_branch=$(git repo default-branch)
 
-            url="$url_svc/$upstream_orgrepo/compare/$from_branch...$org:$current_branch"
+            url="$url_svc/$remote_orgrepo/compare/$from_branch...$org:$current_branch"
         else
             cmd-echo -- "Existing PR found, popping it up..."
         fi
@@ -124,7 +139,6 @@ if ((opt_popup || opt_pr)); then
     fi
 
     git web--browse "$url" &
-    set +x
 fi
 
 exit 0
@@ -157,6 +171,8 @@ Start a browser (via git web--browser) pointing to the URL of the origin for the
 =item pr
 
 Start a browser (via git web--browser) pointing to the URL to create a new pull request using the current repo as the source if there is no existing PR. If there is an existing PR, its URL is used.
+
+Note: This only really works with the triangle workflow of forked 'origin' and original 'upstream' or an original 'origin'. Those assumptions are baked into a lot of the logic. Any other push targets, go open a PR in the GUI.
 
 =back
 

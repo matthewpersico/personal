@@ -211,9 +211,9 @@ git-repo-name ()
     name=$(git remote -v 2>/dev/null | grep origin | sed -e 's|.*/||' -e 's/ .*//' | sort -u)
     if [[ -n "$name" ]]; then
         echo "$name"
-        true
+        ftrue
     else
-        false
+        ffalse
     fi
     return $?
 }
@@ -568,7 +568,8 @@ git-repo-pr-get ()
     local opt_match_state;
     local opt_print=1
     local opt_refresh=0
-    while true; do
+    local -a remotes=(upstream origin)
+    while ftrue; do
         local option=$1
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
@@ -586,15 +587,22 @@ git-repo-pr-get ()
     done
 
     local remote
-    for remote in upstream origin; do
-        remote_url=$(git config --get remote.${remote}.url)
+    local remote_url
+    for remote in "${remotes[@]}"; do
+        remote_url=$(git config --get "remote.${remote}.url")
         if [[ -n "$remote_url" ]]; then
+            if [[ "$remote_url" =~ ^http(s)? ]];
+            then
+                # shellcheck disable=SC2183 #https://github.com/koalaman/shellcheck/wiki/SC2183
+                # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
+                remote_url=$(printf "%s:%s/%s" $(git utils decode-http "$remote_url"))
+            fi
             break
         fi
     done
     if [[ -z "$remote_url" ]]; then
-        cmd-echo -ec -- "Cannot find a remote upstream or origin to check for pull requests"
-        false; return $?
+        cmd-echo -ec -- "Cannot find any remotes in '${remotes[*]}' to check for pull requests"
+        ffalse; return $?
     fi
     local remote_svc=${remote_url%:*}
     local remote_repo=${remote_url#*:}
@@ -712,7 +720,7 @@ exit 0;' "$perldata" "$corg" "$cb")
         if [[ -z ${pr_now[0]} ]]; then
             # Cache the no
             git-repo-pr-store --noopenpr
-            false; return $?
+            ffalse; return $?
         else
             ## Cache the PR and its state
             git-repo-pr-store "${pr_now[@]}"
@@ -724,7 +732,7 @@ exit 0;' "$perldata" "$corg" "$cb")
 
     if [[ $pr_url == "NOOPENPR" ]]; then
         ((opt_print)) && echo "None, as of $pr_date"
-        false; return $?
+        ffalse; return $?
     fi
     if [[ -z $opt_match_state ]]; then
         # You effectively asked for the latest PR available, so we give
@@ -740,10 +748,10 @@ exit 0;' "$perldata" "$corg" "$cb")
             ((opt_print)) && echo "$pr_url"
         else
             # We didn't find a match
-            false; return $?
+            ffalse; return $?
         fi
     fi
-    true; return $?
+    ftrue
 }
 
 git-repo-pr-store ()
@@ -971,7 +979,7 @@ git-repo-current-branch ()
 {
     if [[ -n $1 ]]; then
         cmd-echo --ec -- "Cannot set current branch yet"
-        false;return $?
+        ffalse;return $?
     else
         local cb
         cb=$($REALGIT branch --show-current)
@@ -980,12 +988,12 @@ git-repo-current-branch ()
             cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
             if [[ -z $cb ]]; then
                 cmd-echo --ec -- "Cannot get current branch"
-                false;return $?
+                ffalse;return $?
             fi
         fi
         echo "$cb"
     fi
-    true
+    ftrue
 }
 
 git-repo-show-current-branch ()
@@ -998,23 +1006,28 @@ git-repo-default-branch ()
 {
     if [[ -n $1 ]]; then
         cmd-echo --ec -- "Cannot set default branch yet"
-    else
-        local base_repo
-        for base_repo in "$(git-repo-is_worktree of)" "$(git root)"; do
-            [[ -n $base_repo ]] && break
-        done;
-        [[ -z $base_repo ]] && { false; return $?; }
-        local default_branch
-        local src
-        ## The first file is for repos that are clones. The second is for repos
-        ## that were never cloned, but instantiated locally.
-        for src in "$base_repo"/.git/refs/remotes/origin/HEAD "$base_repo"/HEAD; do
-            [[ -r $src ]] && default_branch=$(sed 's/.*\///' < "$src")
-        done
-        [[ -n $default_branch ]] && echo "$default_branch" && return 0
-        cmd-echo --ec -- "Cannot find default branch for ${PWD}"
-        false; return $?
+        ffalse; return $?
     fi
+    local base_repo
+    for base_repo in "$(git-repo-is_worktree of)" "$(git root)"; do
+        [[ -n $base_repo ]] && break
+    done;
+    [[ -z $base_repo ]] && { ffalse; return $?; }
+    local default_branch
+    local src
+    ## The first file is for repos that are clones. The second is for repos
+    ## that were never cloned, but instantiated locally.
+    for src in "$base_repo"/.git/refs/remotes/origin/HEAD "$base_repo"/HEAD; do
+        [[ -r $src ]] && default_branch=$(sed 's/.*\///' < "$src")
+    done
+    if [[ -n $default_branch ]]; then
+        echo "$default_branch"
+        ftrue
+    else
+        cmd-echo --ec -- "Cannot find default branch for ${PWD}"
+        ffalse
+    fi
+    return $?
 }
 
 git-repo-show-default-branch ()
@@ -1029,8 +1042,8 @@ git-repo-source-branch ()
 
     local source_branch
     source_branch=$(git config --get "branch.$current_branch.${GIT_EXT_META_PREFIX}-from-branch")
-    [[ -n $source_branch ]] && echo "$source_branch" && { true; return $?; }
-    false
+    [[ -n $source_branch ]] && echo "$source_branch" && { ftrue; return $?; }
+    ffalse
 }
 
 git-repo-show-source-branch ()
@@ -1053,7 +1066,7 @@ git-repo-named-branches ()
 
     if [[ ! $1 =~ ^(true|false)$ ]]; then
         cmd-echo --ec -- "${FUNCNAME[0]}: $1 is not 'true' or false"
-        false; return $?
+        ffalse; return $?
     fi
     git config --type bool --replace-all "${GIT_EXT_META_PREFIX}.named-branches" "$1"
 }
@@ -1063,7 +1076,7 @@ git-repo-using-named-branches ()
     local value; value=$(git config --type bool --get "${GIT_EXT_META_PREFIX}.named-branches")
     value=${value:-false}
     [[ $1 == -v ]] && echo "$value"
-    ${value}
+    f"${value}"
 }
 
 main()
