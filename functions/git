@@ -5,26 +5,17 @@
 # A wrapper around 'git' to extend it. See the docs at file's end.
 git ()
 {
-    local status
-    local set_x_back_on=no
-    if shopt -qo xtrace; then
-        set_x_back_on=yes
-        set +x
-    fi
-
     # shellcheck disable=SC2034
     local DEBUG__this_function=${FUNCNAME[0]}
     if [[ -z "$REALGIT" ]]; then
         cmd-echo --id 'GIT WRAPPER' --ec -- "git wrapper function 'git' can't find system git because envvar REALGIT is not defined. Bailing..."
-        [[ $set_x_back_on == 'yes' ]] && set -x
         ffalse; return $?
     fi
 
     if [[ $1 =~ --(real|bypass) ]]; then
         shift
-        $REALGIT "$@"; status=$?
-        [[ $set_x_back_on == 'yes' ]] && set -x
-        return $status
+        $REALGIT "$@"
+        return $?
     fi
 
     if [[ $1 == '-x' ]]; then
@@ -34,12 +25,10 @@ git ()
 
     if [[ $1 =~ -help ]]; then
         if [[ -n $2 ]]; then
-            git "$2" "$1"; status=$?
-            [[ $set_x_back_on == 'yes' ]] && set -x
-            return $status
+            git "$2" "$1"
+            return $?
         else
             git-usage git
-            [[ $set_x_back_on == 'yes' ]] && set -x
             ftrue; return $?
         fi
     fi
@@ -93,9 +82,8 @@ git ()
             [[ -z $t ]] && t='script'
             cmd-echo --id 'GIT WRAPPER' --dc -- "Calling $t $extend_command ${args[*]}"
         fi
-        [[ $set_x_back_on == 'yes' ]] && set -x
+
         "$extend_command" "${args[@]}"
-        [[ $set_x_back_on == 'yes' ]] && set +x
     else
         if [[ ",${GIT_DISPATCHER_VERBOSE}," =~ ,${command},|all ]]; then
             cmd-echo --id 'GIT WRAPPER' --dc -- "Calling ${REALGIT} ${command} ${args[*]}"
@@ -104,7 +92,7 @@ git ()
         "${REALGIT}" "${command}" "${args[@]}"
     fi
 
-    status=$?
+    local status=$?
 
     # If the command succeeds and we have a valid directory changing command in
     # the temp file, change directory.
@@ -133,7 +121,7 @@ git ()
     # extremely rare occasions that we don't get here, we'll let normal temp
     # cleanups take care of it.
     [[ -n $doandcdfile ]] && \rm -f "$doandcdfile"
-    [[ $set_x_back_on == 'yes' ]] && set -x
+
     return $status
 }
 
