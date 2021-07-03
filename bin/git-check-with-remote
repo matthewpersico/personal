@@ -1,59 +1,62 @@
 #!/usr/bin/env bash
 
-echo "$(date): git-check-with-remote" >> "$HOME/.gitaudit"
+echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
 
 # git-check-with-remote
 
 use mktemp
 use on_exit
 
-declare opt_branch=''
-declare opt_remote='origin'
-declare opt_bail_on_dirty='0'
-declare OPTSARGS
-declare shortopts='hb:r:c'
-declare longopts='help,branch:,remote:,bail-on-dirty'
+main ()
+{
+    local opt_branch=''
+    local opt_remote='origin'
+    local opt_bail_on_dirty='0'
+    local OPTSARGS
+    local shortopts='hb:r:c'
+    local longopts='help,branch:,remote:,bail-on-dirty'
 
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
-declare status=$?
-((status != 0)) && exit $status ## return $status ## in functions
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+    local status=$?
+    ((status != 0)) && return $status ## return $status ## in functions
 
-# Reset the command line ($@).
-eval set -- "$OPTSARGS"
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
 
-# Reprocess the command line, extracting options and their arguments into
-# variables.
-while true; do
-    declare option=$1
-    shift
-    case "$option" in
-        --bail-on-dirty) opt_bail_on_dirty=1 ;;
-        -r|--remote) opt_remote="$1"; shift ;;
-        -b|--branch) opt_branch="$1"; shift ;;
-        -h|--help) bash-usage "$0"; exit 0 ;;
-        --) break ;; ## VITAL!!! Exits the while loop, no more options,
-                     ## remaining $*, if any, are args
-        *)
-            cmd-echo -ec -- "$option is an invalid option. See $0 --help"
-            exit 1 ## return 1 in functions
-            ;;
-    esac
-done
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    while ftrue; do
+        local option=$1
+        shift
+        case "$option" in
+            --bail-on-dirty) opt_bail_on_dirty=1 ;;
+            -r|--remote) opt_remote="$1"; shift ;;
+            -b|--branch) opt_branch="$1"; shift ;;
+            -h|--help) cmd-echo --id git-check-with-remote -- "No help. Please read the code: '$0'."
+                       ftrue; return $? ;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+            ## remaining $*, if any, are args
+            *)
+                cmd-echo --id git-check-with-remote -ec -- "$option is an invalid option. See '$0 --help'."
+                ffalse; return $?
+                ;;
+        esac
+    done
 
-if [[ -z "$opt_branch" ]]; then
-    cmd-echo --ec -- "--branch required"
-    bash-usage "$0"
-    exit 1
-fi
+    if [[ -z "$opt_branch" ]]; then
+        cmd-echo --id git-check-with-remote --ec -- "Option '--branch' is required."
+        bash-usage "$0"
+        ffalse; return $?
+    fi
 
-declare cb
-cb=$(git rev-parse --abbrev-ref HEAD)
-status=$?
-((status != 0 )) && exit 1
+    local cb
+    cb=$(git rev-parse --abbrev-ref HEAD)
+    status=$?
+    ((status != 0 )) && ffalse; return $?
 
-if [[ "$cb" == '' ]]; then
-    # shellcheck disable=SC2154
-    cat <<EOF
+    if [[ "$cb" == '' ]]; then
+        # shellcheck disable=SC2154
+        cat <<EOF
 
 You are trying to check your current git repo DEVELOPMENT branch in your clone
 against changes in
@@ -65,11 +68,11 @@ However, you do not appear to even be in a repo. I'm exiting. Try again in a
 proper repo.
 
 EOF
-    exit 1
-fi
+        ffalse; return $?
+    fi
 
-if [[ "$cb" == "$opt_branch" ]]; then
-    cat <<EOF
+    if [[ "$cb" == "$opt_branch" ]]; then
+        cat <<EOF
 
 You are trying to check your current git repo DEVELOPMENT branch in your clone
 against changes in
@@ -83,76 +86,80 @@ branch Then rerun the command. Or just do a 'git pull' if you really need to
 refresh this branch.
 
 EOF
-    exit 1
-fi
+        ffalse; return $?
+    fi
 
-## Check the declare branch against its origin
-declare stcheck
-stcheck=$(mktempfile -+ check)
-rm-on-exit "$stcheck"
-git status 1>"$stcheck" 2>&1
-grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null
-status=$?
-if [[ "$status" != '0' ]]; then
-    cat "$stcheck"
-    cat <<EOF
+    ## Check the local branch against its origin
+    local stcheck
+    stcheck=$(mktempfile -+ check)
+    rm-on-exit "$stcheck"
+    git status 1>"$stcheck" 2>&1
+    grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null
+    status=$?
+    if [[ "$status" != '0' ]]; then
+        cat "$stcheck"
+        cat <<EOF
 Your branch should be up to date with its origin in order to simplify the
 check.
 EOF
-    if ((opt_bail_on_dirty)); then
-        cmd-echo --ec Exiting.
-        exit 1
-    else
-        declare resp
-        resp=$(cmd-yesno "Do you want to continue anyway" n)
-        if [[ "$resp" == 'n' ]]; then
-            exit 1
+        if ((opt_bail_on_dirty)); then
+            cmd-echo --id git-check-with-remote --ec 'Exiting.'
+            ffalse; return $?
+        else
+            local resp
+            resp=$(cmd-yesno "Do you want to continue anyway" n)
+            if [[ "$resp" == 'n' ]]; then
+                ffalse; return $?
+            fi
         fi
     fi
-fi
 
-## Now grab the remote branch
-declare gflog
-gflog=$(mktempfile -+ gflog)
-rm-on-exit "$gflog"
-git fetch "${opt_remote}" "${opt_branch}" 2>"$gflog"
-declare rc=$?
-if ((rc)); then
-    cat "$gflog"
-    rm -f "$gflog"
-    exit 1
-fi
-rm -f "$gflog"
-
-## Log the declare branch
-declare locallog
-locallog=$(mktempfile -+ locallog)
-rm-on-exit "$locallog"
-git log > "$locallog"
-
-## Log the declare copy of the remote branch
-declare remotelog
-remotelog=$(mktempfile -+ remotelog)
-rm-on-exit "$remotelog"
-git log "${opt_remote}/${opt_branch}" > "$remotelog"
-
-## Diff 'em
-declare difflog
-difflog=$(mktempfile +- difflog)
-rm-on-exit "$difflog"
-diff "$locallog" "$remotelog" 1> "$difflog" 2>&1
-
-if [[ -s "$difflog" ]]; then
-    # shellcheck disable=SC2002 # Using the cat instead of wc -l file prevents
-    # the filename from being printed out,
-    if [[ "$(cat "$difflog" | wc -l)" = '10' ]] \
-           && [[ ! "$(grep -E "Merge pull request.*$(git repo current-branch)" "$difflog")" = '' ]]; then
-        cmd-echo "Only diff to ${opt_remote} is merge pull request."
-    else
-        cmd-echo -head "*** git repo: ${PWD}"
-        cmd-echo -c "*** Current branch $(git repo current-branch) and ${opt_remote}/${opt_branch} are not synced:"
-        cat "$difflog"
+    ## Now grab the remote branch
+    local gflog
+    gflog=$(mktempfile -+ gflog)
+    rm-on-exit "$gflog"
+    git fetch "${opt_remote}" "${opt_branch}" 2>"$gflog"
+    local rc=$?
+    if ((rc)); then
+        cat "$gflog"
+        rm -f "$gflog"
+        ffalse; return $?
     fi
-fi
+    rm -f "$gflog"
 
-exit 0
+    ## Log the local branch
+    local locallog
+    locallog=$(mktempfile -+ locallog)
+    rm-on-exit "$locallog"
+    git log > "$locallog"
+
+    ## Log the local copy of the remote branch
+    local remotelog
+    remotelog=$(mktempfile -+ remotelog)
+    rm-on-exit "$remotelog"
+    git log "${opt_remote}/${opt_branch}" > "$remotelog"
+
+    ## Diff 'em
+    local difflog
+    difflog=$(mktempfile +- difflog)
+    rm-on-exit "$difflog"
+    diff "$locallog" "$remotelog" 1> "$difflog" 2>&1
+
+    if [[ -s "$difflog" ]]; then
+        # shellcheck disable=SC2002 # Using the cat instead of wc -l file prevents
+        # the filename from being printed out,
+        if [[ "$(cat "$difflog" | wc -l)" = '10' ]] \
+               && [[ ! "$(grep -E "Merge pull request.*$(git repo current-branch)" "$difflog")" = '' ]]; then
+            cmd-echo --id git-check-with-remote "Only diff to '${opt_remote}' is merge pull request."
+        else
+            cmd-echo --id git-check-with-remote -head "*** git repo: ${PWD}"
+            cmd-echo --id git-check-with-remote -c "*** Current branch $(git repo current-branch) and ${opt_remote}/${opt_branch} are not synced:"
+            cat "$difflog"
+        fi
+    fi
+
+    ftrue
+}
+
+main "$@"
+exit $?

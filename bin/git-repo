@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 
-# git-repo - no .gitaudit, called on every prompt
+# No audit, called by PS1.
 
-if ! git-version-verify 'git-repo'; then
-    exit 1
-fi
+# git-repo
 
 use mktemp
 use on_exit
@@ -557,7 +555,7 @@ git-repo-pr-get ()
 {
     local OPTSARGS
     local shortopts=''
-    local longopts='open,closed,merged,silent,refresh'
+    local longopts='open,closed,merged,silent,refresh,remote:'
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     local status=$?
@@ -568,7 +566,7 @@ git-repo-pr-get ()
     local opt_match_state;
     local opt_print=1
     local opt_refresh=0
-    local -a remotes=(upstream origin)
+    local -a remotes
     while ftrue; do
         local option=$1
         shift
@@ -577,6 +575,8 @@ git-repo-pr-get ()
             silent ) opt_print=0;;
             refresh ) opt_refresh=1;;
             open | merged | closed ) opt_match_state=$option;;
+            remote )
+                remotes=("$1"); shift;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
@@ -586,6 +586,7 @@ git-repo-pr-get ()
         esac
     done
 
+    remotes+=(upstream origin)
     local remote
     local remote_url
     for remote in "${remotes[@]}"; do

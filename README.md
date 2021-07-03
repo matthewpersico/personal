@@ -65,28 +65,25 @@ origin  bbgithub:mpersico5/personal (push)
 ```
 
 ### Syncing to GHE -> GH
-* Sync branch/worktree with GHE default branch.
+* Sync `syncbbg` with GHE default branch.
 ```
+gitgo syncbbg
 git fetch origin
 git merge remotes/origin/main
 ```
-* Push to GH.
+* Push to GHE
 ```
-git push gh (--pr?)
+git push gh
 ```
 * Create a PR on GH and merge it to default branch.
-* Sync branch/worktree with GH default branch.
+* Sync `syncbgg` with updated GH default branch.
 ```
 git fetch gh
 git merge remotes/gh/master
+git push gh
 ```
-* Push to GH.
-```
-git push gh (--pr?)
-```
-
 ### UNTESTED Syncing to GH -> GHE
-* Sync branch/worktree with GH default branch
+* Sync `syncbbg` with GH default branch.
 ```
 git-sync-with-remote --remote gh --branch main
 ```
