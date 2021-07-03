@@ -1,31 +1,22 @@
 #!/usr/bin/env bash
 
-# git-config
+# <Function Class: git>
+# <Function Justification: Efficiency - in PS1>
 
-echo "$(date): git-grep" >> "$HOME/.gitaudit"
-
-# git-grep
-
-# shellcheck disable=SC1090
-use on_exit
-
-if ! git-version-verify 'git-config'; then
-    exit 1
-fi
-
-main ()
+git-config ()
 {
+    # NO_SHIM
     local -a pass_on_args
     local expand=0
     local value_only=0
     local preproc=0
-    ## Must be REALGIT or we recurse like mad and forkbomb ourselvesq...
+    ## Must be REALGIT or we recurse like mad and forkbomb ourselves...
     for i in $($REALGIT config --get git-config.opts); do
         pass_on_args+=("$i")
     done
 
-    while [[ -n "$1" ]]; do        local original="$1"
-        shift
+    while [[ -n "$1" ]]; do
+        local original="$1"; shift
         if [[ "$original" =~ ^- ]]; then
             local option
             option=$(dashstripper "$original")
@@ -35,8 +26,8 @@ main ()
 
             case $option in
                 h | help )
-                    git-usage "$0"
-                    exit 0
+                    git-usage git-config
+                    ftrue; return $?
                     ;;
                 personal )
                     pass_on_args+=('-f' "$HOME/.gitconfig.personal")
@@ -81,6 +72,9 @@ main ()
         else
             mapfile -t raws < <($REALGIT config "${pass_on_args[@]}")
         fi
+        if (( ${#raws[0]} == 0 )); then
+            ffalse; return $?
+        fi
 
         local raw
         for raw in "${raws[@]}"; do
@@ -96,15 +90,12 @@ main ()
                 echo "$raw"
             fi
         done
+        ftrue
     else
         $REALGIT config "${pass_on_args[@]}"
     fi
     return $?
 }
-
-main "$@"
-
-exit $?
 
 :<<'__PODUSAGE__'
 =head1 NAME
