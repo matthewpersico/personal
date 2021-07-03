@@ -41,13 +41,13 @@ git-branch-checkout ()
     else
         shift
         if [[ "$(git branch list --strip "$tgt_branch")" != "$tgt_branch" ]]; then
-            cmd-echo --ec -- "$tgt_branch does not exist to be checked out."
+            cmd-echo --id git-branch --ec -- "$tgt_branch does not exist to be checked out."
             return 1
         fi
     fi
 
     if (($#)); then
-        cmd-echo --wc -- "arguments '$*' ignored"
+        cmd-echo --id git-branch --wc -- "arguments '$*' ignored"
     fi
 
     git checkout "$tgt_branch"
@@ -71,7 +71,7 @@ git-branch-delete ()
     ((status != 0)) && git-usage "$0" && return $status
 
     eval set -- "$OPTSARGS"
-    while true; do
+    while ftrue; do
         local option=$1
         shift
         case "$option" in
@@ -82,7 +82,7 @@ git-branch-delete ()
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
-                cmd-echo -ec -- "$option is an invalid option. See git-branch --help"
+                cmd-echo --id git-branch -ec -- "$option is an invalid option. See 'git-branch --help'."
                 return 1 ;;
         esac
     done
@@ -95,7 +95,7 @@ git-branch-delete ()
         local branchesa
         readarray -t branchesa < <(git-branch-list --strip)
         if [[ ${#branchesa[@]} == '0' ]]; then
-            cmd-echo --ec -- "No branches found. Are you in a git repo?"
+            cmd-echo --id git-branch --ec -- "No branches found. Are you in a git repo?"
             return 1
         fi
         local PS3
@@ -105,7 +105,7 @@ git-branch-delete ()
         select selected in "${branchesa[@]}"; do
             if [[ -n "$selected" ]]; then
                 if [[ "$selected" == "$current_branch" ]]; then
-                    cmd-echo -- "$selected is current. Cannot delete current."
+                    cmd-echo --id git-branch -- "$selected is current. Cannot delete current."
                 else
                     branch=$selected
                     break
@@ -113,7 +113,7 @@ git-branch-delete ()
             elif [[ "${$REPLY,,}" = 'q' ]]; then
                 return 0
             else
-                cmd-echo --ec -- "'$REPLY' is an invalid choice"
+                cmd-echo --id git-branch --ec -- "'$REPLY' is an invalid choice."
             fi
         done
     fi
@@ -121,7 +121,7 @@ git-branch-delete ()
     if [[ -n "$branch" ]]; then
         ## $branch was either $1 or we did not ctrl-c out of the select.
         if [[ "$branch" = "$current_branch" ]]; then
-            cmd-echo --ec -- "Nope, you can't delete the current branch."
+            cmd-echo --id git-branch --ec -- "Nope, you can't delete the current branch."
             return 1
         fi
 
@@ -135,17 +135,17 @@ git-branch-delete ()
             delarg=('-d')
         fi
         local brdelstat
-        cmd-echo -dc -- "Normal deletes use -d, we seem to need to use -D for pulls." \
+        cmd-echo --id git-branch -dc -- "Normal deletes use -d, we seem to need to use -D for pulls." \
                  "That may be because the pull is not merged?" \
                  "We are about to 'git branch ${delarg[*]} $branch'." \
                  "Once you figure out what's going on with pulls, you can remove this diagnostic."
         git branch "${delarg[@]}" "$branch"
         brdelstat=$?
         if ((brdelstat)); then
-            cmd-echo --ec -- "git branch ${delarg[*]} $branch failed. Returning $brdelstat."
+            cmd-echo --id git-branch --ec -- "'git branch ${delarg[*]} $branch' failed. Returning '$brdelstat'."
             return $brdelstat
         fi
-        cmd-echo -- "Branch deleted locally."
+        cmd-echo --id git-branch -- "Branch deleted locally."
 
         if [[ "$no_remote" = '1' ]]; then
             return 0
@@ -160,8 +160,8 @@ git-branch-delete ()
                 if ((opt_yes)); then
                     resp='y'
                 else
-                    if [[ $was_fetched == $(true && echo $?) ]]; then
-                        cmd-echo -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
+                    ftrue; if [[ $was_fetched == "$?" ]]; then
+                        cmd-echo --id git-branch -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
                     fi
                     resp=$(cmd-yesno "Try deleting in remote '$remote'($(git config --get "remote.$remote.url"))" n)
                 fi
@@ -170,9 +170,9 @@ git-branch-delete ()
                     git push --delete "$remote" "$branch"
                     brdelstat=$?
                     if ((brdelstat)); then
-                        cmd-echo --wc "git push --delete $remote $branch failed. Maybe it was already deleted by being merged."
+                        cmd-echo --id git-branch --wc "git push --delete $remote $branch failed. Maybe it was already deleted by being merged."
                     else
-                        cmd-echo -- "Branch deleted remotely."
+                        cmd-echo --id git-branch -- "Branch deleted remotely."
                     fi
                 fi
             fi
@@ -314,14 +314,14 @@ git-branch-list ()
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     local status=$?
-    ((status != 0)) && cmd-echo --ec -- "Exiting." && return $status
+    ((status != 0)) && cmd-echo --id git-branch --ec -- "Exiting." && return $status
 
     # Reset the command line ($@).
     eval set -- "$OPTSARGS"
 
     # Reprocess the command line, extracting options and their arguments into
     # variables.
-    while true; do
+    while ftrue; do
         local option=$1
         shift
         case "$option" in
@@ -333,7 +333,7 @@ git-branch-list ()
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
-                cmd-echo -ec -- "$option is an invalid option. See $0 --help"
+                cmd-echo --id git-branch -ec -- "$option is an invalid option. See '$0 --help'."
                 exit 1 ## return 1 in functions
                 ;;
         esac

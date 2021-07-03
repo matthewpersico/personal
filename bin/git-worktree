@@ -1,10 +1,8 @@
 #!/usr/bin/env bash
 
-# git-worktree
+echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
 
-if ! git-version-verify 'git-worktree'; then
-    exit 1
-fi
+# git-worktree
 
 ## Global used to control 'cd'ing around
 doandcdfile=''
@@ -19,12 +17,12 @@ _git_worktree_check_set_pwd ()
     if [[ ! $cwd =~ /wt ]]; then
         cwd="${cwd}/wt"
         if [[ -d ${cwd} ]]; then
-            builtin cd "$cwd" || { cmd-echo --ec -- "Cannot cd $cwd"; false; return $?; }
+            builtin cd "$cwd" || { cmd-echo --ec -- "Cannot cd $cwd"; ffalse; return $?; }
         else
             cmd-echo --ec -- "Current directory is ${cwd}." \
                      'No wt path component found.' \
                      'Will not manipulate worktrees outside of wt dir. Aborting.'
-            false; return $?
+            ffalse; return $?
         fi
     fi
 
@@ -39,16 +37,16 @@ _git_worktree_check_set_pwd ()
         if [[ -f $newwd/.git ]]; then
             if ((opt_current_ok!=1)); then
                 cmd-echo --ec -- "Will not $action current worktree without -c flag"
-                false; return $?
+                ffalse; return $?
             fi
         fi
         newwd=$(dirname "$newwd")
     done
 
     ## Go to root so we can start working
-    builtin cd "$wtroot" || { cmd-echo -- "Cannot cd $wtroot"; false; return $?; }
+    builtin cd "$wtroot" || { cmd-echo -- "Cannot cd $wtroot"; ffalse; return $?; }
 
-    true; return $?
+    ftrue
 }
 
 _git_worktree_info_remove ()
@@ -485,7 +483,7 @@ git-worktree-delete ()
 
     # Reprocess the command line, extracting options and their arguments into
     # variables.
-    while true; do
+    while ftrue; do
         local option=$1
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
@@ -533,12 +531,12 @@ $(ls -la)"
     local wtpath
     wtpath="$wtroot/$wtname"
 
-    builtin cd "$wtpath" || { cmd-echo --ec -- "Cannot cd $wtpath"; false; return $?; }
+    builtin cd "$wtpath" || { cmd-echo --ec -- "Cannot cd $wtpath"; ffalse; return $?; }
 
     ## Make sure we are in a proper worktree.
     if ! git-worktree-ina; then
         cmd-echo --ec -- "$wtname is not a proper worktree for deletion"
-        false; return $?
+        ffalse; return $?
     fi
 
     ## Check for cleanliness.
@@ -548,7 +546,7 @@ $(ls -la)"
             git status
             echo
             cmd-echo --ec -- "Will not delete unclean worktree. Clean worktree or re-run command with --force."
-            false; return $?
+            ffalse; return $?
         fi
     fi
 
@@ -612,7 +610,7 @@ $(ls -la)"
     elif ((opt_keep_branch)); then
         resp='n'
     else
-        if [[ $was_fetched == "$(true; echo $?)" ]]; then
+        ftrue; if [[ $was_fetched == "?" ]]; then
             cmd-echo -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
         fi
         resp=$(cmd-yesno "Delete associated branch $current_branch" 'n')
@@ -667,7 +665,7 @@ git-worktree-rename ()
 
     # Reprocess the command line, extracting options and their arguments into
     # variables.
-    while true; do
+    while ftrue; do
         local option=$1
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
@@ -838,7 +836,7 @@ git-worktree-diff-to-root ()
     local root
     root=${PWD};
     root=${root%%/wt*}
-    [[ -t "$STDOUT" ]] && opt_color=never ## No color if output redirected to a file.
+    [[ -t 1 ]] && opt_color=never ## No color if output redirected to a file, '1' is stdout.
     local i
     for i in "${files[@]}"; do
         local -a comp=("${root}/$i" "$i")
@@ -884,7 +882,7 @@ git-worktree-mark-merged ()
 
     # Reprocess the command line, extracting options and their arguments into
     # variables.
-    while true; do
+    while ftrue; do
         local option=$1
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
@@ -1026,14 +1024,12 @@ main ()
                 if [[ $(yesno "Do you want to create a worktree with that name?" "n") == 'y' ]]; then
                     git-worktree-create "$action" "$@"
                 else
-                    false
+                    ffalse
                 fi
                 ;;
         esac
     fi
-    local dq=$?
-    set +x
-    return $dq
+    return $?
 }
 
 main "$@"
