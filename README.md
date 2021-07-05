@@ -65,29 +65,42 @@ origin  bbgithub:mpersico5/personal (push)
 ```
 
 ### Syncing to GHE -> GH
-* Sync `syncbbg` with GHE default branch.
+* Sync GHE default branch to GH.
+
+There two are assumptions:
+
+** GHE is all buttoned up; that is, all the code you want to sync to GH has
+been merged to the default branch (main).
+
+** `syncbbg` is up to date with GH. If you are unsure, you could execute the second command listed here to make sure.
 ```
 gitgo syncbbg
-git fetch origin
-git merge remotes/origin/main
+git-sync-with-remote --remote origin --branch main
 ```
-* Push to GHE
-```
-git push gh
-```
+The command will complain about your branch being behind its remote counterpart. Well, duh, that's what we are trying to fix! Say 'y' to the --force push request.
+
 * Create a PR on GH and merge it to default branch.
-* Sync `syncbgg` with updated GH default branch.
+
+* Sync to updated GH default branch. The local branch is missing the merge bookeeping entry on the GH default branch.
 ```
-git fetch gh
-git merge remotes/gh/master
-git push gh
+git-sync-with-remote --remote gh --branch master
 ```
+
 ### UNTESTED Syncing to GH -> GHE
 * Sync `syncbbg` with GH default branch.
+
+There two assumptions here:
+
+** GH is all buttoned up; that is, all the code you want to sync to GH has been merged to the `syncbbg` branch.
+
+** `syncbbg` is up to date with GHE. If you are unsure, you could execute the first command in the [Syncing to GHE -> GH](#syncing-to-ghe---gh) section above.
+
 ```
-git-sync-with-remote --remote gh --branch main
+gitgo syncbbg
+git-sync-with-remote --remote gh --branch master
 ```
+
 * Push to GHE
 ```
-git push --pr
+git push origin --pr
 ```
