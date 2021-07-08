@@ -1,0 +1,145 @@
+#!/usr/bin/env bash
+
+# git-status
+
+main ()
+{
+    if [[ $1 =~ -ext$ ]];
+    then
+        shift
+    else
+        "$REALGIT" status "$@"
+        return $?
+    fi
+
+    if [[ "$1" =~ ^-+h ]]; then
+        git-usage "$0"
+        true; exit $?
+    fi
+
+    local color
+    color='--color=never'
+    if [[ "$1" == --nocolor ]]; then
+        shift
+    else
+        { [[ -t 1 ]] || [[ -p /dev/stdout ]] ; } && color="--color=always"
+    fi
+
+    echo
+    local lines
+    lines=$(git log $color -1 | wc -l)
+    local line_limit=20 # 4 header + 16 log text.
+    if ((lines > line_limit)); then
+        echo "=== Latest log entry (first $line_limit lines):"
+        git log $color -1 | head -$line_limit
+        echo '    ...'
+    else
+        echo "=== Latest log entry:"
+        git log $color -1 | head -$line_limit
+    fi
+
+    if (( $(git comment --show | wc -l) )); then
+        echo
+        echo "=== Comments:"
+        git comment --show
+    fi
+    echo
+    echo "=== Status:"
+    local outcmd=${PAGER:-less}
+    [[ $outcmd =~ 'less' ]] && outcmd="$outcmd -RE"
+
+    git-status-with-source-ctrl-log $color "$@" | grep -v "No files specified" | $outcmd
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-status - extended git status
+
+=head1 SYNOPSIS
+
+ git status -ext \
+        [--[no]sclonly | --[no]gcsonly] \
+        [--sclpick 'comment fragment to match' ] \
+        [--noun[tracked] \
+        [--diff [--cached]] [--edit] \
+        [--color [always|never] | --nocolor]
+        [filename [filename...]]
+
+ git status -ext --help
+
+=head1 DESCRIPTION
+
+Run a B<git status>, interleaving the entries from B<SourceCtrlLog> and B<git
+diff>.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item filename
+
+One or more files on which to run B<git status. With no files, process all
+files that would appear in a B<git status> command.
+
+In either case, then apply the filtering options below.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --[no]sclonly
+
+Do [not] print status for items that have an entry in B<SourceCtrlLog>. Default
+is to print for both.
+
+Aliases: --[no]sclo, --[no]sco
+
+=item --[no]gcsonly
+
+Do [not] print status for items that have a B<Git Commit Skip> marker in their
+code. Default is to print for both.
+
+Aliases: --[no]gcso, --[no]gco
+
+=item --sclpick
+
+Only show entries whose comments contain the comment fragment presented.
+
+=item --noun[tracked]
+
+Do not print status for untracked items. Default is to print them.
+
+=item --diff
+
+Also mix in the B<git diff> of the item.
+
+=item --cached
+
+Do the B<git diff> with the --cached flag.
+
+=item --edit
+
+With L</--diff> or L</--nosclonly> or L</--gcsonly>, if the file has a diff or
+has no source control log entry or a gcs marker, edit it in B<$EDITOR>. This
+makes it easy to add entries where there are none or ammend existing entries in
+conjunction with the status output as it scrolls by or remove the markers.
+
+=item --color
+
+Specify if coloring the output or not using B<git --color> options.
+
+=item nocolor
+
+Alias for B<--color never>.
+
+=back
+
+=cut
+
+__PODUSAGE__
