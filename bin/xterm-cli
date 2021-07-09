@@ -9,15 +9,24 @@ ticker_tmp="/tmp/ticker.$(hostname).$PPID"
 
 xterm-cli-id ()
 {
-    xwininfo -name "$USER@$(hostname):$(pwd | sed "s|$HOME|~|")" \
+    local idd
+    local ppid=${PPID}
+    idd=$(xwininfo -name "$USER@$(hostname):${ppid}:$(pwd | sed "s|$HOME|~|")" \
     | grep 'Window id' \
-    | sed -e 's/.* Window id: //' -e 's/ .*//'
+    | sed -e 's/.* Window id: //' -e 's/ .*//')
+    if [[ -n $1 ]]; then
+        local -n ret=$1
+        # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+        ret=$idd
+    else
+        echo "$id"
+    fi
 }
 
 xterm-cli-info ()
 {
     local id=$1
-    [[ -z $id ]] && id=$(xterm-cli-id)
+    [[ -z $id ]] && xterm-cli-id id
     xwininfo -id "$id"
 }
 
@@ -37,7 +46,7 @@ _xterm-cli-xground ()
             oldstty=$(stty -g)
             stty raw -echo min 0
             #          OSC    Ps  ;Pt ST
-            echo -en "\\033]${col};?\\033\\" >/dev/tty  # echo opts differ w/ OSes
+            echo -en "${OSC}${col};?${ESC}\\" >/dev/tty  # echo opts differ w/ OSes
             result=
             if IFS=';' read -r -d \\ color ; then
                 result=$(echo "$color" | sed 's/^.*\;//;s/[^rgb:0-9a-f/]//g')
@@ -71,7 +80,7 @@ _xterm-cli-xground ()
     else
         local color=$1
         local var="FOREBACKMAP_${color^^}_RGB"
-        [[ -z "${!var}" ]] && echo "'$color' not a defined color scheme" && return 1
+        [[ -z "${!var}" ]] && echo "'$color' not a defined color scheme" && { ffalse; return $?; }
         local rgb="${!var}"
         echo -ne "${CSI}38:2:${rgb%%,*}m" "${CSI}48:2:${rgb##*,}m"
     fi
@@ -87,16 +96,90 @@ xterm-cli-background ()
     _xterm-cli-xground 11 "$@"
 }
 
+xterm-use-coords ()
+{
+    local func=$1;shift
+    local x=$1;shift
+    local y=$1;shift
+    local action=$1;shift
+
+    ## strips whitespace
+    x=$((x+0))
+    y=$((y+0))
+
+    local tgt
+    case $action in
+        get | '' )
+            if [[ -z $1 ]]; then
+                # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                tgt='$x:$y'
+            else
+                tgt='$'$1; shift
+            fi
+            eval echo "$tgt"
+            ftrue; return $?
+            ;;
+
+        set )
+            local newx=$x
+            local newy=$y
+            if [[ $1 == 'x' ]]; then
+                shift
+                newx=$1
+            elif [[ $1 == 'y' ]]; then
+                shift
+                newy=$1
+            else
+                newx=$1
+                if [[ $newx =~ : ]]; then
+                    newy=${newx##*:}
+                    newx=${newx%%:*}
+                else
+                    shift;
+                    newy=$1
+                fi
+                if [[ -z $newx ]] || [[ -z $newy ]]; then
+                    cmd-echo --ec 'Must specify x and y if you do not specify which one'
+                    ffalse; return $?
+                fi
+            fi
+            if [[ $newx =~ [+-] ]]; then
+                finalx=$((x + newx))
+            else
+                finalx=$newx
+            fi
+            if [[ $newy =~ [+-] ]]; then
+                finaly=$((y + newy))
+            else
+                finaly=$newy
+            fi
+            case $func in
+                location )
+                    echo -ne "${CSI}3;${finalx};${finaly}t"
+                    ;;
+                size )
+                    echo -ne "${CSI}8;${finaly};${finalx}t"
+                    ;;
+            esac
+            ftrue; return $?
+            ;;
+
+        * )
+            cmd-echo --ec "'$action' is an invalid action'"
+            ffalse; return $?
+            ;;
+    esac
+}
+
 xterm-location ()
 {
+    local winid
+    xterm-cli-id winid
     local -a info
-    readarray -t info < <(xwininfo -name "$USER@$(hostname):$(pwd | sed "s|$HOME|~|")")
+    readarray -t info < <(xterm-cli-info "$winid")
 
     local x=-1
     local y=-1
-    local newx=0
-    local newy=0
-
     for line in "${info[@]}"; do
         if [[ $line =~ Absolute\ upper-left\ X ]]; then
             x="${line#*:}"
@@ -106,135 +189,34 @@ xterm-location ()
         [[ $x != '-1' ]] && [[ $y != '-1' ]] && break
     done
 
-    ## strips whitespace
-    x=$((x+0))
-    y=$((y+0))
-
-    if [[ $1 == 'get' ]]; then
-        shift
-        if [[ $1 == 'x' ]]; then
-            echo "$x"
-        elif [[ $1 == 'y' ]]; then
-            echo "$y"
-        else
-            echo "$x:$y"
-        fi
-        return
-    elif [[ $1 == 'set' ]]; then
-        shift
-        if [[ $1 == 'x' ]]; then
-            shift
-            newx=$1
-            newy=$y
-        elif [[ $1 == 'y' ]]; then
-            shift
-            newy=$1
-            newx=$x
-        else
-            newx=$1
-            shift
-            newy=$1
-            if [[ -z $newx ]] || [[ -z $newy ]]; then
-                cmd-echo --ec 'Must specify x and y if you do not specify which one'
-                return 1
-            fi
-        fi
-        if [[ $newx =~ [+-] ]]; then
-            finalx=$((x + newx))
-            echo "newx = $x + $newx ($finalx)"
-        else
-            finalx=$newx
-            echo "newx = $finalx"
-        fi
-        if [[ $newy =~ [+-] ]]; then
-            finaly=$((y + newy))
-            echo "newy = $y + $newy ($finaly)"
-        else
-            finaly=$newy
-            echo "newy = $finaly"
-        fi
-        echo -ne "\033[3;${finalx};${finaly}t"
-        return
-    else
-        cmd-echo --ec 'Missing get/set command'
-    fi
+    local action=$1; shift
+    xterm-use-coords location "$x" "$y" "$action" "$@"
 
 }
 
 xterm-size ()
 {
+    local winid
+    xterm-cli-id winid
     local -a info
-    readarray -t info < <(xwininfo -name "$USER@$(hostname):$(pwd | sed "s|$HOME|~|")")
+    readarray -t info < <(xterm-cli-info "$winid")
 
     local x=-1
     local y=-1
     local coords
-    local newx=0
-    local newy=0
-
     for line in "${info[@]}"; do
         if [[ $line =~ geometry ]]; then
             coords="${line#*-geometry}"
             coords="${coords%%+*}"
+            coords="${coords%%-*}"
             x=${coords%%x*}
             y=${coords##*x}
         fi
         [[ $x != '-1' ]] && [[ $y != '-1' ]] && break
     done
 
-    ## strips whitespace
-    x=$((x+0))
-    y=$((y+0))
-
-    if [[ $1 == 'get' ]]; then
-        shift
-        if [[ $1 == 'x' ]]; then
-            echo "$x"
-        elif [[ $1 == 'y' ]]; then
-            echo "$y"
-        else
-            echo "$x:$y"
-        fi
-        return
-    elif [[ $1 == 'set' ]]; then
-        shift
-        if [[ $1 == 'x' ]]; then
-            shift
-            newx=$1
-            newy=$y
-        elif [[ $1 == 'y' ]]; then
-            shift
-            newy=$1
-            newx=$x
-        else
-            newx=$1
-            shift
-            newy=$1
-            if [[ -z $newx ]] || [[ -z $newy ]]; then
-                cmd-echo --ec 'Must specify x and y if you do not specify which one'
-                return 1
-            fi
-        fi
-        if [[ $newx =~ [+-] ]]; then
-            finalx=$((x + newx))
-            echo "newx = $x + $newx ($finalx)"
-        else
-            finalx=$newx
-            echo "newx = $finalx"
-        fi
-        if [[ $newy =~ [+-] ]]; then
-            finaly=$((y + newy))
-            echo "newy = $y + $newy ($finaly)"
-        else
-            finaly=$newy
-            echo "newy = $finaly"
-        fi
-        echo -ne "\033[8;${finaly};${finalx}t"
-        return
-    else
-        cmd-echo --ec 'Missing get/set command'
-    fi
-
+    local action=$1; shift
+    xterm-use-coords size "$x" "$y" "$action" "$@"
 }
 
 _xterm-cli-ticker-cfg ()
@@ -297,7 +279,7 @@ main ()
 
     if [[ "$action" =~ ^-+h ]]; then
         bash-usage "$0"
-        return  0
+        ftrue; return $?
     fi
     if x-is-available; then
         # xterm-cli-* are functions defined in this script. The rest are functions
@@ -312,10 +294,10 @@ main ()
             fi
         done
         cmd-echo --ec "'$action' is not an xterm-cli action"
-        return 1
+        ffalse; return $?
     else
-        cmd-echo --oii -- "xterm-cli:X is not available to run '$action'"
-        return 1
+        cmd-echo --ec --oii -- "xterm-cli:X server is not available to run '$action'"
+        ffalse; return $?
     fi
 }
 
@@ -334,11 +316,28 @@ xterm-cli - xterm commands/queries unified
 
            [fore|back]ground
            background colorscheme
-           location [-x|-y]
-           size get | set [-x[+|-]n]
-           size set -x[+|-]n
-           size set -y[+|-]n
-           size set [+|-]n [+|-]n
+
+           location
+           location get x|y
+
+           location set x i
+           location set y j
+           location set x +/-i
+           location set y +/-j
+
+           location set i:j
+           location set +/-i:+/-j
+
+           size
+           size get x|y
+
+           size set x i
+           size set y j
+           size set x +/-i
+           size set y +/-j
+
+           size set i:j
+           size set +/-i:+/-j
 
            raw-csi control sequences
 
@@ -346,11 +345,7 @@ xterm-cli - xterm commands/queries unified
 
 =head1 DESCRIPTION
 
-TBD
-
-=head1 ARGUMENTS
-
-TBD
+Control an xterm window from the command line.
 
 =cut
 
