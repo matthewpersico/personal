@@ -23,9 +23,9 @@ git ()
         set -x
     fi
 
-    if [[ $1 =~ -help ]]; then
+    if [[ $1 == --help ]] || [[ $1 = -h ]]; then
         if [[ -n $2 ]]; then
-            git "$2" "$1"
+            git "$2" --help
             return $?
         else
             git-usage git
@@ -48,17 +48,28 @@ git ()
     # to be.
     local doandcdfile
     local -A doandcdlist
-    doandcdlist=([clone]=1 [go]=1 [worktree]=1 [wt]=1 [repo]=1)
+    doandcdlist=([clone]=1 [go]=1 [worktree]=1 [repo]=1)
+
+    # Apparently, you can't create a git alias for an extended or expanded git
+    # script or function. So we alias them here and handle any arguments in the
+    # alias expansion.
+    local -A git_aliases
+    git_aliases=([wt]=worktree [st]=status [stx]='status -ext')
+    local alias="$1"; shift
+    local -a commands=("$alias")
+    if [[ -n ${git_aliases[$alias]} ]]; then
+        asplit "${git_aliases[$alias]}" -a commands
+    fi
 
     # Set up the temp file to hold the target dir if we've been asked to
     # execute one of the 'cd'ing commands. This command is so ubiquitous that
     # we are not going to pay the cumulative time penalty of sourcing
     # 'mktemp.binc' every time we run the function; we just use the same format
     # for the tempfile name that we find in that library.
-    local command=$1; shift
+    :
     local -a args
-    if [[ -n "${doandcdlist[$command]}" ]]; then
-        doandcdfile=$(mktemp -t "tmp.$$.git-wrapper.doandcd.${command}.XXXXXXXXX")
+    if [[ -n "${doandcdlist[${commands[0]}]}" ]]; then
+        doandcdfile=$(mktemp -t "tmp.$$.git-wrapper.doandcd.${commands[0]}.XXXXXXXXX")
         args+=('--doandcd' "$doandcdfile")
     fi
     args+=("$@")
@@ -70,26 +81,27 @@ git ()
 
     # And we will happily execute a function or script that matches a real git
     # command.
-    local extend_command="git-${command}"
+
+    local ex_ten_pan_d_command="git-${commands[0]}"
     local is_func
     local is_script
-    is_func=$(declare -F "$extend_command" 2>/dev/null)
-    [[ -z $is_func ]] && is_script=$(which "$extend_command" 2>/dev/null)
+    is_func=$(declare -F "$ex_ten_pan_d_command" 2>/dev/null)
+    [[ -z $is_func ]] && is_script=$(which "$ex_ten_pan_d_command" 2>/dev/null)
     if [[ -n $is_func ]] || [[ -n $is_script ]]; then
-        if [[ ",${GIT_DISPATCHER_VERBOSE}," =~ ,${command},|all ]]; then
+        if [[ ",${GIT_DISPATCHER_VERBOSE}," =~ ,${commands[0]},|,${alias},|all ]]; then
             local t
             [[ -n $is_func ]] && t='function'
             [[ -z $t ]] && t='script'
-            cmd-echo --id 'GIT WRAPPER' --dc -- "Calling $t $extend_command ${args[*]}"
+            cmd-echo --id 'GIT WRAPPER' --dc -- "Calling $t $ex_ten_pan_d_command ${args[*]}"
         fi
-
-        "$extend_command" "${args[@]}"
+        commands[0]="${ex_ten_pan_d_command}"
+        "${commands[@]}" "${args[@]}"
     else
-        if [[ ",${GIT_DISPATCHER_VERBOSE}," =~ ,${command},|all ]]; then
-            cmd-echo --id 'GIT WRAPPER' --dc -- "Calling ${REALGIT} ${command} ${args[*]}"
+        if [[ ",${GIT_DISPATCHER_VERBOSE}," =~ ,${commands[0]},|,${alias},|all ]]; then
+            cmd-echo --id 'GIT WRAPPER' --dc -- "Calling ${REALGIT} ${commands[*]} ${args[*]}"
         fi
 
-        "${REALGIT}" "${command}" "${args[@]}"
+        "${REALGIT}" "${commands[0]}" "${args[@]}"
     fi
 
     local status=$?
@@ -128,7 +140,7 @@ git ()
 :<<'__PODUSAGE__'
 =head1 NAME
 
-git - A wrapper around 'git' to extend it.
+git - A wrapper around 'git' to expand it.
 
 =head1 SYNOPSIS
 
@@ -136,41 +148,64 @@ git - A wrapper around 'git' to extend it.
 
 =head1 DESCRIPTION
 
-If you want to add the command 'foo' to 'git', you can simply create the file
-'git-foo', put it on your PATH, and invoke it as 'git foo'.
+If you want to add the command B<foo> to B<git>, you can simply create the file
+B<git-foo>, put it a directory on your B<$PATH>, and invoke it as B<git
+foo>. This is known as B<extending> git.
 
-However, if you want to add to an EXISTING command, this doesn't work;
-'git-worktree' on your PATH will not be called instead of 'git worktree'.
+However, if you want to add to an B<existing> command, this does not work; for
+example, the program B<git-commit> in your B<PATH> will not be called when the
+command of B<git commit> is issued. In order to do that, you need a different
+techinque, which I call B<expanding> git.
 
-Soooooo, we have this wrapper that will see if a script exists on the path for
-the given command, and if so, call that command. Otherwise, pass the command
-off to git.
+That is the purpose of B<this> wrapper: given a command, it will take the
+following actions, in this order:
 
-Note that your script 'git-bar' that extends an EXISTING command 'git bar' must
-be able to determine when to handle the extended request itself and when to
-hand off to the existing command. Handing off is done by executing
+=over 4
 
-  "$REALGIT" bar ...
+=item * Check if a function B<git-command> exists in the environment and execute that if found.
 
-We do this because $REALGIT will not run YOUR git-bar (which is why we have
-THIS script at all), meaning you won't end up in an endless loop.
+=item * Check if a script B<git-command> exists on B<$PATH> and execute that if found.
 
-The variables REALGIT and REALGIT_EXEC_PATH are defined in 'git.env'.
+=item * Execute B<git command> using the fullpath to the actual git executable.
 
-Notes:
+=back
 
-1) If, as part of your new command or extended functionality, you want to 'cd'
-to someplace other than the current working directory, see the internal
-comments of this function on how to do that.
+Note that your function or script B<git-commnd> that B<expands> an existing
+command B<git command> must be able to determine when to handle the expanded
+request itself and when to hand off to the existing command. Handing off is
+done by executing
 
-2) Define the envvar GIT_DISPATCHER_VERBOSE to see what this wrapper chooses to
-execute. Set it 'all' to catpure all commands or set it to
+  "$REALGIT" command ...
 
- 'cmd1,cmd2,cmd3'
+We do this because B<$REALGIT> will not run YOUR B<git-command>, which is why we
+have this script in the first place.
+
+We also end up handling commands that B<extend> git commands. This fucntion d
+doesn't know or care if the function or script that it runs is an extension or
+an expansion. The function or script itself will take care of the details.
+
+=head1 NOTES
+
+=over 4
+
+=item 1.
+
+The variables B<REALGIT> and B<REALGIT_EXEC_PATH> are defined in B<git.env>.
+
+=item 2.
+
+If, as part of your new command or extended functionality, you want to B<cd> to
+someplace other than the current working directory, see the internal comments
+of this function on how to do write your extension command to allow that.
+
+=item 3
+
+Define the envvar B<GIT_DISPATCHER_VERBOSE> to see what this wrapper chooses
+to execute. Set it B<all> to catpure all commands or set it to
+
+  'cmd1,cmd2,cmd3'
 
 to capture only those three commands. You can use any number of comma-separated
 commands.
-
-=cut
 
 __PODUSAGE__
