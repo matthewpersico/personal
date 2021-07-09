@@ -1,18 +1,29 @@
 #!/usr/bin/env bash
 
-# pick
-if [[ "$1" =~ ^-h ]]; then
-    bash-usage "$0"
-    exit 0
-fi
+# prompt
 
-declare prompt_text
-prompt_text="$1";shift
-declare prompt
-prompt=$(echo -e "$prompt_text" | perl -p -e 's/\s+/ /g')
-read -r -p "$prompt" resp
-echo "$resp"
-exit 0
+main ()
+{
+    if [[ "$1" =~ ^-h ]]; then
+        bash-usage "$0"
+        true; return 0
+    fi
+
+    declare -a readargs
+    [[ $1 == '-n' ]] && readargs=('-n' "$2") && shift && shift
+    declare prompt_text
+    [[ ${readargs[1]} == '1' ]] && prompt_text="Hit any key to continue..."
+    [[ -n $1 ]] && prompt_text="$1"; shift
+
+    declare prompt
+    prompt=$(echo -e "$prompt_text" | perl -p -e 's/\s+/ /g')
+    read "${readargs[@]}" -r -p "$prompt" resp
+    echo "$resp"
+    true; return 0
+}
+
+main "$@"
+exit $?
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -21,11 +32,11 @@ prompt - prompt for a response
 
 =head1 SYNOPSIS
 
-  resp=$(prompt "prompt text:")
+  resp=$(prompt [-n i ] "prompt text:")
 
 =head1 DESCRIPTION
 
-Print the prompt text, print the user's choice.
+Print the prompt text, print the user's response.
 
 =head1 ARGUMENTS
 
@@ -37,6 +48,18 @@ Prints this text, waits for your response. Be sure to include any punctuation.
 
 =back
 
-=cut
+=head1 OPTIONS
+
+=over 4
+
+=item  -n
+
+Instructs B<prompt> not to wait for a return but to accept any B<i> number of
+keys before continuing.
+
+Specifying B<-n 1> implements "Hit any key to continue...".
+
+Specifying B<-n 1> without prompt text will use a default of "Hit any key to
+continue..." for the prompt text.
 
 __PODUSAGE__
