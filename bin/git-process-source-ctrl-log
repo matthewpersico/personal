@@ -141,7 +141,10 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
         nountracked )
             pscl_flags+=(--nountracked)
             ;;
-            --)
+        inter* )
+            pscl_flags+=(--interactive)
+            ;;
+        --)
             moreopts=0
             ;;
         * )
@@ -204,7 +207,7 @@ export PSCL_LEAD_CHAR='*' ## NOTE: If you change the lead character for items
 ## Status display only
 ##
 if [[ "$action" != 'commit' ]]; then
-    perl -S $debug process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
+    perl $debug -S process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
     exit $?
 fi
 
@@ -224,11 +227,10 @@ if [[ -f "$source_ctrl_log" ]]; then
 fi
 
 ## Parse
-perl -S process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
-status=$?
-if ((status != 0)); then
+if ! perl $debug -S process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
+then
     rollback
-    exit $status
+    false; exit $?
 fi
 
 ## We rebuild the filelist from the commit message file so that we can account
