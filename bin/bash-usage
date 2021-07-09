@@ -4,178 +4,280 @@
 use on_exit
 use mktemp
 
-_guts-usage ()
+declare man_center='Persico Utility'
+_extract_usage ()
 {
-    local tgt="$1"
-    if grep -q -E "^:<<.{0,1}__PODUSAGE" "$tgt"; then
-        pod2text "$tgt" | ${PAGER:cat}
-    elif grep -q -E "^:<<.{0,1}__USAGE" "$tgt"; then
+    local marker=$1
+    local file=$2
+    local start_marker_locator
+    if start_marker_locator=$(grep -E "^:<<.{0,1}__${marker}__" "$file" 2>/dev/null); then
         local tmpfile
         tmpfile=$(mktempfile)
-        rm-on-exit "$tmpfile"
-        local start_marker
-        start_marker_locator=$(grep -E "^:<<.{0,1}__USAGE" "$tgt" )
-        start_marker=${start_marker_locator:1}
-        ( echo "cat $start_marker"
-          sed -e "0,/^$start_marker_locator/d" -e '/^__USAGE__/,$d' "$tgt"
-          echo "__USAGE__"
-        ) > "$tmpfile"
-        chmod +x "$tmpfile"
-        "$tmpfile"
-    else
-        cmd-echo --id bash-usage -w -- "No usage text found for '$tgt'."
+        touch "$tmpfile"
+        [[ $marker == 'USAGE' ]] && echo "${start_marker_locator:1}" >> "$tmpfile"
+        sed -e "0,/^$start_marker_locator/d" -e "/^__${marker}__/,\$d" "$file" >> "$tmpfile"
+        [[ $marker == 'USAGE' ]] && echo "__${marker}__" >> "$tmpfile"
+        echo "$tmpfile"
+        true; return $?
     fi
+    false; return $?
+}
+
+_shell_heredoc ()
+{
+    local usage_file=$1
+    local execfile="${usage_file}.sh"
+    echo "cat $(cat "${usage_file}")" > "$execfile"
+    chmod +x "$execfile"
+    "$execfile"
+    return $?
+}
+
+_pandoc_heredoc ()
+{
+    local usage_file=$1
+    local man_title=$2
+    local man_file="${usage_file}.1"
+    cat <<EOMANHEAD > "${usage_file}.wh"
+% ${man_title}(1) | ${man_center}
+%
+% $(date)
+
+$(cat "${usage_file}")
+EOMANHEAD
+
+    pandoc -f markdown -t man -s "${usage_file}.wh" >> "${man_file}"
+    man -l "$man_file"
+}
+
+_guts-usage ()
+{
+    local src="$1"
+    local man_title; man_title=$(basename "${src^^}")
+    local -a markers=(MDUSAGE PODUSAGE USAGE)
+    local marker
+    local m
+    for m in "${markers[@]}"; do
+        if grep -q -E "^:<<.{0,1}__${m}" "$src"; then
+            marker=$m
+            break
+        fi
+    done
+    if [[ -z $marker ]]; then
+        cmd-echo --id bash-usage -w -- "No usage text found for '$src'."
+        false; return $?
+    fi
+
+    local usage_file
+    usage_file=$(_extract_usage "$marker" "$src")
+    case $marker in
+        MDUSAGE )
+            if which pandoc 1>/dev/null 2>&1; then
+                _pandoc_heredoc "$usage_file" "$man_title"
+
+            else
+                ${PAGER:cat} "$usage_file"
+            fi
+            ;;
+        PODUSAGE )
+            pod2man --section 1 --name "$man_title" \
+                    --center "$man_center" \
+                    --date "$(date -d@"$(stat --printf %Y "$src")")" \
+                    --release "" "$usage_file" | man -l -
+            ;;
+        USAGE )
+            _shell_heredoc "$usage_file" | ${PAGER:cat}
+            ;;
+    esac
 }
 
 _script-usage ()
 {
-    local tgt
-    tgt="$1"
-    if [[ ! -r "$tgt" ]]; then
-        local newtgt
-        newtgt=$(type -P "$tgt" 2>/dev/null)
-        if [[ ! -r "$newtgt" ]]; then
-            cmd-echo --id bash-usage -w  -- "Cannot find '$tgt' on PATH to get usage text."
+    local src
+    src="$1"
+    if [[ ! -r "$src" ]]; then
+        local newsrc
+        newsrc=$(type -P "$src" 2>/dev/null)
+        if [[ ! -r "$newsrc" ]]; then
+            cmd-echo --id bash-usage -w  -- "Cannot find '$src' on PATH to get usage text."
             ffalse; return $?
         else
-            tgt="$newtgt"
+            src="$newsrc"
         fi
     fi
     ## And once we have a filename, we just call _guts-usage on it.
-    _guts-usage "$tgt"
+    _guts-usage "$src"
 }
 
 _func-usage()
 {
-    local tgt
-    tgt="$1"
-    local newtgt
-    newtgt=$(autoload -w "$tgt") ## A personally modified version of the
+    local src
+    src="$1"
+    local newsrc
+    newsrc=$(autoload -w "$src") ## A personally modified version of the
                                  ## autoload demo script that comes with
                                  ## bash. -w is "where" and it locates the file
                                  ## in which the function was defined
                                  ## (effectively a find command on FPATH).
-    if [[ ! -r "$newtgt" ]]; then
-        cmd-echo --id bash-usage -w -- "Cannot find '$tgt' on FPATH to get usage text."
+    if [[ ! -r "$newsrc" ]]; then
+        cmd-echo --id bash-usage -w -- "Cannot find '$src' on FPATH to get usage text."
         ffalse; return $?
     else
-        tgt="$newtgt"
+        src="$newsrc"
     fi
     ## And once we have a filename, we just call _guts-usage on it.
-    _guts-usage "$tgt"
+    _guts-usage "$src"
 }
 
 main() {
-    local tgt
-    tgt=$1
-    if [[ -z "$tgt" ]]; then
+    if [[ -z "$1" ]]; then
         cmd-echo --id bash-usage -w -- "Missing argument to read for usage text."
         ffalse; return $?
     fi
     [[ "$1" =~ ^-+h ]] && bash-usage "$0" && { ftrue; return $?; }
-
-    if [[ -r $tgt ]]; then
-        _guts-usage "$tgt"
-        ftrue && return $?
+    if [[ "$1" == --title ]]; then
+        man_center="$2"
+        shift; shift
     fi
 
-    local type
-    type=$(type "$tgt" 2>&1 | head -1 | grep -v 'not found')
-    if [[ -z "$type" ]]; then
-        cmd-echo --id bash-usage -e -- "$tgt not found"
-    elif [[ "$type" =~ 'is a function' ]]; then
-        _func-usage "$tgt"
+    local src=$1; shift
+    local -a extra_usage=("$@")
+
+    [[ -n ${extra_usage[0]} ]] && cmd-echo --color black --reverse --head "** Extended actions **"
+    if [[ -r $src ]]; then
+        _guts-usage "$src"
     else
-        tgt=${type##$tgt is }
-        _script-usage "$tgt"
+        local type
+        type=$(type "$src" 2>&1 | head -1 | grep -v 'not found')
+        if [[ -z "$type" ]]; then
+            cmd-echo --id bash-usage -e -- "$src not found"
+        elif [[ "$type" =~ 'is a function' ]]; then
+            _func-usage "$src"
+        else
+            src=${type##$src is }
+            _script-usage "$src"
+        fi
+    fi
+    if [[ -n ${extra_usage[0]} ]]; then
+        cmd-echo --color black --reverse --head "** Standard actions **"
+        local resp
+        resp=$(prompt -n 1 "Hit any key to continue, 'q' to quit...")
+        [[ $resp == 'q' ]] && return
+        "${extra_usage[@]}"
     fi
 }
 
 main "$@"
 exit $?
 
-:<<'__PODUSAGE__'
-=head1 NAME
+:<<'__MDUSAGE__'
+# NAME
 
 bash-usage - print the usage text of a script or function
 
-=head1 SYNOPSIS
+# SYNOPSIS
 
- bash-usage name
- bash-usage -h
+```
+bash-usage file extra usage
+bash-usage name extra usage
+bash-usage -h
+```
 
-=head1 DESCRIPTION
+# DESCRIPTION
 
-Given a file, print the usage therein.
+* Given a **file**:
 
-Given 'name', determine if it is a script or a function and from that, go
-figure out where the defining text for 'name' is within 'name' and read the
-usage information out of it.
+-- pull out the usage text to a temp file
 
-We recognize two types of usage text:
+-- format the temp file accordingly
 
-=over 4
 
-=item shell usage
+* Given a **name**:
 
-Using one of these starting markers
+-- determine if **name** is a script or a function
 
-  :<<__USAGE__
-  :<<'__USAGE__'
-  :<<"__USAGE__'
+-- find the corresponding source file
 
-and an end marker __USAGE__, all the text from start to end markers,
-inclusively, will be read and processed using 'cat <<'. That means text with
-the last two quoted forms will be printed verbatim, but text with the first
-(unquoted) form will be evaluated for variables and $() commands contained
-within. Caveat Progremmer.
+-- proceed as above
 
-=item POD usage
+We recognize three types of usage text:
+
+## shell usage
 
 Using one of these starting markers
 
-  :<<__PODUSAGE__
-  :<<'__PODUSAGE__'
-  :<<"__PODUSAGE__'
+```
+ :<<__USAGE__
+ :<<'__USAGE__'
+ :<<"__USAGE__"
+```
 
-and an end marker __PODUSAGE__, the entire file is run through 'pod2text' and
-all POD within will be processed, regardless of where it is. We simply adopted
-the convention of using :<<__PODUSAGE__ when we extended bash-usage to process
-it because it was consistent with the muscle memory of the original __USAGE__
-convention. The various quoted forms don't mean anything; 'pod2text' will read
-the entire file and ignore what is not pod.
+and an end marker **\_\_USAGE\_\_**, all the text between and including the start and
+end markers will be read and processed using **cat <<**. That means text with the
+last two quoted forms will be printed verbatim, but text with the unquoted form
+will be evaluated for variables and **$()** commands contained within. Caveat
+Programmer.
 
-=back
+## POD usage
 
-=head1 ARGUMENTS
+Using one of these starting markers
 
-=over 4
+```
+ :<<__PODUSAGE__
+ :<<'__PODUSAGE__'
+ :<<"__PODUSAGE__"
+```
 
-=item name
+and an end marker **\_\_PODUSAGE\_\_**, all the text between the start and end
+markers will be read and processed using **pod2text**. The various quoted forms
+do not alter processing, as they do with [shell usage](#shell_usage).
 
-'name' must be either:
+## Markdown usage
 
- - the full path to a script
+Using one of these starting markers
 
- - script that is on $PATH
+```
+ :<<__MDUSAGE__
+ :<<'__MDUSAGE__'
+ :<<"__MDUSAGE__"
+```
 
- - a function name that has been loaded with 'autoload' so that we can
-   accurately find the definition file and read the usage text from there,
-   as the usage comments (as well as all other comments) are stripped
-   from the function text when loaded.
+and an end marker **\_\_MDUSAGE\_\_**, all the text between the start and end
+markers, will be read and processed using **pandoc**. If **pandoc** is not
+available, the text will simply be printed out, verbatim. The various quoted
+forms do not alter processing, as they do with [shell usage](#shell_usage).
 
-=back
+# ARGUMENTS
 
-=head1 OPTIONS
+* name
 
-=over 4
+**name** must be either:
 
-=item -h
+-- the full path to a script
 
-Print this help
+-- script that is on **$PATH**
 
-=back
+-- a function name whose corresponding script matches the name exactly and is
+   in a directory on **\$FPATH**. Even though bash does not do autoloads, we are
+   using a modified version of the **autoload** script that is in the auxilary
+   files of bash to load our functions. Our modification uses **\$FPATH** so
+   that we can accurately find the definition file and read the usage text from
+   there, as the usage comments are (as well as all other comments) are
+   stripped from the function text when loaded.
 
-=cut
+* extra usage
 
-__PODUSAGE__
+If the command on which you are calling **bash-usage** is an extension of an
+existing command, use the remnaining arguments to specify how to execute that
+usage (ususally **man command** or **command --help**) and **bash-usage** will
+execute it for you. Your usage and the original usage will have distinct
+headers and you will have the opportuinity to bail out before the second usage
+is executed.
+
+# OPTIONS
+
+* -h
+
+Print this help.
+
+__MDUSAGE__

@@ -4,24 +4,21 @@
 
 # Perform usage on local git command and then on same real git command.  $1 is
 # the full path to the git command git-<gitsubcmd>.
-(
-    declare gitsubcmd
-    if [[ $1 == '--real' ]]; then
-        gitsubcmd=$2
-        shift;shift
-    fi
+declare gitsubcmd
+if [[ $1 == '--real' ]]; then
+    gitsubcmd=$2
+    shift;shift
+fi
 
-    declare tgt=$1;shift
-    [[ -n "$*" ]] && cmd-echo -- "$@"
-    echo "** Extended actions **"
-    bash-usage "$tgt"
-    echo
-    echo "** Standard actions **"
-    [[ -z $gitsubcmd ]] && gitsubcmd=$(basename "$tgt" | sed 's/git-//')
-    # special case
-    if [[ $gitsubcmd == 'git' ]]; then
-        man git
-    else
-        "$REALGIT" "$gitsubcmd" --help
-    fi
-) 2>&1 | ${PAGER:-less}
+declare tgt=$1;shift
+[[ -n "$*" ]] && cmd-echo -- "$@"
+declare -a standard_man
+[[ -z $gitsubcmd ]] && gitsubcmd=$(basename "$tgt" | sed 's/git-//')
+# special case
+if [[ $gitsubcmd == 'git' ]]; then
+    standard_man=('man' 'git')
+else
+    standard_man=("$REALGIT" "$gitsubcmd" '--help')
+fi
+
+bash-usage --title "Persico Git Add-On" "$tgt" "${standard_man[@]}"
