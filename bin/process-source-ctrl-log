@@ -16,6 +16,7 @@ use Path::Tiny;
 use Text::Wrap qw(wrap);
 $Text::Wrap::columns = 72;
 use Lingua::EN::Inflect qw(PL PL_V);
+use Term::ReadLine;
 
 use constant NOFUNC => '!File Scope';    # the ! will sort this before all function names.
 ## PSCL_LEAD_CHAR is set in git-process-source-ctrl-log.
@@ -52,6 +53,7 @@ my %opt = (
     'cached'      => 0,
     'namesonly'   => 0,
     'nountracked' => 0,
+    'interactive' => 0,
 );
 my @obsolete = qw(withstatus
   skip-no-source-ctrl-log);
@@ -95,11 +97,15 @@ sub main {
 
         'nountracked',    # Do not print anything for untracked files.
 
-        'edit',           # Used in conjunction with --diff or --nosclonly, edit each
-                          # file that has no SourceCtrlLog entry or a diff so that you
-                          # can use C-x-4-a in emacs to generate and entry in
-                          # SourceCtrlLog where on is missing entry or needs to be
-                          # updated top match the diff.
+        'interactive|inter',    # Before committing, display each file and its
+                                # commit text and decide if you want to commit it
+                                # or not.
+
+        'edit',                 # Used in conjunction with --diff or --nosclonly, edit each
+                                # file that has no SourceCtrlLog entry or a diff so that you
+                                # can use C-x-4-a in emacs to generate and entry in
+                                # SourceCtrlLog where on is missing entry or needs to be
+                                # updated top match the diff.
 
         @obsolete
     ) or die "Bad options";
@@ -165,12 +171,17 @@ sub main {
     # Process the data
     #
     if ( $opt{'for-commit'} ) {
-        create_commit_scl( $opt{'for-commit'} );
+        if ( create_commit_scl( $opt{'for-commit'}, $opt{'interactive'} ) ) {
+            return 0;    ## UNIX good
+        } else {
+            return 1;    ## UNIX bad
+        }
     } elsif ( $opt{'namesonly'} ) {
         names_only();
     } else {
         format_scl();
     }
+    return 0;    ## UNIX good
 }
 
 sub parse_scl {
@@ -195,6 +206,7 @@ sub parse_scl {
     my $chunk_id = 1;
 
     my %current;
+
     # Data for the current entry, primarily to keep state between lines of text
     # blocks.
     my $sclih = IO::File->new( $scl, "r" );
@@ -219,6 +231,7 @@ sub parse_scl {
         }
         next if ( !$in_a_chunk and $_ eq q() );
         if ( $_ =~ m/$chunk_start_re/ ) {
+
             # Start a new chunk
             push @chunks,
               {
@@ -239,9 +252,10 @@ sub parse_scl {
     # Now we post-process the chunks.
     for my $chunk (@chunks) {
         for ( @{ $chunk->{orig_text} } ) {
-            # Parsing assumptions:
-            # 1) One SourceCtrlLog in git root for whole project.
 
+    # Parsing assumptions:
+    # 1) One SourceCtrlLog in git root for whole project.
+    #
     # 2) Emacs variable add-log-always-start-new-record is set to
     # 't'. That means every chunk has a filename, even if functions or
     # text may be on the next line due to wrapping. In other words, you
@@ -254,6 +268,7 @@ sub parse_scl {
     # or
     #    * Some text.
     # which simplifies the processing.
+    #
     # 3) With #2, we can use Esc-Q to wrap text, so we have to account for that.
             my $text;
             if (m|${filetag_re}\s*${functag_re}:(?:\s*${text_re})?|) {
@@ -284,6 +299,7 @@ sub parse_scl {
                   defined( $+{text} ) ? strip_text( $+{text} ) : '';
             } else {
                 my $new_text = strip_text($_);
+
                 # text
                 if ( length($new_text) ) {
                     $chunk->{text} .= " $new_text";
@@ -297,7 +313,7 @@ sub parse_scl {
         $entries{ $chunk->{filespec} }->{ $chunk->{function} }
           ->{ $chunk->{chunk_id} } = $chunk;
         if ( exists( $files_to_process{ $chunk->{filespec} } ) ) {
-            $files_to_process{ $chunk->{filespec} } = $chunk;
+            $files_to_process{ $chunk->{filespec} } = 1;
         }
     }
 
@@ -311,13 +327,13 @@ sub strip_text {
 }
 
 sub create_commit_scl {
-    my ($new_scl_root) = @_;
+    my ( $new_scl_root, $interactive ) = @_;
 
     my ( $commit_f, $retain_f ) =
       ( "${new_scl_root}.commit", "${new_scl_root}.retain" );
-    ( open my $commit_h, ">", $commit_f and print "DEBUG - $commit_f\n" )
+    open my $commit_h, ">", $commit_f
       or die "Cannot open $commit_f for write:$!\n";
-    ( open my $retain_h, ">", $retain_f and print "DEBUG - $retain_f\n" )
+    open my $retain_h, ">", $retain_f
       or die "Cannot open $retain_f for write:$!\n";
 
     ## Checking for files with/without comments.
@@ -328,7 +344,7 @@ sub create_commit_scl {
         my $msg_prefix = join( q( ),
             scalar(@no_scl_keys),
             PL( "file", scalar(@no_scl_keys) ),
-            PL_V( "have", scalar(@no_scl_keys) ),
+            PL_V( "has", scalar(@no_scl_keys) ),
             'no entries' );
         if ( $opt{sclonly} ) {
             warn
@@ -350,17 +366,30 @@ sub create_commit_scl {
               . qq(\n);
         }
     }
-    write_commit_message($commit_h);
-    write_retained_log($retain_h);
+    if ($interactive) {
+        do_interactive();
+    }
+
+    if ( write_commit_message($commit_h) ) {
+        write_retained_log($retain_h);
+        return 1;
+    } else {
+        return 0;
+    }
 }
 
 sub write_commit_message {
     my ($oh) = @_;
 
+    if ( !%files_to_process ) {
+        warn "No files found to process\n";
+        return undef;
+    }
     my %status = map { $_->[-1], $_->[-2] }
       map { [ split(/\s+/) ] } qx(git diff-index HEAD),
       qx(git diff-index --cached HEAD);
-    my @output = ( 'SUMMARY TEXT HERE', '' );
+    my @output   = ( 'SUMMARY TEXT HERE', '' );
+    my $init_scl = 1;
     for my $filename ( sort keys %files_to_process ) {
         push_scl_to_output(
             is_commit   => 1,
@@ -368,10 +397,13 @@ sub write_commit_message {
             input       => file_abs_to_scl_commit_entry($filename),
             file        => $filename,
             output      => \@output,
-            format_over => ''
+            format_over => '',
+            init        => $init_scl
         );
+        $init_scl = 0;
     }
     $oh->print( join( qq(\n), @output, q() ) );
+    return 1;
 }
 
 sub write_retained_log {
@@ -459,6 +491,7 @@ qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_o
     # putting the line onto the output, then parsing it. We print its scl text,
     # or a warning if there is none, and then we add any diff output.
 
+    my $init_scl = 1;
   STATUS: for my $sline (@status) {
         chomp $sline;
         my $input = $sline;
@@ -482,8 +515,10 @@ qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_o
                 output       => \@output,
                 file         => $+{file},
                 status       => $status,
-                renamed_file => $+{renamed_file}
+                renamed_file => $+{renamed_file},
+                init         => $init_scl
             );
+            $init_scl = 0;
         } else {
             # just another line
             push @output, $input;
@@ -502,9 +537,11 @@ qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_o
 }
 
 # Used to format the scl text
-my $ascii_red_black = ( $opt{color} ne 'never' ? '[31;40m' : '' );
-my $ascii_bold_red  = ( $opt{color} ne 'never' ? '[1;31m'  : '' );
-my $ascii_normal    = ( $opt{color} ne 'never' ? '[m'      : '' );
+my $ascii_red_black    = ( $opt{color} ne 'never' ? '[31;40m' : '' );
+my $ascii_yellow_black = ( $opt{color} ne 'never' ? '[33;40m' : '' );
+my $ascii_green_black  = ( $opt{color} ne 'never' ? '[32;40m' : '' );
+my $ascii_bold_red     = ( $opt{color} ne 'never' ? '[1;31m'  : '' );
+my $ascii_normal       = ( $opt{color} ne 'never' ? '[m'      : '' );
 
 # Track which scl entries we have already printed. If we see them again, it's
 # probably because there is a cached and a non-cached entry. The second time
@@ -515,16 +552,19 @@ my $dotgcsfile;
 
 sub push_scl_to_output {
     my %args = (
-        input        => undef,
-        is_commit    => 0,
-        output       => [],
-        file         => undef,
-        status       => undef,
-        renamed_file => undef,
-        format_over  => ' ' x 8,
+        input           => undef,
+        is_commit       => 0,
+        output          => [],
+        file            => undef,
+        status          => undef,
+        renamed_file    => undef,
+        format_over     => ' ' x 8,
+        color_by_status => 0,
+        init            => 0,
         @_
     );
 
+    %scl_seen = () if $args{init};
     my $ok_to_edit = 0;
     $ascii_red_black = $ascii_bold_red = $ascii_normal = ''
       if ( $args{is_commit} );
@@ -561,6 +601,7 @@ sub push_scl_to_output {
 
     $gcs{$filespec} = { count => 0, data => [], ignored => 0 };
     if ( $status !~ m /^(?:D|deleted)$/ ) {
+
         # Check for any GCS entries in the code.
         open my $ih, '<', $filespec
           or die "Cannot open '$filespec' for read:$!";
@@ -609,6 +650,7 @@ sub push_scl_to_output {
     push @{ $args{output} }, $args{input}
       if ( defined( $args{input} ) );
     if ( exists( $scl_seen{$filespec} ) ) {
+
         # then we probably have one file in multiple sections. Print a
         # reference here and move on.
         if ( !$args{is_commit} ) {
@@ -707,6 +749,7 @@ sub push_scl_to_output {
                     my @wrapped =
                       split( /\n/, wrap( '', '', $para ) );
                     my $line1 = shift(@wrapped);
+
                     # If the file/function line is so long that the text is
                     # pushed to the next line, we get spurious space between
                     # the lead and the first word.
@@ -726,6 +769,17 @@ sub push_scl_to_output {
                 }
             }
             push @{ $args{output} }, ( $args{is_commit} ? '' : () );
+            if ( $args{color_by_status} ) {
+                $args{output}->[0] = (
+                    (
+                          $args{status} eq 'M'
+                        ? $ascii_yellow_black
+                        : $ascii_green_black
+                    )
+                    . $args{output}->[0] . ':'
+                      . $ascii_normal
+                );
+            }
         }
     } else {
         # If there are no scl entries when we are trying to match an entry, get
@@ -749,11 +803,15 @@ sub push_scl_to_output {
     push @{ $args{output} }, '' if $need_a_blank;
 
     if ( $opt{edit} and $ok_to_edit ) {
-        my $child = fork();
-        if ($child) {
+        my $mychild = fork();
+        if ($mychild) {
             ## I am the parent. No waitpid here. The child is going to exec
             ## into an editor process, so the editor controlling process will
-            ## take care of cleaning it up.
+            ## take care of cleaning it up. We pause here to allow the editor
+            ## to catch up if it is a server processing many file open
+            ## requests. The server should be up before entering the command
+            ## that causes the editor to be used.
+            sleep 1;
         } else {
             ## I am the child
             no warnings 'once';
@@ -857,13 +915,51 @@ sub set_indent_from_lead {
     return ' ' x length( $_[0] );
 }
 
-main();
+sub do_interactive {
+    my $term = Term::ReadLine->new('process-source-ctrl-log');
 
-exit;
+    my %status = map { $_->[-1], $_->[-2] }
+      map { [ split(/\s+/) ] } qx(git diff-index HEAD),
+      qx(git diff-index --cached HEAD);
+    my $init_scl = 1;
+    for my $filename ( sort keys %files_to_process ) {
+        my @output;
+        push_scl_to_output(
+            input           => file_abs_to_scl_commit_entry($filename),
+            output          => \@output,
+            file            => $filename,
+            status          => $status{ file_abs_to_git_rel($filename) },
+            format_over     => '',
+            color_by_status => 1,
+            init            => $init_scl
+        );
+        $init_scl = 0;
+        print( join( "\n", "", @output ) );
+        my $bool;
+        while (
+            defined(
+                $bool =
+                  substr( lc( $term->readline('Commit? (y/n/q) [n]:') ), 0, 1 )
+            )
+          )
+        {
+            my $dummy = 6;
+            die "Aborted\n" if $bool eq 'q';
+            last            if $bool eq 'y';
+            if ( $bool eq '' or $bool eq 'n' ) {
+                delete $files_to_process{$filename};
+                last;
+            }
+        }
+    }
+}
+
+exit main();
 
 END {
     my $dq        = $?;
     my $debugspot = 6;
     $dq;
 }
+
 #  LocalWords:  filename

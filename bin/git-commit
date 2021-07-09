@@ -15,6 +15,7 @@ git-commit-with-source-ctrl-log ()
     local opt_skip
     local opt_debug
     local opt_confirm=''
+    local opt_interactive=''
     local -a opt_scl_pick
     local moreopts=1
     while [[ "$1" =~ ^- ]] && ((moreopts)); do
@@ -22,7 +23,6 @@ git-commit-with-source-ctrl-log ()
         local option
         option=$(dashstripper "$original")
         shift
-
         case $option in
             a ) opt_a='-a';;
             v ) opt_v='-v';;
@@ -30,10 +30,11 @@ git-commit-with-source-ctrl-log ()
             editor ) opt_edit=(--edit --editor "$1"); shift;;
             s ) opt_skip='--skip-no-source-ctrl-log';;
             sclpick ) opt_scl_pick=("$original" "$1"); shift;;
-            sclonly | sclo ) opt_skip='--sclonly' ;;
-            nosclonly | nosclo ) opt_skip='--nosclonly' ;;
+            sclonly | sclo ) opt_skip='--sclonly';;
+            nosclonly | nosclo ) opt_skip='--nosclonly';;
             c | confirm ) opt_confirm='--confirm';;
             exclude | ex) opt_exclude["$(realpath "$1")"]=1; shift;;
+            inter* ) opt_interactive='--interactive';;
             h | help )
                 git-usage "$0"
                 exit 0 ;;
@@ -42,7 +43,9 @@ git-commit-with-source-ctrl-log ()
                 moreopts=0
                 ;;
             * )
-                cmd-echo -- "$original is an invalid option. See $0 --help"; exit 1;;
+                cmd-echo -- "$original is poopy invalid option. See $0 --help"
+                exit 1
+                ;;
         esac
     done
 
@@ -78,6 +81,7 @@ git-commit-with-source-ctrl-log ()
         filenames=("${included[@]}")
     fi
     git-process-source-ctrl-log --commit \
+                                $opt_interactive \
                                 $opt_confirm $opt_v $opt_debug "${opt_edit[@]}" \
                                 $opt_skip "${opt_scl_pick[@]}" "${filenames[@]}"
     status=$?
@@ -217,6 +221,10 @@ ${message:$limidx} - $(git worktree get-name)"
                     ## no pass_on_args here, processed after commit
                     continue
                     ;;
+                inter* )
+                    do_interactive=1
+                    ## pass this on
+                    ;;
                 ## No '*)' case needed; anything else just gets passed on
             esac
         fi
@@ -224,6 +232,10 @@ ${message:$limidx} - $(git worktree get-name)"
         ## If we are here, pass it on
         pass_on_args+=("$original")
     done
+
+    if ((do_interactive)) && ((!opt_scl)); then
+        cmdecho --wc -- "--interactive without --scl ignored"
+    fi
 
     ((do_push)) && cmd-echo -- 'Committing...'
     if ((opt_scl)); then
@@ -236,7 +248,7 @@ ${message:$limidx} - $(git worktree get-name)"
     fi
     status=$?
 
-    if ((status== 0 && do_push)); then
+    if ((status == 0 && do_push)); then
         cmd-echo -- 'Pushing...'
         git push $opt_pr
         status=$?
