@@ -308,9 +308,10 @@ git-branch-list ()
     local strip=0
     local remote=''
     local show_current=''
+    local do_current=0
     local OPTSARGS
     local shortopts='rac'
-    local longopts='strip,nostrip,remote,all,current'
+    local longopts='strip,nostrip,remote,all,current,no-warn'
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     local status=$?
@@ -318,7 +319,7 @@ git-branch-list ()
 
     # Reset the command line ($@).
     eval set -- "$OPTSARGS"
-
+    local -a cbargs
     # Reprocess the command line, extracting options and their arguments into
     # variables.
     while ftrue; do
@@ -327,17 +328,22 @@ git-branch-list ()
         case "$option" in
             -a | --all) remote='-a';;
             -r | --remote) remote='-r';;
-            -c | --current) git repo current-branch; exit $? ;;
+            --no-warn) cbargs+=("$option");;
+            -c | --current) do_current=1;;
             --strip) strip=1;;
             --nostrip) strip=0;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
-                cmd-echo --id git-branch -ec -- "$option is an invalid option. See '$0 --help'."
+                cmd-echo --id git-branch -ec -- "'$option' is an invalid option. See '$0 --help'."
                 exit 1 ## return 1 in functions
                 ;;
         esac
     done
+    if ((do_current)); then
+        git repo current-branch "${cbargs[@]}"
+        return $?
+    fi
 
     if [[ -n "$remote" ]]; then
         ## Update the local branches with remote. Shunt away the output - not
@@ -384,7 +390,8 @@ main ()
     fi
 
     if [[ "$action" =~ ^-+current ]]; then
-        git-branch-list --current
+        shift
+        git-branch-list --current "$@"
         return $?
     fi
 
