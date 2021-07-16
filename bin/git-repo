@@ -209,9 +209,9 @@ git-repo-name ()
     name=$(git remote -v 2>/dev/null | grep origin | sed -e 's|.*/||' -e 's/ .*//' | sort -u)
     if [[ -n "$name" ]]; then
         echo "$name"
-        ftrue
+        true
     else
-        ffalse
+        false
     fi
     return $?
 }
@@ -567,7 +567,7 @@ git-repo-pr-get ()
     local opt_print=1
     local opt_refresh=0
     local -a remotes
-    while ftrue; do
+    while true; do
         local option=$1
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
@@ -603,7 +603,7 @@ git-repo-pr-get ()
     done
     if [[ -z "$remote_url" ]]; then
         cmd-echo -ec -- "Cannot find any remotes in '${remotes[*]}' to check for pull requests"
-        ffalse; return $?
+        false; return
     fi
     local remote_svc=${remote_url%:*}
     local remote_repo=${remote_url#*:}
@@ -721,7 +721,7 @@ exit 0;' "$perldata" "$corg" "$cb")
         if [[ -z ${pr_now[0]} ]]; then
             # Cache the no
             git-repo-pr-store --noopenpr
-            ffalse; return $?
+            false; return
         else
             ## Cache the PR and its state
             git-repo-pr-store "${pr_now[@]}"
@@ -733,7 +733,7 @@ exit 0;' "$perldata" "$corg" "$cb")
 
     if [[ $pr_url == "NOOPENPR" ]]; then
         ((opt_print)) && echo "None, as of $pr_date"
-        ffalse; return $?
+        false; return
     fi
     if [[ -z $opt_match_state ]]; then
         # You effectively asked for the latest PR available, so we give
@@ -749,10 +749,10 @@ exit 0;' "$perldata" "$corg" "$cb")
             ((opt_print)) && echo "$pr_url"
         else
             # We didn't find a match
-            ffalse; return $?
+            false; return
         fi
     fi
-    ftrue
+    true
 }
 
 git-repo-pr-store ()
@@ -986,7 +986,7 @@ git-repo-current-branch ()
 
     if [[ -n $1 ]]; then
         cmd-echo --ec -- "Cannot set current branch yet"
-        ffalse;return $?
+        false;return $?
     else
         local cb
         cb=$($REALGIT branch --show-current)
@@ -995,12 +995,12 @@ git-repo-current-branch ()
             cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
             if [[ -z $cb ]]; then
                 ((warn)) && cmd-echo --ec -- "Cannot get current branch"
-                ffalse;return $?
+                false;return $?
             fi
         fi
         echo "$cb"
     fi
-    ftrue
+    true
 }
 
 git-repo-show-current-branch ()
@@ -1013,13 +1013,13 @@ git-repo-default-branch ()
 {
     if [[ -n $1 ]]; then
         cmd-echo --ec -- "Cannot set default branch yet"
-        ffalse; return $?
+        false; return
     fi
     local base_repo
     for base_repo in "$(git-repo-is_worktree of)" "$(git root)"; do
         [[ -n $base_repo ]] && break
     done;
-    [[ -z $base_repo ]] && { ffalse; return $?; }
+    [[ -z $base_repo ]] && { false; return; }
     local default_branch
     local src
     ## The first file is for repos that are clones. The second is for repos
@@ -1029,10 +1029,10 @@ git-repo-default-branch ()
     done
     if [[ -n $default_branch ]]; then
         echo "$default_branch"
-        ftrue
+        true
     else
         cmd-echo --ec -- "Cannot find default branch for ${PWD}"
-        ffalse
+        false
     fi
     return $?
 }
@@ -1049,8 +1049,8 @@ git-repo-source-branch ()
 
     local source_branch
     source_branch=$(git config --get "branch.$current_branch.${GIT_EXT_META_PREFIX}-from-branch")
-    [[ -n $source_branch ]] && echo "$source_branch" && { ftrue; return $?; }
-    ffalse
+    [[ -n $source_branch ]] && echo "$source_branch" && { true; return; }
+    false
 }
 
 git-repo-show-source-branch ()
@@ -1073,7 +1073,7 @@ git-repo-named-branches ()
 
     if [[ ! $1 =~ ^(true|false)$ ]]; then
         cmd-echo --ec -- "${FUNCNAME[0]}: $1 is not 'true' or false"
-        ffalse; return $?
+        false; return
     fi
     git config --type bool --replace-all "${GIT_EXT_META_PREFIX}.named-branches" "$1"
 }
