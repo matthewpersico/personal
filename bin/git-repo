@@ -978,6 +978,12 @@ git-repo-tags ()
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-current-branch ()
 {
+    local warn=1
+    if [[ $1 == '--no-warn' ]]; then
+         warn=0
+         shift
+    fi
+
     if [[ -n $1 ]]; then
         cmd-echo --ec -- "Cannot set current branch yet"
         ffalse;return $?
@@ -985,10 +991,10 @@ git-repo-current-branch ()
         local cb
         cb=$($REALGIT branch --show-current)
         if [[ -z $cb ]]; then
-            cmd-echo --wc -- "--show-current can't find current branch. Are you in a rebase? Falling back to alt method"
+            ((warn)) && cmd-echo --wc -- "--show-current can't find current branch. Are you in a rebase? Falling back to alt method"
             cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
             if [[ -z $cb ]]; then
-                cmd-echo --ec -- "Cannot get current branch"
+                ((warn)) && cmd-echo --ec -- "Cannot get current branch"
                 ffalse;return $?
             fi
         fi
