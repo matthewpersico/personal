@@ -1,0 +1,55 @@
+#!/usr/bin/env bash
+
+# git-track
+
+main ()
+{
+    ## Get the branch or remote branch or remote/branch to process
+    local -A trackit
+    if (( $# == 0 )); then
+        git-usage --noreal "$0"; true; return
+    elif (( $# ==2 )); then
+        trackit[remote]="$1"
+        trackit[branch]="$2"
+    elif [[ $1 =~ / ]]; then
+        trackit[remote]=${1%%/*}
+        trackit[branch]=${1##*/}
+    else
+        local -a remotes
+        mapfile -t remotes < <(git remote)
+        if ((${#remotes[@]} == 1 )); then
+            trackit[remote]=${remotes[0]}
+        else
+            local remote
+            select remote in "${remotes[@]}" quit; do
+                [[ $remote == 'quit' ]] && { false; return; }
+                [[ -n $remote ]] && break;
+            done
+            trackit[remote]="$remote"
+        fi
+    fi
+
+    $REALGIT checkout --track "${trackit[remote]}/${trackit[branch]}"
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-track - checkout a remote branch locally
+
+=head1 SYNOPSIS
+
+ git track branchname
+ git track remotename branchname
+ git track remotename/branchname
+
+=head1 DESCRIPTION
+
+If branch B<branchname> exists in remote B<remotename> (default B<origin>), check it out.
+
+=cut
+
+__PODUSAGE__
