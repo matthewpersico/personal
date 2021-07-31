@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
-
 # git-what
 
 ## Functions that encapsulate the enhanced functionality. main() is defined
@@ -15,10 +13,8 @@ main ()
     [[ "$action" = 'is' ]] && action=$1 && shift ## syntactic sugar
 
     if [[ "$action" =~ ^-+h ]]; then
-        (
-            bash-usage "$0"
-        ) 2>&1 | ${PAGER:-less}
-        return  0
+        git-usage "$0"
+        true; return
     fi
 
     local -a actions
@@ -39,8 +35,9 @@ main ()
             actions+=("--$action") ;;
         * )
             cmd-echo -- "'$action' is an invalid request"
-            bash-usage "$0" 2>&1 | ${PAGER:-less}
-            exit 1
+            git-usage "$0"
+            false
+            return
             ;;
     esac
 
@@ -65,20 +62,21 @@ main ()
             edit ) opt_edit=1 ;;
             * )
                 cmd-echo -- "--$action is an invalid option"
-                bash-usage "$0" 2>&1 | ${PAGER:less}
-                exit 1
+                git-usage "$0"
+                false; return
+                ;;
         esac
     done
 
     if ((opt_rooted)); then
         if ((opt_absolute)); then
             cmd-echo -- 'Cannot specify --rooted and --absolute'
-            bash-usage "$0" 2>&1 | ${PAGER:less}
-            exit 1
+            git-usage "$0"
+            false; return
         elif ((opt_edit)); then
             cmd-echo -- 'Cannot specify --rooted and --edit'
-            bash-usage "$0" 2>&1 | ${PAGER:less}
-            exit 1
+            git-usage "$0"
+            false; return
         fi
     fi
 
@@ -99,7 +97,7 @@ main ()
     else
         for mod in "${output[@]}"; do echo "$mod"; done
     fi
-    exit $?
+    return $?
 }
 
 main "$@"

@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
-
 # git-find
 
 # shellcheck disable=SC2034
@@ -49,7 +47,7 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
         get) opt_le_get=1;;
         show) opt_le_show=1;;
         git-dir) opt_git_dir=1;;
-        h|help) bash-usage "$0"; exit 0 ;;
+        h|help) git-usage "$0"; true; exit ;;
         newer) timecomp='-nt';timecompfile=$1;shift ;;
         older) timecomp='-ot';timecompfile=$1;shift ;;
         abspath) opt_abspath=1 ;;
@@ -64,7 +62,7 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
             false; exit ;;
         --) moreopts=0;;
         *) cmd-echo -- "$original is an invalid option. See $0 --help"
-           exit 1 ;;
+           false; exit ;;
     esac
 done
 
@@ -73,18 +71,18 @@ if (( ! opt_last_existed )); then
     (( opt_le_checkout )) && cmd-echo --ec "Option --checkout only applies to --last-existed" &&  local_e=1
     (( opt_le_get )) && cmd-echo --ec "Option --get only applies to --last-existed" &&  local_e=1
     (( opt_le_show )) && cmd-echo --ec "Option --show only applies to --last-existed" &&  local_e=1
-    (( local_e )) && exit 1
+    (( local_e )) && { false; exit; }
 else
     if (( opt_le_checkout + opt_le_get + opt_le_show > 1)); then
         cmd-echo --ec "Options --checkout, --get, and --show are mutex"
-        exit 1
+        false; exit
     fi
 fi
 
 if [[ -n "$timecomp" ]]; then
     if [[ ! -f "$timecompfile" ]]; then
         cmd-echo --ec -- "Cannot find file '$timecompfile' for $timecomp comparison"
-        exit 1
+        false; exit
     fi
 
     declare exitval=1 ## bad - no files found
@@ -140,7 +138,7 @@ my $dummy = 6;
     if (( opt_edit )); then
         if [[ -z "$EDITOR" ]]; then
             cmd-echo -- "No EDITOR env variable found"
-            exit 1
+            false; exit
         fi
         if (( ${#conflict_files[@]} )); then
             $EDITOR "${conflict_files[@]}"
@@ -148,8 +146,8 @@ my $dummy = 6;
             cmd-echo -- "No conflicts found"
         fi
     fi
-    (( ${#conflict_files[@]} )) && exit 1
-    exit 0
+    (( ${#conflict_files[@]} )) && { false; exit; }
+    true; exit
 fi
 
 if ((opt_deleted)); then
@@ -161,15 +159,15 @@ if ((opt_last_existed)); then
     declare file=$1; shift
     if [[ -f $file ]]; then
         cmd-echo --ec -- "--last-existed does not apply; '$file' still exists"
-        exit 1
+        false; exit
     fi
 
     declare le_sha
     le_sha=$(git rev-list -n 1 "$(git rev-list -n 1 HEAD -- "$file")"^ -- "$file")
-    [[ -z $le_sha ]] && cmd-echo -- "'$file' not located history" && exit 1
+    [[ -z $le_sha ]] && cmd-echo -- "'$file' not located history" && { false; exit; }
     if (( opt_le_show )); then
-        git show "${le_sha}:${file}" || exit 1
-        exit 0
+        git show "${le_sha}:${file}" || { false; exit; }
+        true; exit
     fi
     if (( opt_le_get )); then
         declare resp
@@ -177,19 +175,19 @@ if ((opt_last_existed)); then
         if [[ $resp == 'n' ]]; then
             git show "${le_sha}:${file}" > "$(git root)/${file}.${le_sha}" || exit $?
             cmd-echo "Contents in ${file}.${le_sha}"
-            exit 0
+            true; exit
         else
             opt_le_checkout=1
         fi
     fi
     if (( opt_le_checkout )); then
         git checkout "${le_sha}" "${file}" || exit $?
-        exit 0
+        true; exit
     fi
 
     ## If we get here, just print the sha
     echo "$le_sha"
-    exit 0
+    true; exit
 fi
 
 if ((opt_git_dir)); then
@@ -201,16 +199,16 @@ if ((opt_git_dir)); then
     fi
     if [[ -d "$dotgit" ]]; then
         echo "$dotgit"
-        exit 0
+        true; exit
     else
-        exit 1
+        false; exit
     fi
 fi
 
 if [[ "$opt_untracked_only" = 1 ]] && [[ "$opt_all" = 1 ]]; then
     echo "--untracked_only and --all are mutually exclusive"
-    bash-usage "$0"
-    exit 1
+    git-usage "$0"
+    false; exit
 fi
 
 declare -a ls_files_opts=('-c')
@@ -287,7 +285,7 @@ fi
 if (( opt_edit )); then
     if [[ -z "$EDITOR" ]]; then
         cmd-echo -- "No EDITOR env variable found"
-        exit 1
+        false; exit
     fi
     $EDITOR "${output[@]}"
 else
@@ -304,9 +302,9 @@ else
 fi
 
 if ((${#output[@]})); then
-    exit 0 ## found at at least one, success
+    true; exit ## found at at least one, success
 else
-    exit 1
+    false; exit
 fi
 
 

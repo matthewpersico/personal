@@ -22,10 +22,10 @@ git-repo-is ()
         verbose=1
         shift
     fi
-    [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || { false; return; } }
     git rev-parse --show-toplevel 2>/dev/null 1>&2
     status=$?
-    [[ "$1" ]] && [[ $1 != . ]] && { cd - || return 1; }
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd -    || { false; return; } }
     (( verbose )) && ( (( status )) && echo false || echo true )
     return $status
 }
@@ -47,7 +47,7 @@ git-repo-is_pristine ()
 {
     (( $(git st --porcelain | wc -l) == 0 )) \
         && ( git worktree ina || (( $(git worktree list | wc -l) == 1 )) ) \
-        && return 0
+        && { true; return; }
     if [[ $1 == '-v' ]]; then
         (( $(git st --porcelain | wc -l) != 0 )) && git status
         if ! git worktree ina && (( $(git worktree list | wc -l) != 1 )); then
@@ -58,7 +58,7 @@ git-repo-is_pristine ()
                                            # command.
         fi
     fi
-    return 1
+    false
 }
 
 git-repo-is_up_to_date ()
@@ -70,10 +70,11 @@ git-repo-is_up_to_date ()
         echo "$branch_status"
     fi
     if [[ -z $branch_status ]] || [[ $branch_status =~ 'Your branch is up to date' ]]; then
-        return 0
+        true
     else
-        return 1
+        false
     fi
+    return
 }
 
 git-repo-is_fork ()
@@ -85,7 +86,7 @@ git-repo-is_fork ()
     fi
     (
         # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
-        cd "${1:-.}" # so that the git remote works on the current dir as well
+        \cd "${1:-.}" # so that the git remote works on the current dir as well
                      # as a specified repo dir
         local origin
         local fork_of=''
@@ -111,9 +112,9 @@ git-repo-is_worktree ()
         if [[ $1 == 'of' ]]; then
             realpath "$(git root)/$(sed 's/gitdir: \(.*\)\/\.git\/.*/\1/' < "$(git root)/.git")"
         fi
-        return 0
+        true
     else
-        return 1
+        false
     fi
 }
 
@@ -157,12 +158,12 @@ for $entry (@$VAR1) {
     done
     if [[ "${#output[@]}" == '0' ]]; then
         echo "No open pull requests"
-        return 1
+        false; return
     else
         for o in "${output[@]}"; do
             echo "$o"
         done
-        return 0
+        true; return
     fi
 }
 
@@ -213,18 +214,18 @@ git-repo-name ()
     else
         false
     fi
-    return $?
+    return
 }
 
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-org ()
 {
-    [[ "$1" ]] && [[ $1 != . ]] && { cd "$1" || return 1; }
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || { false; return; } }
     name=$(git remote -v 2>/dev/null | grep origin |  sed -e 's/.*://' -e 's/\/.*//' | sort -u)
-    [[ "$1" ]] && [[ $1 != . ]] && { cd - || return 1; }
-    [[ -z "$name" ]] && return 1
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd - || { false; return; } }
+    [[ -z "$name" ]] && { false; return; }
     echo "$name"
-    return 0
+    true
 }
 
 git-repo-diff ()
@@ -272,7 +273,7 @@ git-repo-diff ()
                 ;;
             * )
                 cmd-echo -- "$original is an invalid option. See $0 --help"
-                return 1
+                false; return
                 ;;
         esac
     done
@@ -286,12 +287,12 @@ git-repo-diff ()
         repo[right]=$(realpath "$1")
     else
         cmd-echo -- "Need at least one directory"
-        bash-usage "$0"; return 1 ;
+        git-usage "$0"; false; return
     fi
 
     if [[ "${repo[left]}" = "${repo[right]}" ]]; then
         cmd-echo -- "Other dir is this dir. Whoops! Bye."
-        return 1
+        false; return
     fi
 
     local -A list
@@ -382,14 +383,14 @@ git-repo-diff ()
     if (( ${#editable[@]} )); then
         if [[ -z "$EDITOR" ]]; then
             cmd-echo -- "No EDITOR env variable found"
-            return 1
+            false; return
         else
             $EDITOR "${editable[@]}"
             return $?
         fi
     fi
 
-    return 0
+    true
 }
 
 git-repo-del ()
@@ -401,7 +402,7 @@ git-repo-delete ()
 {
     local current=0
     local dirmode=''
-    [[ -z $1 ]] && bash-usage "$0" && return 1
+    [[ -z $1 ]] && git-usage "$0" && { false; return; }
     if [[ $1 = '--pwdmode' ]] \
            || [[ $1 =~ ^--curr ]] \
            || [[ $1 == '-c' ]] \
@@ -429,16 +430,16 @@ git-repo-delete ()
 
     if [[ -n "$dirmode" ]]; then
         ## We were given the directory containing the repo
-        builtin cd "$dirmode" || { cmd-echo "Cannot cd $dirmode" && return 1; }
+        \cd "$dirmode" || { cmd-echo "Cannot cd $dirmode"; false; return; }
         local root_or_err
         root_or_err="$(git root 2>&1)"
         local status=$?
         if ((status)); then
             cmd-echo -- "$root_or_err"
-            builtin cd "$returnpath" || { cmd-echo "Cannot cd $returnpath" && return 1; }
+            \cd "$returnpath" || { cmd-echo "Cannot cd $returnpath"; false; return; }
             return $status
         else
-            builtin cd "$root_or_err" || { cmd-echo "Cannot cd $root_or_err" && return 1; }
+            \cd "$root_or_err" || { cmd-echo "Cannot cd $root_or_err"; false; return; }
         fi
     elif ((!current)); then
         ## Then we were given a local repo URL; find it and go there
@@ -456,7 +457,7 @@ git-repo-delete ()
         ## Go to what we want to whack, to make sure it's there.
         git go "$githost/$namespace/$repo"
         status=$?
-        ((status != 0)) && return 1; ## If the git go fails, we should
+        ((status != 0)) && { false; return; } ## If the git go fails, we should
         ## see error messages, no need to
         ## add more.
     ## else - we were told to delete the directory/repo we are currently in
@@ -476,7 +477,7 @@ git-repo-delete ()
                 | xargs ls -ld
             cmd-echo
             cmd-echo "Will not delete repo"
-            return 1
+            false; return
         fi
 
         dirty=$(git status --porcelain)
@@ -484,20 +485,21 @@ git-repo-delete ()
             git status
             cmd-echo
             cmd-echo "Will not delete current repo"
-            return 1
+            false; return
         fi
 
-        builtin cd .. || { cmd-echo "Cannot cd .." && return 1; }
+        \cd .. || { cmd-echo "Cannot cd .."; false; return; }
         \rm -rf "$repo"
         status=$?
-        ((status != 0)) && return 1; ## If the rm fails, we should see error
-                                     ## messages, no need to add more.
+        ((status != 0)) && { false; return; } ## If the rm fails, we should see
+                                              ## error messages, no need to add
+                                              ## more.
 
         cmd-echo "Done. Not touching remote repo. Resetting git list..."
         ## Remove the just-deleted repo from the list of local git repos.
         git-go-set
 
-        return 0
+        true
     )
 
     status=$?
@@ -510,9 +512,9 @@ git-repo-delete ()
 
     ## Go there.
     if [[ ! "$returnpath" = '/' ]]; then
-        builtin cd "$returnpath" || { cmd-echo "Cannot cd $returnpath" && return 1; }
+        \cd "$returnpath" || { cmd-echo "Cannot cd $returnpath"; false; return; }
     else
-        builtin cd ~ || { cmd-echo "Cannot cd ~" && return 1; }
+        \cd ~ || { cmd-echo "Cannot cd ~"; false; return; }
     fi
 
     ## Feed "there" back to the git function to make it stick.
@@ -581,7 +583,7 @@ git-repo-pr-get ()
                          ## remaining $*, if any, are args
             *)
                 cmd-echo -ec -- "$option is an invalid option. See $0 --help"
-                return 1
+                false; return
                 ;;
         esac
     done
@@ -915,7 +917,7 @@ git-repo-purge()
     local repo
     for repo in "${repos[@]}"; do
         (
-            cd "$repo" || exit 0;
+            \cd "$repo" || { true; exit; }
             cmd-echo -- "$repo"
             local ok_to_purge=1
             # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
@@ -1097,8 +1099,8 @@ main()
     fi
 
     if [[ "$action" =~ ^-+h ]]; then
-        bash-usage "$0"
-        return  0
+        git-usage "$0"
+        true; return
     fi
     if [[ $action = 'is' ]]; then
         [[ "$2" = 'a' ]] && shift

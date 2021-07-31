@@ -1,7 +1,6 @@
 #!/usr/bin/env perl
 
-use strict;
-use warnings;
+use 5.16.3;
 
 ## The first two lines help us locate ApplyEverwhereUtils on the third line.
 use FindBin qw($RealBin);
@@ -19,9 +18,9 @@ my $mod_only    = 0;
 my $nonmod_only = 0;
 my $all         = 0;
 my $ignored     = 0;
+my @libs;
 
 my %excludes_defaults;
-
 our %excludes;
 
 ## Option processing
@@ -30,8 +29,12 @@ GetOptions(
     'mod-only|mod'       => \$mod_only,
     'nonmod-only|nonmod' => \$nonmod_only,
     'all'                => \$all,
-    'update'             => \$ignored,       ## Might get set if we are doing perltidy along with
-    ## a compile check. We just ignore it here.
+    ## Might get set if we are doing perltidy along with a compile check. We
+    ## just ignore it here.
+    'update'   => \$ignored,
+    'libs|I=s' => sub {
+        push @libs, '-I', $_[1];
+    }
 ) or die "Bad argument, see --help for documentation.\n";
 
 exec '/opt/bb/bin/perldoc', $0 if ($help);
@@ -54,20 +57,8 @@ die
 "No files given as arguments and no files found to match mod($mod_only), nonmod($nonmod_only) or all($all) options"
   if !@files;
 
-my $errors = 0;
-## The 'lib' setting is HEAVILY dependent on where all these files live.
-## The first one two are for released code. The third is for test code (since
-## the .t files are also checked). We stick it here so it's readable.
-#<<< perltidy
-my @libs = (
-    "-Mlib=$RealBin/../lib",
-    "-Mlib=$RealBin/../../lib",
-    "-Mlib=$RealBin/../../lib/perl",
-    "-Mlib=$RealBin/../../lib/site_perl",
-);
-#>>> perltidy
-
-my $excludes_file = "$RealBin/../../.perlcompile.exclude";
+my $errors        = 0;
+my $excludes_file = "$ENV{PWD}/.perlcompile.exclude";
 if ( -e $excludes_file ) {
     my $ih = IO::File->new( $excludes_file, 'r' );
     my $ex = join( '', <$ih> );
@@ -211,6 +202,10 @@ Check all tracked files, modified or not, as determined by
 
 Any file arguments are ignored. This is the same as invoking the command with
 no file arguments.
+
+=item --lib| -I
+
+One or more module library locations to pass to the B<perl -c> invocation.
 
 =item --help
 

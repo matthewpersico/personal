@@ -2,23 +2,33 @@
 
 # git-usage
 
-# Perform usage on local git command and then on same real git command.  $1 is
-# the full path to the git command git-<gitsubcmd>.
-declare gitsubcmd
+# Perform usage on local git command and then on the same real git command, if
+# it exists.
+
+# Process this option first
+declare gitcmd
 if [[ $1 == '--real' ]]; then
-    gitsubcmd=$2
+    # When the real command's name does not match our wrapper.
+    gitcmd=$2
     shift;shift
 fi
 
+# Grab the target command
 declare tgt=$1;shift
+
+# Print any other arguments
 [[ -n "$*" ]] && cmd-echo -- "$@"
-declare -a standard_man
-[[ -z $gitsubcmd ]] && gitsubcmd=$(basename "$tgt" | sed 's/git-//')
-# special case
-if [[ $gitsubcmd == 'git' ]]; then
-    standard_man=('man' 'git')
-else
-    standard_man=("$REALGIT" "$gitsubcmd" '--help')
+
+# Set the git command from the target if we didn't use --real
+[[ -z $gitcmd ]] && gitcmd=$(basename "$tgt" | sed 's/git-//')
+
+# If the command is also a true git command, arrange to have **its** man page
+# displayed after ours.
+if [[ $gitcmd == 'git' ]]; then
+    real_man=('man' 'git')
+elif git is-a-command "${gitcmd}"; then
+    real_man=("$REALGIT" "$gitcmd" '--help')
 fi
 
-bash-usage --title "Persico Git Add-On" "$tgt" "${standard_man[@]}"
+# Do it
+bash-usage --title "Persico Git Add-On" "$tgt" "${real_man[@]}"
