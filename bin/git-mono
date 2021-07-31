@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
-
 # git-mono
 
 # shellcheck disable=SC2034
@@ -9,8 +7,6 @@ declare DEBUG__this_script=$0
 
 use mktemp
 use on_exit
-
-do-on-exit set +x
 
 declare owd
 owd=${PWD}
@@ -48,7 +44,7 @@ set_repos ()
 
     mapfile -t repos < <(printf -- '%s\n' "${!repos_unique[@]}" | sort)
 
-    return 0
+    true
 }
 
 main ()
@@ -103,8 +99,8 @@ main ()
                 ;;
             ## standard options
             h | help )
-                bash-usage "$0"
-                exit 0
+                git-usage "$0"
+                true; exit
                 ;;
             quiet | q )
                 quiet=1
@@ -122,13 +118,15 @@ main ()
                 opt_rcge=${ovalue:-$1}
                 [[ -z "$ovalue" ]] && shift
                 ;;
-            x ) set -x ;;
+            x ) set -x
+                do-on-exit set +x
+                ;;
             --)
                 moreopts=0
                 ;;
             * )
                 cmd-echo -- "$original is an invalid option. See $0 --help"
-                exit 1
+                false; exit
                 ;;
         esac
     done
@@ -223,7 +221,6 @@ main ()
         # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
         builtin cd "$owd"
     done
-    set +x
 }
 
 main "$@"

@@ -6,11 +6,12 @@
 
 declare ticker_tmp
 ticker_tmp="/tmp/ticker.$(hostname).$PPID"
+declare action_pid=''
 
 xterm-cli-id ()
 {
     local idd
-    local ppid=${PPID}
+    local ppid=${action_pid:-${PPID}}
     idd=$(xwininfo -name "$USER@$(hostname):${ppid}:$(pwd | sed "s|$HOME|~|")" \
     | grep 'Window id' \
     | sed -e 's/.* Window id: //' -e 's/ .*//')
@@ -80,7 +81,7 @@ _xterm-cli-xground ()
     else
         local color=$1
         local var="FOREBACKMAP_${color^^}_RGB"
-        [[ -z "${!var}" ]] && echo "'$color' not a defined color scheme" && { ffalse; return $?; }
+        [[ -z "${!var}" ]] && echo "'$color' not a defined color scheme" && { false; return; }
         local rgb="${!var}"
         echo -ne "${CSI}38:2:${rgb%%,*}m" "${CSI}48:2:${rgb##*,}m"
     fi
@@ -117,7 +118,7 @@ xterm-use-coords ()
                 tgt='$'$1; shift
             fi
             eval echo "$tgt"
-            ftrue; return $?
+            true; return
             ;;
 
         set )
@@ -140,7 +141,7 @@ xterm-use-coords ()
                 fi
                 if [[ -z $newx ]] || [[ -z $newy ]]; then
                     cmd-echo --ec 'Must specify x and y if you do not specify which one'
-                    ffalse; return $?
+                    false; return
                 fi
             fi
             if [[ $newx =~ [+-] ]]; then
@@ -161,12 +162,12 @@ xterm-use-coords ()
                     echo -ne "${CSI}8;${finaly};${finalx}t"
                     ;;
             esac
-            ftrue; return $?
+            true; return
             ;;
 
         * )
             cmd-echo --ec "'$action' is an invalid action'"
-            ffalse; return $?
+            false; return
             ;;
     esac
 }
@@ -279,8 +280,15 @@ main ()
 
     if [[ "$action" =~ ^-+h ]]; then
         bash-usage "$0"
-        ftrue; return $?
+        true; return
     fi
+    if [[ "$action" = '--pid' ]]; then
+        action_pid=$1;
+        shift
+        action=$1;
+        shift;
+    fi
+
     if x-is-available; then
         # xterm-cli-* are functions defined in this script. The rest are functions
         # or scripts.
@@ -294,10 +302,10 @@ main ()
             fi
         done
         cmd-echo --ec "'$action' is not an xterm-cli action"
-        ffalse; return $?
+        false; return
     else
         cmd-echo --ec --oii -- "xterm-cli:X server is not available to run '$action'"
-        ffalse; return $?
+        false; return
     fi
 }
 

@@ -17,12 +17,12 @@ _git_worktree_check_set_pwd ()
     if [[ ! $cwd =~ /wt ]]; then
         cwd="${cwd}/wt"
         if [[ -d ${cwd} ]]; then
-            builtin cd "$cwd" || { cmd-echo --ec -- "Cannot cd $cwd"; ffalse; return $?; }
+            builtin cd "$cwd" || { cmd-echo --ec -- "Cannot cd $cwd"; false; return; }
         else
             cmd-echo --ec -- "Current directory is ${cwd}." \
                      'No wt path component found.' \
                      'Will not manipulate worktrees outside of wt dir. Aborting.'
-            ffalse; return $?
+            false; return
         fi
     fi
 
@@ -37,16 +37,16 @@ _git_worktree_check_set_pwd ()
         if [[ -f $newwd/.git ]]; then
             if ((opt_current_ok!=1)); then
                 cmd-echo --ec -- "Will not $action current worktree without -c flag"
-                ffalse; return $?
+                false; return
             fi
         fi
         newwd=$(dirname "$newwd")
     done
 
     ## Go to root so we can start working
-    builtin cd "$wtroot" || { cmd-echo -- "Cannot cd $wtroot"; ffalse; return $?; }
+    builtin cd "$wtroot" || { cmd-echo -- "Cannot cd $wtroot"; false; return; }
 
-    ftrue
+    true
 }
 
 _git_worktree_info_remove ()
@@ -174,7 +174,8 @@ git-worktree-create ()
                 pull_request="$1"; shift
                 ## Not going to create a pull request via a worktree.
                 ## Rather create, force a fetch.
-                fetch_existing=1;;
+                fetch_existing=1
+                ;;
             no-reset | skip-reset) opt_reset=0 ;;
             f|fetch) fetch_existing=1 ;;
             c|comment) comment="$1"; shift ;;
@@ -182,21 +183,21 @@ git-worktree-create ()
                 branch_from=$1; shift
                 branch_from_arg="$option"
                 ;;
-            h|help) git-usage "$0"; return 0 ;;
+            h|help) git-usage "$0"; true; return ;;
             r|remote) remote=$1; shift ;;
             orphan) echo "Sorry, cannot create orphans this way."
                     echo "First create the orphan, then create a"
                     echo "worktree for it using --fetch."
-                    return "$NOOK"
+                    false; return
                     ;;
             l|local) localbranchname=$1; shift;;
             --) moreopts=0 ;; ## end of opts, remaining $*, if any, are args
-            *) git-usage "$0" "Error getting options!"; return 1 ;;
+            *) git-usage "$0" "Error getting options!"; false; return;;
         esac
     done
 
     ## Make sure we are in the right place to start making the work tree.
-    ! _git_worktree_check_set_pwd create && return 1
+    ! _git_worktree_check_set_pwd create && { false; return; }
 
     ## Update repo with latest remote info.
     local -a git_remotes
@@ -210,9 +211,16 @@ git-worktree-create ()
     repo="$(basename "$(dirname "${PWD}")")" ## We are in /wt when we do this.
     local wtname="$1"
     shift
+    local add_name_to_wt=0
     if git repo named-branches && \
             [[ ! $(dirname "$wtname") == "$USER" ]] ; then
         cmd-echo -- "This repo is using named branches."
+        add_name_to_wt=1
+    elif ! git repo is fork; then
+        cmd-echo -- "This repo is a clone, not a fork."
+        add_name_to_wt=1
+    fi
+    if ((add_name_to_wt)); then
         local resp
         resp=$(yesno "Use $USER/$wtname as the branch name and worktree directory" y)
         [[ $resp == 'y' ]] && wtname="$USER/$wtname"
@@ -222,7 +230,7 @@ git-worktree-create ()
     if [[ -z "${wtname}" ]]; then
         if [[ -z "$pull_request" ]]; then
             git-usage "$0" "Need a branch name to use for the worktree spec."
-            return 1
+            false; return
         else
             pull_ref="pull/$pull_request/head"
             wtname="pull-$remote-$pull_request"
@@ -230,7 +238,7 @@ git-worktree-create ()
     else
         if [[ -n "$pull_request" ]]; then
             git-usage "$0" "Cannot specify both a worktree-name and pull request id."
-            return 1
+            false; return
         fi
     fi
     [[ -z "$localbranchname" ]] && localbranchname="${wtname}"
@@ -245,7 +253,7 @@ git-worktree-create ()
     if [[ ! "$exists" = '(fetch)(push)' ]]; then
         cmd-echo --ec -- "Can't find remote '$remote' for fetch and push"
         git remote -v | while read -r line; do cmd-echo -- -c -- "$line"; done
-        return 1
+        false; return
     fi
     cmd-echo -- "Using '$remote' as remote."
 
@@ -255,7 +263,7 @@ git-worktree-create ()
     wtdir="${PWD}/$localbranchname"
     if [[ -e "${wtdir}" ]]; then
         cmd-echo --ec -- "${wtdir} already exists. Aborting."
-        return 1
+        false; return
     fi
 
     ## Check for branch
@@ -287,7 +295,7 @@ git-worktree-create ()
             fi
         else
             cmd-echo --ec -- "Branch $localbranchname already exists locally. Cannot create it."
-            return 1
+            false; return
         fi
     else
         if [[ -z "$pull_request" ]]; then
@@ -306,7 +314,7 @@ git-worktree-create ()
             exists="$localbranchname"
             if ! git fetch "$remote" "$pull_ref:$localbranchname"; then
                 cmd-echo -ec -- "Pull $pull_ref not found in $remote"
-                return 1
+                false; return
             fi
         fi
 
@@ -314,10 +322,10 @@ git-worktree-create ()
         ## be explicit here.
         if ((fetch_existing==1)) && [[ -z "$exists" ]]; then
             cmd-echo --ec -- "Cannot find '$remote/${wtname}' to fetch"
-            return 1
+            false; return
         elif ((fetch_existing==0)) && [[ -n "$exists" ]]; then
             cmd-echo --ec -- "Branch '${wtname}' already exists in remote '$remote'"
-            return 1
+            false; return
         elif ((fetch_existing==1)) && [[ -n "$exists" ]]; then
             ## Fetch it, Dear Henry...
             local -a wtargs
@@ -340,7 +348,7 @@ git-worktree-create ()
             status=$?
             if ((status)); then
                 cmd-echo --ec -- "Aborting."
-                return 1
+                false; return
             fi
             local respdbg
             respdbg=$(yesno "Continue" "n")
@@ -361,7 +369,7 @@ git-worktree-create ()
                 readarray -t branch_from_ref < <(git branch -a | grep -e "upstream/${branch_from}$" | sed -E 's/^\s+//')
                 case ${#branch_from_ref[@]} in
                     0 ) cmd-echo --ec -- "Branch '$branch_from' not found in refs list:" "${all_refs[@]}" "Aborting"
-                        return 1;;
+                        false; return;;
                     1 ) # Set up "triangle workflow'.Only need the branch
                         # specific pieces. The rest of it was set up when the
                         # fork was cloned.
@@ -375,7 +383,7 @@ git-worktree-create ()
                         ;;
                     * ) cmd-echo --ec -- "Branch '$branch_from' found more than once in refs list:" "${all_refs[@]}" \
                                  "Re-run and specify full reference for --$branch_from_arg"
-                        return 1;;
+                        false; return;;
                 esac
             else
                 branch_from_ref[0]="$(git-repo default-branch)"
@@ -387,7 +395,7 @@ git-worktree-create ()
             status=$?
             if ((status)); then
                 cmd-echo --ec -- "Aborting."
-                return 1
+                false; return
             fi
 
             ((verbose)) && cmd-echo -- "cd ${wtsubdir}"
@@ -453,8 +461,7 @@ git-worktree-create ()
         echo "go $wtfullpath" > "$doandcdfile"
         cmd-echo -n -- "Done. "
     fi
-
-    return 0
+    true
 }
 
 git-worktree-delete ()
@@ -483,7 +490,7 @@ git-worktree-delete ()
 
     # Reprocess the command line, extracting options and their arguments into
     # variables.
-    while ftrue; do
+    while true; do
         local option=$1
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
@@ -492,23 +499,23 @@ git-worktree-delete ()
             no-reset | skip-reset) opt_reset=0; ;;
             y|yes) opt_yes=1; opt_yes_string='--yes'; ;;
             f|force) opt_force=1; ;;
-            h|help) git-usage "$0"; return 0 ;;
+            h|help) git-usage "$0"; true; return ;;
             k|keep-branch) opt_keep_branch=1 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
                 cmd-echo -ec -- "$option is an invalid option. See $0 --help"
-                return 1
+                false; return
                 ;;
         esac
     done
 
     if ((opt_force + opt_yes + opt_keep_branch > 1 )); then
         cmd-echo --ec -- "--force, --keep-branch and --yes are mutex options"
-        return 1
+        false; return
     fi
 
-    ! _git_worktree_check_set_pwd delete $opt_current && return 1
+    ! _git_worktree_check_set_pwd delete $opt_current && { false; return; }
     local wtroot
     wtroot="${PWD}"
 
@@ -516,27 +523,27 @@ git-worktree-delete ()
         wtname="$1"; shift
     elif [[ -n "$1" ]]; then
         cmd-echo --ec -- "Cannot specify a worktree and --current"
-        return 1
+        false; return
     fi
 
     if [[ -z "$wtname" ]]; then
         cmd-echo --ec -- "Worktree not specified"
-        return 1
+        false; return
     fi
     if [[ ! -d "$wtname" ]]; then
         cmd-echo --ec -- "Cannot find worktree $wtname
 $(ls -la)"
-        return 1
+        false; return
     fi
     local wtpath
     wtpath="$wtroot/$wtname"
 
-    builtin cd "$wtpath" || { cmd-echo --ec -- "Cannot cd $wtpath"; ffalse; return $?; }
+    builtin cd "$wtpath" || { cmd-echo --ec -- "Cannot cd $wtpath"; false; return; }
 
     ## Make sure we are in a proper worktree.
     if ! git-worktree-ina; then
         cmd-echo --ec -- "$wtname is not a proper worktree for deletion"
-        ffalse; return $?
+        false; return
     fi
 
     ## Check for cleanliness.
@@ -546,7 +553,7 @@ $(ls -la)"
             git status
             echo
             cmd-echo --ec -- "Will not delete unclean worktree. Clean worktree or re-run command with --force."
-            ffalse; return $?
+            false; return
         fi
     fi
 
@@ -560,23 +567,25 @@ $(ls -la)"
     if [[ "$current_branch" != "$current_branch_dir" ]]; then
         cmd-echo --ec -- "Branch name '$current_branch' does not match current subdir name '$current_branch_dir'." \
                  "I'm bailing; you fix this mess."
-        return 1
+            false; return
+        false; return
     fi
     git status
     local rc=$?
     if ((rc)); then
         cmd-echo --ec -- "git status returned non-success value $rc." \
                     "I'm bailing; you fix this mess."
-        return 1
+        false; return
     fi
 
     ## Whack it. Start with the current dir, which is the worktree.
+    cmd-echo -- "Deleting the worktree directory..."
     local delit
     delit=$(basename "${PWD}")
-    builtin cd .. || { cmd-echo --ec -- "Cannot cd .." && return 1; }
+    builtin cd .. || { cmd-echo --ec -- "Cannot cd .."; false; return ; }
     if ! rm -rf "$delit"; then
         cmd-echo --ec -- "Bad rm of ./$delit (from ${PWD}). Aborting."
-        return 1;
+        false; return
     fi
 
     ## Work our way up to the first non empty dir or the 'wt' dir, whichever we
@@ -585,14 +594,15 @@ $(ls -la)"
         if [[ -z "$(ls -A "${PWD}")" ]]; then
             #it's empty
             delit=$(basename "${PWD}")
-            builtin cd .. || { cmd-echo --ec -- "Cannot cd .." && return 1; }
-            \rm -rf "$delit" || { cmd-echo --ec -- "Bad rm of ./$delit (from ${PWD}). Aborting." && return 1; }
+            builtin cd .. || { cmd-echo --ec -- "Cannot cd .."; false; return; }
+            \rm -rf "$delit" || { cmd-echo --ec -- "Bad rm of ./$delit (from ${PWD}). Aborting."; false; return; }
         fi
     done
 
-    cmd-echo -- "Local repo deleted."
+    cmd-echo -- "Worktree directory deleted."
 
     ## Now fix the administrative files.
+    cmd-echo -- "Cleaning worktree metadata..."
     $REALGIT worktree prune
 
     # Hold onto some info..
@@ -601,16 +611,17 @@ $(ls -la)"
 
     ## ...before we trash the metadata
     _git_worktree_info_remove "$current_branch"
-    cmd-echo -- "Local admin files updated."
+    cmd-echo -- "Worktree metadata cleaned."
 
     ## Now the take care of the branch.
+    cmd-echo -- "Cleaning branch..."
     local resp
     if ((opt_yes)); then
         resp='y'
     elif ((opt_keep_branch)); then
         resp='n'
     else
-        ftrue; if [[ $was_fetched == "?" ]]; then
+        true; if [[ $was_fetched == "?" ]]; then
             cmd-echo -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
         fi
         resp=$(cmd-yesno "Delete associated branch $current_branch" 'n')
@@ -620,13 +631,14 @@ $(ls -la)"
     else
         ## Have to be in the git repo that the basis for the worktree.
         while [[ "$(basename "${PWD}")" != 'wt' ]]; do
-            builtin cd .. || { cmd-echo --ec -- "Cannot cd .." && return 1; }
+            builtin cd .. || { cmd-echo --ec -- "Cannot cd .." ; false; return; }
         done
-        builtin cd .. || { cmd-echo --ec -- "Cannot cd .." && return 1; }
+        builtin cd .. || { cmd-echo --ec -- "Cannot cd .." ; false; return; }
         if [[ "$resp" = 'y' ]]; then
             git-branch delete --no-go-set $opt_yes_string "$current_branch"
         fi
     fi
+    cmd-echo -- "Branch cleaned."
 
     ## Cleanup
     if ((opt_reset)); then
@@ -640,7 +652,7 @@ $(ls -la)"
 
     cmd-echo -- "Done."
 
-    return 0
+    true
 }
 
 git-worktree-rename ()
@@ -665,19 +677,19 @@ git-worktree-rename ()
 
     # Reprocess the command line, extracting options and their arguments into
     # variables.
-    while ftrue; do
+    while true; do
         local option=$1
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
         case "$option" in
             current) opt_current=1; old_wtname="$(_git_worktree_name_from_path "${PWD}")" ;;
             no-reset | skip-reset) opt_reset=0;;
-            h|help) git-usage "$0"; return 0 ;;
+            h|help) git-usage "$0"; true; return ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
                 cmd-echo -ec -- "$option is an invalid option. See $0 --help"
-                return 1
+                false; return
                 ;;
         esac
     done
@@ -685,17 +697,17 @@ git-worktree-rename ()
     # shellcheck disable=SC2030 #https://github.com/koalaman/shellcheck/wiki/SC2030
     if (( $# == 0 )) || ( (( $# == 1 )) && [[ -z "$old_wtname" ]] ); then
         git-usage "$0" "Missing arguments"
-        return 1
+        false; return
     fi
 
     if (( $# > 2 )); then
         git-usage "$0" "Too many arguments"
-        return 1
+        false; return
     fi
 
     local status
 
-    ! _git_worktree_check_set_pwd rename $opt_current && return 1
+    ! _git_worktree_check_set_pwd rename $opt_current && { false; return; }
     local wtroot
     wtroot="${PWD}"
 
@@ -708,7 +720,7 @@ git-worktree-rename ()
     if [[ ! -d "$old_wtname" ]]; then
         cmd-echo --ec -- "Cannot find worktree $old_wtname
 $(ls -la)"
-        return 1
+        false; return
     fi
     local old_wtpath="$wtroot/$old_wtname"
 
@@ -716,10 +728,10 @@ $(ls -la)"
     if [[ -d "$new_wtname" ]]; then
         cmd-echo --ec -- "Will not overwrite existing worktree $new_wtname
 $(ls -la)"
-        return 1
+        false; return
     fi
     local new_wtpath="$wtroot/$new_wtname"
-    builtin cd "$old_wtpath" || { cmd-echo --ec -- "Cannot cd $old_wtpath" && return 1; }
+    builtin cd "$old_wtpath" || { cmd-echo --ec -- "Cannot cd $old_wtpath" ; false; return; }
     local cb
     cb="$(git repo current-branch)"
     if [[ "$cb" = "$old_wtname" ]]; then
@@ -727,7 +739,7 @@ $(ls -la)"
         git-branch rename "$old_wtname" "$new_wtname"
         status=$?
         if ((status != OK)); then
-            return 1
+            false; return
         fi
     fi
 
@@ -744,17 +756,17 @@ $(ls -la)"
 
     ## Change the metadata files
     perl -pi -e "s/$old_wtname/$new_wtname/g" "$heregit" "$theregit" \
-        || return 1
+        || { false; return; }
 
     ## Move the metadata dir
     local newmetadatadir
     newmetadatadir="$(dirname "$metadatadir")/$new_wtname"
-    mv "$metadatadir" "$newmetadatadir" || return 1
+    mv "$metadatadir" "$newmetadatadir" || { false; return; }
 
     cmd-echo -- "Moving the local files..."
     ## Move us
-    builtin cd .. || { cmd-echo --ec -- "Cannot cd .." && return 1; }
-    mv "$old_wtpath" "$new_wtpath" || return 1
+    builtin cd .. || { cmd-echo --ec -- "Cannot cd .." ; false; return; }
+    mv "$old_wtpath" "$new_wtpath" || { false; return; }
 
     ## Register the rename
     local -a paths
@@ -786,7 +798,7 @@ $(ls -la)"
         cmd-echo -- "Done. "
     fi
 
-    return 0
+    true
 }
 
 git-worktree-diff-to-root ()
@@ -794,7 +806,7 @@ git-worktree-diff-to-root ()
     # shellcheck disable=SC2119
     if ! git-worktree-ina; then
         cmd-echo --ec -- "Must be in a worktree"
-        return 1;
+        false; return;
     fi
 
     local moreopts
@@ -817,10 +829,10 @@ git-worktree-diff-to-root ()
             color       ) opt_color=$1; shift ;;
             w|name-only ) diff_opts+=("$option") ;;
             l           ) diff_opts+=('--name-only') ;;
-            help        ) echo "No documentation yet. Sorry."; return 0 ;;
+            help        ) echo "No documentation yet. Sorry."; true; return ;;
             debug | x   ) set -x ;;
             --          ) moreopts=0 ;;
-            *           ) echo "$original is an invalid option. See $0 --help"; return 1;;
+            *           ) echo "$original is an invalid option. See $0 --help"; false; return;;
         esac
     done
 
@@ -829,7 +841,7 @@ git-worktree-diff-to-root ()
         mapfile -t files < <(git ls-files)
         if ((${#files[@]}==0)); then
             cmd-echo --ec -- "No git files found. Is current dir '${PWD}' a git repo?"
-            return 1;
+            false; return;
         fi
     fi
 
@@ -882,7 +894,7 @@ git-worktree-mark-merged ()
 
     # Reprocess the command line, extracting options and their arguments into
     # variables.
-    while ftrue; do
+    while true; do
         local option=$1
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
@@ -892,12 +904,12 @@ git-worktree-mark-merged ()
                          ## remaining $*, if any, are args
             *)
                 cmd-echo -ec -- "$option is an invalid option. See $0 --help"
-                return 1
+                false; return
                 ;;
         esac
     done
 
-    ! _git_worktree_check_set_pwd "mark merged" $opt_current && return 1
+    ! _git_worktree_check_set_pwd "mark merged" $opt_current && { false; return; }
     local wtroot
     wtroot="${PWD}"
 
@@ -905,27 +917,27 @@ git-worktree-mark-merged ()
         wtname="$1"; shift
     elif [[ -n "$1" ]]; then
         cmd-echo --ec -- "Cannot specify a worktree and --current"
-        return 1
+        false; return
     fi
 
     if [[ -z "$wtname" ]]; then
         cmd-echo --ec -- "Worktree not specified"
-        return 1
+        false; return
     fi
     if [[ ! -d "$wtname" ]]; then
         cmd-echo --ec -- "Cannot find worktree $wtname
 $(ls -la)"
-        return 1
+        false; return
     fi
     local wtpath
     wtpath="$wtroot/$wtname"
 
-    builtin cd "$wtpath" || { cmd-echo --ec -- "Cannot cd $wtpath" && return 1; }
+    builtin cd "$wtpath" || { cmd-echo --ec -- "Cannot cd $wtpath" ; false; return; }
 
     # shellcheck disable=SC2119
     if ! git-worktree-ina; then
         cmd-echo --ec -- "$wtname is not a proper worktree for marking merged"
-        return 1;
+        false; return;
     fi
 
     local worktreename
@@ -977,7 +989,7 @@ git-worktree-comment ()
     # shellcheck disable=SC2119
     if ! git-worktree-ina; then
         cmd-echo --ec -- "Must be in a worktree"
-        return 1;
+        false; return;
     fi
     if [[ $1 =~ -(show|get) ]]; then
         git comment --get --worktree
@@ -998,7 +1010,7 @@ main ()
 
     if [[ "$action" =~ ^-+h ]]; then
         git-usage "$0"
-        return  0
+        true; return
     fi
 
     ## abbrevs
@@ -1024,7 +1036,7 @@ main ()
                 if [[ $(yesno "Do you want to create a worktree with that name?" "n") == 'y' ]]; then
                     git-worktree-create "$action" "$@"
                 else
-                    ffalse
+                    false
                 fi
                 ;;
         esac
