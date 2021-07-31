@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
-
 # git-go
 
 use mktemp
@@ -73,7 +71,7 @@ eval set -- "$OPTSARGS"
 
 # Reprocess the command line, extracting options and their arguments into
 # variables.
-while ftrue; do
+while true; do
     declare option
     option=$1
     shift
@@ -84,7 +82,7 @@ while ftrue; do
                   # shellcheck disable=SC2154
                   if [[ -z $tmp ]]; then
                       cmd-echo -ec -- "No upstream for current repo (${PWD})"
-                      exit 1
+                      false; exit
                   fi
                   tgts=("${tmp/*:/}")
                   ;;
@@ -111,21 +109,21 @@ while ftrue; do
         limited ) limited=('--limited' "$1"); shift ;;
         doandcd ) doandcdfile=$1; shift;;
         set ) cmd-echo -- Working...
-              git-go-set; exit 0;;
+              git-go-set; true; exit;;
         prune ) cmd-echo -- Working...
-              git-go-prune; exit 0;;
-        h | help ) bash-usage "$0"; exit 0 ;;
+              git-go-prune; true; exit;;
+        h | help ) git-usage "$0"; true; exit ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
             cmd-echo -ec -- "$option is an invalid option. See $0 --help"
-            exit 1
+            false; exit
             ;;
     esac
 done
 if ((opt_stat!=2)) && ((opt_brief)); then
     cmd-echo -ec -- "Cannot specify --brief without --dirty"
-    bash-usage "$0"; exit 1
+    git-usage "$0"; false; exit
 fi
 
 ## These settings are here and not in the case above where they are set because
@@ -175,13 +173,13 @@ if ((${#REPOS[@]}==0)); then
         ajoin allfilts -s ',' "${origtgts[@]}"
         cmd-echo -ec -- "Filters '$allfilts' do not match any repo"
     fi
-    exit 1
+    false; exit
 else
     if ((opt_mod)); then
         for r in "${REPOS[@]}"; do
             (
-                # The exit 1; will exit from the subshell, skipping the git status call
-                cd "${TILDAE:-$HOME}/$r" || { echo "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
+                # The false; exit; will exit from the subshell, skipping the git status call
+                cd "${TILDAE:-$HOME}/$r" || { echo "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
                 if (( $(git status --porcelain | wc  -l) )); then
                     echo
                     cmd-echo -- "$r"
@@ -212,13 +210,13 @@ else
                 if ((opt_stat==1)); then
                     echo "$rexp"
                     (
-                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
                         git status --porcelain
                     )
                     echo
                 elif ((opt_stat==2)); then
                     (
-                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
                         if (( $(git status --porcelain | wc -l) )); then
                             echo "$rexp"
                             if ((opt_brief==0)); then
@@ -229,7 +227,7 @@ else
                     )
                 elif ((opt_comments)); then
                     (
-                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r" && exit 1; }
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
                         declare output
                         output="$(git comment --show --hi)"
                         # shellcheck disable=SC2030 #https://github.com/koalaman/shellcheck/wiki/SC2030
@@ -313,7 +311,7 @@ if [[ -n "$REPO" ]]; then
     if [[ ! -d "${TILDAE:-$HOME}/$REPO" ]]; then
         cmd-echo --ec -- "'$REPO' does not exist. It will be removed from consideration."
         git-go-set
-        ffalse; exit $?
+        false; exit
     fi
     ## dirlist, not builtin cd, to take advantage this cd enhancement
     dirlist "${TILDAE:-$HOME}/${REPO}"
@@ -322,7 +320,7 @@ fi
 
 [[ -n "$doandcdfile" ]] && echo "go ${PWD}" > "$doandcdfile"
 
-ftrue
+true
 
 :<<'__USAGE__'
 Usage: git-go [options] [ filter [filter...] ]

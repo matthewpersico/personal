@@ -7,25 +7,33 @@ use ()
 {
     if [[ -z $1 ]]; then
         bash-usage use
-        ffalse; return $?
+        false; return
     fi
 
     local name=$1
-    local libpath="$BASH_INC_DIR/${name}.binc"
-    if [[ ! -r $libpath ]]; then
-        echo "use(bash): Cannot read '$libpath' to load it">&2
-        ffalse; return $?
+    local ext
+    local libspec
+    for ext in binc env; do
+        libspec="$BASH_INC_DIR/${name}.$ext"
+        if [[ -r $libspec ]]; then
+            break;
+        fi
+    done
+
+    if [[ -z $ext ]]; then
+        echo "use(bash): Cannot find any '${name}.[binc|ext] in $BASH_INC_DIR to load">&2
+        false; return
     fi
 
     # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
-    if . "$libpath"; then
+    if . "$libspec"; then
         [[ -n $BASH_INC_VERBOSE ]] \
-            && echo "use(bash): '$libpath' sourced">&2
-        ftrue; return $?
+            && echo "use(bash): '$libspec' sourced">&2
+        true; return
     fi
 
-    echo "use(bash): Error sourcing '$libpath'">&2
-    ffalse
+    echo "use(bash): Error sourcing '$libspec'">&2
+    false
 }
 
 
@@ -48,9 +56,9 @@ Source in files of bash utils.
 
 =item file
 
-For file "foo", find "$BASH_INC_DIR/foo.binc" and source it in. All "*binc"
-files must return true when sourced. Call 'true' at the end of the file (like
-putting a 1; at the end of a Perl module).
+For file "foo", find "$BASH_INC_DIR/foo.[binc|env]" and source it in. All
+"*.[binc|env]" files must return true when sourced. Call 'true' at the end of
+the file (like putting a 1; at the end of a Perl module).
 
 Unlike its Perl counterpart, a 'use'd script B<will be> reloaded each time it
 is encountered. There is no safe way to ensure that results of a prior run
