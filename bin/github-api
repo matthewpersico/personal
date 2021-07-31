@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
-
 # github-api
 
 use mktemp
@@ -24,7 +22,6 @@ main ()
 {
     ## If there's any chance that this will be in a script that will be dotted in,
     ## remove the explicit out_cmd calls.
-    local out_cmd="exit"
     local moreopts=1
     local server='github'
     local token_file="$HOME/.github"
@@ -97,8 +94,8 @@ main ()
                 ;;
 
             h | help )
-                bash-usage "$0"
-                $out_cmd 0
+                git-usage "$0"
+                true; return
                 ;;
 
             v | verbose )
@@ -121,7 +118,7 @@ main ()
 
             * )
                 github-api-echo -- "$original is an invalid option. See $0 --help"
-                $out_cmd 1
+                false; return
                 ;;
         esac
     done
@@ -130,14 +127,14 @@ main ()
     server_url="$(git kv --get "api-urls.$server")/"
     if [[ -z "$server_url" ]]; then
         github-api-echo -- "'$server' is an in valid --server option"
-        return 1
+        false; return
     fi
 
     local token_file
     token_file="$HOME/$(git kv --get "token-file.$server")"
     if [[ ! -r "$token_file" ]]; then
         github-api-echo -- "Credentials file '$token_file' not found. Do you have the right server?"
-        exit 1
+        false; return
     fi
 
 
@@ -153,7 +150,7 @@ main ()
             ## Requires a repo
             if [[ -z "$1" ]]; then
                 github-api-echo -- "No org/repo specified"
-                return 1
+                false; return
             fi
             if [[ "$1" =~ / ]]; then
                 org=${1%/*}
@@ -165,7 +162,7 @@ main ()
             fi
             [[ -z "$org" ]] && github-api-echo -- "No org specified" && bail=1
             [[ -z "$repo" ]] && github-api-echo -- "No repo specified" && bail=1
-            ((bail)) && return 1
+            ((bail)) && { false; return; }
 
             if [[ $action == 'contents' ]]; then
                 contents="$1"; shift
@@ -176,7 +173,7 @@ main ()
             ## Requires an org
             if [[ -z "$1" ]]; then
                 github-api-echo -- "No org specified"
-                return 1
+                false; return
             fi
             if [[ $1 =~ -user ]]; then
                 org_is_user=1
@@ -228,7 +225,7 @@ main ()
             else
                 github-api-echo -- "No action provided"
             fi
-            return 1
+            false; return
     esac
 
     if [[ -n "$org" ]]; then
@@ -402,7 +399,7 @@ main ()
                         ;;
                     * )
                         cat "$curlheaders"
-                        exit
+                        true; return
                         ;;
                 esac
                 ((pagenum+=1))
@@ -462,7 +459,7 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
-                        return 1
+                        false; return
                         ;;
                 esac
                 ;;
@@ -474,12 +471,12 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
                         ;;
                     404 )
                         github-api-echo -e -- "'${server}:$org/$repo' not found."
-                        return 1
+                        false; return
                         ;;
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
-                        return 1
+                        false; return
                         ;;
                 esac
                 ;;
@@ -491,7 +488,7 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
                         echo '$VAR1=' > "$perldata"
                         json_xs -t dumper < "$curldata" >> "$perldata"
                         perl -e 'do $ARGV[0]; print join(qq(\n), sort map {$_->{full_name}} @$VAR1)' "$perldata"
-                        return 1
+                        false; return
                         ;;
 #                    301 )
 #                        local newurl
@@ -510,12 +507,12 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
 #                        ;;
                     404 )
                         github-api-echo -e -- "'${server}:$org/$repo' not found."
-                        return 1
+                        false; return
                         ;;
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
-                        return 1
+                        false; return
                         ;;
                 esac
                 ;;
@@ -538,12 +535,12 @@ print qq($url);' "${curldata}" "${server_url}")
                         ;;
                     404 )
                         github-api-echo -e -- "'${server}:$org/$repo' not found."
-                        return 1
+                        false; return
                         ;;
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
-                        return 1
+                        false; return
                         ;;
                 esac
                 ;;
@@ -581,12 +578,12 @@ print qq($url);' "${curldata}" "${server_url}")
                         ;;
                     404 )
                         github-api-echo -e -- "either organization '$org' or repo '$repo' does not exist on '$server'."
-                        return 1
+                        false; return
                         ;;
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
-                        return 1
+                        false; return
                         ;;
                 esac
 
@@ -601,9 +598,9 @@ print qq($url);' "${curldata}" "${server_url}")
                     done
                     if github-api "${override_args[@]}" --server "$server" list-forks "$org" "$repo" | grep -E -q '"message":\s*"Not Found"'; then
                         github-api-echo -w -- "Fork not yet created"
-                        return 1
+                        false; return
                     else
-                        return 0
+                        true; return
                     fi
                 fi
                 ;;
@@ -625,7 +622,7 @@ print qq($url);' "${curldata}" "${server_url}")
     if ((keep_data)); then
         github-api-echo -- "Header and data files are" "$curlheaders" "$curldata"
     fi
-    return 0
+    true; return
 }
 
 main "$@"

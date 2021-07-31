@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
-
 # git-process-source-ctrl-log
 
 use mktemp
@@ -38,7 +36,7 @@ rollforward ()
     if ! cp -f "$parsed_cl_retain" "$source_ctrl_log"; then
         cmd-echo --ec -- "Rollforward of $parsed_cl_retain to $source_ctrl_log failed." \
                  "Keeping both files as is, so that you can attend to the issue."
-        exit 1
+        false; return
     else
         cleanup 0
     fi
@@ -76,8 +74,8 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
 
     case $option in
         h | help )
-            bash-usage "$0"
-            exit 0
+            git-usage "$0"
+            true; exit
             ;;
         debug | x ) set -x; debug='-d:ptkdb'; trap 'set +x' EXIT;;
         verbose | v )
@@ -149,7 +147,7 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
             ;;
         * )
             cmd-echo --ec -- "$original is an invalid option. See $0 --help";
-            ## (return if a func, exit if a script) 1
+            false; exit;
             ;;
     esac
 done
@@ -171,7 +169,7 @@ for file in "$@"; do
             filelist+=("$absolute_file")
         else
             cmd-echo --ec -- "File $file not found. Aborting"
-            exit 1
+            false; exit
         fi
     fi
 done
@@ -180,7 +178,7 @@ done
 declare source_ctrl_logdir
 source_ctrl_logdir=$(git root)
 if ((status != 0)); then
-    bash-usage "$0"
+    git-usage "$0"
     exit $status
 fi
 
@@ -189,14 +187,14 @@ declare source_ctrl_log="${source_ctrl_logdir}/$GITFUNCS_SOURCE_CTRL_LOG_NAME"
 
 if [[ "$action" = 'commit' ]] && [[ ! -w "$source_ctrl_log" ]]; then
     cmd-echo --ec -- "$source_ctrl_log not writable"
-    exit 1
+    false; exit
 fi
 
 declare others
 others=$(find "$source_ctrl_logdir" -name "$GITFUNCS_SOURCE_CTRL_LOG_NAME" | grep -v "$source_ctrl_log")
 if [[ -n "$others" ]]; then
     cmd-echo --ec -- "Found $others. No other $GITFUNCS_SOURCE_CTRL_LOG_NAME allowed under $source_ctrl_logdir."
-    exit 1
+    false; exit
 fi
 
 export PSCL_LEAD_CHAR='*' ## NOTE: If you change the lead character for items
@@ -222,7 +220,7 @@ if [[ -f "$source_ctrl_log" ]]; then
     status=$?
     if ((status != 0)); then
         cmd-echo --ec -- "Error backing up $source_ctrl_log"
-        exit 1
+        false; exit
     fi
 fi
 
@@ -249,7 +247,7 @@ if ((opt_confirm)); then
         ## Restore
         cmd-echo --ec -- "Commit aborted"
         rollback
-        exit 0
+        true; exit
     fi
 fi
 

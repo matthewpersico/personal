@@ -11,10 +11,10 @@ git-hook-find-hook-dir ()
     dotgit=$(git find --git-dir)
     if [[ -n "$dotgit" ]] && [[ -d "$dotgit/hooks" ]]; then
         echo "$dotgit/hooks"
-        return 0
+        true; return
     else
         echo
-        return 1
+        false; return
     fi
 }
 
@@ -24,7 +24,7 @@ git-hook-check ()
     hook_dir=$(git-hook-find-hook-dir)
     if [[ -z "$hook_dir" ]] || [[ ! -d "$hook_dir" ]]; then
         echo "Cannot find hook directory"
-        return 1
+        false; return
     fi
     local i
     for i in "${hook_dir}"/*; do
@@ -36,7 +36,7 @@ git-hook-check ()
             chmod a+x "$i"
         fi
     done
-    return 0
+    true
 }
 
 git-hook-dry-run ()
@@ -46,7 +46,7 @@ git-hook-dry-run ()
     hook_dir=$(git-hook-find-hook-dir)
     if [[ -z "$hook_dir" ]] || [[ ! -d "$hook_dir" ]]; then
         echo "Cannot find hook directory"
-        return 1
+        false; return
     fi
     local hook_path=$hook_dir/$hook_name
     if [[ -x "$hook_path" ]]; then
@@ -54,7 +54,7 @@ git-hook-dry-run ()
         return $?
     else
         echo "Executable $hook_path not found."
-        return 1
+        false; return
     fi
 }
 
@@ -66,13 +66,13 @@ git-hook-pushpull-guts ()
         echo "Error: Config says init.templatedir = '$current_template'"
         echo "       It should be '${GITFUNCS_GITHOOK_ROOT}'"
         echo "       Please correct."
-        return 1
+        false; return
     fi
 
     if [[ ! -d "$current_template" ]]; then
         echo "Error: Can't find '$current_template'"
         echo "       Please correct."
-        return 1
+        false; return
     fi
 
     local quiet=0
@@ -163,21 +163,13 @@ git-hook-comp ()
     git-hook-compare "$@"
 }
 
-usage ()
-{
-    (
-        [[ -n "$*" ]] && cmd-echo -- "$@"
-        bash-usage "$0"
-    ) 2>&1 | ${PAGER:-less}
-}
-
 main ()
 {
     local action=$1
 
     if [[ "$action" =~ ^-+h ]]; then
-        git-usage --noreal "$0"
-        return  0
+        git-usage "$0"
+        true; return
     fi
 
     action_func_name="git-hook-${action}"
@@ -185,8 +177,8 @@ main ()
         shift ## the $action
         "$action_func_name" "$@"
     else
-        usage "Error: unknown git hook action '$action'"
-        return 1
+        git-usage "$0" "Error: unknown git hook action '$action'"
+        false; return
     fi
     return $?
 }

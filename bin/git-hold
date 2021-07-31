@@ -1,7 +1,5 @@
 #!/usr/bin/env bash
 
-echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
-
 # git-hold
 
 # Copy/restore a git repo to/from some other directory. Kind of like a stash,
@@ -48,15 +46,15 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
             verbose=1
             verbose_flag='-v';;
         h | help )
-            bash-usage "$0"
-            exit 0
+            git-usage "$0"
+            true; exit
             ;;
         --)
             moreopts=0
             ;;
         * )
             cmd-echo -- "$original is an invalid option. See $0 --help"
-            exit 1
+            false; exit
             ;;
     esac
 done
@@ -67,25 +65,25 @@ shift
 
 if [[ ! "$holddir" =~ ^/ ]]; then
     cmd-echo -- "rooting in ~/.git-hold"
-    mkdir -p "$HOME/.git-hold" || exit 1
+    mkdir -p "$HOME/.git-hold" || { false; exit; }
     holddir="$HOME/.git-hold/$holddir"
 fi
 
 (
-    builtin cd "$repo" || exit 1
+    builtin cd "$repo" || { false; exit; }
     if ! git repo name . > /dev/null; then
         cmd-echo -- "'$repo' is not a git repo"
-        exit 1
+        false; exit
     fi
-    exit 0
-) || exit 1
+    true; exit
+) || { false; exit; }
 
 if (( drop )); then
     if [[ ! -d "$holddir" ]]; then
         cmd-echo -- "'$holddir' not found, cannot drop"
-        exit 1;
+        false; exit;
     else
-        builtin cd "$holddir"/.. || exit 1 ## cd command will spit out an error message
+        builtin cd "$holddir"/.. || { false; exit; } ## cd command will spit out an error message
         resp=$(yesno "About to remove $holddir. OK")
         if [[ "$resp" = 'y' ]]; then
             rm -rf "$holddir"
@@ -95,13 +93,13 @@ if (( drop )); then
 elif (( restore )); then
     if [[ ! -d "$holddir" ]]; then
         cmd-echo -- "'$holddir' not found, cannot restore"
-        exit 1;
+        false; exit;
     else
         repo=$(realpath "$repo") ## in case we stupidly specified a relative
                                  ## path and we're about to cd to $holdir that
                                  ## != ${PWD}
         (
-            builtin cd "$holddir" || exit 1 ## cd command will spit out an error message
+            builtin cd "$holddir" || { false; exit; } ## cd command will spit out an error message
             declare -a files
             mapfile -t files < <(find . -type f) ## we can't do while IFS= read
                                                  ## ...done < <() because we
@@ -133,12 +131,12 @@ elif (( restore )); then
                     ## backed up. If the structure has changed so that
                     ## directories have been deleted, the copy may be of
                     ## dubious use. If that is not the case, change the code.
-                    cp $verbose_flag "$fullfile" "$repo/$file" || exit 1 ## cp command will spit out an error message
+                    cp $verbose_flag "$fullfile" "$repo/$file" || { false; exit; } ## cp command will spit out an error message
                 elif [[ "$resp" = 'n' ]]; then
                     echo "Skipping"
                 else
                     echo "Aborting"
-                    exit 1
+                    false; exit
                 fi
             done
         )
@@ -150,7 +148,7 @@ else
             cmd-echo -- "'$holddir' exists, --overwrite specified, will copy to it"
         else
             cmd-echo -- "'$holddir' exists, will not copy to it"
-            exit 1;
+            false; exit;
         fi
     fi
 
@@ -158,7 +156,7 @@ else
     holddir=$(realpath "$holddir")
     (
         ((!verbose)) && cmd-echo -- "Working..."
-        builtin cd "$repo" || exit 1 ## cd command will spit out an error message
+        builtin cd "$repo" || { false; exit; } ## cd command will spit out an error message
         declare file
         declare -A git_is_deleted
         while IFS= read -r file; do
@@ -212,19 +210,19 @@ else
                 resp=$(yesno -q "cp $verbose_flag $cprecurse_flag $fullfile $holddir/$file")
             fi
             if [[ "$resp" = 'y' ]]; then
-                mkdir -p "$(dirname "$holddir/$file")" || exit 1 ## mkdir command will spit out an error message
-                cp $verbose_flag $cprecurse_flag "$fullfile" "$holddir/$file" || exit 1 ## cp command will spit out an error message
+                mkdir -p "$(dirname "$holddir/$file")" || { false; exit; } ## mkdir command will spit out an error message
+                cp $verbose_flag $cprecurse_flag "$fullfile" "$holddir/$file" || { false; exit; } ## cp command will spit out an error message
             elif [[ "$resp" = 'n' ]]; then
                 echo "Skipping"
             else
                 echo "Aborting"
-                exit 1
+                false; exit
             fi
         done
     )
 fi
 cmd-echo -- 'Done.'
-exit 0
+true; exit
 
 ## Go grab the usage template the file USAGE
 ## You can add sections with =head1, but stick to =item for section breakdowns,
