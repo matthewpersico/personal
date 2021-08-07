@@ -13,15 +13,19 @@ use ()
     local name=$1
     local ext
     local libspec
+    local -a inc_paths
+    IFS=':' read -ra inc_paths <<< "$BASH_INC_PATH"
     for ext in binc env; do
-        libspec="$BASH_INC_DIR/${name}.$ext"
-        if [[ -r $libspec ]]; then
-            break;
-        fi
+        for path in "${inc_paths[@]}"; do
+            libspec="${path}/${name}.$ext"
+            if [[ -r $libspec ]]; then
+                break 2 # escapes out of both for loops.
+            fi
+        done
     done
 
     if [[ -z $ext ]]; then
-        echo "use(bash): Cannot find any '${name}.[binc|ext] in $BASH_INC_DIR to load">&2
+        echo "use(bash): Cannot find any '${name}.[binc|ext] in \$BASH_INC_PATH to load">&2
         false; return
     fi
 
@@ -56,7 +60,7 @@ Source in files of bash utils.
 
 =item file
 
-For file "foo", find "$BASH_INC_DIR/foo.[binc|env]" and source it in. All
+For file "foo", find "foo.[binc|env]" on B<BASH_INV_PATH> and source it in. All
 "*.[binc|env]" files must return true when sourced. Call 'true' at the end of
 the file (like putting a 1; at the end of a Perl module).
 
@@ -66,6 +70,11 @@ is encountered. There is no safe way to ensure that results of a prior run
 at a deeper shell level.
 
 =back
+
+=head1 ENVIRONMENT
+
+The variable B<BASH_INV_PATH> should contain one or more colon-separated
+directories where 'binc' and 'env' files live. There is no default.
 
 =cut
 
