@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+
+# <Function Class: git>
+# <Function Justification: cd>
+
+gitremote-forknclone ()
+{
+    local remote=$1; shift
+    local clone_org
+    clone_org=$(git-kv --get remote-users."$remote")
+    if [[ -z $1 ]] || [[ "$1" =~ -h ]]
+    then
+        echo "usage: ${FUNCNAME[2]} [org repo | org/repo]"
+        echo "       Creates a fork of $remote:org/repo as $remote:$clone_org/repo"
+        echo "       and then clones the fork into the GITENV_REPO_ROOT ($GITENV_REPO_ROOT) tree."
+        return 1
+    fi
+
+    local org
+    local repo
+    if [[ "$1" =~ / ]]
+    then
+        org="${1%%/*}"
+        repo="${1##*/}"
+        shift
+    else
+        org="$1"
+        shift
+        repo="$1"
+        shift
+    fi
+
+    if [[ $org == 'berg' ]]; then
+        cmd-echo "The 'Berg' project prefers work to take place in the canonical repo."
+        local response
+        response="$(cmd-yesno -q "Shall I attempt a direct clone of berg/$repo")"
+        case "$response" in
+            y ) clone_org="$org" ;;
+            n ) : ;;
+            q ) false; return $? ;;
+        esac
+    fi
+    git clone --tree '--forkof' "$org" "$remote:$clone_org/$repo"
+}
