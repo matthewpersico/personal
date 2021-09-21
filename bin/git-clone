@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 
-echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
+[[ -n $GIT_AUDIT ]] && echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
 
 # git-clone
 
@@ -196,13 +196,17 @@ main ()
         return $?
     fi
 
+    ## WARNING: At this point, 'pass_on' should contain only the repo to clone
+    ## and maybe a different directory to clone into. If there are real
+    ## options, then this logic won't work and we'll have to strip off any real
+    ## options above.
     cmd-echo -- "Extended git clone functionality..."
     if ((opt_make_fork)) && ((opt_make_triangle)); then
         cmd-echo --wc -- "Option '--triangle' ignored with option '--fork-of'; the latter implies the former."
         opt_make_triangle=0
     fi
 
-    [[ -z "${pass_on[0]}" ]] && git-usage "$0" "$0" "Missing arguments" && return 1
+    [[ -z "${pass_on[0]}" ]] && git-usage "$0" "Missing arguments" && return 1
     if [[ -z "${githost}" ]]; then
         local -a tmpa
         asplit "${pass_on[0]}" -s : -a tmpa
@@ -237,6 +241,15 @@ main ()
         return 1
     fi
 
+    local tgtdir
+    tgtdir="$repo"
+    local tgt_override=0
+
+    if [[ -n ${pass_on[0]} ]]; then
+        # This is the target dir we want to clone into
+        ashift pass_on tgtdir
+        tgt_override=1
+    fi
     local cwpath
     cwpath="$(realpath "${PWD}")"
     local local_githost
@@ -255,15 +268,14 @@ main ()
             builtin cd "$shouldbein" || exit $?
         fi
     else
-        cmd-echo -id "$cmd_echo_id" -- "Neither --githost nor --tree were specified. Cloning right here (${PWD}/$repo)"
+        cmd-echo -id "$cmd_echo_id" -- "Neither --githost nor --tree were specified. Cloning right here (${PWD})."
     fi
 
-    local tgt="$namespace/$repo"
+    local tgt="$namespace/$tgtdir"
     if [[ -e "$tgt" ]]; then
         local resp
         if ((opt_y)); then
             resp='y'
-            ##resp='r'
         else
             resp=$(cmd-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
         fi
@@ -271,10 +283,10 @@ main ()
             cmd-echo -- "Keeping."
             if ((opt_use_githost_dir)); then
                 if [[ -n "$doandcdfile" ]]; then
-                    cmd-echo -c -- " Going to $namespace/$repo..."
-                    echo "git-go $namespace/$repo" > "$doandcdfile"
+                    cmd-echo -c -- " Going to $tgt..."
+                    echo "git-go $tgt" > "$doandcdfile"
                 else
-                    cmd-echo -c -- " Execute" "    git go $namespace/$repo" "to use."
+                    cmd-echo -c -- " Execute" "    git go $tgt" "to use."
                 fi
             else
                 echo
@@ -297,14 +309,17 @@ main ()
             return $?
         fi
         if [[ $forked_repo != "$repo" ]]; then
-            cmd-echo -wc -- "Forked repo of $repo is named $forked_repo. Will use $forked_repo going forward."
             repo="$forked_repo"
-            tgt="$namespace/$repo"
+            if ((tgt_override==0)); then
+                cmd-echo -wc -- "Forked repo of $repo is named $forked_repo. Will use $forked_repo going forward."
+                tgt="$namespace/$forked_repo"
+            else
+                cmd-echo -wc -- "Forked repo of $repo is named $forked_repo. Will reference $forked_repo going forward, but still use $tgtdir as the local repo directory, as requested."
+            fi
             if [[ -e "$tgt" ]]; then
                 local resp
                 if ((opt_y)); then
                     resp='y'
-                    ##resp='r'
                 else
                     resp=$(cmd-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
                 fi
@@ -312,10 +327,10 @@ main ()
                     cmd-echo -n -- "Keeping."
                     if ((opt_use_githost_dir)); then
                         if [[ -n "$doandcdfile" ]]; then
-                            cmd-echo -c -- " Going to $namespace/$repo..."
-                            echo "git-go $namespace/$repo" > "$doandcdfile"
+                            cmd-echo -c -- " Going to $tgt..."
+                            echo "git-go $tgt" > "$doandcdfile"
                         else
-                            cmd-echo -c -- " Execute" "    git go $namespace/$repo" "to use."
+                            cmd-echo -c -- " Execute" "    git go $tgt" "to use."
                         fi
                     else
                         echo
@@ -329,14 +344,14 @@ main ()
     fi
 
     ## Do the clone
-    cmd-echo -- "$REALGIT clone ${pass_on[*]} ${githost_url}$namespace/$repo $namespace/$repo ..."
-    if ! $REALGIT clone "${pass_on[@]}" "${githost_url}$namespace/$repo" "$namespace/$repo"; then
+    cmd-echo -- "$REALGIT clone ${pass_on[*]} ${githost_url}$namespace/$repo $tgt ..."
+    if ! $REALGIT clone "${pass_on[@]}" "${githost_url}$namespace/$repo" "$tgt"; then
         return $?
     fi
 
     ## Our own metadata
     (
-        builtin cd "$namespace/$repo" || exit $?
+        builtin cd "$tgt" || exit $?
         _git_clone_record_created_date
         ((opt_use_named_branches)) && _git_clone_record_named_branches
     )
@@ -344,10 +359,10 @@ main ()
     if ((opt_t)); then
         cmd-echo -- 'Setting timestamps...'
         (
-            if builtin cd "$namespace/$repo"; then
+            if builtin cd "$tgt"; then
                 git-retimestamp
             else
-                cmd-echo -id "$cmd_echo_id" --ec -- "Cannot cd $namespace/$repo" && return 1
+                cmd-echo -id "$cmd_echo_id" --ec -- "Cannot cd $tgt" && return 1
             fi
         )
         cmd-echo -- 'Done'
@@ -357,16 +372,16 @@ main ()
         ## If we didn't explicitly ask to make a fork, let's see if this clone
         ## is a fork anyway and set up the triangle workflow if so.
         local upstream
-        upstream=$(builtin cd "$namespace/$repo" || exit $?
+        upstream=$(builtin cd "$tgt" || exit $?
                    git repo is a fork --print)
         if [[ -n $upstream ]]; then
-            cmd-echo -- "$namespace/$repo is a fork of $upstream"
+            cmd-echo -- "$tgt is a fork of $upstream"
             opt_triangle_namespace=$(dirname "$upstream")
         fi
     fi
 
     ## dirlist, not builtin cd, to take advantage this cd enhancement
-    dirlist "$namespace/$repo"
+    dirlist "$tgt"
     if [[ -n "$opt_triangle_namespace" ]]; then
         cmd-echo -- "Setting up triangle workflow with ${githost_url}${opt_triangle_namespace}/${repo}..."
         _git-clone-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo" || return $?
