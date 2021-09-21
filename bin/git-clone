@@ -97,8 +97,9 @@ main ()
 
     ## --------
     ## DO NOT attempt to convert this to a 'getopt' implementation; it would
-    ## require specifying and handling every existing option in 'git clone'
-    ## and it is just not necessary.
+    ## require specifying and handling every existing option in 'git clone' and
+    ## it is just not necessary. Also, this handles non-option arguments, even
+    ## if mixed in with options
     local -a pass_on
 
     while (( $# )); do
@@ -109,7 +110,7 @@ main ()
         local okey
         local ovalue=''
         ## but only deal with it if we really have an option. Otherwise you
-        ## misinterpret items like this git clone option: --config
+        ## misinterpret items like this argument to git clone --config:
         ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
         if [[ $option =~ ^- ]]; then
             if [[ "$option" =~ = ]]; then
@@ -179,7 +180,9 @@ main ()
             --debug | -x )
                 dispatch_to_real_git=0; set -x; do-on-exit set +x;;
             * )
-                ## Eventually, you call the real command with "${pass_on[@]}"
+                ## If we are here, it is an option we are not processing, an
+                ## arg to such an option or a straight-up arg.  Eventually, you
+                ## call the real command with "${pass_on[@]}"
                 pass_on+=("$option");
                 [[ -n "$ovalue" ]] && pass_on+=("$ovalue")
                 ;;
@@ -398,7 +401,7 @@ main ()
                      "    git go $namespace/$repo" \
                      "to use."
         else
-            [[ -n "$doandcdfile" ]] && echo "go ${PWD}" > "$doandcdfile"
+            [[ -n "$doandcdfile" ]] && echo "ecd ${PWD}" > "$doandcdfile"
             cmd-echo -- "Done."
         fi
     fi
@@ -419,7 +422,7 @@ git-clone - extension to git clone
            [[--wt|--worktree] new-worktree [--fetch]] \
            [--yes|y] [--timestamp|-t] \
            [--named-branches | --named | --nb] \
-           repoURL
+           repoURL [tgtdir]
 
 =head1 DESCRIPTION2
 
@@ -433,7 +436,11 @@ B<Note:> We have disabled option ganging in order to be able to properly handle 
 
 =item repoURL
 
-The URL of the repo to clone in githost:org/repo format.
+The URL of the repo to clone in C<githost:org/repo> format.
+
+=item tgtdir
+
+If you want C<githost:org/repo> cloned into something other than the directory C<repo>.
 
 =back
 
