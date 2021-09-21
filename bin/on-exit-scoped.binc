@@ -1,0 +1,98 @@
+#!/usr/bin/env bash
+
+## on-exit.binc - bash include
+
+## Stuff to do when you exit a script. From
+## http://www.linuxjournal.com/content/use-bash-trap-statement-cleanup-temporary-files
+
+## Example:
+## Include files
+##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+##    source "$BASH_INC_DIR/on_exit.binc"
+##    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+##    source "$BASH_INC_DIR/mktemp.binc"
+## Create the temp
+##    gitroot=$(mktempfile)
+## Immediately register it so that it will be removed at script exit
+##    rm-on-exit $gitroot
+
+## Instead of the 'source' calls, you can:
+##    use on_exit
+##    use mktemp
+## if you have the function "use" loaded.
+
+## Note: DO NOT source this script into the login environment. It won't work
+## unless you export each function; subshells and commands won't see the
+## functions otherwise. Besides, you do not want multiple scripts sharing the
+## same _on_exit_items array or you may lose temp files before you expect
+## to. Source this into each script that has temps you want to cleanly
+## handle. Nested calls work as expected/desired with respect to scope.
+declare -a _generic_on_exit_items
+
+function on-exit ()
+{
+    local -n _on_exit_items='_generic_on_exit_items'
+    if [[ $1 == --oei ]];
+    then
+        _on_exit_items=$2
+        shift;shift
+    fi
+    local item
+    for item in "${_on_exit_items[@]}"; do
+        [[ -z "$item" ]] && continue
+        [[ "$ON_EXIT_VERBOSE" == '1' ]] && echo "on_exit: $item" >&2
+        eval "$item"
+    done
+}
+
+function do-on-exit()
+{
+    local -a oeargs
+    local -n _on_exit_items='_generic_on_exit_items'
+    if [[ $1 == --one ]];
+    then
+        _on_exit_items=$2
+        oeargs=("$1" "$2")
+        shift;shift
+    fi
+    local n=${#_on_exit_items[@]}
+    _on_exit_items[$n]="$*"
+    if [[ $n -eq 0 ]]; then
+        ## Only need to set the trap once.
+        [[ "$ON_EXIT_VERBOSE" == '1' ]] && echo "add_on_exit: Setting trap (on_exit)" >&2
+        trap on-exit "${oeargs[@]}" EXIT
+    fi
+    return "$n"
+}
+
+function dont-on-exit()
+{
+    local arg
+    local n=${#_on_exit_items[@]}
+    for ((item=0; item<n; item++ )); do
+        for arg in "$@"; do
+            if [[ ${_on_exit_items[$item]} =~ $arg ]]; then
+                _on_exit_items[$item]=''
+            fi
+        done
+    done
+}
+
+function rm-on-exit()
+{
+    for rmit in "$@"; do
+        do-on-exit rm -rf "$rmit"
+    done
+}
+
+function show-on-exit ()
+{
+    local item
+    local n=-1
+    for item in "${_on_exit_items[@]}"; do
+        echo "$((n+=1)):'$item'"
+    done
+}
+
+# Return code for "use".
+true
