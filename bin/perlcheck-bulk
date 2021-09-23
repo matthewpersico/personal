@@ -1,0 +1,273 @@
+#!/usr/bin/env perl
+
+use 5.16.3;
+use warnings;
+
+# To find PerlBulkUtils
+use FindBin qw($RealBin);
+use lib "$RealBin/../lib";
+use PerlBulkUtils qw(
+  code_has_taint_flag
+  get_files
+  message
+  process_eval_file
+  process_exclusions
+);
+
+use Getopt::Long;
+use Test::More;
+
+my %opt = (
+    I         => [],
+    mod       => 0,
+    untracked => 0,
+    all       => 0,
+
+    stop_on_first => 0,
+
+    testing  => 0,
+    progress => 0,
+    help     => 0,
+
+);
+
+our @libs;
+
+sub check_options {
+    ## Option processing
+    GetOptions(
+        \%opt,
+        (
+            'I=s@',
+            'mod|mod-only|mod_only',
+            'untracked',
+            'all',
+'stop_on_first|stop-on-first|stop_on_first_error|stop-on-first-error',
+            'testing',
+            'progress',
+            'help',
+        )
+    ) or die "Bad argument, see --help for documentation.\n";
+
+    exec 'perldoc', $0 if ( $opt{help} );
+
+    die "Cannot set --all and --mod"
+      if $opt{all} and $opt{mod};
+    die "Cannot set --all and --untracked"
+      if $opt{all} and $opt{untracked};
+
+    for my $I ( @{ $opt{I} } ) {
+        push @libs, "-I$I";
+    }
+}
+
+sub process_files {
+    my $errors;
+    for my $file (@_) {
+        my $taint  = ( code_has_taint_flag($file) ? '-T' : '' );
+        my $cmd    = qq($^X $taint @libs -c $file 2>&1);
+        my @out    = qx($cmd);
+        my $status = $?;
+        my @fails;
+
+        ## The scalar(@out) check catches warnings that would otherwise
+        ## pass. The most common example of this is 'used only once' warnings,
+        ## which can be suppressed with a "no warnings 'once'" statement.
+        if ( $status != 0 or scalar(@out) != 1 ) {
+
+            message(
+                testing => $opt{testing},
+                func    => 'fail',
+                output  => ["compile check (perl -c) of $file"]
+            );
+            if (@out) {
+                chomp( $out[-1] );    ## Fix the formatting to match the rest of Test::More
+            } else {
+                push @out, "No output. Exit status was $status.";
+            }
+
+            ## Some modules print text after the status OK. These can be
+            ## ignored. If there is anything printed BEFORE 'status OK', or if
+            ## 'status OK' is not printed at all, then we need to show the
+            ## output.
+            my $errors_before_ok = ( $out[0] !~ m/syntax OK/ );
+            my $this_error       = (
+                $status ? 1
+                : (
+                    $errors_before_ok ? 1
+                    : 0
+                )
+            );
+            $errors += $this_error;
+
+            if ($errors_before_ok) {
+                $out[-1] .= "\n";
+                message(
+                    testing => $opt{testing},
+                    func    => 'diag',
+                    output  => [ "         got: ", @out ]
+                );
+            }
+            last if ( $this_error and $opt{stop_on_first} );
+        } elsif ( $opt{progress} ) {
+            message(
+                testing => $opt{testing},
+                func    => 'pass',
+                output  => [@out]
+            );
+        }
+    }
+    return ( $errors ? 1 : 0 );
+}
+
+sub main {
+
+    check_options();
+
+    my @files = get_files(
+        all       => $opt{all},
+        mod       => $opt{mod},
+        untracked => $opt{untracked}
+    );
+
+    @files = process_exclusions( '.perlcheck.exclusions', @files );
+    if ( !@files ) {
+        die "No files left to process after exclusions were applied.\n";
+    }
+
+    process_eval_file('.perlcheck.libs');
+    return process_files(@files);
+}
+
+exit main();
+
+__END__
+
+=head1 NAME
+
+  perlcheck-bulk - runs perl -c on files for validation
+
+=head1 SYNOPSIS
+
+  perlcheck-bulk [ooptions] [[--mod|--untracked|--all] | @files ]
+
+  perlcheck-bulk --help
+
+=head1 DESCRIPTION
+
+Runs 'perl -c' on its arguments, which are assumed to be Perl files and/or
+directories containing Perl files. If no argments are provided and the current
+directory is a git repo, search the repo for Perl files.
+
+=head2 Exclusions
+
+If you need to exclude files from being tidied, simply create a '.perltidy.exclude'
+file with the following format:
+
+  $excludes{contents} = [ a list of regular expressions matching text in the
+                         files to exclude ];
+  $excludes{names}    = [ a list of paths to the files to exclude, relative
+                          to the repo root ];
+
+'.perlcheckj.exclude' is simply Perl code that is processed by reading in the
+text and 'eval'ing it. Syntax errors will be caught. The file is searched for
+in the current directory and, if not found, traversing up the directory tree.
+
+=head2 Operation
+
+This file can be used to check any set of files, but was derived from
+'apply-compile-check-everywhere', part of the dpkg Perl code test suite and can
+be used as a drop-in replacement for that code.
+
+=head2 .perlcheck.libs
+
+In order to be able to find libraries when not installed, it is important to
+specify to the Perl interpreter where the libraries can be found. In addition
+to accepting '-I' options on the command line, we provide for the use of a
+'.perlcheck.inc' file.
+
+The format of the file is:
+
+ @main::libs = (
+     "-I$ENV{PWD}/../lib", # location relative to current dir
+     "-I/Some/hardcoded/test/lib"
+ );
+
+In other words, you put the -I options you'd need to feed to perl in this file
+and keep it with your project. The 'main::' part is required because of Perl
+scoping rules.
+
+As with the exclusions file, '.perltidy.inc' is simply Perl code that is
+processed by reading in the text and 'eval'ing it. Syntax errors will be
+caught. The file is searched for in the current directory and, if not found,
+traversing up the directory tree.
+
+=head1 OPTIONS
+
+=head2 File Filters
+
+These options select which files in a git repo to examine. When no File Filter
+options are set, we examine all the files in the repo; i.e. the filter used is:
+
+ git ls-files
+
+=over 2
+
+=item --mod
+
+In a git repo, only process files that are tracked and modified. The filter for
+these files is
+
+ git status --porcelain | grep -v '?' | sed 's/.* //'
+
+Any file arguments are ignored.
+
+=item --untracked
+
+In a git repo, only process files that are untracked; modification is
+irrelevant for these files. The filter for these files is
+
+ git status --porcelain | grep '?' | sed 's/.* //'
+
+Any file arguments are ignored.
+
+=item --all
+
+In a git repo, process all files that are tracked, modified or not, and all
+untracked files. The filters for these files is
+
+ git status --porcelain | grep -v '?' | sed 's/.* //'
+ git ls-files
+
+Any file arguments are ignored.
+
+=back
+
+=head2 Other options
+
+=item -I path/to/lit
+
+If you need to specify a '-I' option to Perl to find a library, specify it
+here.
+
+=item --stop-on-first-error
+
+Stop when the first error is encountered. The default is to process all files
+and show all errors.
+
+=item --testing
+
+Use this option when running in a test harness. We will call 'pass' when syntax
+is ok, 'fail' and 'diag' when it's not. If the option is not set, we simply
+print the same messages to STDERR.
+
+=item --progress
+
+We do not print anything if the syntax is ok. If you want to see ok statuses,
+use this option.
+
+=item --help
+
+Print this help text.
+
+=cut
