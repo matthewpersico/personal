@@ -45,10 +45,11 @@ sub filter {
 
         ## searching for shebang lines because lots of scripts do not
         ## end in .pl
-        my @bycontent = qx(grep -l '^#!.*perl' @files);
+        my @bycontent = map { chomp; $_ } qx(grep -l '^#!.*perl' @files);
 
-        ## A .pl with a shebang shows up in both lists.
-        return sort uniq( map { chomp; $_ } ( @byname, @bycontent ) );
+        ## A .pl or .t with a shebang shows up in both lists.
+        my @u = uniq( @byname, @bycontent );
+        return sort @u;
     }
     return ();
 }
