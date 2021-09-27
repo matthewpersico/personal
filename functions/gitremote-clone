@@ -8,25 +8,30 @@ gitremote-clone ()
     local remote=$1; shift
     if [[ -z $1 ]] || [[ "$1" =~ -h ]]
     then
-        echo "usage: ${FUNCNAME[2]} [options] [org repo | org/repo]"
-        echo "       Clones the requested repo into the GITENV_REPO_ROOT ($GITENV_REPO_ROOT) tree."
+        echo "usage: ${FUNCNAME[2]} [options] org/repo [tgtdir]"
+        echo "       Clones the requested repo into the GITENV_REPO_ROOT ($GITENV_REPO_ROOT) tree at '$remote/repo' or '$remote/tgtdir'."
         return 1
     fi
 
-    local org
-    local repo
-    local -a args
-    local lastarg="${*: -1}"
-    if [[ "$lastarg" =~ / ]]
+    local -a args=("$@")
+    local orgrepo
+    local -a tgtdir
+
+    if [[ "${args[-1]}" =~ / ]]
     then
-        org="${lastarg%%/*}"
-        repo="${lastarg##*/}"
-        args=("${@:1:(($#-1))}")
+        orgrepo="${args[-1]}"
+        unset 'args[-1]'
+    elif [[ "${args[-2]}" =~ / ]]
+    then
+        orgrepo="${args[-2]}"
+        unset 'args[-2]'
+        tgtdir="${args[-1]}"
+        unset 'args[-1]'
     else
-        org="${*: -2:1}"
-        repo="${*: -1}"
-        args=("${@:1:(($#-2))}")
+        cmd-echo --ec -- "$orgrepo not in org/repo format. See '${FUNCNAME[2]} -h'."
+        return 1
     fi
 
-    git clone "${args[@]}" --tree "$remote:$org/$repo"
+    echo git clone "${args[@]}" --tree "$remote:$orgrepo" "${tgtdir[@]}"
+    git clone "${args[@]}" --tree "$remote:$orgrepo" "${tgtdir[@]}"
 }

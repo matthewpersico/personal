@@ -10,35 +10,45 @@ gitremote-forknclone ()
     clone_org=$(git-kv --get remote-users."$remote")
     if [[ -z $1 ]] || [[ "$1" =~ -h ]]
     then
-        echo "usage: ${FUNCNAME[2]} [org repo | org/repo]"
+        echo "usage: ${FUNCNAME[2]} [options] org/repo [tgtdir]"
         echo "       Creates a fork of $remote:org/repo as $remote:$clone_org/repo"
-        echo "       and then clones the fork into the GITENV_REPO_ROOT ($GITENV_REPO_ROOT) tree."
+        echo "       and then clones the fork into the GITENV_REPO_ROOT ($GITENV_REPO_ROOT) tree at '$remote/repo' or '$remote/tgtdir'."
+        return 1
+    fi
+
+    local -a args=("$@")
+    local orgrepo
+    local -a tgtdir
+
+    if [[ "${args[-1]}" =~ / ]]
+    then
+        orgrepo="${args[-1]}"
+        unset 'args[-1]'
+    elif [[ "${args[-2]}" =~ / ]]
+    then
+        orgrepo="${args[-2]}"
+        unset 'args[-2]'
+        tgtdir="${args[-1]}"
+        unset 'args[-1]'
+    else
+        cmd-echo --ec -- "$orgrepo not in org/repo format. See '${FUNCNAME[2]} -h'."
         return 1
     fi
 
     local org
     local repo
-    if [[ "$1" =~ / ]]
-    then
-        org="${1%%/*}"
-        repo="${1##*/}"
-        shift
-    else
-        org="$1"
-        shift
-        repo="$1"
-        shift
-    fi
+    org="${1%%/*}"
+    repo="${1##*/}"
 
     if [[ $org == 'berg' ]]; then
         cmd-echo "The 'Berg' project prefers work to take place in the canonical repo."
         local response
-        response="$(cmd-yesno -q "Shall I attempt a direct clone of berg/$repo")"
+        response="$(cmd-yesno -q "Shall I attempt a direct clone of berg/$repo instead of a fork-n-clone")"
         case "$response" in
             y ) clone_org="$org" ;;
             n ) : ;;
             q ) false; return $? ;;
         esac
     fi
-    git clone --tree '--forkof' "$org" "$remote:$clone_org/$repo"
+    git clone "${args[@]}" --tree '--forkof' "$org" "$remote:$clone_org/$repo" "${tgtdir[@]}"
 }

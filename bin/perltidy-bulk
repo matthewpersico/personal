@@ -1,0 +1,592 @@
+#!/usr/bin/env perl
+
+use 5.16.3;
+use warnings;
+
+# To find PerlBulkUtils
+use FindBin qw($RealBin);
+use lib "$RealBin/../lib";
+use PerlBulkUtils qw(
+  get_files
+  is_git_repo
+  message
+  process_exclusions
+);
+
+use File::Basename;
+use File::Spec::Functions qw(splitdir);
+use File::Temp;
+use Getopt::Long;
+use Test::More;    ## because we call 'fail' when processing diffs so that we can
+## use this when testing.
+
+use constant {
+    SILENT        => 0,
+    VLEVEL0       => 1,                     # the default level, when verbose is not set.
+    VLEVEL1       => 2,
+    VLEVEL2       => 3,
+    VLEVEL3       => 4,
+    EXCLUDES_FILE => '.perltidy.exclude',
+};
+
+my %opt = (
+    use_tdy       => undef,
+    names_only    => 0,
+    use_fail      => 0,
+    stop_on_first => 0,
+
+    update => 0,
+    keep   => 0,
+
+    mod       => 0,
+    untracked => 0,
+    all       => 0,
+
+    verbose      => 0,
+    silent       => 0,
+    show_command => 0,
+
+    profile => '.../.perltidyrc',
+    ptopts  => [],
+    findrc  => 0,
+
+    help => 0,
+
+);
+
+my $chattiness = VLEVEL0;
+my $perltidycmdbase;
+my @summary;
+
+sub check_options {
+    ## Option processing
+    GetOptions(
+        \%opt,
+        (
+            'use_tdy|use-tdy:s',
+            'names_only|names-only',
+            'use_fail|use-fail|testing',
+'stop_on_first|stop-on-first|stop_on_first_error|stop-on-first-error',
+
+            'update',
+            'keep',
+
+            'mod|mod-only|mod_only',
+            'untracked',
+            'all',
+
+            'verbose:i',
+            'silent',
+            'show_command|show-command',
+
+            'profile=s',
+            'ptopts|ptopt=s@',
+            'findrc',
+
+            'help',
+
+        )
+    ) or die "Bad argument, see --help for documentation.\n";
+
+    ##
+    ## Option checking
+    ##
+
+    ## Two early exits
+    exit system(qw(perltidy -dpro)) if ( $opt{findrc} );
+    exec 'perldoc', $0 if ( $opt{help} );
+
+    $opt{profile} = "-pro=$opt{profile}" if ( $opt{profile} );
+    die "Cannot set --verbose and --silent\n"
+      if ( $opt{verbose} && $opt{silent} );
+    $chattiness += ( $opt{verbose} - $opt{silent} );
+    $chattiness = SILENT if $ENV{HARNESS_ACTIVE};
+    if ( defined( $opt{use_tdy} ) ) {
+        die "Cannot set --update and --use-tidy"
+          if $opt{update};
+        if ( $opt{use_tdy} eq '' ) {
+            $opt{use_tdy} = '.tdy';
+        } else {
+            $opt{use_tdy} =~ s/\^.//;
+            $opt{use_tdy} = ".${opt{use_tdy}}";
+        }
+    }
+
+    die "Cannot set --update and --names-only"
+      if $opt{update} and $opt{names_only};
+    die "Cannot set --update and --use-fail|--testing"
+      if $opt{update} and $opt{use_fail};
+    die "Cannot set --names-only and --use-fail|--testing"
+      if $opt{names_only} and $opt{use_fail};
+    die "Cannot set --all and --mod"
+      if $opt{all} and $opt{mod};
+    die "Cannot set --all and --untracked"
+      if $opt{all} and $opt{untracked};
+}
+
+sub process_diffs {
+    my $diffs;
+    for my $file (@_) {
+        my $tdyname;
+        if ( !$opt{use_tdy} ) {
+            my $tmp = File::Temp->new();
+            $tdyname = $tmp->filename;
+        } else {
+            $tdyname = "${file}${opt{use_tdy}}";
+        }
+        my $cmd = qq($perltidycmdbase -o=$tdyname $file);
+        print("$cmd\n") if ( $opt{show_command} );
+        qx($cmd);
+        my @diff = qx(diff -U3 $file $tdyname );
+        $diffs += @diff;
+        if (@diff) {
+            if ( $opt{names_only} ) {
+                print "$file\n";
+            } elsif ( $opt{use_fail} ) {
+                fail("perltidy $file");
+            } else {
+                print @diff;
+            }
+        }
+        unlink $tdyname;
+        last if ( @diff and $opt{stop_on_first} );
+    }
+    return $diffs;
+}
+
+sub process_updates {
+    ## Some invariants
+    my $warnfmt =
+      '%-' . ( sort { $b <=> $a } map { length($_) } @_ )[0] . 's - %s';
+    my $bakext = 'tdybak';
+
+    for my $file (@_) {
+        my $source = 'fs';
+        my ( $filedir, $filename ) = ( dirname($file), basename($file) );
+        if ( is_git_repo($filedir) ) {
+            use Cwd;
+            my $pwd = getcwd;
+            chdir $filedir;
+            # git status --porcelain gives us nothing back for a git file with
+            # no mods. Rather than adding that condition onto checking for ??,
+            # let's just see if it has a git log entry; if so it is a member of
+            # the repo.
+            my @out = qx(git log -1 --oneline $filename);
+            if (@out) {
+                $source = 'git';
+            }
+            chdir $pwd;
+        }
+        my $bakfile     = "${file}.${bakext}";
+        my $perltidycmd = "$perltidycmdbase -b -bext='$bakext' $file";
+
+        my @warn;
+        my $diff_status;
+        my $tidied = 0;
+        if ( $source eq 'git' ) {
+            ##
+            ## Show its git status before we tidy.
+            ##
+            my @git_status;
+            my $different = '       same as';
+            for ( '', '--cached' ) {
+                @git_status = qx(git diff $_ $file);
+                if (@git_status) {
+                    $different = 'different than';
+                    last;
+                }
+            }
+            push @warn, "$different git version"
+              if ( $chattiness >= VLEVEL0 );
+        }
+
+        ##
+        ## Do the tidy.
+        ##
+
+        ## Yep, you have to run perltidy multiple times to catch some
+        ## really nasty formatting. perltidy supposedly has a
+        ## --iterations flag to control this, but I couldn't get it to
+        ## work, so we implement it here by repeating until perltidy
+        ## doesn't change anything. I also decided on 4 as the absolute
+        ## upper limit because perltidy suggests that in their docs.
+        my $more_runs = 4;
+        my @diffout;
+        do {
+            if ( $opt{show_command} ) {
+                print "Executing: $perltidycmd\n:";
+            }
+            qx($perltidycmd);
+            my $pt_status = $?;
+            @diffout = qx(diff $bakfile $file);
+            $diff_status += $?;
+            print "**********\ndiff $bakfile $file\n", @diffout
+              if @diffout and $chattiness >= VLEVEL1;
+            unlink $bakfile if ( not $opt{keep} );
+            $more_runs--;
+        } while (@diffout) and $more_runs;
+
+        if ( !$more_runs ) {
+            warn "$file required four iterations - check it carefully\n"
+              if $chattiness > SILENT;
+        } elsif ( $chattiness >= 1 ) {
+            my $tmp = 4 - $more_runs;
+            push @warn, $tmp . ' run' . ( $tmp == 1 ? '' : 's' )
+              if ( $tmp > 2 and $chattiness > SILENT );
+        }
+
+        my $modified = '  modified';
+        if ($diff_status) {
+            $tidied = 1;
+        } else {
+            $modified = 'unmodified';
+        }
+        push @warn, "$modified by perltidy"
+          if ( $chattiness >= VLEVEL0 );
+
+        if ( $source eq 'git' ) {
+            ## and its git status after...
+            my @git_status;
+            my $different = '       same as';
+            for ( '', '--cached' ) {
+                @git_status = qx(git diff $_ $file);
+                if (@git_status) {
+                    $different = 'different than';
+                    last;
+                }
+            }
+            push @warn, "$different git version"
+              if ( $chattiness >= VLEVEL0 );
+        }
+
+        if (@warn) {
+            my $line = sprintf( $warnfmt, $file, join( ', ', @warn ) ) . "\n";
+            warn $line;
+            push @summary, $line
+              if $tidied;
+        }
+    }
+}
+
+sub main {
+
+    check_options();
+
+    my $source;
+    my @files = get_files(
+        all       => $opt{all},
+        mod       => $opt{mod},
+        untracked => $opt{untracked},
+    );
+
+    ## Some preliminary info outputs
+    system(qw(perltidy @{$opt{ptopts}} -ddf))  if ( $chattiness >= VLEVEL2 );
+    system(qw(perltidy @{$opt{ptopts}} -dpro)) if ( $chattiness >= VLEVEL1 );
+    system(qw(perltidy @{$opt{ptopts}} $opt{profile} -dop))
+      if ( $chattiness >= VLEVEL2 );
+
+    #$perltidycmdbase = "$^X -d:ptkdb -S perltidy $opt{profile}";
+    $perltidycmdbase = "perltidy @{$opt{ptopts}} $opt{profile}";
+
+    @files = process_exclusions( '.perltiduy.exclusions', @files );
+    if ( !@files ) {
+        die "No files left to process after exclusions were applied.\n";
+    }
+
+    my $rc = 0;
+    if ( $opt{update} ) {
+        $rc = process_updates(@files);
+    } else {
+        ## just do a diff and indicate an error if the tidied version does not
+        ## match the repo version.
+        $rc = process_diffs(@files);
+    }
+    print "\n*** Modification summary ***\n", @summary
+      if @summary;
+    return ( $rc ? 1 : 0 );
+}
+
+exit main();
+
+__END__
+
+=head1 NAME
+
+  perltidy-bulk - runs perltidy on multiple files for validation or update
+
+=head1 SYNOPSIS
+
+  perltidy-bulk [options] [[--mod|--untracked|--all] | @files ]
+
+  perltidy-bulk --findrc
+
+  perltidy-bulk --help
+
+=head1 DESCRIPTION
+
+Runs 'perltidy' on its arguments, which are assumed to be Perl files and/or
+directories containing Perl files. If no argments are provided and the current
+directory is a git repo, search the repo for Perl files.  Either report or fix
+any tidy issues.
+
+=head2 Modes
+
+There are two main modes in which this program can be run.
+
+=head3 Confirmation mode
+
+This is the default mode. In this mode, perltidy is run on each file with the
+results shunted to a temp file. A diff is then run between the original and the
+perltidy-ed temp file. If there are any differences, a 'warn'ing to that effect
+is printed and after all files are processed, the program will exit with a
+failure status.
+
+This mode can be used in a test file so that if a non-tidy file exists, running
+the test suite in the course of development will catch the issue before the
+offending file gets checked in. You can also use this program in a git hook to
+prevent checking in untidy code and you can use it in your CI to catch checked
+in untidy code. Details of hook and CI usage are left to the reader. Testing
+options will be described later.
+
+=head3 Update mode
+
+The other mode is update mode, set using the --update option. In this mode, the
+file itself is actually tidied. This is the mode you would use to update the
+offending files that failed the confirmation test.
+
+=head2 Exclusions
+
+If you need to exclude files from being tidied, simply create a '.perltidy.exclude'
+file with the following format:
+
+  $excludes{contents} = [ a list of regular expressions matching text in the
+                         files to exclude ];
+  $excludes{names}    = [ a list of paths to the files to exclude, relative
+                          to the repo root ];
+
+'.perltidy.exclude' is simply Perl code that is processed by reading in the
+text and 'eval'ing it. Syntax errors will be caught. The file is searched for
+in the current directory and, if not found, traversing up the directory tree.
+
+=head2 Operation
+
+This file can be used to check any set of files, but was derived from
+'apply-perltidy-everywhere', part of the dpkg Perl code test suite and can be
+used as a drop-in replacement for that code.
+
+=head2 .perltidyrc
+
+The default we are using for the resource file is C<.../.perltidyrc>, which
+means we start looking for a <.perltidyrc> file in the current directory and
+then, if not found, work our way up the directory tree until one is found. In
+this way, you can have a default C<.perltidyrc> file in your home directory,
+but projects can provide their own it they wish to override. This is
+C<perltidy> functionality, not an enhancement for this script.
+
+=head1 ARGUMENTS
+
+Any non-option arguments are considered to be Perl files or directories
+containing Perl files, recursively searched. If you provide no arguments and
+you are in a git repo, the git repo will be searched for Perl files.
+
+=head1 OPTIONS
+
+=head2 Confirmation mode
+
+Use these options exclusively in Confirmation mode.
+
+=over
+
+=item --use-tdy [ ext ]
+
+For each file, do not direct the perltidy output to a temp file that is
+disposed of, but put it in a file with the same path as the source, with the
+extension '.tdy' added. Specify 'ext' if you want to use another extension.
+
+=item --names-only
+
+print only the names of files that are not tidy. Otherwise, a diff against the
+tidied version is printed.
+
+=item --testing
+
+When there is difference in any of the files processed, meaning they are not
+tidy, the program will return a non-zero value, so that it can be detected as
+an error in any CI. The '--testing' flag will also cause the 'fail()' function
+of the L<Test::More> module to also be called, printing out the file that
+failed. This may help test suite integrations.
+
+'--use-fail' is an deprecated alias for this option.
+
+=item --stop-on-first-error
+
+Stop when the first error is encountered. The default is to process all files
+and show all errors.
+
+=back
+
+=head2 Update mode
+
+Use these options exclusively in Update mode.
+
+=over 2
+
+=item --update
+
+Confirmation mode is the default. Specify '--update' to execute in Update
+mode. In Update mode, the perltidy output overwrites the original file.
+
+=item --keep
+
+in Update mode, the original text is lost if changes are made. With this flag,
+the original is written to a file co-located to the source, having the same
+name as the source, with the extension '.tdybak'. added.
+
+=back
+
+=head2 Shared Options
+
+These options can be used in both Confirmation and Update modes.
+
+=head3 File Filters
+
+These options select which files in a git repo to examine. When no File Filter options are
+set, we examine all the files in the repo; i.e. the filter used is:
+
+ git ls-files
+
+=over 2
+
+=item --mod
+
+In a git repo, only process files that are tracked and modified. The filter for
+these files is
+
+ git status --porcelain | grep -v '?' | sed 's/.* //'
+
+Any file arguments are ignored.
+
+=item --untracked
+
+In a git repo, only process files that are untracked; modification is
+irrelevant for these files. The filter for these files is
+
+ git status --porcelain | grep '?' | sed 's/.* //'
+
+Any file arguments are ignored.
+
+=item --all
+
+In a git repo, process all files that are tracked, modified or not, and all
+untracked files. The filters for these files is
+
+ git status --porcelain | grep -v '?' | sed 's/.* //'
+ git ls-files
+
+Any file arguments are ignored.
+
+=back
+
+=head3 Informationals
+
+=over2
+
+=item --verbose level
+
+Here is a listing of what happens at various settings of 'level':
+
+=over 2
+
+=item 1
+
+* The diff between the original and tidied code is printed in Update mode.
+
+* The .perltidy config file being used is printed in both modes.
+
+=item 2
+
+* The default options are printed in both modes.
+
+* The options being used after .perltidyrc is processed are printed in both
+  modes.
+
+=back
+
+However, if running under Test::Harness ($ENV{HARNESS_ACTIVE} is set),
+--verbose will be ignored, printing default messages.
+
+=item --silent
+
+All messages and warnings are silenced. However, if running under Test::Harness
+($ENV{HARNESS_ACTIVE} is set), --silent will be ignored, printing default messages.
+
+=item --show-copmmand
+
+Print each perltidy command as it is executed.
+
+=back
+
+=head3 Configuration
+
+=over 2
+
+=item --profile profile_file
+
+Override the default .perltidyrc file. In general, don't do this when tidying
+up for git commit.
+
+=item --ptopt '--opt=value'
+
+'opt' is a perltidy option and 'value' is its setting. These will override the
+settings in .perltidyrc. In general, don't do this when tidying up for git
+commit.
+
+=item --findrc
+
+Locate the .perltidyrc file being used and exit.
+
+=item --help
+
+Print this help text.
+
+=back
+
+=back
+
+=back
+
+=head1 SAMPLE
+
+This is a sample test file. Add this to your test suite:
+
+ use strict;
+ use warnings;
+ use Test::More;
+
+ use IPC::Cmd qw(can_run);
+ use File::Spec::Functions qw(catfile);
+ use FindBin qw($RealBin);
+
+ SKIP: {
+     skip 'not in the git workspace', 1
+       unless -e '.git';
+     skip 'no perltidy', 1
+       unless can_run('perltidy');
+     skip 'no perlbulk-tidy', 1
+       unless can_run('perlbulk-tidy');
+
+    push @ARGV, '--use-fail'
+      if ( !@ARGV );
+
+    my @cmd = ( 'perlbulk-tidy', @ARGV );
+
+    is( system(@cmd), 0, 'perltidy' )
+      or diag(
+        "Run 'perlbulk-tidy' to see the potential changes.\n",
+        "Run 'perlbulk-tidy--update' to apply them.\n",
+      );
+}
+
+done_testing();
+
+=cut

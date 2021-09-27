@@ -54,7 +54,7 @@ declare shortopts='inachfsojwedp::x'
 declare longopts='head,title,id:,help,wc,ec,dc,color:,oii,noreverse,norev,reverse,rev'
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 declare status=$?
-((status != 0)) && echo "cmd-echo: getopt failure" && exit $status ## return $status ## in functions
+((status != 0)) && echo "cmd-echo: getopt failure" && exit $status
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -197,12 +197,15 @@ for arg in "$@"; do
     if ((append)); then
         prefix=''
     fi
+    if ((opt_stderr)); then
+        holdstdout=$(get-next-descriptor)
+        eval "exec $holdstdout>&1"  ## Link file descriptor with stdout, which saves stdout.
+        exec 1>&2  ## Re-point stdout to stderr. Now we don't need to
+                   ## conditionally redirect every echo call.
 
-    if ((continueline)); then
-        ## Substitutes all characters for spaces, giving us a properly
-        ## spaced indent, which indicates a continuation of the prior line.
-        # shellcheck disable=SC2001
-        prefix=$(echo "$prefix" | sed 's/./ /g')
+        ## We set up a trap here to make sure we unwind the redirects on success or failure
+        trap "eval ""exec 1>&$holdstdout $holdstdout>&-""
+     " SIGTERM SIGINT SIGFPE SIGBUS EXIT
     fi
 
     if ((join)); then
