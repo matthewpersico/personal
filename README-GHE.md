@@ -56,7 +56,7 @@ $ cd ${HOME}
 
 $ git clone ${GHE_REMOTE_REF}/git_template .git_template
 $ cd ${HOME}/.git_template
-$ git remote add gh github:matthewpersico/git_template
+$ git remote add github github:matthewpersico/git_template
 $ cd ${HOME}
 $ vi ~/.gitconfig
     i[init]
@@ -65,7 +65,7 @@ $ vi ~/.gitconfig
 
 $ git clone ${GHE_REMOTE_REF}/personal
 $ cd ${HOME}/personal
-$ git remote add gh github:matthewpersico/personal
+$ git remote add github github:matthewpersico/personal
 ```
 
 ## Set up the branches
@@ -81,7 +81,7 @@ for i in '.git_template' 'personal'; do
     cd ${HOME}/$i
     git checkout -b $branchname
     git push --set-upstream origin $branchname
-    git push --set-upstream gh $branchname
+    git push --set-upstream github $branchname
 done
 ```
 
@@ -91,7 +91,7 @@ If you are resetting an existing setup where the branch already exists:
 for i in '.git_template' 'personal'; do
     cd ${HOME}/$i
     git checkout --track origin/EXISTING-BRANCH-NAME
-    git push --set-upstream ghe EXISTING-BRANCH-NAME
+    git push --set-upstream github EXISTING-BRANCH-NAME
 done
 ```
 
@@ -165,7 +165,7 @@ GitHub should be consistent before you attempt to sync with GitHub Enterprise.
 ### GHE
 * Pull your changes down from GitHub:
 ```
-git pull gh mach-branch
+git pull github mach-branch
 ```
 * On GitHub Enterprise, create a pull request from `mach-branch` into
   `main`. Resolve the PR via a `Rebase` in GitHub Enterprise; you can do with
