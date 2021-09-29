@@ -120,10 +120,114 @@ done
 ```
 
 # Keeping the GHE and GH Repos in Sync
+We are going to avoid the use of the GitHub GUI as it creates superfluous merge
+commits. You can create pull requests if you wish, just to see the diffs, but
+never approve them.
 
+We also assume that you are working on your live machine branch, so commits and
+pushes happen on that branch in the live directory.  You'll need another clone
+of the repo to do all the work without disturbing the live repo.  The gist of
+the actions is to be on the branch you want to update and then rebase the
+branch with the changes onto the current branch.
+
+## Setting up the non-live repo
+
+* Clone the GHE repo to a non-temp location.
+* Create a remote to the GitHub repo:
+```
+git remote add gh github:matthewpersico/personal
+git fetch gh
+```
+* Create tracking branches:
+```
+git branch --track gh-mach-branch gh/mach-branch
+git branch --track ghe-mach-branch origin/mach-branch
+git branch --track gh-main gh/main
+git branch --track ghe-main origin/main
+git branch -vv
+
+  mach-branch     22423b6 [origin/mach-branch] Wrong remote ref
+  gh-mach-branch  22423b6 [gh/mach-branch] Wrong remote ref
+  gh-main         22423b6 [gh/main] Wrong remote ref
+* main            22423b6 [origin/main] Wrong remote ref
+```
+## Sending GHE branch changes to GHE main and GitHub
+* After changes are committed, push commits to GitHub Enterprise from the live repo:
+```
+git push
+```
+* Move to the non-live GHE repo to sync things up.
+* Refresh the `mach-branch` branch:
+```
+git switch mach-branch
+git pull
+```
+* Refresh `main` (and any other references):
+```
+git switch main
+git pull
+```
+* Copy the new commits from `mach-branch` onto `main`:
+```
+git rebase mach-branch
+```
+* Send 'em up to GHE:
+```
+git push
+```
+* Refresh the `gh-mach-branch` branch:
+```
+git switch gh-mach-branch
+git pull
+```
+* Copy the new commits from `mach-branch` onto `gh-mach-branch`:
+```
+git rebase mach-branch
+```
+* Send 'em up to GHE:
+```
+git push gh HEAD:mach-branch
+```
+* Refresh `gh-main` (and any other references):
+```
+git switch gh-mach-branch
+git pull
+```
+* Copy the new commits from `mach-branch` onto `main`:
+```
+git rebase mach-branch
+```
+* Send 'em up to GHE:
+```
+git push gh HEAD:main
+```
+
+## Getting main changes to a branch
+* Move to the non-live repo to sync things up.
+* Be on the `mach-branch` branch:
+```
+git switch mach-branch
+```
+* Refresh `mach-branch`:
+```
+git pull
+```
+* Refresh `main` (and any other references):
+```
+git fetch
+```
+* Copy the new commits from `main` onto `mach-branch`:
+```
+git rebase main
+```
+* Send 'em up to GitHub:
+```
+git push
+```
 ## GHE -> GH
 
 ### GHE
+See [Sending branch changes to main](./Readme-direct.md#Sending_branch_changes_to_main) on how to keep the local
 GitHub Enterprise should be consistent before you attempt to sync with GitHub.
 
 * Create a pull request on GitHub Enterprise from `mach-branch` into `main`.
@@ -165,7 +269,7 @@ GitHub should be consistent before you attempt to sync with GitHub Enterprise.
 ### GHE
 * Pull your changes down from GitHub:
 ```
-git pull github mach-branch
+git pull GitHub mach-branch
 ```
 * On GitHub Enterprise, create a pull request from `mach-branch` into
   `main`. Resolve the PR via a `Rebase` in GitHub Enterprise; you can do with
