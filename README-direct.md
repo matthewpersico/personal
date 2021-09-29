@@ -61,11 +61,62 @@ Before ending the existing terminal session, start up another one and make sure
 that all the dotfile links are in place and everything works.
 
 # Keeping things in sync
+We are going to avoid the use of the GitHub GUI as it creates superfluous merge
+commits. You can create pull requests if you wish, just to see the diffs, but
+never approve them.
 
-* Create pull requests on GitHub from `mach-branch` into `main`.  Resolve the
-  PR via a `Rebase`; you can do this with the GUI. Do not do a `Squash and
-  merge` or a `Merge` into `main` via the GUI. Those actions will create
-  cluttering Merge commit entries.
-* Make sure you also push these changes out to any other branches that exist in
-  the repo on GitHub via `Rebase` onto each branch. In this way, changes are
-  always ready to be propagated to any/all other machines.
+We also assume that you are working on your live machine branch, so commits and
+pushes happen on that branch in the live directory.  You'll need another clone
+of the repo to do all the work without disturbing the live repo.  The gist of
+the actions is to be on the branch you want to update and then rebase the
+branch with the changes onto the current branch.
+
+## Sending branch changes to main
+* After changes are committed, push commits to GitHub from the live repo:
+```
+git push
+```
+* Move to the non-livrepo to sync things up.
+* Be on the `main` branch:
+```
+git switch main
+```
+* Refresh `main`:
+```
+git pull
+```
+* Refresh `mach-branch` (and any other references):
+```
+git fetch
+```
+* Copy the new commits from `mach-branch` onto `main`:
+```
+git rebase mach-branch
+```
+* Send 'em up to GitHub:
+```
+git push
+```
+
+## Getting main changes to a branch
+* Move to the non-live repo to sync things up.
+* Be on the `mach-branch` branch:
+```
+git switch mach-branch
+```
+* Refresh `mach-branch`:
+```
+git pull
+```
+* Refresh `main` (and any other references):
+```
+git fetch
+```
+* Copy the new commits from `main` onto `mach-branch`:
+```
+git rebase main
+```
+* Send 'em up to GitHub:
+```
+git push
+```
