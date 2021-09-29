@@ -157,8 +157,14 @@ git branch -vv
 git push
 ```
 
+### Set up for the sync
+Move to the non-live GHE repo to sync things up. From there, perform the following steps:
+
 ### Sync GHE main
-* Move to the non-live GHE repo to sync things up.
+These are the manual instructions. The script `bin/maint/git-sync-local` will
+perform them for you. The script should only be run in this non-live repo and
+should not appear on `$PATH`.
+
 * Refresh the repo:
 ```
 git fetch --all --prune --tags
@@ -189,6 +195,10 @@ git push
 ```
 
 ### Sync GH mach-branch and GH main
+These are the manual instructions. The script `bin/maint/git-sync-ghe-gh` will
+perform them for you. The script should only be run in this non-live repo and
+should not appear on `$PATH`.
+
 * Copy the new commits from `mach-branch` onto `gh-mach-branch`:
 ```
 git switch gh-${mb}

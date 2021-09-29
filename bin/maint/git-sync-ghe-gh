@@ -1,0 +1,43 @@
+#!/usr/bin/env bash
+
+# git-sync-ghe-gh
+
+# Specialty script to sync a source branch to target branches on GitHub when
+# using GitHub Enterprise as the source repo system.
+
+if [[ -z $1 ]]; then
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+    declare me=$(basename "$0")
+    echo "usage:$me source-branch target-branch [target-branch]"
+    echo "      Typically: $me abranch gh-abranch gh-main"
+    echo "      The 'gh' remote and 'gh*' tracking branches are required."
+    echo "      See README-GHE.md at the root of this repo."
+    exit 0
+fi
+
+declare source=$1;shift
+declare -a targets=("$@")
+
+(
+    cd "$(git-root)" || exit 1
+
+    # Refresh the repo
+    git fetch --all --prune --tags || exit 1
+
+    # Refresh the 'source' branch:
+    git switch "${source}" || exit 1
+    git pull || exit 1
+
+    declare target
+    for target in "${targets[@]}"; do
+    # Copy the new commits from 'source' onto 'target':
+        git switch "${target}" || exit 1
+        git pull || exit 1
+        git rebase "${source}" || exit 1
+
+        # Send 'em up
+        git push gh "HEAD:${target##gh-}" || exit 1
+    done
+
+)
+exit $?
