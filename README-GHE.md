@@ -127,7 +127,7 @@ never approve them.
 We also assume that you are working on your live machine branch, so commits and
 pushes happen on that branch in the live directory.  You'll need another clone
 of the repo to do all the work without disturbing the live repo.  The gist of
-the actions is to be on the branch you want to update and then rebase the
+the actions is to be on the branch you want to update and then merge --ff-only the
 branch with the changes onto the current branch.
 
 ## Setting up the non-live repo [![verified][]](#)
@@ -187,7 +187,7 @@ git pull
 ```
 git switch main
 git pull
-git rebase ${mb}
+git merge --ff-only ${mb}
 ```
 * Send 'em up to GHE:
 ```
@@ -203,7 +203,7 @@ should not appear on `$PATH`.
 ```
 git switch gh-${mb}
 git pull
-git rebase ${mb}
+git merge --ff-only ${mb}
 ```
 * Send 'em up to GHE:
 ```
@@ -213,7 +213,7 @@ git push gh HEAD:${mb}
 ```
 git switch gh-main
 git pull
-git rebase ${mb}
+git merge --ff-only ${mb}
 ```
 * Send 'em up to GHE:
 ```
@@ -246,7 +246,7 @@ git pull
 ```
 git switch ${mb}
 git pull
-git rebase gh-${mb}
+git merge --ff-only gh-${mb}
 ```
 * Send 'em up to GHE:
 ```
@@ -256,7 +256,7 @@ git push
 ```
 git switch main
 git pull
-git rebase gh-${mb}
+git merge --ff-only gh-${mb}
 ```
 * Send 'em up to GHE:
 ```

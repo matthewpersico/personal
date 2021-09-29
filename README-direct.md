@@ -68,7 +68,7 @@ never approve them.
 We also assume that you are working on your live machine branch, so commits and
 pushes happen on that branch in the live directory.  You'll need another clone
 of the repo to do all the work without disturbing the live repo.  The gist of
-the actions is to be on the branch you want to update and then rebase the
+the actions is to be on the branch you want to update and then merge --ff-only the
 branch with the changes onto the current branch.
 
 ## Sending branch changes to main
@@ -91,7 +91,7 @@ git fetch
 ```
 * Copy the new commits from `mach-branch` onto `main`:
 ```
-git rebase mach-branch
+git merge --ff-only mach-branch
 ```
 * Send 'em up to GitHub:
 ```
@@ -114,7 +114,7 @@ git fetch
 ```
 * Copy the new commits from `main` onto `mach-branch`:
 ```
-git rebase main
+git merge --ff-only main
 ```
 * Send 'em up to GitHub:
 ```
