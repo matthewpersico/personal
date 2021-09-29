@@ -156,6 +156,10 @@ git branch -vv
 ```
 git push
 ```
+* At this point, you can create a PR on GHE to review the diffs and even
+  approve it for record keeping purposes, but **do not** use any of the methods
+  on the GH GUI to combine the code and close the PR; using the code combining
+  methods below will automatically close the PR.
 
 ### Set up for the sync
 Move to the non-live GHE repo to sync things up. From there, perform the following steps:
