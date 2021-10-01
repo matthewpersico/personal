@@ -180,3 +180,8 @@ Move to the live GHE repo to sync things up.
 ```
 git pull
 ```
+
+<!-- Links -->
+[verified]: https://badges.dev.bloomberg.com/badge//Verified/green
+[inprogress]: https://badges.dev.bloomberg.com/badge//Verification%20in%20progress/yellow
+[unverified]: https://badges.dev.bloomberg.com/badge//unverified/red
