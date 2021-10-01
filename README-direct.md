@@ -1,10 +1,12 @@
 # README-direct
+
 Use these instructions when you can set up the local code to directly talk to
 GitHub.
 
 # Setup
 
 ## Grab the repos
+
 There are two - one for git templates and the personal repo with all the code.
 We assume that you can reach the remote specified. Make sure you have your
 'id_rsa' key and your ssh config set up to reach the server.
@@ -21,12 +23,14 @@ $ git clone ${GH_REMOTE_REF}/personal
 ```
 
 ## Set up the branches
+
 In each repo, you now have two choices:
 
 ### Make a machine-specific branch
-If the hostname is unique, `branchname=$(hostname)` should be sufficient. If
-not, try `branchname=$(hostname)-$(uname -s)`. When you have a branch name,
-execute
+
+For a new instance, If the hostname is unique, `branchname=$(hostname)` should
+be sufficient. If not, try `branchname=$(hostname)-$(uname -s)`. When you have
+a branch name, execute
 
 ```
 for i in '.git_template' 'personal'; do
@@ -37,7 +41,9 @@ done
 ```
 
 ### Use an existing branch name
+
 If you are resetting an existing setup where the branch already exists:
+
 ```
 for i in '.git_template' 'personal'; do
     cd ${HOME}/$i
@@ -45,9 +51,10 @@ for i in '.git_template' 'personal'; do
 done
 ```
 
-Either way, we will refer to this branch as `mach-branch` later on.
+Either way, we will refer to this branch as `machine-branch` later on.
 
 ## Set up dotfiles
+
 This step stores existing dotfiles and links to new ones in the repo.
 
 ```
@@ -56,72 +63,120 @@ $ . ./dotfilesbootstrap
 $ cd ..
 $ bin/makesymlinks -i dotfiles
 ```
+
 ## Test
+
 Before ending the existing terminal session, start up another one and make sure
 that all the dotfile links are in place and everything works.
 
 # Keeping things in sync
+
 We are going to avoid the use of the GitHub GUI as it creates superfluous merge
-commits. You can create pull requests if you wish, just to see the diffs, but
-never approve them.
+commits. You can create pull requests if you wish, just to see the diffs, and
+approve them for the audit trail, but never merge them via the GUI.
 
 We also assume that you are working on your live machine branch, so commits and
-pushes happen on that branch in the live directory.  You'll need another clone
-of the repo to do all the work without disturbing the live repo.  The gist of
-the actions is to be on the branch you want to update and then merge --ff-only the
-branch with the changes onto the current branch.
+pushes happen on the repo in that directory.  You'll need another clone
+of the repo to do all the merging work without disturbing the live repo.
+
+## Setting up the non-live repo [![verified][]](#)
+
+* Clone the GH repo to a non-temp location.
+
+* Setup `machine-branch`
+
+```
+git checkout --track origin/machine-branch
+```
 
 ## Sending branch changes to main
+
+### Save branch changes
+
 * After changes are committed, push commits to GitHub from the live repo:
+
 ```
 git push
 ```
+
 * At this point, you can create a PR on GH to review the diffs and even approve
   it for record keeping purposes, but **do not** use any of the methods on the
   GH GUI to combine the code and close the PR; using the code combining methods
   below will automatically close the PR.
 
-* Move to the non-livrepo to sync things up.
-* Be on the `main` branch:
+### Set up for the sync
+
+Move to the non-live GHE repo to sync things up. From there, perform the following steps:
+
+### Sync main from the branch
+
+In this instance, the source where the latest commits are is the `machine-branch`
+branch and the target where you want those commits to be copied is the `main` branch:
+
 ```
-git switch main
+source=machine-branch
+target=main
 ```
-* Refresh `main`:
+
+What follows are the manual instructions. The script
+
 ```
+bin/maint/git-sync-local "$source" "$target"
+```
+
+will perform them for you. The script should only be run in this non-live repo
+and should not appear on `$PATH`.
+
+* Refresh the repo:
+
+```
+git fetch --all --prune --tags
+
+# You should see the changed branch fetched, something like:
+# From ghe:gheusername/personal
+   7e1e86f..c79a4b5  machine-branch      -> origin/machine-branch
+```
+
+* Refresh the source branch:
+
+```
+git switch ${source}
 git pull
 ```
-* Refresh `mach-branch` (and any other references):
+
+* Copy the new commits from the source branch onto the target branch and send
+  them up to GH:
+
 ```
-git fetch
-```
-* Copy the new commits from `mach-branch` onto `main`:
-```
-git merge --ff-only mach-branch
-```
-* Send 'em up to GitHub:
-```
+git switch ${target}
+git pull
+git merge --ff-only ${source}
 git push
 ```
 
 ## Getting main changes to a branch
-* Move to the non-live repo to sync things up.
-* Be on the `mach-branch` branch:
+
+There is nothing special about propagating changes on `main` back out to
+`machine-branch`; all you are doing is swapping the source and the target.
+
 ```
-git switch mach-branch
+source='main'
+target='machine-branch'
 ```
-* Refresh `mach-branch`:
+
+You can then execute the same instructions as above, but in reverse order:
+
+### Sync the branch from the main
+
+* Sync the branch from main in the non-live repo
+```
+bin/maint/git-sync-local "$source" "$target"
+```
+### Set up for the update
+
+Move to the live GHE repo to sync things up.
+
+### Get branch changes
 ```
 git pull
-```
-* Refresh `main` (and any other references):
-```
-git fetch
-```
-* Copy the new commits from `main` onto `mach-branch`:
-```
-git merge --ff-only main
-```
-* Send 'em up to GitHub:
-```
-git push
 ```
