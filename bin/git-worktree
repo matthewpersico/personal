@@ -285,7 +285,7 @@ git-worktree-create ()
     ((verbose)) && cmd-echo -- "Check for existing branch."
 
     ## Make sure we do not have a local branch with the same name
-    exists=$(git branch --list --format='%(refname)' | sed 's|.*/||' | \
+    exists=$(${REALGIT} branch --list --format='%(refname)' | sed 's|.*/||' | \
                  while read -r line; do
                      if [[ "$line" = "$localbranchname" ]]; then
                          echo "$localbranchname"
@@ -312,7 +312,7 @@ git-worktree-create ()
     else
         if [[ -z "$pull_request" ]]; then
             ## Now see if branch exists remotely
-            exists=$(git branch -r --list --format='%(refname)' | sed 's|refs/remotes/||' | \
+            exists=$(${REALGIT} branch -r --list --format='%(refname)' | sed 's|refs/remotes/||' | \
                          while read -r line; do
                              if [[ "$line" == "$remote/${wtname}" ]]; then
                                  echo "$remote/${wtname}"
@@ -377,8 +377,8 @@ git-worktree-create ()
             if [[ -n $branch_from ]]; then
                 ## $branch_from is the branch name. We need the full branch ref
                 ## here. Get it and check it.
-                local -a all_refs=(git branch -a)
-                readarray -t branch_from_ref < <(git branch -a | grep -e "upstream/${branch_from}$" | sed -E 's/^\s+//')
+                local -a all_refs=("${REALGIT}" branch -a)
+                readarray -t branch_from_ref < <("${REALGIT}" branch -a | grep -e "upstream/${branch_from}$" | sed -E 's/^\s+//')
                 case ${#branch_from_ref[@]} in
                     0 ) cmd-echo --ec -- "Branch '$branch_from' not found in refs list:" "${all_refs[@]}" "Aborting"
                         false; return;;
@@ -639,7 +639,7 @@ $(ls -la)"
         resp=$(cmd-yesno "Delete associated branch '$current_branch'" 'n')
     fi
     if [[ "$resp" = 'n' ]]; then
-        cmd-echo -- "If you change your mind: git-branch delete $current_branch"
+        cmd-echo -- "If you change your mind: git-branch --delete $current_branch"
     else
         ## Have to be in the git repo that the basis for the worktree.
         while [[ "$(basename "${PWD}")" != 'wt' ]]; do
@@ -647,7 +647,7 @@ $(ls -la)"
         done
         builtin cd .. || { cmd-echo --ec -- "Cannot cd .." ; false; return; }
         if [[ "$resp" = 'y' ]]; then
-            git-branch delete --no-go-set $opt_yes_string "$current_branch"
+            git-branch --delete --no-go-set $opt_yes_string "$current_branch"
         fi
     fi
     cmd-echo -- "Branch cleaned."
@@ -748,7 +748,7 @@ $(ls -la)"
     cb="$(git repo current-branch)"
     if [[ "$cb" = "$old_wtname" ]]; then
         cmd-echo -- "Renaming the branch..."
-        git-branch rename "$old_wtname" "$new_wtname"
+        git-branch --rename "$old_wtname" "$new_wtname"
         status=$?
         if ((status != OK)); then
             false; return

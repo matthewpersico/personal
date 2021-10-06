@@ -34,13 +34,13 @@ git-branch-checkout ()
     local tgt_branch=$1
     if [[ -z "$tgt_branch" ]]; then
         local PS3="Choose by number, q to quit: "
-        select tgt_branch in $(git branch list --strip); do
+        select tgt_branch in $(git-branch --list --strip); do
             [[ "${REPLY,,}" = 'q' ]] && return 1
             [[ -n "$tgt_branch" ]] && break
         done
     else
         shift
-        if [[ "$(git branch list --strip "$tgt_branch")" != "$tgt_branch" ]]; then
+        if [[ "$(git-branch --list --strip "$tgt_branch")" != "$tgt_branch" ]]; then
             cmd-echo --id git-branch --ec -- "$tgt_branch does not exist to be checked out."
             return 1
         fi
@@ -139,7 +139,7 @@ git-branch-delete ()
                  "That may be because the pull is not merged?" \
                  "We are about to 'git branch ${delarg[*]} $branch'." \
                  "Once you figure out what's going on with pulls, you can remove this diagnostic."
-        git branch "${delarg[@]}" "$branch"
+        ${REALGIT} branch "${delarg[@]}" "$branch"
         brdelstat=$?
         if ((brdelstat)); then
             cmd-echo --id git-branch --ec -- "'git branch ${delarg[*]} $branch' failed. Returning '$brdelstat'."
@@ -200,7 +200,7 @@ git-branch-rename ()
 
     # Rename branch locally.
     echo "git branch -m $old_branch $new_branch ..."
-    git branch -m "$old_branch" "$new_branch"        || return $?
+    ${REALGIT} branch -m "$old_branch" "$new_branch"        || return $?
 
     # Delete the old branch. DON'T DO THIS IF YOU HAVE AN OPEN PULL REQUEST!!!
     echo "git push origin --delete $old_branch ..."
@@ -255,7 +255,7 @@ git-branch-track-remote ()
     fi
     [[ -z "$local_branch" ]] && local_branch=$branch
     local local_branch_exists
-    local_branch_exists="$(git branch --list "$local_branch")"
+    local_branch_exists="$($REALGIT -branch --list "$local_branch")"
     if [[ -z "$local_branch_exists" ]]; then
         ## Does not exist, create...
         git checkout -b "$local_branch" || return 1
@@ -267,7 +267,7 @@ git-branch-track-remote ()
         already_tracking_remote="$(git config branch."$local_branch".remote)"
         if [[ -z "$already_tracking_remote" ]]; then
             ## Exists, not tracking, track
-            git branch --set-upstream-to "$remote/$branch" "$local_branch"
+            ${REALGIT} branch --set-upstream-to "$remote/$branch" "$local_branch"
             _git_branch_info_add_fetched_date "$local_branch"
         else
             local already_tracking_branch
@@ -397,7 +397,13 @@ main ()
         return $?
     fi
 
+    declare opt_re='delete|rename|orphan|track-remote|remote-track|fetch-remote|remote-fetch|prune-remote|remote-prune|list|comment'
+    if [[ "$action" =~ ^-+($opt_re) ]]; then
+        action=$(dashstripper "$action")
+    fi
+
     action_func_name="git-branch-${action}"
+    set +x
     if declare -F "$action_func_name" >/dev/null; then
         shift ## the $action
         "$action_func_name" "$@"
@@ -418,15 +424,15 @@ git-branch - git extention of git branch
 
 =head1 SYNOPSIS
 
- git branch delete oldBranch
- git branch rename currentBranch newbranch
- git branch orphan
- git branch track-remote|remote-track
- git branch fetch-remote|remote-fetch
- git branch prune-remote|remote-prune
- git branch list [[-c|--current]| [-r|--remote]| [-a|--all]] [--[no]strip]
+ git branch --delete oldBranch
+ git branch --rename currentBranch newbranch
+ git branch --orphan
+ git branch --track-remote|--remote-track
+ git branch --fetch-remote|--remote-fetch
+ git branch --prune-remote|--remote-prune
+ git branch --list [[-c|--current]| [-r|--remote]| [-a|--all]] [--[no]strip]
  git branch --current
- git branch comment
+ git branch --comment
 
 
 =head1 DESCRIPTION
@@ -437,21 +443,21 @@ Extensions to the 'git branch' command. Obvious ones are not documented. Any act
 
 =over 4
 
-=item orphan
+=item-- orphan
 
 TBD
 
-=item list
+=item --list
 
 Lists all branches. By default, lists just the local ones. -c lists only the current one. -r lists remotes. -a lists locals and remotes. --strip removes the spacing and the colors and the current branch indicator. --current is a short cut for 'list --current'.
 
-=item comment
+=item --comment
 
 Add a comment that can be retrieved later. The current time is added to the end
 of the comment when written.
 
- git branch comment "some text explaining where you left off, maybe?"
- git branch comment -[get|show]
+ git branch --comment "some text explaining where you left off, maybe?"
+ git branch --comment -[get|show]
 
 =back
 
