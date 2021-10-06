@@ -2,8 +2,8 @@
 
 # git-hook - Functions to manipulate local hooks
 
-readonly GITFUNCS_GITHOOK_ROOT=${TILDAE:-$HOME}/.git_template
-readonly GITFUNCS_GITHOOK_DIR=${TILDAE:-$HOME}/.git_template/hooks
+declare GITFUNCS_GITHOOK_ROOT
+declare GITFUNCS_GITHOOK_DIR
 
 git-hook-find-hook-dir ()
 {
@@ -60,17 +60,11 @@ git-hook-dry-run ()
 
 git-hook-pushpull-guts ()
 {
-    local current_template
-    current_template=$(git config --get init.templatedir)
-    if [[ "$current_template" != "${GITFUNCS_GITHOOK_ROOT}" ]]; then
-        echo "Error: Config says init.templatedir = '$current_template'"
-        echo "       It should be '${GITFUNCS_GITHOOK_ROOT}'"
-        echo "       Please correct."
-        false; return
-    fi
+    GITFUNCS_GITHOOK_ROOT=$(git config --get init.templatedir)
+    GITFUNCS_GITHOOK_DIR=$GITFUNCS_GITHOOK_ROOT/hooks
 
-    if [[ ! -d "$current_template" ]]; then
-        echo "Error: Can't find '$current_template'"
+    if [[ ! -d "$GITFUNCS_GITHOOK_ROOT" ]]; then
+        echo "Error: Can't find '$GITFUNCS_GITHOOK_ROOT'"
         echo "       Please correct."
         false; return
     fi
@@ -113,12 +107,18 @@ git-hook-pushpull-guts ()
             elif [[ "$h" -ot "$hooktgtpath" ]]; then
                 echo "$hooktgtpath newer than template."
                 diffargs=("$h" "$hooktgtpath")
+            else
+                # If not out of date, then it doesn't matter; pick one.
+                echo "$hooktgtpath same age as template. Skipping."
+                continue
             fi
 
             ## Show the diff
             if ((${#diffargs[@]})); then
-                diff "${diffargs[@]}" > /tmp/git-hook.diff.$$
-                if [[ -s /tmp/git-hook.diff.$$ ]] || ((!quiet)); then
+                if diff "${diffargs[@]}" > /tmp/git-hook.diff.$$; then
+                    echo "$hooktgtpath content matches template"
+                    touch "$hooktgtpath" -r "$h"
+                elif [[ -s /tmp/git-hook.diff.$$ ]] || ((!quiet)); then
                     echo "diff older to newer (${diffargs[*]})"
                     cat /tmp/git-hook.diff.$$
                 fi
