@@ -12,14 +12,14 @@ We assume that you can reach the remote specified. Make sure you have your
 'id_rsa' key and your ssh config set up to reach the server.
 
 ```
-$ GH_REMOTE_REF=github:matthewpersico # or change as needed
+$ GH_REMOTE_REF=git@github.com:matthewpersico
 $ cd $HOME
-$ git clone ${GH_REMOTE_REF}/git_template .git_template
+$ git clone ${GH_REMOTE_REF}/.git-template.git .git-template
 $ vi ~/.gitconfig
     i[init]
-    <TAB>templatedir = <EXPAND THE VALUE OF $HOME HERE>/.git_template
+    <TAB>templatedir = <EXPAND THE VALUE OF $HOME HERE>/.git-template
     :wq
-$ git clone ${GH_REMOTE_REF}/personal
+$ git clone ${GH_REMOTE_REF}/personal.git personal
 ```
 
 ## Set up the branches
@@ -33,7 +33,7 @@ be sufficient. If not, try `branchname=$(hostname)-$(uname -s)`. When you have
 a branch name, execute
 
 ```
-for i in '.git_template' 'personal'; do
+for i in '.git-template' 'personal'; do
     cd ${HOME}/$i
     git checkout -b $branchname
     git push --set-upstream origin $branchname
@@ -45,7 +45,7 @@ done
 If you are resetting an existing setup where the branch already exists:
 
 ```
-for i in '.git_template' 'personal'; do
+for i in '.git-template' 'personal'; do
     cd ${HOME}/$i
     git checkout --track origin/EXISTING-BRANCH-NAME
 done
@@ -79,7 +79,7 @@ We also assume that you are working on your live machine branch, so commits and
 pushes happen on the repo in that directory.  You'll need another clone
 of the repo to do all the merging work without disturbing the live repo.
 
-## Setting up the non-live repo [![verified][]](#)
+## Setting up the non-live repo
 
 * Clone the GH repo to a non-temp location.
 
