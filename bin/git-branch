@@ -382,6 +382,87 @@ git-branch-comment ()
 #         <(git rev-list --first-parent $($REALGIT branch --show-current)\
 #               <(git rev-list --first-parent master) |      sed -ne 's/^ //p' | head -1
 
+git-branch-sync ()
+{
+    # Get the source and any specific targets
+    declare source=$1;shift
+    declare -A targs
+    declare filter_targs=0
+    while (($#)); do
+        filter_targs=1
+        targs[$1]=1
+        shift
+    done
+
+    (
+        cd "$(git root)" || return 1
+
+        # Refresh the repo
+        cmd-echo --title --color REVBLUE -- "Refresh repo..."
+        git fetch --all --prune --tags || return 1
+
+        # Refresh the 'source' branch
+        cmd-echo --title --color REVBLUE -- "Refresh source branch ${source}..."
+        git switch "${source}" || return 1
+        git pull || return 1
+
+        # Get info for all the branches that can updated. Exclude the source,
+        # include only specified branches if there were any specified.
+        declare -a lines
+        mapfile -t lines < <(git branch --no-color -vv | sed -E -e 's/\*|\[|\]//g')
+        declare line
+        declare -A brm # branch-remote-map
+        declare source_descr
+        for line in "${lines[@]}"; do
+            declare -a tmp
+            read -r -a tmp <<<"$line"
+            if [[ ${tmp[0]} == "$source" ]] \
+                   || { [[  $filter_targs == '1' ]] \
+                            && [[ -z ${targs[${tmp[0]}]} ]] ; }; then
+                source_descr="${tmp[*]:0:2}"
+                continue
+            fi
+            brm[${tmp[0]}]=${tmp[2]}
+        done
+
+        # Confirmation
+        cmd-echo --title --color REVBLUE -- "Full branch list before sync..."
+        git branch -vv
+        declare resp
+        declare prompt="Propagate '$source_descr' to"
+        if (( filter_targs )); then
+            prompt="$prompt branches ${!brm[*]}"
+        else
+            prompt="$prompt all the other branches"
+        fi
+        echo
+        resp=$(cmd-yesno --id "${0##*/}" "$prompt" "n")
+        if [[ $resp == 'n' ]]; then
+            return
+        fi
+
+        declare target
+        for target in "${!brm[@]}"; do
+            cmd-echo --title --color REVBLUE -- "Syncing $target..."
+
+            # Copy the new commits from 'source' onto 'target':
+            git switch "${target}" || return 1
+            git pull || return 1
+            git merge --ff-only "${source}" || return 1
+
+            # Send 'em off to the remote
+            declare remote_ref="${brm[${target}]%%/*}"
+            declare remote_branch="${brm[${target}]##*/}"
+            git push "$remote_ref" "HEAD:${remote_branch}" || return 1
+
+        done
+
+        # Show results
+        cmd-echo --title --color REVBLUE -- "Full branch list after sync..."
+        git branch -vv
+    )
+    return $?
+}
 main ()
 {
     local action=$1
@@ -393,11 +474,11 @@ main ()
 
     if [[ "$action" =~ ^-+current ]]; then
         shift
-        git-branch-list --current "$@"
+        git-branch --list --current "$@"
         return $?
     fi
 
-    declare opt_re='delete|rename|orphan|track-remote|remote-track|fetch-remote|remote-fetch|prune-remote|remote-prune|list|comment'
+    declare opt_re='delete|rename|orphan|track-remote|remote-track|fetch-remote|remote-fetch|prune-remote|remote-prune|list|comment|sync'
     if [[ "$action" =~ ^-+($opt_re) ]]; then
         action=$(dashstripper "$action")
     fi
@@ -433,7 +514,7 @@ git-branch - git extention of git branch
  git branch --list [[-c|--current]| [-r|--remote]| [-a|--all]] [--[no]strip]
  git branch --current
  git branch --comment
-
+ git branch --sync source-branch [target-branch...]
 
 =head1 DESCRIPTION
 
@@ -458,6 +539,16 @@ of the comment when written.
 
  git branch --comment "some text explaining where you left off, maybe?"
  git branch --comment -[get|show]
+
+=item --sync
+
+Take the commits on the "source-branch" argument and merge them into a list of
+target branches, or, if none are speficied all the other branches (local and
+remote) accesible in the current repo.
+
+The merge strategy is --ff-only. If that fails for any branch, the command is
+aborted. That could leave some branches updated and some not. Using this
+strategy keeps all the branches in sync without any extraneous merge commits.
 
 =back
 

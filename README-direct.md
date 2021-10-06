@@ -89,7 +89,7 @@ of the repo to do all the merging work without disturbing the live repo.
 git checkout --track origin/machine-branch
 ```
 
-## Sending branch changes to main
+## Sending branch changes to all other branches
 
 ### Save branch changes
 
@@ -104,84 +104,28 @@ git push
   GH GUI to combine the code and close the PR; using the code combining methods
   below will automatically close the PR.
 
-### Set up for the sync
+### Sync
 
-Move to the non-live GHE repo to sync things up. From there, perform the following steps:
-
-### Sync main from the branch
-
-In this instance, the source where the latest commits are is the `machine-branch`
-branch and the target where you want those commits to be copied is the `main` branch:
+* Move to the non-live GHE repo to sync things up.
+* Execute
 
 ```
-source=machine-branch
-target=main
+git branch --sync machine-branch
 ```
 
-What follows are the manual instructions. The script
+The command will refresh local and remote branches and then propagate the
+changes on the specified branch to all the others.
+
+## Getting main changes to all other branches
+
+There is nothing special about propagating changes on `main` back out to the
+machine branches; all you are doing is swapping the source and the target.
+
+### Sync
+
+* Move to the non-live GHE repo to sync things up.
+* Execute
 
 ```
-bin/maint/git-sync-local "$source" "$target"
+git branch --sync main
 ```
-
-will perform them for you. The script should only be run in this non-live repo
-and should not appear on `$PATH`.
-
-* Refresh the repo:
-
-```
-git fetch --all --prune --tags
-
-# You should see the changed branch fetched, something like:
-# From ghe:gheusername/personal
-   7e1e86f..c79a4b5  machine-branch      -> origin/machine-branch
-```
-
-* Refresh the source branch:
-
-```
-git switch ${source}
-git pull
-```
-
-* Copy the new commits from the source branch onto the target branch and send
-  them up to GH:
-
-```
-git switch ${target}
-git pull
-git merge --ff-only ${source}
-git push
-```
-
-## Getting main changes to a branch
-
-There is nothing special about propagating changes on `main` back out to
-`machine-branch`; all you are doing is swapping the source and the target.
-
-```
-source='main'
-target='machine-branch'
-```
-
-You can then execute the same instructions as above, but in reverse order:
-
-### Sync the branch from the main
-
-* Sync the branch from main in the non-live repo
-```
-bin/maint/git-sync-local "$source" "$target"
-```
-### Set up for the update
-
-Move to the live GHE repo to sync things up.
-
-### Get branch changes
-```
-git pull
-```
-
-<!-- Links -->
-[verified]: https://badges.dev.bloomberg.com/badge//Verified/green
-[inprogress]: https://badges.dev.bloomberg.com/badge//Verification%20in%20progress/yellow
-[unverified]: https://badges.dev.bloomberg.com/badge//unverified/red
