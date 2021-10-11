@@ -1,0 +1,156 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+# shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
+# shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+# shellcheck disable=SC2089 #https://github.com/koalaman/shellcheck/wiki/SC2089
+# shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+# shellcheck disable=SC2090 #https://github.com/koalaman/shellcheck/wiki/SC2090
+# Yes, we are doing lots of funky stuff here. Hence, the rather large
+# 'shellcheck' section.
+
+## .bashrcuser
+# Linked by ~/.bashrc.$USER
+## How to plug in (monkeypatch) set -x, VERBOSE_RC, etc, if needed
+[[ -e "${TILDAE}/bashrc.${USER}.monkeypatch" ]] && . "${TILDAE}/bashrc.${USER}.monkeypatch"
+
+bashrcuser_echo=0
+if [[ "$CRON" = 'false' ]] && [[ -n "$VERBOSE_RC" ]]; then
+    echo "$(date): (SHLVL=$SHLVL): ~/.bashrc.${USER} is running..."
+    bashrcuser_echo=1
+fi
+
+# set a restrictive umask
+umask 002
+
+# This is a bloombergism here I can't relocate to later on in the rc execution chain.
+# If chimera generated aliases exist, pull them into the current ENV.
+if [[ -f ~/.bbalias ]]; then
+    . ~/.bbalias
+elif [[ -f /etc/bashrc ]]; then
+    # Source global definitions
+        . /etc/bashrc
+fi
+
+## Aliases
+_bashrc_alias_init_list='hist perl misc yum apt dpkg tmux'
+for _bashrc_alias in ${_bashrc_alias_init_list}; do
+    ! $CRON && [[ -n "$VERBOSE_RC" ]] && \
+        echo "$(date): Loading ${_bashrc_alias}.alias"
+    . "$PERSONALBIN/${_bashrc_alias}.alias"
+done
+
+##############################################################################
+## Prompt
+##
+
+PROMPT_COMMAND=$(declare -F | grep bash_history_sync| sed 's/.* //' )
+_PS1_lcstatus='\n[\$? = $?]\n' ## Status of the last command prior to this prompt
+_PS1_xterm_title_cmds=''
+if [[ -z $INSIDE_EMACS ]]; then
+    _PS1_xterm_title_cmds='\[\e]0;\u@\h:$$:\w\a\]'
+fi
+_PS1_where='where   : \u@\h'
+_PS1_since="since   : $(date +'%a %b %d %H:%M:%S')"
+_PS1_as_of='as-of   : \d \t'
+
+_PS1_local_perl ()
+{
+    echo -n "perl    : $PERL5LIB_ROOT"
+}
+typeset -fx _PS1_local_perl
+
+_PS1_tmux ()
+{
+    local tmux_count=0
+    type -P tmux 1>/dev/null 2>&1 && tmux_count=$(wc -l < <(tmux list-sessions 2>/dev/null))
+    ((tmux_count)) && echo && echo -n "tmux    : $tmux_count"
+}
+typeset -fx _PS1_tmux
+
+_PS1_pyvenv ()
+{
+    [[ -n $VIRTUAL_ENV ]] && echo && echo -n "pyvenv : $VIRTUAL_ENV"
+}
+typeset -fx _PS1_pyvenv
+
+_PS1_from_branch ()
+{
+    local b; b=$(git repo ina && git config --value-only  --get-regexp "branch.$(git-branch --current --no-warn).*from-branch")
+    [[ -n $b ]] && echo -n " (from $b)"
+}
+typeset -fx _PS1_from_branch
+
+_PS1_git='$(__git_ps1 "\nbranch  : %s")$(_PS1_from_branch)$(git-stash-get-count -no0 "\nstashes : ")$(git-get-default-remote --no-warn "\nremote  : ")'
+
+_PS1_git_lite ()
+{
+    local pgl
+    if git repo ina; then
+        pgl="$(git-get-default-remote --no-warn )$(__git_ps1 '@%s')$(_PS1_from_branch)$(git-stash-get-count -no0 ' stashes: ')"
+        echo "$pgl"
+        echo ' '
+    fi
+}
+typeset -fx _PS1_git_lite
+
+_PS1_pwd='pwd     : \w'
+_PS1_pid='[$$]'
+
+# Multiple items are on the same line because they are optional and so provide
+# their own newlines, or not if they evaluate to a blank string.
+PS1_FULL="${_PS1_lcstatus}
+${_PS1_xterm_title_cmds}${_PS1_where}
+${_PS1_since}
+${_PS1_as_of}
+\$(_PS1_local_perl)\$(_PS1_tmux)\$(_PS1_pyvenv)${_PS1_git}
+${_PS1_pwd}
+${_PS1_pid} \$ "
+export PS1_FULL
+
+PS1_LITE="$USER \$(_PS1_git_lite)\w [$$] $ "
+export PS1_LITE
+
+PS1_SHORT='($USER) \w [$$] $ '
+export PS1_SHORT
+
+PS1_SHLVL='($USER) \w (SHLVL=$SHLVL) [$$] $ '
+export PS1_SHLVL
+
+PS1_TINY='$ '
+export PS1_TINY
+
+# Default prompt.
+if [[ -z $DPKG_ENV_SANITIZED ]]; then
+    ## Bloomberg stuff.
+    export PS1="$PS1_FULL"
+fi
+
+# You can switch between prompts with the 'switch-ps1' command.
+
+##
+## End of Prompt
+##############################################################################
+
+# Conveniences
+alias cvs='echo cvs? Are you nuts? - Try again!'
+alias dir='ls -la '
+alias dirt='ls -lat '
+alias dirrt='ls -lart '
+alias envg='env | grep '
+alias setg='set | grep '
+alias allg='(env && set) | grep '
+alias rm='rm -i '
+alias mydiff='diff -U3 '
+alias sidediff='diff -w --side-by-side --suppress-common-lines '
+alias mopquota='df -h '
+alias showfunc='type '
+alias grepnc='grep --color=never'
+alias gitgo='git go '
+
+# Fat finger protection
+alias vf='echo cd, you moron; cd '
+alias fit='echo dir, you moron; dir '
+
+if (( bashrcuser_echo == 1 )); then
+    echo "$(date): ~/.bashrc.$USER has run"
+fi
