@@ -30,27 +30,30 @@ addpath ()
     typeset opt_d opt_D
     typeset sep=:
 
-    typeset pathvar dirname tmp element TEMP
+    typeset pathvar dirname tmp element
 
     pathfunc_usage_init
     typeset -a USAGE
-    i=0; USAGE[i]="addpath [-h] [-s separator] [-f|-b|-i n] [-d|-D] [-x] [-v] [[-p] pathvar] dirname"
-    ((i+=1)); USAGE[i]="Idempotently adds 'dirname' to 'pathvar'."
-    ((i+=1)); USAGE[i]="$USAGE_OPT_P1"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_P2"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_P3"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_P4F"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_P5"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_S"
-    ((i+=1)); USAGE[i]="-f - Add to front of 'pathvar'."
-    ((i+=1)); USAGE[i]="-b - Add to back of 'pathvar' (default behavior)."
-    ((i+=1)); USAGE[i]="-i n - Add to 'pathvar' in position 'n'. Indexing starts"
-    ((i+=1)); USAGE[i]="   at 1. Elements are moved down to make room for the"
-    ((i+=1)); USAGE[i]="-d - only add if the 'dirname' exists."
-    ((i+=1)); USAGE[i]="-D - only add if the 'dirname' exists, but do NOT notify if it does not."
-    ((i+=1)); USAGE[i]="$USAGE_OPT_X"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_V"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_H"
+    USAGE=(
+        "addpath [-h] [-s separator] [-f|-b|-i n] [-d|-D] [-x] [-v] [[-p] pathvar] dirname"
+        "Idempotently adds 'dirname' to 'pathvar'."
+        "$USAGE_OPT_P1"
+        "$USAGE_OPT_P2"
+        "$USAGE_OPT_P3"
+        "$USAGE_OPT_P4F"
+        "$USAGE_OPT_P5"
+        "$USAGE_OPT_S"
+        "-f   - Add to front of 'pathvar'."
+        "-b   - Add to back of 'pathvar' (default behavior)."
+        "-i n - Add to 'pathvar' in position 'n'. Indexing starts"
+        "       at 1. Elements are moved to higher indexes to make"
+        "       room for the inserted one."
+        "-d - only add if the 'dirname' exists."
+        "-D - only add if the 'dirname' exists, but do NOT notify if it does not."
+        "$USAGE_OPT_X"
+        "$USAGE_OPT_V"
+        "$USAGE_OPT_H"
+    )
 
     ###########################################################################
     # handle options
@@ -143,25 +146,34 @@ addpath ()
             if [[ -n "$opt_f" ]]; then
                 newvalue="${dirname}${sep}${oldvalue}"
             elif [[ -n "$opt_i" ]]; then
-                TEMP=$(mktemp -t tmp.addpath.XXXXXXXXXX)
-                listpath -s "${sep}" -p $pathvar | grep -v "$MATCH" > "$TEMP"
-                local newvalue
-                local line
-                local idx=0
-                local addin
-                ((opt_i-=1))
-                while read -r line; do
-                    if ((idx != opt_i)); then
-                        addin="${line}"
-                    else
-                        addin="${dirname}${sep}${line}";
+                # break it up
+                typeset -a oldparts
+                mapfile -t oldparts < <(listpath -s "${sep}" -p $pathvar)
+
+                # Insert the new directory. Yes this *can* be done with a
+                # one-liner of slice operations assigned to newparts directly
+                # instead of a loop, but the syntax is causing a weird problem
+                # in some cron jobs, so we forego it for now, using a loop to
+                # the insertion instead.,
+                typeset -a newparts
+                declare newidx=0
+                declare oldidx
+                declare insert_idx=$((opt_i-=1)) ## offset math
+                for oldidx in $(seq 0 ${#oldparts[@]}); do
+                    if (( oldidx == insert_idx )); then
+                        newparts[$newidx]="$dirname"
+                        (( newidx+=1 ))
                     fi
-                    [[ -n "$newvalue" ]] \
-                        && newvalue="${newvalue}${sep}${addin}" \
-                            || newvalue="${addin}"
-                    ((idx+=1))
-                done < "$TEMP"
-                rm -rf "$TEMP"
+                    newparts[$newidx]="${oldparts[$oldidx]}"
+                    (( newidx+=1 ))
+                done
+
+                # join them back with a space
+                local newpaths
+                newpaths="${newparts[*]}"
+
+                # fixup the separator
+                newvalue="${newpaths// /${sep}}"
             else
                 newvalue="${oldvalue}${sep}${dirname}"
             fi

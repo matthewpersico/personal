@@ -2,19 +2,32 @@
 # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1091
 # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
 
-# .bash_profile
-# =-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=-=
-## How to plug in (monkeypatch) set -x, VERBOSE_RC, etc, if needed
-[[ -x "$HOME/bash_profile.monkeypatch" ]] && . "$HOME/bash_profile.monkeypatch"
+# bash_profile
+## Linked by ~/.bash_profile
 
-# CRON def - duplicated elsewhere
+# CRON def, must be before anything that can reference it
 [[ -z "$CRON" ]] && \
     CRON=$(~/personal/bin/running_under_cron && echo true || echo false) && \
     export CRON
 
+## For use under sudo
+if [[ "$1" = '--tildae' ]]; then
+    export TILDAE=$2; shift; shift;
+    echo "Base for this profile is overriden to TILDAE=${TILDAE}"
+else
+    export TILDAE=$HOME
+fi
+
+## It's shells all the way down...
+MASTER_SHLVL=$SHLVL
+export MASTER_SHLVL
+
+## How to plug in (monkeypatch) set -x, VERBOSE_RC, etc, if needed
+[[ -x "$HOME/bash_profile.monkeypatch" ]] && . "$HOME/bash_profile.monkeypatch"
+
 bash_profile_echo=0
-if [[ "$CRON" = 'false' ]] && [[ -n "$VERBOSE_PROFILE" ]]; then
-    echo "$(date): (SHLVL=$SHLVL): ~/.bash_profile is running..."
+if [[ -n "$VERBOSE_PROFILE" ]]; then
+    echo "$(date): (MASTER_SHLVL=$SHLVL): $HOME/.bash_profile is running..."
     bash_profile_echo=1
 fi
 
@@ -45,5 +58,5 @@ if ! $CRON && [[ -f ~/.bashrc ]]; then
 fi
 
 if ((bash_profile_echo == 1)); then
-    echo "$(date): ~/.bash_profile has run"
+    echo "$(date):  (MASTER_SHLVL=$SHLVL): $HOME/.bash_profile has run"
 fi

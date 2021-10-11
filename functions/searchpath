@@ -23,30 +23,32 @@ searchpath ()
     typeset options_shift_val options_missing_arg options_unknown_opt
     typeset options_num_args_left
     typeset opt_h opt_p opt_s
-    typeset opt_e opt_n
+    typeset opt_e opt_n opt_o
     typeset sep=:
 
     typeset pathvar
 
     pathfunc_usage_init
     typeset -a USAGE
-    i=0; USAGE[i]="searchpath [-h] [-s separator] [-e] [-n] [[-p] pathvar] pathspec"
-    ((i+=1)); USAGE[i]="Prints path elements matching 'pathspec'."
-    ((i+=1)); USAGE[i]="$USAGE_OPT_P1"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_P2"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_P3"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_P4F"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_P5"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_S"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_E"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_N"
-    ((i+=1)); USAGE[i]="$USAGE_OPT_H"
-
+    USAGE=(
+        "searchpath [-h] [-s separator] [-e] [-n] [[-p] pathvar] pathspec"
+        "Prints path elements matching 'pathspec'."
+        "$USAGE_OPT_P1"
+        "$USAGE_OPT_P2"
+        "$USAGE_OPT_P3"
+        "$USAGE_OPT_P4F"
+        "$USAGE_OPT_P5"
+        "$USAGE_OPT_S"
+        "$USAGE_OPT_E"
+        "$USAGE_OPT_N"
+        "-o - only print index numbers of results"
+        "$USAGE_OPT_H"
+    )
     ###########################################################################
     # handle options
     ###########################################################################
 
-    options "hp:s:en" "$@"
+    options "hp:s:eno" "$@"
     shift "$options_shift_val"
 
     if [[ -n "$opt_h" ]]; then
@@ -81,14 +83,19 @@ searchpath ()
     local match="-E"
     [[ -n "$opt_e" ]] && match=         # make grep use regexps
 
-    if [[ -n "$opt_n" ]]; then
+    if [[ -n "$opt_n" ]] || [[ -n "$opt_o" ]]; then
         opt_n='-n'
     fi
     ###########################################################################
     # main
     ###########################################################################
-
-    eval echo \$$pathvar | sep2line "${sep}" | grep $match $opt_n "$pathspec"
+    local val
+    val=$(eval echo \$$pathvar | sep2line "${sep}" | grep "$match" $opt_n "$pathspec")
+    if [[ -n "$opt_o" ]]; then
+        echo "${val%%:*}"
+    else
+        echo "$val"
+    fi
 }
 
 # emacs

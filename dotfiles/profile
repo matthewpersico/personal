@@ -1,23 +1,18 @@
 #!/usr/bin/env bash
 # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+# shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
 
-# ~/.profile.${USER}
-# Isolates my stuff.
+# profile
+## Linked by ~/.profile.${USER}
 
-MASTER_SHLVL=$SHLVL
-export MASTER_SHLVL
+## How to plug in (monkeypatch) set -x, VERBOSE_PROFILE, etc, if needed
+[[ -x "${TILDAE}/profile.${USER}.monkeypatch" ]] && . "${TILDAE}/profile.${USER}.monkeypatch"
 
-## For use under sudo
-if [[ "$1" = '--tildae' ]]; then
-    export TILDAE=$2; shift; shift;
-    echo "Base for this profile is overriden to TILDAE=${TILDAE}"
-else
-    export TILDAE=$HOME
+profileuser_echo=0
+if [[ -n "$VERBOSE_PROFILE" ]]; then
+    echo "$(date): (SHLVL=$SHLVL): ${TILDAE}/profile.${USER} is running..."
+    profileuser_echo=1
 fi
-
-[[ -z "$CRON" ]] && \
-    CRON=$("${TILDAE}/personal/bin/running_under_cron" && echo true || echo false) && \
-    export CRON
 
 ## OS_O(riginal) is the 'proclaimed' operating system name. Use this where a system may
 ## be lying, but fakes it pretty well. Do **NOT** use OS for this variable;
@@ -25,17 +20,11 @@ fi
 OS_O=$(uname -s)
 export OS_O
 
-## OS_ID is the 'true' operating system name. use this primarily where
+## OS_ID is the 'true' operating system name. Use this primarily where
 ## we need to know if this is WSL or not.
 OS_ID="$OS_O"
 "${TILDAE}/personal/bin/iswsl" && OS_ID='WSL'
 export OS_ID
-
-## How to plug in (monkeypatch) set -x, VERBOSE_PROFILE, etc, if needed
-[[ -e "${TILDAE}/profile.${USER}.monkeypatch" ]] && . "${TILDAE}/profile.${USER}.monkeypatch"
-
-! $CRON && [[ -n "$VERBOSE_PROFILE" ]] && \
-    echo "$(date): (SHLVL=$SHLVL): ${TILDAE}/profile.${USER} is running..."
 
 ## NFS cross-mount check
 declare undershell
@@ -76,6 +65,17 @@ if [[ -z "$(declare -F autoloaded-personal)" ]]; then
     ## nothing needs to know about anything else until it's actually called, in
     ## which case its shim, or its full function code, will be ready.
     autoload -x -o -y -a "$PERSONALROOT/functions"
+
+    ## Over time you discover that many of your functions are only used in the
+    ## context of backticks and other scripts that are executed but never
+    ## sourced into your current process directly. That means that all of these
+    ## subshells are going to re-evalute the shim over and over, even if you
+    ## have exported the functions. This script will run 'autoload -l' on
+    ## specified functions to do just that - unshim the most widely used
+    ## functions.
+    # shellcheck disable=SC1090
+    [ -f "$PERSONALDATA/autoload-unshim.dat" ] && \
+        . "$PERSONALBIN/autoload-unshim" -y "$PERSONALDATA/autoload-unshim.dat"
 fi
 
 ## Now that functions are loaded, we can use them, starting with addpath.
@@ -157,7 +157,6 @@ if [[ "$CRON" = 'false' ]]; then
 
 fi
 
-! $CRON && [[ -n "$VERBOSE_PROFILE" ]] && \
-    echo "$(date): ${TILDAE}/profile.${USER} has run"
-
-unset RUNNING_PROFILE
+if (( profileuser_echo == 1 )); then
+    echo "$(date): ${TILDAE}/.profile.$USER.${USER} has run"
+fi
