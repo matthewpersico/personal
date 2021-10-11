@@ -146,29 +146,18 @@ addpath ()
             if [[ -n "$opt_f" ]]; then
                 newvalue="${dirname}${sep}${oldvalue}"
             elif [[ -n "$opt_i" ]]; then
-                # break it up
+                # Break it up...
                 typeset -a oldparts
                 mapfile -t oldparts < <(listpath -s "${sep}" -p $pathvar)
 
-                # Insert the new directory. Yes this *can* be done with a
-                # one-liner of slice operations assigned to newparts directly
-                # instead of a loop, but the syntax is causing a weird problem
-                # in some cron jobs, so we forego it for now, using a loop to
-                # the insertion instead.,
-                typeset -a newparts
-                declare newidx=0
-                declare oldidx
-                declare insert_idx=$((opt_i-=1)) ## offset math
-                for oldidx in $(seq 0 ${#oldparts[@]}); do
-                    if (( oldidx == insert_idx )); then
-                        newparts[$newidx]="$dirname"
-                        (( newidx+=1 ))
-                    fi
-                    newparts[$newidx]="${oldparts[$oldidx]}"
-                    (( newidx+=1 ))
-                done
+                # Insert the new directory...
+                typeset -a newparts=(
+                    "${oldparts[@]:0:((opt_i-1))}"
+                    "$dirname"
+                    "${oldparts[@]:$opt_i}"
+                )
 
-                # join them back with a space
+                # join them back with a space.
                 local newpaths
                 newpaths="${newparts[*]}"
 
