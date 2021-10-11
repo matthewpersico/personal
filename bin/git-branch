@@ -416,13 +416,21 @@ git-branch-sync ()
         for line in "${lines[@]}"; do
             declare -a tmp
             read -r -a tmp <<<"$line"
-            if [[ ${tmp[0]} == "$source" ]] \
-                   || { [[  $filter_targs == '1' ]] \
-                            && [[ -z ${targs[${tmp[0]}]} ]] ; }; then
+            if [[ ${tmp[0]} == "$source" ]]; then
                 source_descr="${tmp[*]:0:2}"
                 continue
             fi
-            brm[${tmp[0]}]=${tmp[2]}
+            if ((filter_targs)); then
+                declare key
+                for key in "${!targs[@]}"; do
+                    if [[ ${tmp[2]} =~ $key ]]; then
+                        brm[${tmp[0]}]=${tmp[2]}
+                        break
+                    fi
+                done
+            else
+                brm[${tmp[0]}]=${tmp[2]}
+            fi
         done
 
         # Confirmation
@@ -431,7 +439,10 @@ git-branch-sync ()
         declare resp
         declare prompt="Propagate '$source_descr' to"
         if (( filter_targs )); then
-            prompt="$prompt branches ${!brm[*]}"
+            # if brm is not blank
+            # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
+            prompt="$prompt branches: [ $(printf "'%s' " ${!brm[*]})]"
+            # else bail
         else
             prompt="$prompt all the other branches"
         fi
@@ -514,7 +525,7 @@ git-branch - git extention of git branch
  git branch --list [[-c|--current]| [-r|--remote]| [-a|--all]] [--[no]strip]
  git branch --current
  git branch --comment
- git branch --sync source-branch [target-branch...]
+ git branch --sync source-branch [target-branch-ish...]
 
 =head1 DESCRIPTION
 
@@ -549,6 +560,10 @@ remote) accesible in the current repo.
 The merge strategy is --ff-only. If that fails for any branch, the command is
 aborted. That could leave some branches updated and some not. Using this
 strategy keeps all the branches in sync without any extraneous merge commits.
+
+The "target-branch-ish" arguments are pattern matches against the
+B<remote/branch> spec. Matching branches on different remotes care
+distinguished by specifying B<remote/branch> instead co just B<branch>.
 
 =back
 

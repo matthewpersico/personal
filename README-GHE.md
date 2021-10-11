@@ -159,16 +159,14 @@ git remote add gh github:matthewpersico/personal
 git fetch gh
 ```
 
-* Create tracking branches:
+* Create the tracking branch:
 
 ```
 git branch --track gh-machine-branch gh/machine-branch
-git branch --track gh-main gh/main
 git branch -vv
 
   machine-branch     22423b6 [origin/machine-branch] Wrong remote ref
   gh-machine-branch  22423b6 [gh/machine-branch] Wrong remote ref
-  gh-main         22423b6 [gh/main] Wrong remote ref
 * main            22423b6 [origin/main] Wrong remote ref
 
 ```
@@ -194,16 +192,17 @@ git push
 * Execute
 
 ```
-git branch --sync machine-branch
+ghe-to-gh machine-branch
 ```
 
 The command will refresh local and remote branches and then propagate the
-changes on the specified branch to all the others. This will update GHE and
-GitHub.
+changes on the specified branch to all the others on "origin" and to the
+gh-machine-branch branch on GitHub. It is up to you to then sync branches on
+GitHub separately.
 
 ## Retrieving GitHub changes
 
-We are assuming that all changes on GitHub are in the `gh-main` branch.
+We are assuming that all changes on GitHub are in the `gh-machine-branch` branch.
 
 ### Sync
 
@@ -211,9 +210,9 @@ We are assuming that all changes on GitHub are in the `gh-main` branch.
 * Execute
 
 ```
-git branch --sync gh-main
+ghe-from-gh machine-branch
 ```
 
 The command will refresh local and remote branches and then propagate the
-changes on the specified branch to all the others. This will update GHE and
-GitHub.
+changes on the 'gh-machine-branch' to 'machine-branch'. It is up to you to then
+sync branches on GitHub Enterprise separately.
