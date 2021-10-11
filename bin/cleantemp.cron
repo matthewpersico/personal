@@ -1,81 +1,87 @@
-#!/opt/bb/bin/bash
-##^Hardcoded bash location in case env not set up in cron.
+#!/usr/bin/perl
+use strict;
+use warnings;
 
-declare rmv=''
-if [[ "$1" = '--verbose' ]]; then
-    rmv='-v'
-    shift
-fi
-rmv='-v'
+my $rmv = '';
+if ( defined $ARGV[0] && $ARGV[0] =~ /--verbose/ ) {
+    $rmv = '-v';
+    shift;
+}
+$rmv = '-v';
 
 ## Number of days to look back
-declare lookback=1
-if [[ "$1" =~ [0-9] ]]; then
-    lookback=$1
-fi
-if ((lookback<0)); then
-    echo "Use positive numbers for lookback"
-    exit 1
-fi
-declare mtime
-((mtime=lookback - 1)) ## Conversion for mtime
-if ((mtime>-1)); then
-    mtime="+$mtime"
-fi
+my $lookback = 1;
+if ( defined $ARGV[0] && $ARGV[0] =~ m/\d+/ ) {
+    $lookback = $ARGV[0];
+}
+if ( $lookback < 0 ) {
+    die "Use positive numbers for lookback";
+}
+my $mtime = $lookback - 1;    ## Conversion for mtime
+if ( $mtime > -1 ) {
+    $mtime = "+$mtime";
+}
 
-if [[ -n "$rmv" ]]; then
-    ago=$(date --date="$lookback days ago")
-    echo "Output for cleantemp.cron, which cleans /tmp of files and subdirectories older than $ago"
-fi
+if ( length($rmv) ) {
+    my $ago = qx(date --date='$lookback days ago');
+    print(
+"Output for cleantemp.cron, which cleans /tmp of files and subdirectories older than $ago\n"
+    );
+}
 
-declare files=0
-declare dirs=0
+my $files = 0;
+my $dirs  = 0;
 
-echo "Before clean:"
-df -h /tmp
+print("Before clean:\n");
+print(qx(df -h /tmp));
 
-## Remove all the 'old' non directories
-declare i
-# shellcheck disable=SC2044
-for i in $(find /tmp -depth -mtime $mtime ! -type d); do
-    if [[ $i =~ systemd ]] \
-           || [[ $i =~ krb5cc ]] \
-           || [[ $i =~ uscreens ]] \
-           || [[ $i =~ tmux ]] \
-           || [[ $i =~ /emacs ]]; then
-        echo "Skipping $i"
-    else
-        if [[ -n "$rmv" ]]; then
-            ls -la "$i"
-            if [[ ${#i} = '15' ]] && [[ -f "$i" ]]; then
-                cat "$i"
-            fi
-        fi
-        \rm $rmv -f "$i"
-        ((files+=1))
-    fi
-done
+## Remove all the 'old' non directories first...
+for (qx(find /tmp -depth -mtime $mtime ! -type d)) {
+    if (m/systemd|krb5cc|uscreens|tmux|\/emacs/) {
+        print("Skipping $_");
+    } else {
+        chomp;
+        if ( length($rmv) ) {
+            print(qx(ls -la $_));
+        }
+        my $unlinked = unlink $_;
+        if ($rmv) {
+            if ($unlinked) {
+                print("removed '$_'\n");
+            } else {
+                print("failed to remove '$_'\n");
+            }
+        }
+        $files += $unlinked;
+    }
+}
 
-## Remove all the 'old' EMPTY directories.
-# shellcheck disable=SC2044
-for i in $(find /tmp -depth -mtime $mtime -type d -empty)
-do
-    if [[ $i =~ systemd ]] \
-           || [[ $i =~ krb5cc ]] \
-           || [[ $i =~ tmux ]] \
-           || [[ $i =~ ^emacs ]]
-    then
-        echo "Skipping $i"
-    else
-        [[ -n "$rmv" ]] && ls -la "$i"
-        \rmdir $rmv "$i"
-        ((dirs+=1))
-    fi
-done
+## ..and then all the 'old' EMPTY directories, some of which might have been
+## created by deletes above.
+for (qx(find /tmp -depth -mtime $mtime -type d -empty)) {
+    if (m/systemd|krb5cc|uscreens|tmux|\/emacs|/) {
+        print("Skipping $_\n");
+    } else {
+        chomp;
+        if ( length($rmv) ) {
+            print(qx(ls -la $_));
+        }
+        my $rmdired   = rmdir $_;
+        my $rmdirstat = $!;
+        if ($rmv) {
+            if ($rmdired) {
+                print("removed '$_'\n");
+            } else {
+                print("failed to remove '$_': $!\n");
+            }
+        }
+        $dirs += $rmdired;
+    }
+}
 
-if [[ -n "$rmv" ]]; then
-    echo "$files files, $dirs dirs deleted"
-fi
+if ("$rmv") {
+    print("$files files, $dirs dirs deleted\n");
+}
 
-echo "After clean:"
-df -h /tmp
+print("After clean:\n");
+print(qx(df -h /tmp));
