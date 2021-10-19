@@ -1,0 +1,306 @@
+#!/usr/bin/env bash
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+# shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
+# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+
+# cron-wrapper
+
+declare _CW_epoch=$(/usr/bin/date +%s)
+declare _CW_timestamp=$(/usr/bin/date --date "@$_CW_epoch" +%Y.%m.%dT%H.%M.%S )
+declare _CW_logroot="CW-$(basename "${CW_command}"| sed 's/ /-/g')"
+declare -a _CW_keep_output
+declare _CW_status
+declare -a _CW_mail_condition_list
+
+# Unshunted echos force output to cron, forcing an email, so the caller can fix
+# the crontab. They are all marked with '# <UNSHE>'. Any errors in this wrapper
+# will also force an email.
+
+_CW_need_to_keep_output () {
+    if [[ -z $CW_mail_condition ]]; then
+        # This is cron's default.
+        _CW_mail_condition_list=('if-output')
+    else
+        if [[ ${CW_mail_condition} =~ ^\(.*\)$ ]]; then
+            if [[ ${CW_mail_condition} =~ , ]]; then
+                # <UNSHE> 3
+                echo "Bash lists do not need commas."
+                echo "  CW_mail_condition='${CW_mail_condition}'."
+                echo "Correct and reload."
+                exit 1
+            fi
+            eval "_CW_mail_condition_list=${CW_mail_condition}"
+        else
+            _CW_mail_condition_list+=("${CW_mail_condition}")
+        fi
+    fi
+    declare condition
+    for condition in "${_CW_mail_condition_list[@]}"; do
+        # These are in a logical cascade so that a set of these "does the right
+        # thing".
+        case "$condition" in
+            never )
+                _CW_keep_output=(false)
+                break
+                ;;
+            always )
+                _CW_keep_output=(true)
+                break
+                ;;
+            mon|tue|wed|thu|fri|sat|sun )
+                declare _CW_dow=$(/usr/bin/date --date "@$_CW_epoch" +%a)
+                if [[ ${_CW_dow,,} == "$condition" ]]; then
+                    _CW_keep_output=(true)
+                    break
+                fi
+                ;;
+            if-output | non-zero )
+                # For these, we have to examine the results of the command, so
+                # we have to leave the decision ambiguous at this time. Since
+                # it is ambiguous, we don't bail on the condition test; we try
+                # and find a more definitive condition.
+                _CW_keep_output+=("$condition")
+                ;;
+            * )
+                # <UNSHE>
+                echo "'$condition' is an invalid cron-wrapper mail condition"
+                exit 1
+                ;;
+        esac
+    done
+    if [[ ${_CW_keep_output[0]} = 'false' ]]; then
+        false
+    else
+        true
+    fi
+    return $?
+}
+
+_CW_want_to_mail_it () {
+    #set -x
+    declare rt; false; rt=$?
+    declare _CW_s=$1
+    declare _CW_l=$2
+
+    if [[ ${_CW_keep_output[0]} = 'false' ]]; then
+        false; rt=$?
+    elif [[ ${_CW_keep_output[0]} = 'true' ]]; then
+        true; rt=$?
+    else
+        for condition in "${_CW_mail_condition_list[@]}"; do
+            # These are in a logical cascade so that a set of these "does the right
+            # thing".
+            case $condition in
+                if-output )
+                    if [[ -f ${_CW_l} ]] && [[ -s ${_CW_l} ]]; then
+                        true; rt=$?
+                        break
+                    fi
+                    ;;
+                non-zero )
+                    if (( _CW_s )); then
+                        true; rt=$?
+                        break
+                    fi
+                    ;;
+                * )
+                    # <UNSHE>
+                    echo "ASSERTION; _CW_mail_condition_list is invalid: ${_CW_mail_condition_list[*]}"
+                    exit 1
+                    ;;
+            esac
+        done
+    fi
+    return $rt
+}
+
+_CW_mail_a_message () {
+    declare _CW_log_file="$1"
+    declare _CW_mail_file="$1"
+    declare _CW_full_subject="[Status: $_CW_status]"
+    if [[ -n ${CW_mail_condition} ]]; then
+        _CW_full_subject="$_CW_full_subject [Condition: ${CW_mail_condition}]"
+    fi
+    _CW_full_subject="$_CW_full_subject ${CW_mail_subject}"
+    if [[ $CW_link_log == 'true' ]]; then
+        _CW_mail_file=$(_CW_log_name mail-file)
+        echo "Log: $_CW_log_file" > "$_CW_mail_file"
+    fi
+    /home/mpersico5/personal/bin/local-mailme \
+        -f "${CW_from:-$USER@$(hostname)}" \
+        -t "${CW_to:-${MAILTO:-$USER}}" \
+        -s "$_CW_full_subject" \
+        "${_CW_mail_file}"
+    if [[ $CW_link_log == 'true' ]]; then
+        \rm -f "${_CW_mail_file}"
+    fi
+}
+
+_CW_log_name () {
+    echo "/tmp/${_CW_logroot}.${1}.${_CW_timestamp}.$$"
+}
+
+main() {
+    if [[ -n $CW_link_log ]] && [[ ! $CW_link_log =~ false|true ]]; then
+        # <UNSHE>
+        echo "'$CW_link_log' is an invalid value for 'CW_link_log': valid values are 'true' and 'false'"
+        exit 1
+    fi
+    if [[ -n $CW_include_profile_log ]] && [[ ! $CW_include_profile_log =~ false|true ]]; then
+        # <UNSHE>
+        echo "'$CW_include_profile_log' is an invalid value for 'CW_include_profile_log': valid values are 'true' and 'false'"
+        exit 1
+    fi
+    if [[ -n $CW_profile ]] && [[ ! -f $CW_profile ]]; then
+        # <UNSHE>
+        echo "Profile $CW_profile not found"
+        exit 1
+    fi
+
+    declare _CW_log_file='/dev/null'
+    if _CW_need_to_keep_output; then
+        _CW_log_file=$(_CW_log_name log-file)
+    fi
+
+    declare -a realargs
+    # Process possibly array-formatted args.
+    if [[ ${CW_command_args} =~ ^\(.*\)$ ]]; then
+        eval "realargs=${CW_command_args}"
+    else
+        realargs=("${CW_command_args}")
+    fi
+
+    (
+        # All output here is shunted.
+        if [[ -n $CW_profile ]]; then
+            if [[ $CW_include_profile_log == 'true' ]]; then
+                . "$CW_profile"
+            else
+                . "$CW_profile" 2>/dev/null 1>/dev/null
+            fi
+        fi
+
+        if [[ $CW_dump_env = 'true' ]]; then
+            echo
+            echo 'CW - Dump environment requested...'
+            echo
+            echo 'CW - Environment variables are'
+            env | sort | grep -E '^[A-Za-z_]+='
+            echo
+            echo 'CW - Loaded functions are are'
+            env | sort | grep -E '^BASH'
+            echo
+            echo 'CW - Dump environment end.'
+        fi
+
+        # $CW_command could be "/some/interpreter script", so we don't quote
+        # it.
+        $CW_command "${realargs[@]}"
+    ) >"${_CW_log_file}" 2>&1
+    _CW_status=$?
+
+    if _CW_want_to_mail_it "${_CW_status}" "${_CW_log_file}"; then
+        if [[ -z $CW_mail_subject ]]; then
+            CW_mail_subject="$CW_command ${realargs[*]}"
+        fi
+
+        _CW_mail_a_message "${_CW_log_file}"
+
+        if [[ ! $CW_link_log == 'true' ]]; then
+            \rm -f "${_CW_log_file}"
+        fi
+    else
+        \rm -f "${_CW_log_file}"
+    fi
+
+    return 0
+}
+
+main
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+cron-wrapper - wrap cron jobs in some output logic
+
+=head1 SYNOPSIS
+
+ CW_profile=$HOME/.bash_profile
+ CW_mail_condition=([if_output|non-zero|always|dowlist|never] ...)
+ CW_mail_subject="What this cron job is about"
+ CW_link_log=true
+ CW_include_profile_log=true
+ CW_command="a-command"
+ CW_command_args=('an arg' 'the next arg')
+ <cron spec> $HOME/personal/bin/cron-wrapper 'some id here'
+
+=head1 DESCRIPTION
+
+Instead of just calling a cron and getting spurious output on success or
+possibly no output even on a failure, describe when to get output and whast to
+include in that output.
+
+=head1 ARGUMENTS
+
+No arguments, all params are passed as environment variables. Make the crontab
+easier to read. However, you need to set each variable for each job; as
+environment variables, they will carry over to the next job.
+
+=over 4
+
+=item arg
+
+=item CW_profile=/path/to/profile
+
+If set, will run the specified profile. Under some circumstances, this is not
+enough. For example, anyscript using the flock-exec-myself trick is going to
+have to call the profile internally; profile settings won't survive the exec.
+
+=item CW_mail_condition
+
+The command's output and error are shunted to a file. When to mail that output
+is controlled with this envvar:
+
+ * always    - unconditionally
+ * never     - you'll never get a mail
+ * non-zero  - if the command exit code is not 0
+ * if_output - if there is any output at all. This is the default if not specified.
+ * dowlist   - three letter day of week abbreviations
+
+You can combine these condition using a bash array. For example:
+
+CW_mail_condition=(non-zero if-output tue thu)
+
+You get mail on all errors and all output. You also get potientially empty
+emails on Tuesday and Thursday.
+
+=item CW_mail_subject
+
+Normally, the subject of a cron email is the command and arguments. You can
+override that with this envvar.
+
+=item CW_link_log
+
+If set to 'true', the mail contains the full file path to the job output
+log. Otherwise, the mail contains the text of the job output log.
+
+=item CW_include_profile_log
+
+If set to 'true', any profile output in the job log. By default, we ignore
+profile output.
+
+=item CW_command="a-command"
+
+The command to run. If of the form "/some/interpreter script", make sure to
+quote it.
+
+=item CW_arg_list=('an arg' 'the next arg')
+
+The args to use for the command. This is a bash array.
+
+=back
+
+=cut
+
+__PODUSAGE__

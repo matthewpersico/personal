@@ -58,10 +58,15 @@ if [[ -z "$(declare -F autoload )" ]]; then
 fi
 
 if [[ -z "$(declare -F autoloaded-personal)" ]]; then
+    declare -a _profile_tmp
+
     ## autoload everything. Order does not matter here since it's all shims so
     ## nothing needs to know about anything else until it's actually called, in
-    ## which case its shim, or its full function code, will be ready.
-    autoload -x -o -y -a "$PERSONALROOT/functions"
+    ## which case its shim, or its full function code, will be ready. Don't be
+    ## verbose under cron.
+    _profile_tmp=(-x -o -a "$PERSONALROOT/functions")
+    ! $CRON && _profile_tmp+=(-y)
+    autoload "${_profile_tmp[@]}"
 
     ## Over time you discover that many of your functions are only used in the
     ## context of backticks and other scripts that are executed but never
@@ -69,10 +74,12 @@ if [[ -z "$(declare -F autoloaded-personal)" ]]; then
     ## subshells are going to re-evalute the shim over and over, even if you
     ## have exported the functions. This script will run 'autoload -l' on
     ## specified functions to do just that - unshim the most widely used
-    ## functions.
-    # shellcheck disable=SC1090
+    ## functions. Again, don't be verbose under cron.
+    _profile_tmp=()
+    ! $CRON && _profile_tmp=(-y)
+    _profile_tmp+=("$PERSONALDATA/autoload-unshim.dat")
     [ -f "$PERSONALDATA/autoload-unshim.dat" ] && \
-        . "$PERSONALBIN/autoload-unshim" -y "$PERSONALDATA/autoload-unshim.dat"
+        . "$PERSONALBIN/autoload-unshim"  "${_profile_tmp[@]}"
 fi
 
 ## Now that functions are loaded, we can use them, starting with addpath.
