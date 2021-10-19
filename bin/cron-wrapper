@@ -77,7 +77,6 @@ _CW_need_to_keep_output () {
 }
 
 _CW_want_to_mail_it () {
-    #set -x
     declare rt; false; rt=$?
     declare _CW_s=$1
     declare _CW_l=$2
@@ -171,7 +170,10 @@ main() {
     fi
 
     (
-        # All output here is shunted.
+        # All output created in this subshell should be captured by the log
+        # file.
+
+        # Process any profile
         if [[ -n $CW_profile ]]; then
             if [[ $CW_include_profile_log == 'true' ]]; then
                 . "$CW_profile"
@@ -180,6 +182,7 @@ main() {
             fi
         fi
 
+        # Diagnostics
         if [[ $CW_dump_env = 'true' ]]; then
             echo
             echo 'CW - Dump environment requested...'
@@ -193,8 +196,25 @@ main() {
             echo 'CW - Dump environment end.'
         fi
 
-        # $CW_command could be "/some/interpreter script", so we don't quote
-        # it.
+        # Record the run. Maybe.
+        if [[ ! $CW_audit == 'false' ]]; then
+            (
+                flock -n 9
+                (
+                    echo -n "[$(/usr/bin/date)] "
+                    if (( ${#realargs[@]} )); then
+                        echo "$CW_command ${realargs[*]}"
+                    else
+                        echo "$CW_command"
+                    fi
+                    env | grep -E ^CW | grep -v CW_command | sort
+                    echo "#"
+                ) >> "$(dirname "$0")"/../data/cron-wrapper."$(/usr/bin/date +%Y.%m.%d)".audit
+            ) 9>"$(dirname "$0")"/../data/cron-wrapper.lock
+        fi
+
+        # Execution. $CW_command could be "/some/interpreter script", so we
+        # don't quote it.
         $CW_command "${realargs[@]}"
     ) >"${_CW_log_file}" 2>&1
     _CW_status=$?
@@ -256,6 +276,13 @@ environment variables, they will carry over to the next job.
 If set, will run the specified profile. Under some circumstances, this is not
 enough. For example, anyscript using the flock-exec-myself trick is going to
 have to call the profile internally; profile settings won't survive the exec.
+
+=item CW_audit
+
+Set to 'false', the job and its CW variables will not be written to the audit
+file. The default is to record that info in
+
+  "$(dirname "$0")"/../data/cron-wrapper."$(/usr/bin/date +%Y.%m.%d)".audit
 
 =item CW_mail_condition
 
