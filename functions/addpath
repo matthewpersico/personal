@@ -26,7 +26,7 @@ addpath ()
     typeset options_num_args_left
     typeset opt_h opt_p opt_s
     typeset opt_x opt_v
-    typeset opt_f opt_b opt_i
+    typeset opt_f opt_b opt_i opt_m
     typeset opt_d opt_D
     typeset sep=:
 
@@ -35,7 +35,7 @@ addpath ()
     pathfunc_usage_init
     typeset -a USAGE
     USAGE=(
-        "addpath [-h] [-s separator] [-f|-b|-i n] [-d|-D] [-x] [-v] [[-p] pathvar] dirname"
+        "addpath [-h] [-s separator] [-f|-b|-i n] [-m] [-d|-D] [-x] [-v] [[-p] pathvar] dirname"
         "Idempotently adds 'dirname' to 'pathvar'."
         "$USAGE_OPT_P1"
         "$USAGE_OPT_P2"
@@ -45,6 +45,7 @@ addpath ()
         "$USAGE_OPT_S"
         "-f   - Add to front of 'pathvar'."
         "-b   - Add to back of 'pathvar' (default behavior)."
+        "-m   - If 'dirname' is already in 'pathvar', move it to the new position."
         "-i n - Add to 'pathvar' in position 'n'. Indexing starts"
         "       at 1. Elements are moved to higher indexes to make"
         "       room for the inserted one."
@@ -59,7 +60,7 @@ addpath ()
     # handle options
     ###########################################################################
 
-    options "hp:s:xvfbi:dD" "$@"
+    options "hp:s:xvfbi:mdD" "$@"
     shift "$options_shift_val"
     if [[ -n "$opt_h" ]]; then
         pathfunc_usage "${USAGE[@]}"
@@ -77,6 +78,10 @@ addpath ()
     if ((opt_f + opt_b > 1)) ||
            ( ((opt_f + opt_b > 0)) && ((opt_i)) ); then
         pathfunc_usage "${USAGE[@]}" "Only one of -f -b -i can be specified"
+        return
+    fi
+    if (( (opt_f + opt_b + opt_i)==0)) && ((opt_m)); then
+        pathfunc_usage "${USAGE[@]}" "-m invalid without one of -f -b -i"
         return
     fi
 
@@ -126,20 +131,36 @@ addpath ()
     fi
 
     if ((!assigned)); then
-        ## Only add the new value if it DNE
+        # If asked, check to see if the path exists on disk and bail if it
+        # does not.
+        if (( opt_d || opt_D )) && [[ ! -d "$dirname" ]]; then
+            (( opt_d )) && echo "$dirname does not exist. Skipping."
+            return 1
+        fi
+
+        # Only add the new value if it DNE, unless we explicitly said to move it
         local element
         local oldvalue
         oldvalue=$(eval echo \$$pathvar)
         element=$(echo "$oldvalue" | awk "BEGIN{RS=\"$sep\"}{print}" | grep -x "$dirname")
+        if [[ ! "$element" = "" ]] && ((opt_m)); then
+            # delete it (so we can re-add it)
+            typeset -a oldparts
+            mapfile -t oldparts < <(echo "$oldvalue" | awk "BEGIN{RS=\"$sep\"}{print}" | grep -v -E "$element")
+
+            # join what's left with a space.
+            local newpaths
+            newpaths="${oldparts[*]}"
+
+            # fixup the separator
+            oldvalue="${newpaths// /${sep}}"
+
+            # set up for the re-add
+            element=''
+        fi
+
         if [[ "$element" = "" ]]; then
             # $dirname is not currently in pathvar.
-
-            # If asked, check to see if the path exists on disk and bail if it
-            # does not.
-            if (( opt_d || opt_D )) && [[ ! -d "$dirname" ]]; then
-                (( opt_d )) && echo "$dirname does not exist. Skipping."
-                return 1
-            fi
 
             # Add it.
             local newvalue
@@ -172,6 +193,7 @@ addpath ()
     [[ -n "$opt_v" ]] && listpath -s "${sep}" -p $pathvar
     # shellcheck disable=SC2163 # yes, we are exporting the expansion
     [[ -n "$opt_x" ]] && export $pathvar
+    set +x
 }
 
 # emacs
