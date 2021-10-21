@@ -11,6 +11,7 @@ declare _CW_logroot="CW-$(basename "${CW_command}"| sed 's/ /-/g')"
 declare -a _CW_keep_output
 declare _CW_status
 declare -a _CW_mail_condition_list
+declare _CW_dow
 
 # Unshunted echos force output to cron, forcing an email, so the caller can fix
 # the crontab. They are all marked with '# <UNSHE>'. Any errors in this wrapper
@@ -48,8 +49,9 @@ _CW_need_to_keep_output () {
                 break
                 ;;
             mon|tue|wed|thu|fri|sat|sun )
-                declare _CW_dow=$(/usr/bin/date --date "@$_CW_epoch" +%a)
-                if [[ ${_CW_dow,,} == "$condition" ]]; then
+                _CW_dow=$(/usr/bin/date --date "@$_CW_epoch" +%a)
+                _CW_dow=${_CW_dow,,}
+                if [[ ${_CW_dow} == "$condition" ]]; then
                     _CW_keep_output=(true)
                     break
                 fi
@@ -102,6 +104,12 @@ _CW_want_to_mail_it () {
                         break
                     fi
                     ;;
+                mon|tue|wed|thu|fri|sat|sun )
+                    if [[ ${_CW_dow} == "$condition" ]]; then
+                        true; rt=$?
+                        break
+                    fi
+                    ;;
                 * )
                     # <UNSHE>
                     echo "ASSERTION; _CW_mail_condition_list is invalid: ${_CW_mail_condition_list[*]}"
@@ -125,6 +133,7 @@ _CW_mail_a_message () {
         _CW_mail_file=$(_CW_log_name mail-file)
         echo "Log: $_CW_log_file" > "$_CW_mail_file"
     fi
+    ## WORKISM
     /home/mpersico5/personal/bin/local-mailme \
         -f "${CW_from:-$USER@$(hostname)}" \
         -t "${CW_to:-${MAILTO:-$USER}}" \
@@ -201,14 +210,10 @@ main() {
             (
                 flock -n 9
                 (
-                    echo -n "[$(/usr/bin/date)] "
-                    if (( ${#realargs[@]} )); then
-                        echo "$CW_command ${realargs[*]}"
-                    else
-                        echo "$CW_command"
-                    fi
-                    env | grep -E ^CW | grep -v CW_command | sort
-                    echo "#"
+                    _CW_tmp="[$(/usr/bin/date)] $CW_command"
+                    (( ${#realargs[@]} )) && _CW_tmp="$_CW_tmp ${realargs[*]}"
+                    _CW_tmp="$_CW_tmp (Envvars: $(env | grep -E ^CW | grep -v CW_command | sort | tr '\n' ' '))"
+                    echo "$_CW_tmp"
                 ) >> "$(dirname "$0")"/../data/cron-wrapper."$(/usr/bin/date +%Y.%m.%d)".audit
             ) 9>"$(dirname "$0")"/../data/cron-wrapper.lock
         fi
