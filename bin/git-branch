@@ -382,6 +382,21 @@ git-branch-comment ()
 #         <(git rev-list --first-parent $($REALGIT branch --show-current)\
 #               <(git rev-list --first-parent master) |      sed -ne 's/^ //p' | head -1
 
+_git-branch-vv-sort ()
+{
+    # Sort so that origin is always on top.
+    perl -e '
+    print
+      sort {
+      ( $a =~ /\[origin/ and $b !~ /\[origin/ )
+      ? -1
+      : ( $b =~ /\[origin/ and $a !~ /\[origin/ )
+        ? 1
+        : $a cmp $b
+      } qx(git branch -vv)
+'
+}
+
 git-branch-sync ()
 {
     # Get the source and any specific targets
@@ -413,7 +428,6 @@ git-branch-sync ()
         declare line
         declare -A brm # branch-remote-map
         declare source_descr
-        set -x
         for line in "${lines[@]}"; do
             declare -a tmp
             read -r -a tmp <<<"$line"
@@ -433,11 +447,10 @@ git-branch-sync ()
                 brm[${tmp[0]}]=${tmp[2]}
             fi
         done
-        set +x
 
         # Confirmation
         cmd-echo --title --color REVBLUE -- "Full branch list before sync..."
-        git branch -vv
+        _git-branch-vv-sort
         declare resp
         declare prompt="Propagate '$source_descr' to"
         if (( filter_targs )); then
@@ -472,7 +485,7 @@ git-branch-sync ()
 
         # Show results
         cmd-echo --title --color REVBLUE -- "Full branch list after sync..."
-        git branch -vv
+        _git-branch-vv-sort
     )
     return $?
 }
