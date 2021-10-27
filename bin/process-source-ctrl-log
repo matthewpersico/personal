@@ -51,7 +51,6 @@ my %opt = (
     'gcsonly'     => 0,
     'nogcsonly'   => 0,
     'cached'      => 0,
-    'namesonly'   => 0,
     'nountracked' => 0,
     'interactive' => 0,
 );
@@ -69,7 +68,7 @@ sub main {
                            # those files not yet committing will go in .retain.
 
         # These three options are for formatting and will be ignored if
-        # --for-commit or --namesonly are set.
+        # --for-commit is set.
         'color=s',    # Same as the git values.
         'diff',       # Include git diff output mixed in with the status and
                       # changelog info.
@@ -89,12 +88,6 @@ sub main {
         'nogcsonly',    # Only process files without a Git Commit Skip marker.
                         # If neither of these are set, then both sets of files
                         # will be processed.
-
-        'namesonly',    # Just print the filenames; no status and comments. Used
-                        # primarily with --nosclonly to get a list of files that
-                        # need SourceCtrlLog entries Options we need to get rid
-                        # of. We absorb them here so that we don't fall over
-                        # until we can remove them upstream.
 
         'nountracked',  # Do not print anything for untracked files.
 
@@ -177,8 +170,6 @@ sub main {
         } else {
             return 1;    ## UNIX bad
         }
-    } elsif ( $opt{'namesonly'} ) {
-        names_only();
     } else {
         format_scl();
     }
@@ -367,6 +358,17 @@ sub create_commit_scl {
               . qq(\n);
         }
     }
+
+    ## Check for files that are still being edited in emacs:
+    my @open_in_emacs =
+      grep { open_in_emacs($_) }
+      keys %files_to_process, $opt{scl};
+    if (@open_in_emacs) {
+        die "Error: The following files appear to be open in emacs:\n    "
+          . join( qq(\n    ), map { file_abs_to_git_rel($_) } @open_in_emacs )
+          . qq(\n);
+    }
+
     if ($interactive) {
         do_interactive();
     }
@@ -664,6 +666,12 @@ sub push_scl_to_output {
         $scl_seen{$filespec} = 1;
     }
 
+    # Is the file still open? Let's note that before we try and commit in the
+    # next invocation.
+    if ( open_in_emacs($filespec) ) {
+        $args{output}[-1] .= ": ${ascii_bold_red}Open in emacs.${ascii_normal}";
+    }
+
     # Do we have an scl entry? If not, we note it here. If so, we print
     # below. We test here in addition to below so as to allow the GCS info
     # to be above the scl info.
@@ -816,7 +824,7 @@ sub push_scl_to_output {
         } else {
             ## I am the child
             no warnings 'once';
-            ## Diassociating the child from the parent's IO channels. Not sure
+            ## Disassociating the child from the parent's IO channels. Not sure
             ## if we need to, but it doesn't seem to break anything.
             open( CPSTDIN,  "<&STDIN" );
             open( CPSTDOUT, ">&STDOUT" );
@@ -830,48 +838,6 @@ sub push_scl_to_output {
             exec( "$ENV{EDITOR}", $filespec );
         }
     }
-}
-
-sub names_only {
-
-    ## Checking for files with/without comments.
-    my @no_scl_keys =
-      grep { $files_to_process{$_} == 0 }
-      keys %files_to_process;
-    my %no_scl_keys;
-    if (@no_scl_keys) {
-        %no_scl_keys = map { $_ => 1 } @no_scl_keys;
-        if ( $opt{sclonly} ) {
-            delete @files_to_process{@no_scl_keys};
-        } elsif ( $opt{nosclonly} ) {
-            my %have_scl_keys = %files_to_process;
-            delete @have_scl_keys{@no_scl_keys};
-            delete @files_to_process{ keys %have_scl_keys };
-        }
-    }
-    my %status = map { $_->[-1], $_->[-2] }
-      map { [ split(/\s+/) ] } qx(git diff-index HEAD),
-      qx(git diff-index --cached HEAD);
-    my @output;
-  FILE: for my $filename ( sort keys %files_to_process ) {
-        my $git_rel_filename = file_abs_to_git_rel($filename);
-        my $status           = $status{$git_rel_filename} || 'U';
-        if ( $opt{nountracked} and $status eq 'U' ) {
-            next FILE;
-        }
-        push @output,
-          join(
-            ':',
-            $git_rel_filename,
-            $status,
-            (
-                defined( $no_scl_keys{$filename} )
-                ? 'No SourceCtrlLog entry found'
-                : ()
-            )
-          );
-    }
-    print join( qq(\n), @output );
 }
 
 sub file_git_rel_to_abs {
@@ -953,6 +919,13 @@ sub do_interactive {
             }
         }
     }
+}
+
+use File::Basename;
+
+sub open_in_emacs {
+    my $emacs_file = dirname( $_[0] ) . '/.#' . basename( $_[0] );
+    return -l $emacs_file;
 }
 
 exit main();
