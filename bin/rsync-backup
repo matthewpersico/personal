@@ -1,0 +1,269 @@
+#!/usr/bin/env bash
+# rsync-backup
+
+# See man flock EXAMPLES for an explanation.  NOTE: This apparently fails to
+# retain profile settings under cron, hence the profile load below.
+[ "${FLOCKER}" != "$0" ] && exec env FLOCKER="$0" flock -E 42 -en "$0" "$0" "$@"
+
+# shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
+source "${TILDAE:-HOME}"/.bash_profile
+
+use on_exit
+
+main()
+{
+    declare -a excludeFromOpts
+    declare -a excludeFromFiles
+    declare -a rsyncOpts
+    declare sparse_git
+    declare moreopts=1
+    while [[ "$1" =~ ^- ]] && ((moreopts))
+    do
+        declare original="$1"
+        shift
+        declare option
+        option=$(dashstripper "$original")
+
+        ## This bit deals with --foo=bar instead of --foo bar
+        declare okey=''
+        declare ovalue=''
+        ## but only deal with it if we really have an option. Otherwise you
+        ## misinterpret items like this git clone option: --config
+        ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
+        if [[ $option =~ ^- ]]; then
+            if [[ "$option" =~ = ]]; then
+                okey=${option%%=*}
+                ovalue=${option#*=}
+                option="$okey"
+            fi
+        fi
+
+        ## Process each option
+        case $option in
+            restore )
+                rsync-backup pause
+                [ -z "$ovalue" ] && ovalue=$1 && shift
+                rsync-restore "$ovalue"
+                cmd-yesno "Resume backups" "n" && rsync-backup resume
+                true; return
+                ;;
+            dry-run | n )
+                rsyncOpts+=('-n')
+                ;;
+            exclude-from | exclude-file )
+                [ -z "$ovalue" ] && ovalue=$1 && shift
+                if [[ ! -r $ovalue ]]; then
+                    echo "Exclude-from file '$ovalue' not found" >&2
+                    false; return
+                fi
+                excludeFromFiles+=("$ovalue")
+                ;;
+            sparse-git )
+                sparse_git=1
+                ;;
+            h | help )
+                bash-usage "$0"
+                true; return
+                ;;
+            --)
+                moreopts=0
+                ;;
+            * )
+                cmd-echo "$original is an invalid option." \
+                         "If it needs to be an rsync option,"\
+                         "add it to the option processing section"\
+                         "of $0"
+                false; return
+                ;;
+        esac
+    done
+
+    echo "$0 is running: $$ $(date)" > "$RSYNCFUNCS_TRACKER"
+    rm-on-exit "$RSYNCFUNCS_TRACKER"
+
+    ## Combine multiple exclude files.
+    tmpeff=$(mktemp -t tmp."$(basename "$0").exclude".XXXXXXXXXX)
+    rm-on-exit "$tmpeff"
+    touch "$tmpeff"
+    declare eff
+    for eff in "${excludeFromFiles[@]}"; do
+        if [[ -n "$eff" ]]; then
+            cat "$eff" >> "$tmpeff"
+            echo "" >> "$tmpeff"
+        fi
+    done
+
+    if ((sparse_git)); then
+        ## Skip the files in each repo that would be cleaned anyway. Assumes
+        ## you git add anything you really need if it is not a repo member. But
+        ## there are a number of exceptions:
+        ## 1 - Source control logs used to git commit.
+        for repo in $(git-go --listfull); do
+            # shellcheck disable=SC2164
+            (cd "$repo"
+             r=${PWD}
+             git clean -dxfn | \
+                 grep -v 'Would skip repository' | \
+                 sed -e "s|Would remove |$r/|" | \
+                 grep -v "$GITFUNCS_SOURCE_CTRL_LOG_NAME"
+            )
+        done >> "$tmpeff"
+    fi
+
+    excludeFromOpts=('--exclude-from' "$tmpeff")
+
+    if (($# != 2)); then
+        echo "Missing src and/or tgt arguments"
+        false; exit
+    fi
+
+    declare src=$1; shift
+    declare tgt=$1; shift
+
+    ##
+    ## set up logging
+    ##
+    mkdir -p "$RSYNCFUNCS_LOG_HOME"
+    logout="$RSYNCFUNCS_LOG_HOME/rsync-backup.$(hostname).log.$(date +%Y-%m-%dT%H-%M-%S)"
+    logerr="${logout}.err"
+
+    ## Purge - we don't need more than 48 hours ago (YES +1 GIVES US 2 DAYS)
+    find "$RSYNCFUNCS_LOG_HOME" -name rsync-backup.log.\* -mtime +1 -delete
+
+    holdstdout=$(get-next-descriptor)
+    eval "exec $holdstdout>&1"  # Save stdout.
+    holdstderr=$(get-next-descriptor)
+    eval "exec $holdstderr>&2"  # Save stderr.
+
+    exec 1> "$logout"
+    exec 2> "$logerr"
+
+    ##
+    ## Start the rsync
+    ##
+    ## -a - "archive" mode, which ensures that symbolic links, devices,
+    ##      attributes, permissions, ownerships, etc. are preserved in the
+    ##      transfer.
+    ## -z - transport compressed
+    ## -r - recurse
+    ## -l - copy symlinks as symlinks
+    ## --safe-links - ignore symlinks that point outside the tree
+    ## -v - verbose
+    ## --delete
+    ##    - if it was deleted in the source, delete it in the target too.
+    ## --delete-excluded
+    ##    - if it was copied previously, but has since been added to an
+    ##      exclusion list, delete it in the target.
+    ## ${rsyncOpts[@]}
+    ##     - any other rsync options passed in
+    ## ${excludeFromOpts[*]}
+    ##     - the exclustion file option and name
+    declare start
+    declare startstr
+    start=$(date +%s)
+    startstr=$(date --date=@"$start")
+    declare -a cmdopts
+    cmdopts=('-a' '-z' '-r' '-l' '--safe-links' '-v' '--delete' '--delete-excluded')
+    echo "** Command: rsync ${cmdopts[*]} ${rsyncOpts[*]} ${excludeFromOpts[*]} $src $tgt"
+    echo "** Logs: $logout $logerr"
+    echo "** Start: $startstr"
+
+    declare rsyncpid
+    rsync "${cmdopts[@]}" "${rsyncOpts[@]}" "${excludeFromOpts[@]}" "$src" "$tgt" &
+    rsyncpid=$!
+
+    ##
+    ## Track it
+    ##
+    declare status
+    echo "** Command PID: $rsyncpid"
+    wait $rsyncpid
+    status=$?
+    declare end
+    end=$(date +%s)
+    declare endstr
+    endstr=$(date --date=@"$end")
+    if [[ -s "$logerr" ]]; then
+        ## Add errors to the main log.
+        echo "** Errors (from $logerr)"
+        cat "$logerr"
+
+        ## Add errors to the original STDERR, so that if this is running under
+        ## cron, there is something to mail.
+        echo "** Errors (from $logerr)"  >&"$holdstderr"
+        cat "$logerr" >&"$holdstderr"
+    fi
+    echo "** End: $endstr"
+    echo "** Elapsed: $(( (end-start)/60 )) minutes, $(( (end-start)%60 )) seconds"
+    echo "** Status: $status"
+    echo
+    echo "** Exclude file contents:"
+    cat "${excludeFromOpts[1]}"
+    echo "** End of exclude file contents"
+
+    ## Remove empty files (primarily the .err if not errors).
+    for i in $logout $logerr "nofile"; do
+        [ -f "$i" ] && [ ! -s "$i" ] && \rm "$i"
+    done
+    return $status
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+rsync-backup - control script to rsync backup and manage the process.
+
+=head1 SYNOPSIS
+
+ rsync-backup --restore path/to/existing/file
+ rsync-backup [--dry-run|-n] [--sparse-git] [--exclude-[from | file] exfile] src tgt
+ rsync-backup -h|--help
+
+=head1 DESCRIPTION
+
+Runs an rsync backup from the BCC VM to the NFS directory where snapshots are
+taken.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item src
+
+=item tgt
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --restore path/to/existing/file
+
+Finds the corresponding path/to/existing/file in the vmshares backups and
+presents a list of snapshots to restore over it.
+
+=item --dry-run|-n
+
+Test the backup without doing it.
+
+=item --sparse-git
+
+Only take the files from git repos that are necessary.
+
+=item --exclude-[from | file] exfile
+
+A file containing paths to exclude from backing up.
+
+=item -h|--help
+
+This text.
+
+=back
+
+=cut
+
+__PODUSAGE__

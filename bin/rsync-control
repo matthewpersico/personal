@@ -1,0 +1,120 @@
+#!/usr/bin/env bash
+# rsync-backup
+
+use on_exit
+use rsync
+
+main()
+{
+    # Keep this definition in sync with the definition in 'rsync-backup.cron'.
+    declare pause_file=$RSYNCFUNCS_PAUSEFILE
+    declare action=$1
+    case $action in
+        status )
+            if [[ -e $RSYNCFUNCS_TRACKER ]]; then
+                cat "$RSYNCFUNCS_TRACKER"
+            elif [[ -r $pause_file ]]; then
+                echo "paused - $pause_file"
+            else
+                echo inactive
+            fi
+            true; return
+            ;;
+        pause )
+            if [[ -e $pause_file ]]; then
+                echo "Sync already paused."
+                false; return
+            else
+                touch "$pause_file"
+                if [[ -e $pause_file ]]; then
+                    echo "Sync paused."
+                    true; return
+                else
+                    echo "Sync not paused."
+                    false; return
+                fi
+            fi
+            ;;
+        unpause | resume )
+            if [[ ! -e $pause_file ]]; then
+                echo "Sync already ${action}d."
+                false; return
+            else
+                rm -f "$pause_file"
+                if [[ ! -e $pause_file ]]; then
+                    echo "Sync ${action}d."
+                    true; return
+                else
+                    echo "Sync not ${action}d."
+                    false; return
+                fi
+            fi
+            ;;
+        clear )
+            rm -i "$RSYNCFUNCS_FAILCOUNTER"
+            return $?
+            ;;
+        -h | --help )
+            bash-usage "$0"
+            true; return
+            ;;
+        * )
+            cmd-echo "$action is an invalid action."
+            bash-usage "$0"
+            false; return
+            ;;
+    esac
+
+}
+
+main "$@"
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+rsync-control- manage rsync backup process.
+
+=head1 SYNOPSIS
+
+ rsync-control status
+ rsync-control clear
+ rsync-control pause | unpause | resume
+ rsync-control -h|--help
+
+=head1 DESCRIPTION
+
+Controls and checks the rsync process.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item status
+
+Shows if backup cron job is running, not running or paused.
+
+=item clear
+
+Removes the failcounter file that stops the backup cronn job if too many
+consecutive errors occur. This allows the cronjob to resume running.
+
+=item pause | unpause | resume
+
+Pauses or resumes backup cron job with semaphore file $RSYNCFUNCS_PAUSEFILE .
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -h|--help
+
+This text.
+
+=back
+
+=cut
+
+__PODUSAGE__

@@ -1,0 +1,141 @@
+#!/usr/bin/env perl
+
+use strict;
+use warnings;
+
+use Cwd qw(abs_path);
+use File::Basename;
+use File::stat;
+use File::Copy;
+use Pod::Usage;
+use Term::UI;
+use Term::ReadLine;
+use Getopt::Long;
+
+my %opt = (
+    'help' => 0,
+    'diff' => 0,
+);
+
+GetOptions( \%opt, 'diff', 'help' ) or pod2usage( message => "Bad options" );
+
+if ( !@ARGV or $opt{help} ) {
+    pod2usage(0);
+}
+
+my $filepath = abs_path( $ARGV[0] );
+if ( not defined $filepath ) {
+    die
+"Cannot resolve $ARGV[0]. Is the path to the file correct, relative to pwd?\n";
+}
+my $file   = basename($filepath);
+my $dir    = dirname($filepath);
+my $reldir = $dir;
+
+$reldir =~ s|/home/||;
+my $rsync_loc = "$ENV{RSYNCFUNCS_BACKUP_ROOT}/$reldir/.snapshot";
+
+my $globit = "$rsync_loc/*/$file";
+if ( -d $globit ) {
+    $globit += '/*';
+}
+
+my %candidates = map {
+    ( $_ =~ m|$rsync_loc/(.*)| ) => {
+        full    => $_,
+        partial => ( $_ =~ m|$rsync_loc/(.*)| ),
+        mtime   => scalar( localtime( stat($_)->mtime ) )
+    }
+} glob($globit);
+
+my $term  = Term::ReadLine->new("$0");
+my $reply = $term->get_reply(
+    prompt  => 'Pick one to restore:',
+    choices => [
+        (
+            map  { "($_->{mtime}) $_->{partial}" }
+            sort { $a->{partial} cmp $b->{partial} } values(%candidates)
+        ),
+        'None'
+    ],
+);
+my $which = $reply;
+if ( $which eq 'None' ) {
+    exit 0;
+}
+$which =~ s/\(.*\) //;
+my $from = $candidates{$which}->{full};
+if ( $opt{diff} ) {
+    print qx(diff $from $filepath);
+    $reply = $term->get_reply(
+        prompt  => 'Ok to restore:',
+        choices => [ 'y', 'n' ],
+    );
+    if ( $reply ne 'y' ) {
+        exit 0;
+    }
+
+}
+if ( copy( $from, $filepath ) ) {
+    exit 0;
+} else {
+    exit 1;
+}
+
+=head1 NAME
+
+rsync-restore - restore an rsync backup of a file
+
+=head1 SYNOPSIS
+
+ rsync-restore [--diff] path/to/current/file
+
+=head1 DESCRIPTION
+
+Find the file in the vmstashes rsync location. Print a menu of possible
+snapshots to read from. Pick one. File is restored.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item file
+
+File you want to restore over. That file is located from $ENV{HOME} and mapped
+to the snapshots in vmstashes. Pick one from the menu.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --diff
+
+Do a diff between current and backup files before copying.
+
+=item --help
+
+This text.
+
+=back
+
+=head1 TODO
+
+=over 4
+
+=item Make it work for files that DNE
+
+This will require entering a file name, possibly with a path and building a pick menu from a .snapshot directory.
+
+=item Make it work for directories
+
+What to do about files that exist locally but not in the snapshot? Probably keep them.
+
+=item Make it work for directories that DNE
+
+This will require entering a directory name, possibly with a path and building a pick menu from a .snapshot directory.
+
+=back
+
+=cut

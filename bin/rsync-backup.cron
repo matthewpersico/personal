@@ -1,0 +1,95 @@
+#!/usr/bin/env bash
+
+# rsync-backup.cron
+
+echo "**** Starting rsync-backup.cron at $(date) ****"
+
+write_failcounter ()
+{
+    cat <<EO >"$RSYNCFUNCS_FAILCOUNTER"
+$1 ## cumulative error count
+$2 ## next notify date (string)
+$3 ## next notify date (epoch)
+$( (( $1 > 0 )) && echo "ERROR")
+EO
+}
+
+rm_failcounter ()
+{
+    if [[ -r "$RSYNCFUNCS_FAILCOUNTER" ]]; then
+        echo "Removing $RSYNCFUNCS_FAILCOUNTER"
+        /bin/rm -f "$RSYNCFUNCS_FAILCOUNTER"
+    fi
+}
+
+declare obey_fail=1
+[[ "$1" = '--ignore-fail' ]] && shift && obey_fail=0
+
+declare failcount=0
+declare faildate=0
+declare notifyepoch=0
+declare status=0
+if [[ -r $RSYNCFUNCS_PAUSEFILE ]]; then
+    if $CRON; then
+        echo "Sync paused:"
+        ls -la "$RSYNCFUNCS_PAUSEFILE"
+        false; exit
+    else
+        echo "Not running under cron, pause file ignored"
+    fi
+fi
+
+failcount=0
+if ((obey_fail)); then
+    faildate=$(date --date=@0)
+    notifyepoch=0
+    if [[ -r "$RSYNCFUNCS_FAILCOUNTER" ]]; then
+        declare -a failinfo
+        mapfile failinfo < "$RSYNCFUNCS_FAILCOUNTER"
+        failcount=${failinfo[0]// ##*/}
+        faildate=${failinfo[1]// ##*/}
+        notifyepoch=${failinfo[2]// ##*/}
+    fi
+fi
+
+if ((failcount >= 3 )); then
+    now=$(date +%s)
+    notify=0
+    if((now - notifyepoch > 60*60*6))
+    then
+        ## Updating the date when we complain will reset the wait time.
+        write_failcounter "$failcount" "$faildate" "$(date +%s)"
+        notify=1
+    fi
+    if ((notify)); then
+        echo "rsync-backup.cron has failed three times in a row, last at $faildate. No longer running until it is fixed. Next message in 6 hours. Delete $RSYNCFUNCS_FAILCOUNTER to release."
+        status=1
+    fi
+else
+    declare rsync_backup_tgt="$RSYNCFUNCS_BACKUP_ROOT"
+    [[ -h $rsync_backup_tgt ]] && rsync_backup_tgt=$(readlink "$rsync_backup_tgt")
+    declare -a exclude_file_args
+    declare _rb_i
+    for _rb_i in $RSYNCFUNCS_PERSONAL_EXCLUDE_TEMPLATE \
+                     $RSYNCFUNCS_EMPENV_EXCLUDE_TEMPLATE; do
+        if [[ -r $_rb_i ]]; then
+            exclude_file_args+=(--exclude-file "$_rb_i")
+        fi
+    done
+    rsync-backup --sparse-git "${exclude_file_args[@]}" \
+                 "$HOME" "$rsync_backup_tgt"
+    status=$?
+    if ((status == 0)); then
+        rm_failcounter
+        echo "rsync-backup succeeded"
+    else
+        echo "rsync-backup failed, status $status"
+        ((failcount+=1))
+        faildate=$(date)
+        ## The '0' ensures we get ## the first notification in a timely
+        ## fashion, should there be three errors in a row.
+        write_failcounter "$failcount" "$faildate" 0
+    fi
+fi
+
+exit $status
