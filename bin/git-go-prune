@@ -5,18 +5,24 @@
 cmd-echo "Processing clean, non-open-pr repos"
 
 declare -A skip
+declare -A never_prune
+declare np
+for np in $(listpath GIT_IMPORTANT_REPO_LIST); do
+    never_prune[$np]=1
+done
 
 # | reverse is so that we do worktrees before their parent directories
-for i in $(git-go --listfull | reverse ); do
-    if [[ $i =~ personal|bloomberg ]]; then
-        cmd-echo --head --wc "Skipping $i, by request"
+declare _ggp_i
+for _ggp_i in $(git-go --listfull | reverse ); do
+    if [[ -n ${never_prune[$_ggp_i]} ]]; then
+        cmd-echo --head --wc "Skipping $_ggp_i, important repo"
         continue
-    if [[ -n ${skip[$i]} ]]; then
-        cmd-echo --head --wc "Skipping $i, worktrees still exist"
+    if [[ -n ${skip[$_ggp_i]} ]]; then
+        cmd-echo --head --wc "Skipping $_ggp_i, worktrees still exist"
         continue
     fi
     (
-        if cd "$i"; then
+        if cd "$_ggp_i"; then
             if git repo is pristine -v \
                     && ! git repo pr --get \
                     && cmd-echo --head "$(pwd)"; then
