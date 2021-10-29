@@ -1,0 +1,97 @@
+#!/usr/bin/env perl
+
+# python-version-verify
+use 5.16.3;
+use strict;
+use warnings;
+
+use File::Find;
+use Getopt::Long;
+
+my %opt = ( max => 999.999 );
+GetOptions(
+    \%opt,
+    qw(max=s
+      verbose
+      nowarn
+      version_only|version-only)
+) or die "Bad options";
+
+# This is the max version we want. Useful you are not ready for the latest.
+my %max;
+@max{qw(maj min)} = get_maj_min( $opt{max} );
+
+# Find all the python versions there are. Take ourselves out of the search so
+# we don't get any existing shortcut.
+my %pys;
+my @warns;
+my @paths = grep { !m|$ENV{HOME}| } split( /:/, $ENV{PATH} );
+my $sidx  = 0;
+my %paths = map { $_ => $sidx++ } @paths;
+find( { wanted => \&wanted }, keys %paths );
+
+# Sort them
+my @pys =
+  map { $_->{dir} . q(/) . $_->{name} }
+  sort {
+    $paths{ $a->{dir} } cmp $paths{ $b->{dir} }    ## same order as they appear in PATH
+      || $b->{maj} <=> $a->{maj}                   ## higher versions of python are preferred.
+      || $b->{min} <=> $a->{min}                   ## higher versions of python are preferred.
+  } values(%pys);
+
+# Warn Every. Single. Time. If we are not cron.
+if ( ( !$ENV{CRON} || $ENV{CRON} eq 'false' )
+    and !$opt{nowarn} )
+{
+    for (@warns) {
+        warn ">>> WARNING: "
+          . "Python version $_->{found} is greater than requested max $_->{max}. Ignoring.\n";
+    }
+}
+
+if ( $opt{verbose} ) {
+    say( join( "\n", @pys ) );
+    exit;
+}
+if ( $opt{version_only} ) {
+    $pys[0] =~ s/.*python//;
+}
+
+say( $pys[0] );
+
+sub wanted {
+    if (
+        defined $paths{$File::Find::dir}    # Level 1 no subdirs
+        and -f $_                           # files, no dirs
+        and $_ =~ m/^python([0-9.]+)$/      # python executable
+      )
+    {
+        my %info = (
+            version => $1,
+            name    => $_,
+            dir     => $File::Find::dir
+        );
+        ( $info{maj}, $info{min} ) = get_maj_min( $info{version} );
+        if (
+            $info{maj} < $max{maj}
+            or (    $info{maj} == $max{maj}
+                and $info{min} <= $max{min} )
+          )
+        {
+            $pys{$File::Find::name} = \%info;
+        } else {
+            push @warns,
+              {
+                found => $info{version},
+                max   => $opt{max}
+              };
+        }
+        my $dummy = 6;
+    }
+}
+
+sub get_maj_min {
+    my @mm = split( /\./, $_[0] );
+    $mm[1] ||= 0;
+    return @mm;
+}
