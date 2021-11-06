@@ -38,10 +38,6 @@ my %opt = (
     update => 0,
     keep   => 0,
 
-    mod       => 0,
-    untracked => 0,
-    all       => 0,
-
     verbose      => 0,
     silent       => 0,
     show_command => 0,
@@ -52,6 +48,14 @@ my %opt = (
 
     help => 0,
 
+);
+
+# To keep these particular default settings out of %opt so we can tell the
+# difference between defaults and being set when mutex checking.
+my %mua = (
+    mod       => is_git_repo,
+    untracked => 0,
+    all       => !is_git_repo
 );
 
 my $chattiness = VLEVEL0;
@@ -118,10 +122,19 @@ sub check_options {
       if $opt{update} and $opt{use_fail};
     die "Cannot set --names-only and --use-fail|--testing"
       if $opt{names_only} and $opt{use_fail};
+
     die "Cannot set --all and --mod"
       if $opt{all} and $opt{mod};
     die "Cannot set --all and --untracked"
       if $opt{all} and $opt{untracked};
+
+    @mua{qw(mod all untracked)} = (
+        $opt{mod}       // $mua{mod},
+        $opt{all}       // $mua{all},
+        $opt{untracked} // $mua{untracked},
+    );
+
+    my $ummy = 6;
 }
 
 sub process_diffs {
@@ -273,11 +286,7 @@ sub main {
     check_options();
 
     my $source;
-    my @files = get_files(
-        all       => $opt{all},
-        mod       => $opt{mod},
-        untracked => $opt{untracked},
-    );
+    my @files = get_files(%mua);
 
     ## Some preliminary info outputs
     system(qw(perltidy @{$opt{ptopts}} -ddf))  if ( $chattiness >= VLEVEL2 );

@@ -384,30 +384,50 @@ git-branch-comment ()
 
 _git-branch-vv-sort ()
 {
-    # Sort so that origin is always on top.
+    # Sort so that origin is always on top and the text is justified.
     perl -e '
+    use strict;use warnings;
+    my $maxbracket=0;
+    my @out;
+    for my $line (qx(git branch -vv)) {
+        my $bracketloc = index( $line, q(]) );
+        push @out, { left => substr($line, 0, $bracketloc+1),
+                     right => substr($line, $bracketloc+2),
+                     bracketloc => $bracketloc,
+                     line => $line };
+        ($bracketloc > $maxbracket) and $maxbracket = $bracketloc;
+    }
+    for my $d (@out) {
+        $d->{right} = q( ) x ($maxbracket - $d->{bracketloc} + 1) . $d->{right};
+    }
     print
+      map { "$_->{left}$_->{right}" }
       sort {
-      ( $a =~ /\[origin/ and $b !~ /\[origin/ )
+      ( $a->{line} =~ /\[origin/ and $b->{line} !~ /\[origin/ )
       ? -1
-      : ( $b =~ /\[origin/ and $a !~ /\[origin/ )
+      : ( $b->{line} =~ /\[origin/ and $a->{line} !~ /\[origin/ )
         ? 1
-        : substr($a,1) cmp substr($b,1);
-      } qx(git branch -vv)
+        : substr($a->{line},1) cmp substr($b->{line},1);
+      } @out;
 '
 }
 
 git-branch-sync ()
 {
     # Get the source and any specific targets
-    declare source=$1;shift
     declare -A targs
     declare filter_targs=0
-    while (($#)); do
-        filter_targs=1
-        targs[$1]=1
+    declare source=$1
+    if [[ -n $source ]]; then
         shift
-    done
+        while (($#)); do
+            filter_targs=1
+            targs[$1]=1
+            shift
+        done
+    else
+        source=$(git-branch-list --current)
+    fi
 
     (
         cd "$(git root)" || return 1
@@ -486,6 +506,10 @@ git-branch-sync ()
         # Show results
         cmd-echo --title --color REVBLUE -- "Full branch list after sync..."
         _git-branch-vv-sort
+
+        # Return to the source branch since it very likely you will do the next
+        # sync from the same branch.
+        git switch "${source}" || return 1
     )
     return $?
 }

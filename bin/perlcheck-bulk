@@ -3,6 +3,10 @@
 use 5.16.3;
 use warnings;
 
+use Cwd qw(abs_path);
+use Getopt::Long;
+use Test::More;
+
 # To find PerlBulkUtils
 use FindBin qw($RealBin);
 use lib "$RealBin/../lib";
@@ -12,39 +16,52 @@ use PerlBulkUtils qw(
   message
   process_eval_file
   process_exclusions
+  is_git_repo
 );
 
-use Getopt::Long;
-use Test::More;
-
+## Globals
 my %opt = (
-    I         => [],
-    mod       => 0,
-    untracked => 0,
-    all       => 0,
+    use_libs => 1,
+    I        => [],
 
     stop_on_first => 0,
 
     testing  => 0,
-    progress => 0,
+    progress => 1,
     help     => 0,
 
 );
 
-our @libs;
+# To keep these particular default settings out of %opt so we can tell the
+# difference between defaults and being set when mutex checking.
+my %mua = (
+    mod       => is_git_repo,
+    untracked => 0,
+    all       => !is_git_repo
+);
+
+our @libs;    # 'our' so that .perlcheck.libs files can push onto @main::libs
+
+## Functions
 
 sub check_options {
     ## Option processing
     GetOptions(
         \%opt,
         (
+            'use_libs|use-libs!',
             'I=s@',
             'mod|mod-only|mod_only',
             'untracked',
             'all',
-'stop_on_first|stop-on-first|stop_on_first_error|stop-on-first-error',
+            join(
+                '|', qw(stop_on_first
+                  stop-on-first
+                  stop_on_first_error
+                  stop-on-first-error)
+            ),
             'testing',
-            'progress',
+            'progress!',
             'help',
         )
     ) or die "Bad argument, see --help for documentation.\n";
@@ -56,8 +73,14 @@ sub check_options {
     die "Cannot set --all and --untracked"
       if $opt{all} and $opt{untracked};
 
+    @mua{qw(mod all untracked)} = (
+        $opt{mod}       // $mua{mod},
+        $opt{all}       // $mua{all},
+        $opt{untracked} // $mua{untracked},
+    );
+
     for my $I ( @{ $opt{I} } ) {
-        push @libs, "-I$I";
+        push @libs, "-I" . abs_path($I);
     }
 }
 
@@ -124,20 +147,20 @@ sub main {
 
     check_options();
 
-    my @files = get_files(
-        all       => $opt{all},
-        mod       => $opt{mod},
-        untracked => $opt{untracked}
-    );
+    my @files = get_files(%mua);
 
     @files = process_exclusions( '.perlcheck.exclusions', @files );
     if ( !@files ) {
         die "No files left to process after exclusions were applied.\n";
     }
 
-    process_eval_file('.perlcheck.libs');
+    if ( $opt{'use_libs'} ) {
+        process_eval_file('.perlcheck.libs');
+    }
     return process_files(@files);
 }
+
+## Start here
 
 exit main();
 
@@ -185,14 +208,13 @@ be used as a drop-in replacement for that code.
 In order to be able to find libraries when not installed, it is important to
 specify to the Perl interpreter where the libraries can be found. In addition
 to accepting '-I' options on the command line, we provide for the use of a
-'.perlcheck.inc' file.
+'.perlcheck.libs' file.
 
 The format of the file is:
 
- @main::libs = (
+ push @main::libs,
      "-I$ENV{PWD}/../lib", # location relative to current dir
-     "-I/Some/hardcoded/test/lib"
- );
+     "-I/Some/hardcoded/test/lib";
 
 In other words, you put the -I options you'd need to feed to perl in this file
 and keep it with your project. The 'main::' part is required because of Perl
@@ -202,6 +224,10 @@ As with the exclusions file, '.perltidy.inc' is simply Perl code that is
 processed by reading in the text and 'eval'ing it. Syntax errors will be
 caught. The file is searched for in the current directory and, if not found,
 traversing up the directory tree.
+
+If both -I options are provided AND a .perlcheck.libs file is found, the -I
+directories will be searched first (appear in @INC before the .perlcheck.libs
+entries).
 
 =head1 OPTIONS
 
@@ -248,8 +274,8 @@ Any file arguments are ignored.
 
 =item -I path/to/lit
 
-If you need to specify a '-I' option to Perl to find a library, specify it
-here.
+If you need to one ore more '-I' options to Perl to find libraries, specify
+them here.
 
 =item --stop-on-first-error
 
@@ -262,10 +288,14 @@ Use this option when running in a test harness. We will call 'pass' when syntax
 is ok, 'fail' and 'diag' when it's not. If the option is not set, we simply
 print the same messages to STDERR.
 
-=item --progress
+=item --no-progress
 
-We do not print anything if the syntax is ok. If you want to see ok statuses,
+We print the status of each file as processed. If you only want to see errors.
 use this option.
+
+=item --no-use-libs
+
+Use this option to ignore all '.perlcheck.libs' files.
 
 =item --help
 
