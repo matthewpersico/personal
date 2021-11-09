@@ -24,6 +24,7 @@ uniqpath ()
     typeset options_num_args_left
     typeset opt_h opt_p opt_s
     typeset opt_x opt_v
+    typeset opt_d
     typeset sep=:
 
     typeset pathvar TEMP
@@ -31,7 +32,7 @@ uniqpath ()
     pathfunc_usage_init
     typeset -a USAGE
     USAGE=(
-        "uniqpath [-h] [-s separator] [-x] [-v] [[-p] pathvar] "
+        "uniqpath [-h] [-s separator] [-x] [-v] [-d] [[-p] pathvar] "
         "Removes subsequent occurrances of path elements."
         "$USAGE_OPT_P1"
         "$USAGE_OPT_P2"
@@ -39,6 +40,7 @@ uniqpath ()
         "$USAGE_OPT_P4O"
         "$USAGE_OPT_P5"
         "$USAGE_OPT_S"
+        "-d - after uniquing each dir, only keep if the dir exists"
         "$USAGE_OPT_X"
         "$USAGE_OPT_V"
         "$USAGE_OPT_H"
@@ -48,11 +50,11 @@ uniqpath ()
     # handle options
     ###########################################################################
 
-    options "hp:s:xv" "$@"
+    options "hp:ds:xv" "$@"
     shift "$options_shift_val"
 
     if [[ -n "$opt_h" ]]; then
-        Usage "${USAGE[@]}"
+        pathfunc_usage "${USAGE[@]}"
         return
     fi
     if [[ -n "$options_missing_arg" ]]; then
@@ -78,22 +80,22 @@ uniqpath ()
     # Long path variable values may overflow arg list limits on some Unices. It
     # is also difficult, in a series of pipes, to deal with paths that have
     # spaces in them . Therefore we use an intermediate file.
-
     TEMP=/tmp/uniqpath.out.$$
     listpath -s "${sep}" -p $pathvar | awk '{seen[$0]++; if (seen[$0]==1){print}}' > $TEMP
     local newvalue
     local line
     while read -r line; do
-        [[ -n "$newvalue" ]] \
-            && newvalue="${newvalue}${sep}${line}" \
-                || newvalue="${line}"
+
+        # If the directory doesn't exist and we have the "don't include
+        # non-existent directories flag' thrown, don't add it back to the path.
+        [[ ! -d "$line" ]] && [[ -n "$opt_d" ]] && continue
+        newvalue="${newvalue}${sep}${line}"
     done < $TEMP
-    eval $pathvar="'$newvalue'"
+    eval $pathvar="'${newvalue:1}'" ## Eliminate suplerfluous lead separator
     /bin/rm -f $TEMP
     [[ -n "$opt_v" ]] && listpath -s "${sep}" -p $pathvar
     # shellcheck disable=SC2163
     [[ -n "$opt_x" ]] && export $pathvar
-
 }
 
 # emacs
