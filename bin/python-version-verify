@@ -5,7 +5,6 @@ use 5.16.3;
 use strict;
 use warnings;
 
-use File::Find;
 use Getopt::Long;
 
 my %opt = ( max => 999.999 );
@@ -23,12 +22,11 @@ my %max;
 
 # Find all the python versions there are. Take ourselves out of the search so
 # we don't get any existing shortcut.
-my %pys;
 my @warns;
 my @paths = grep { !m|$ENV{HOME}| } split( /:/, $ENV{PATH} );
 my $sidx  = 0;
 my %paths = map { $_ => $sidx++ } @paths;
-find( { wanted => \&wanted }, keys %paths );
+my %pys   = find_pys( keys %paths );
 
 # Sort them
 my @pys =
@@ -59,35 +57,42 @@ if ( $opt{version_only} ) {
 
 say( $pys[0] );
 
-sub wanted {
-    if (
-        defined $paths{$File::Find::dir}    # Level 1 no subdirs
-        and -f $_                           # files, no dirs
-        and $_ =~ m/^python([0-9.]+)$/      # python executable
-      )
-    {
-        my %info = (
-            version => $1,
-            name    => $_,
-            dir     => $File::Find::dir
-        );
-        ( $info{maj}, $info{min} ) = get_maj_min( $info{version} );
-        if (
-            $info{maj} < $max{maj}
-            or (    $info{maj} == $max{maj}
-                and $info{min} <= $max{min} )
-          )
-        {
-            $pys{$File::Find::name} = \%info;
-        } else {
-            push @warns,
-              {
-                found => $info{version},
-                max   => $opt{max}
-              };
+use IO::Dir;
+
+sub find_pys {
+    my %pys;
+    for my $path (@_) {
+        my $d = IO::Dir->new($path);
+        next if !defined $d;
+        my $name;
+        while ( defined( $name = $d->read ) ) {
+            if ( $name =~ m/^python(([0-9])|([0-9]\.[0-9]+))$/ ) {
+                # python executable, avoiding stupid links like python36
+                my %info = (
+                    version => $1,
+                    name    => $name,
+                    dir     => $path
+                );
+                ( $info{maj}, $info{min} ) = get_maj_min( $info{version} );
+                if (
+                    $info{maj} < $max{maj}
+                    or (    $info{maj} == $max{maj}
+                        and $info{min} <= $max{min} )
+                  )
+                {
+                    $pys{"${path}/${name}"} = \%info;
+                } else {
+                    push @warns,
+                      {
+                        found => $info{version},
+                        max   => $opt{max}
+                      };
+                }
+            }
         }
         my $dummy = 6;
     }
+    return %pys;
 }
 
 sub get_maj_min {
