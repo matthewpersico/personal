@@ -1,6 +1,8 @@
 #!/usr/bin/env bash
 
 # git-branch - no .gitaudit, called on every prompt
+use mktemp
+use on_exit
 
 ## Functions that encapsulate the enhanced functionality. main() is defined
 ## last and called last.
@@ -487,6 +489,10 @@ git-branch-sync ()
             return
         fi
 
+        declare source_commit
+        source_commit=$(git rev-parse HEAD)
+        pulloutput=$(mktempfile)
+        rm-on-exit "$pulloutput"
         declare target
         for target in "${!brm[@]}"; do
             cmd-echo --title --color REVBLUE -- "Syncing $target..."
@@ -494,13 +500,16 @@ git-branch-sync ()
             # Copy the new commits from 'source' onto 'target':
             git switch "${target}" || return 1
             git pull || return 1
-            git merge --ff-only "${source}" || return 1
+            declare target_commit
+            target_commit=$(git rev-parse HEAD)
+            if [[ $source_commit != "$target_commit" ]]; then
+                git merge --ff-only "${source}" || return 1
 
-            # Send 'em off to the remote
-            declare remote_ref="${brm[${target}]%%/*}"
-            declare remote_branch="${brm[${target}]##*/}"
-            git push "$remote_ref" "HEAD:${remote_branch}" || return 1
-
+                # Send 'em off to the remote
+                declare remote_ref="${brm[${target}]%%/*}"
+                declare remote_branch="${brm[${target}]##*/}"
+                git push "$remote_ref" "HEAD:${remote_branch}" || return 1
+            fi
         done
 
         # Show results
@@ -516,17 +525,21 @@ git-branch-sync ()
 main ()
 {
     local action=$1
-
-    if [[ "$action" =~ ^-+h ]]; then
-        git-usage "$0"
-        return  0
-    fi
-
-    if [[ "$action" =~ ^-+current ]]; then
-        shift
-        git-branch --list --current "$@"
-        return $?
-    fi
+    case $action in
+        -h | --help)
+            git-usage "$0"
+            return  0
+            ;;
+        --current)
+            shift
+            git-branch --list --current "$@"
+            return $?
+            ;;
+        --vv)
+            git-branch -vv
+            return $?
+            ;;
+    esac
 
     declare opt_re='delete|rename|orphan|track-remote|remote-track|fetch-remote|remote-fetch|prune-remote|remote-prune|list|comment|sync'
     if [[ "$action" =~ ^-+($opt_re) ]]; then
@@ -565,6 +578,7 @@ git-branch - git extention of git branch
  git branch --current
  git branch --comment
  git branch --sync source-branch [target-branch-ish...]
+ git branch --vv
 
 =head1 DESCRIPTION
 
@@ -603,6 +617,10 @@ strategy keeps all the branches in sync without any extraneous merge commits.
 The "target-branch-ish" arguments are pattern matches against the
 B<remote/branch> spec. Matching branches on different remotes care
 distinguished by specifying B<remote/branch> instead co just B<branch>.
+
+=item --vv
+
+Synonym for -vv.
 
 =back
 
