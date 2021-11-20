@@ -15,217 +15,244 @@ _git-repo-date-to-epoch ()
     date -d "${1/./ }" +%s
 }
 
-git-repo-is ()
+git-repo-check ()
 {
-    local verbose=0
-    if [[ "$1" =~ -v ]]; then
-        verbose=1
+    git-repo-check-with "$@"
+}
+
+git-repo-check-with ()
+{
+    local arg1=$1
+    if [[ $arg1 =~ ^--def ]]; then
         shift
+        local branch_name
+        branch_name=$(git-repo-default-branch)
+        ## clone-and-fork repos need to check with the default branch in the
+        ## canonical upstream branch.  If there is no 'upstream', then it's
+        ## probably a clone only, so check against the default branch in
+        ## origin.
+        local status
+        local upstream
+        upstream=$(git remote get-url upstream 2>/dev/null)
+        if [[ -n "${upstream}" ]]; then
+            cmd-echo -- "checking with branch '${branch_name}' in upstream '${upstream}'"
+            git-check-with-remote --remote upstream --branch "$branch_name" "$@"
+            status=$?
+        else
+            local origin
+            origin=$(git remote get-url origin 2>/dev/null)
+            if [[ -n "${origin}" ]]; then
+                cmd-echo -- "checking with branch '${branch_name}' in origin '${origin}'"
+                git-check-with-remote --remote origin --branch "$branch_name" "$@"
+                status=$?
+            else
+                cmd-echo --ec -- "Current repo is not a clone of a remote"
+                status=1
+            fi
+        fi
+    else
+        git-check-with-remote "$@"
+        status=$?
     fi
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || { false; return; } }
-    git rev-parse --show-toplevel 2>/dev/null 1>&2
-    status=$?
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd -    || { false; return; } }
-    (( verbose )) && ( (( status )) && echo false || echo true )
     return $status
 }
 
-git-repo-isa () { git-repo-is "$@"; }
-git-repo-ina () { git-repo-is; }
-
-git-repo-is_clean ()
+git-repo-current-branch ()
 {
-    (( $(git st --porcelain | grep -cv '??') == 0 ))
-}
-
-git-repo-is_spotless ()
-{
-    git-repo-is_pristine "$@"
-}
-
-git-repo-is_pristine ()
-{
-    (( $(git st --porcelain | wc -l) == 0 )) \
-        && ( git worktree ina || (( $(git worktree list | wc -l) == 1 )) ) \
-        && { true; return; }
-    if [[ $1 == '-v' ]]; then
-        (( $(git st --porcelain | wc -l) != 0 )) && git status
-        if ! git worktree ina && (( $(git worktree list | wc -l) != 1 )); then
-            echo Found worktrees:
-            git worktree list | tail -n +2 # Do not print the root repo for the
-                                           # worktrees, which is always the
-                                           # first entry of the wt list
-                                           # command.
-        fi
+    local warn=1
+    if [[ $1 == '--no-warn' ]]; then
+         warn=0
+         shift
     fi
-    false
-}
 
-git-repo-is_up_to_date ()
-{
-    local branch_status
-    branch_status=$(git status | grep 'Your branch is')
-    local verbose=0
-    if [[ "$1" =~ -v ]]; then
-        echo "$branch_status"
-    fi
-    if [[ -z $branch_status ]] || [[ $branch_status =~ 'Your branch is up to date' ]]; then
-        true
+    if [[ -n $1 ]]; then
+        cmd-echo --ec -- "Cannot set current branch yet"
+        false;return $?
     else
-        false
-    fi
-    return
-}
-
-git-repo-is_fork ()
-{
-    local print=0
-    if [[ $1 == '--print' ]] || [[ $1 == 'of' ]]; then
-        shift
-        print=1
-    fi
-    (
-        # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
-        \cd "${1:-.}" # so that the git remote works on the current dir as well
-                     # as a specified repo dir
-        local origin
-        local fork_of=''
-        origin=$(git remote get-url origin)
-        if [[ -n $origin ]]; then
-            local server=${origin%%:*}
-            local repo_path=${origin##*:}
-            fork_of=$(perl -e'
-   use JSON::PP::Boolean;
-our $VAR1;
-eval "@ARGV";
-$VAR1->{parent} && print $VAR1->{parent}{full_name};
-' "$( github-api --silent --server "$server" --perl-data url repos/"$repo_path")")
+        local cb
+        cb=$($REALGIT branch --show-current)
+        if [[ -z $cb ]]; then
+            ((warn)) && cmd-echo --wc -- "--show-current can't find current branch. Are you in a rebase? Falling back to alt method"
+            cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
+            if [[ -z $cb ]]; then
+                ((warn)) && cmd-echo --ec -- "Cannot get current branch"
+                false;return $?
+            fi
         fi
-        ((print)) && [[ -n "$fork_of" ]] && echo "$fork_of"
-        [[ -n "$fork_of" ]] ## return value
-    )
-}
-
-git-repo-is_worktree ()
-{
-    if [[ -f $(git root)/.git ]]; then
-        if [[ $1 == 'of' ]]; then
-            realpath "$(git root)/$(sed 's/gitdir: \(.*\)\/\.git\/.*/\1/' < "$(git root)/.git")"
-        fi
-        true
-    else
-        false
+        echo "$cb"
     fi
+    true
 }
 
-git-repo-is_openpr ()
+git-repo-show-current-branch ()
 {
-    git fetch
-    local server upstream_namespace origin_namespace repo current_branch
-    local -A namespaces
-
-    server=$(git-get-default-remote --server)
-
-    upstream_namespace=$(git-repo-is_fork of | sed 's/\/.*//')
-    [[ -n $upstream_namespace ]] && namespaces["$upstream_namespace"]=1
-
-    origin_namespace=$(git-get-default-remote --namespace)
-    namespaces["$origin_namespace"]=1
-
-    repo=$(git-repo-name)
-    current_branch=$(git-repo-current-branch)
-
-    local -a output
-    for tgt_namespace in "${!namespaces[@]}"; do
-        local tmpfile;
-        # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
-        tmpfile=$(mktempfile)
-        rm-on-exit "$tmpfile"
-
-        github-api --server "$server" --perl-data pulls "$tgt_namespace/$repo" > "$tmpfile"
-        local tmpout
-        tmpout=$(perl -e '
-do $ARGV[0];
-for $entry (@$VAR1) {
-    if ( $entry->{user}->{login} eq $ENV{USER}
-         &&
-         $entry->{head}->{ref} eq $ARGV[1] ) {
-        print($entry->{_links}->{html}->{href});
-    }
-}
-' "$tmpfile" "$current_branch")
-        [[ -n $tmpout ]] && output+=("$tmpout")
-    done
-    if [[ "${#output[@]}" == '0' ]]; then
-        echo "No open pull requests"
-        false; return
-    else
-        for o in "${output[@]}"; do
-            echo "$o"
-        done
-        true; return
-    fi
-}
-
-git-repo-info ()
-{
-    cmd-echo --title "Configs:"
-    git-repo-config --no-pr
-    if [[ $1 != '--no-pulls' ]]; then
-        local pr_data
-        pr_data=$(git-repo-pr-get "$1")
-        # shellcheck disable=SC2181 #https://github.com/koalaman/shellcheck/wiki/SC2181
-        if (($?==0)); then
-            cmd-echo -n -- "Latest pull request:"
-            echo " $pr_data"
-        else
-            cmd-echo -- "No pull request found for this repo/branch."
-        fi
-    fi
-}
-
-git-repo-config ()
-{
-    local no_pr_info=$1
-    local -a lines
-    local cb; cb="$(git-repo-current-branch)"
-    local wt; wt="$(git-worktree ina -v)"
-    mapfile -t                 lines < <(git config --get-regexp "extmeta\." | sort)
-    [[ -n $cb ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "branch.$cb" | sort)
-    [[ -n $wt ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "worktree.$wt" | sort)
-    mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "remote.*.url" | sort)
-    local -a display
-    for line in "${lines[@]}"; do
-        read -r key value <<< "$line"
-        [[ -n $no_pr_info ]] && [[ $key =~ ${GIT_EXT_META_PREFIX}-pr ]] && continue
-        (( ${#key} > max )) && max=${#key}
-        display+=("$key" "$value")
-    done
-    ((max+=1))
-    printf "%-${max}s: %s\n" "${display[@]}"
-}
-
-git-repo-name ()
-{
-    name=$(git remote -v 2>/dev/null | grep origin | sed -e 's|.*/||' -e 's/ .*//' | sort -u)
-    if [[ -n "$name" ]]; then
-        echo "$name"
-        true
-    else
-        false
-    fi
-    return
+    git-repo-current-branch "$@"
 }
 
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
-git-repo-org ()
+git-repo-default-branch ()
 {
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || { false; return; } }
-    name=$(git remote -v 2>/dev/null | grep origin |  sed -e 's/.*://' -e 's/\/.*//' | sort -u)
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd - || { false; return; } }
-    [[ -z "$name" ]] && { false; return; }
-    echo "$name"
-    true
+    if [[ -n $1 ]]; then
+        cmd-echo --ec -- "Cannot set default branch yet"
+        false; return
+    fi
+    local base_repo
+    for base_repo in "$(git-repo-is_worktree of)" "$(git root)"; do
+        [[ -n $base_repo ]] && break
+    done;
+    [[ -z $base_repo ]] && { false; return; }
+    local default_branch
+    local src
+    ## The first file is for repos that are clones. The second is for repos
+    ## that were never cloned, but instantiated locally.
+    for src in "$base_repo"/.git/refs/remotes/origin/HEAD "$base_repo"/HEAD; do
+        [[ -r $src ]] && default_branch=$(sed 's/.*\///' < "$src")
+    done
+    if [[ -n $default_branch ]]; then
+        echo "$default_branch"
+        true
+    else
+        cmd-echo --ec -- "Cannot find default branch for ${PWD}"
+        false
+    fi
+    return $?
+}
+
+git-repo-show-default-branch ()
+{
+    git-repo-default-branch
+}
+
+git-repo-delete ()
+{
+    local current=0
+    local dirmode=''
+    [[ -z $1 ]] && git-usage "$0" && { false; return; }
+    if [[ $1 = '--pwdmode' ]] \
+           || [[ $1 =~ ^--curr ]] \
+           || [[ $1 == '-c' ]] \
+           || [[ $1 == '.' ]]; then
+        current=1
+        shift
+    elif [[ $1 = '--dirmode' ]]; then
+        dirmode=$2
+        shift
+        shift
+    elif [[ -n $1 ]]; then
+        dirmode=$1
+        shift
+    fi
+
+    # If we were given '.', then we are really doing --current.
+    if [[ -n $dirmode ]] && [[ ${PWD} = $(realpath "$dirmode") ]]; then
+        current=1
+        dirmode=''
+    fi
+
+    local repo
+    local returnpath
+    returnpath=$(realpath "${PWD}")
+
+    if [[ -n "$dirmode" ]]; then
+        ## We were given the directory containing the repo
+        \cd "$dirmode" || { cmd-echo "Cannot cd $dirmode"; false; return; }
+        local root_or_err
+        root_or_err="$(git root 2>&1)"
+        local status=$?
+        if ((status)); then
+            cmd-echo -- "$root_or_err"
+            \cd "$returnpath" || { cmd-echo "Cannot cd $returnpath"; false; return; }
+            return $status
+        else
+            \cd "$root_or_err" || { cmd-echo "Cannot cd $root_or_err"; false; return; }
+        fi
+    elif ((!current)); then
+        ## Then we were given a local repo URL; find it and go there
+        local githost=$1;shift
+        local namespace=$1;shift
+        repo=$1;shift
+
+        local githost_url
+        githost_url=$(git kv --get "svcs.$githost")
+        if [[ -z "$githost_url" ]]; then
+            cmd-echo -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
+            return 1
+        fi
+
+        ## Go to what we want to whack, to make sure it's there.
+        git-go "$githost/$namespace/$repo"
+        status=$?
+        ((status != 0)) && { false; return; } ## If the git go fails, we should
+        ## see error messages, no need to
+        ## add more.
+    ## else - we were told to delete the directory/repo we are currently in
+    fi
+
+    ## At this point, we are in the directory we are going to delete. We can
+    ## determine the repo.
+    repo=$(basename "$(realpath "${PWD}")")
+
+    (
+        ## Subshell to allow cding around to be handled gracefully at the end
+
+        ## Make sure it's clean
+        if [[ -d wt ]] && (($(find wt | wc -l) > 1)); then
+            cmd-echo "worktrees directory not empty:"
+            ls -la wt
+            cmd-echo
+            cmd-echo "Will not delete repo"
+            false; return
+        fi
+
+        dirty=$(git status --porcelain)
+        if [[ -n "$dirty" ]]; then
+            git status
+            cmd-echo
+            cmd-echo "Will not delete current repo"
+            false; return
+        fi
+
+        \cd .. || { cmd-echo "Cannot cd .."; false; return; }
+        \rm -rf "$repo"
+        status=$?
+        ((status != 0)) && { false; return; } ## If the rm fails, we should see
+                                              ## error messages, no need to add
+                                              ## more.
+
+        cmd-echo "Done. Not touching remote repo. Resetting git list..."
+        ## Remove the just-deleted repo from the list of local git repos.
+        git-go-set
+
+        true
+    )
+
+    status=$?
+
+    ## We were in some dir or the deleted repo. If the latter, then go up the
+    ## tree until we find someplace to return to.
+    while [[ ! -d "$returnpath" ]] && [[ ! "$returnpath" = '/' ]]; do
+        returnpath="$(dirname "$returnpath")"
+    done
+
+    ## Go there.
+    if [[ ! "$returnpath" = '/' ]]; then
+        \cd "$returnpath" || { cmd-echo "Cannot cd $returnpath"; false; return; }
+    else
+        \cd ~ || { cmd-echo "Cannot cd ~"; false; return; }
+    fi
+
+    ## Feed "there" back to the git function to make it stick.
+    if [[ -n "$doandcdfile" ]]; then
+        echo "ecd ${PWD}" > "$doandcdfile"
+        cmd-echo -n -- "Done. "
+    fi
+
+    return $status
+}
+
+git-repo-del ()
+{
+    git-repo-delete "$@"
 }
 
 git-repo-diff ()
@@ -393,136 +420,216 @@ git-repo-diff ()
     true
 }
 
-git-repo-del ()
+
+git-repo-is ()
 {
-    git-repo-delete "$@"
+    local verbose=0
+    if [[ "$1" =~ -v ]]; then
+        verbose=1
+        shift
+    fi
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || { false; return; } }
+    git rev-parse --show-toplevel 2>/dev/null 1>&2
+    status=$?
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd -    || { false; return; } }
+    (( verbose )) && ( (( status )) && echo false || echo true )
+    return $status
 }
 
-git-repo-delete ()
+git-repo-isa () { git-repo-is "$@"; }
+git-repo-ina () { git-repo-is; }
+
+git-repo-is_clean ()
 {
-    local current=0
-    local dirmode=''
-    [[ -z $1 ]] && git-usage "$0" && { false; return; }
-    if [[ $1 = '--pwdmode' ]] \
-           || [[ $1 =~ ^--curr ]] \
-           || [[ $1 == '-c' ]] \
-           || [[ $1 == '.' ]]; then
-        current=1
-        shift
-    elif [[ $1 = '--dirmode' ]]; then
-        dirmode=$2
-        shift
-        shift
-    elif [[ -n $1 ]]; then
-        dirmode=$1
-        shift
+    (( $(git st --porcelain | grep -cv '??') == 0 ))
+}
+
+git-repo-is_spotless ()
+{
+    git-repo-is_pristine "$@"
+}
+
+git-repo-is_pristine ()
+{
+    (( $(git st --porcelain | wc -l) == 0 )) \
+        && ( git worktree ina || (( $(git worktree list | wc -l) == 1 )) ) \
+        && { true; return; }
+    if [[ $1 == '-v' ]]; then
+        (( $(git st --porcelain | wc -l) != 0 )) && git status
+        if ! git worktree ina && (( $(git worktree list | wc -l) != 1 )); then
+            echo Found worktrees:
+            git worktree list | tail -n +2 # Do not print the root repo for the
+                                           # worktrees, which is always the
+                                           # first entry of the wt list
+                                           # command.
+        fi
     fi
+    false
+}
 
-    # If we were given '.', then we are really doing --current.
-    if [[ -n $dirmode ]] && [[ ${PWD} = $(realpath "$dirmode") ]]; then
-        current=1
-        dirmode=''
+git-repo-is_up_to_date ()
+{
+    local branch_status
+    branch_status=$(git status | grep 'Your branch is')
+    local verbose=0
+    if [[ "$1" =~ -v ]]; then
+        echo "$branch_status"
     fi
-
-    local repo
-    local returnpath
-    returnpath=$(realpath "${PWD}")
-
-    if [[ -n "$dirmode" ]]; then
-        ## We were given the directory containing the repo
-        \cd "$dirmode" || { cmd-echo "Cannot cd $dirmode"; false; return; }
-        local root_or_err
-        root_or_err="$(git root 2>&1)"
-        local status=$?
-        if ((status)); then
-            cmd-echo -- "$root_or_err"
-            \cd "$returnpath" || { cmd-echo "Cannot cd $returnpath"; false; return; }
-            return $status
-        else
-            \cd "$root_or_err" || { cmd-echo "Cannot cd $root_or_err"; false; return; }
-        fi
-    elif ((!current)); then
-        ## Then we were given a local repo URL; find it and go there
-        local githost=$1;shift
-        local namespace=$1;shift
-        repo=$1;shift
-
-        local githost_url
-        githost_url=$(git kv --get "svcs.$githost")
-        if [[ -z "$githost_url" ]]; then
-            cmd-echo -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
-            return 1
-        fi
-
-        ## Go to what we want to whack, to make sure it's there.
-        git-go "$githost/$namespace/$repo"
-        status=$?
-        ((status != 0)) && { false; return; } ## If the git go fails, we should
-        ## see error messages, no need to
-        ## add more.
-    ## else - we were told to delete the directory/repo we are currently in
-    fi
-
-    ## At this point, we are in the directory we are going to delete. We can
-    ## determine the repo.
-    repo=$(basename "$(realpath "${PWD}")")
-
-    (
-        ## Subshell to allow cding around to be handled gracefully at the end
-
-        ## Make sure it's clean
-        if [[ -d wt ]] && (($(find wt | wc -l) > 1)); then
-            cmd-echo "worktrees directory not empty:"
-            ls -la wt
-            cmd-echo
-            cmd-echo "Will not delete repo"
-            false; return
-        fi
-
-        dirty=$(git status --porcelain)
-        if [[ -n "$dirty" ]]; then
-            git status
-            cmd-echo
-            cmd-echo "Will not delete current repo"
-            false; return
-        fi
-
-        \cd .. || { cmd-echo "Cannot cd .."; false; return; }
-        \rm -rf "$repo"
-        status=$?
-        ((status != 0)) && { false; return; } ## If the rm fails, we should see
-                                              ## error messages, no need to add
-                                              ## more.
-
-        cmd-echo "Done. Not touching remote repo. Resetting git list..."
-        ## Remove the just-deleted repo from the list of local git repos.
-        git-go-set
-
+    if [[ -z $branch_status ]] || [[ $branch_status =~ 'Your branch is up to date' ]]; then
         true
-    )
-
-    status=$?
-
-    ## We were in some dir or the deleted repo. If the latter, then go up the
-    ## tree until we find someplace to return to.
-    while [[ ! -d "$returnpath" ]] && [[ ! "$returnpath" = '/' ]]; do
-        returnpath="$(dirname "$returnpath")"
-    done
-
-    ## Go there.
-    if [[ ! "$returnpath" = '/' ]]; then
-        \cd "$returnpath" || { cmd-echo "Cannot cd $returnpath"; false; return; }
     else
-        \cd ~ || { cmd-echo "Cannot cd ~"; false; return; }
+        false
     fi
+    return
+}
 
-    ## Feed "there" back to the git function to make it stick.
-    if [[ -n "$doandcdfile" ]]; then
-        echo "ecd ${PWD}" > "$doandcdfile"
-        cmd-echo -n -- "Done. "
+git-repo-is_fork ()
+{
+    local print=0
+    if [[ $1 == '--print' ]] || [[ $1 == 'of' ]]; then
+        shift
+        print=1
     fi
+    (
+        # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
+        \cd "${1:-.}" # so that the git remote works on the current dir as well
+                     # as a specified repo dir
+        local origin
+        local fork_of=''
+        origin=$(git remote get-url origin)
+        if [[ -n $origin ]]; then
+            local server=${origin%%:*}
+            local repo_path=${origin##*:}
+            fork_of=$(perl -e'
+   use JSON::PP::Boolean;
+our $VAR1;
+eval "@ARGV";
+$VAR1->{parent} && print $VAR1->{parent}{full_name};
+' "$( github-api --silent --server "$server" --perl-data url repos/"$repo_path")")
+        fi
+        ((print)) && [[ -n "$fork_of" ]] && echo "$fork_of"
+        [[ -n "$fork_of" ]] ## return value
+    )
+}
 
-    return $status
+git-repo-is_worktree ()
+{
+    if [[ -f $(git root)/.git ]]; then
+        if [[ $1 == 'of' ]]; then
+            realpath "$(git root)/$(sed 's/gitdir: \(.*\)\/\.git\/.*/\1/' < "$(git root)/.git")"
+        fi
+        true
+    else
+        false
+    fi
+}
+
+git-repo-is_openpr ()
+{
+    git fetch
+    local server upstream_namespace origin_namespace repo current_branch
+    local -A namespaces
+
+    server=$(git-get-default-remote --server)
+
+    upstream_namespace=$(git-repo-is_fork of | sed 's/\/.*//')
+    [[ -n $upstream_namespace ]] && namespaces["$upstream_namespace"]=1
+
+    origin_namespace=$(git-get-default-remote --namespace)
+    namespaces["$origin_namespace"]=1
+
+    repo=$(git-repo-name)
+    current_branch=$(git-repo-current-branch)
+
+    local -a output
+    for tgt_namespace in "${!namespaces[@]}"; do
+        local tmpfile;
+        # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
+        tmpfile=$(mktempfile)
+        rm-on-exit "$tmpfile"
+
+        github-api --server "$server" --perl-data pulls "$tgt_namespace/$repo" > "$tmpfile"
+        local tmpout
+        tmpout=$(perl -e '
+do $ARGV[0];
+for $entry (@$VAR1) {
+    if ( $entry->{user}->{login} eq $ENV{USER}
+         &&
+         $entry->{head}->{ref} eq $ARGV[1] ) {
+        print($entry->{_links}->{html}->{href});
+    }
+}
+' "$tmpfile" "$current_branch")
+        [[ -n $tmpout ]] && output+=("$tmpout")
+    done
+    if [[ "${#output[@]}" == '0' ]]; then
+        echo "No open pull requests"
+        false; return
+    else
+        for o in "${output[@]}"; do
+            echo "$o"
+        done
+        true; return
+    fi
+}
+
+git-repo-info ()
+{
+    cmd-echo --title "Configs:"
+
+    local -a lines
+    local cb; cb="$(git-repo-current-branch)"
+    local wt; wt="$(git-worktree ina -v)"
+
+    mapfile                 -t                 lines < <(git config --get-regexp "extmeta\." | sort)
+    [[ -n $cb ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "branch.$cb" | sort)
+    [[ -n $wt ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "worktree.$wt" | sort)
+    mapfile                 -t -O ${#lines[@]} lines < <(git config --get-regexp "remote.*.url" | sort)
+
+    local -a display
+    for line in "${lines[@]}"; do
+        read -r key value <<< "$line"
+        [[ $key =~ ${GIT_EXT_META_PREFIX}-pr ]] && continue
+        (( ${#key} > max )) && max=${#key}
+        display+=("$key" "$value")
+    done
+    ((max+=1))
+    printf "%-${max}s: %s\n" "${display[@]}"
+
+    if [[ $1 != '--no-pulls' ]]; then
+        local pr_data
+        pr_data=$(git-repo-pr-get "$1")
+        # shellcheck disable=SC2181 #https://github.com/koalaman/shellcheck/wiki/SC2181
+        if (($?==0)); then
+            cmd-echo -n -- "Latest pull request:"
+            echo " $pr_data"
+        else
+            cmd-echo -- "No pull request found for this repo/branch."
+        fi
+    fi
+}
+
+git-repo-name ()
+{
+    name=$(git remote -v 2>/dev/null | grep origin | sed -e 's|.*/||' -e 's/ .*//' | sort -u)
+    if [[ -n "$name" ]]; then
+        echo "$name"
+        true
+    else
+        false
+    fi
+    return
+}
+
+# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
+git-repo-org ()
+{
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || { false; return; } }
+    name=$(git remote -v 2>/dev/null | grep origin |  sed -e 's/.*://' -e 's/\/.*//' | sort -u)
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd - || { false; return; } }
+    [[ -z "$name" ]] && { false; return; }
+    echo "$name"
+    true
 }
 
 _git-repo-pr-get-lookup-pr-state ()
@@ -626,7 +733,7 @@ git-repo-pr-get ()
     local cb; cb=$(git-repo-current-branch)
 
     if ((opt_refresh==0)); then
-        git-repo-pr-retrieve pr_cache_url pr_cache_state pr_cache_date pr_cache_as_of pr_cache_version
+        _git-repo-pr-retrieve pr_cache_url pr_cache_state pr_cache_date pr_cache_as_of pr_cache_version
     # else we don't get any data, which causes cached to be set to no
     fi
 
@@ -666,7 +773,7 @@ git-repo-pr-get ()
             # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
             if [[ $pr_now_state == "$pr_cache_state" ]]; then
                 # updates the cache date, keeps url and state the same.
-                git-repo-pr-store "$pr_cache_url" "$pr_now_state" "$pr_now_date"
+                _git-repo-pr-store "$pr_cache_url" "$pr_now_state" "$pr_now_date"
                 pr_url="$pr_cache_url"
                 pr_state="$pr_now_state"
                 pr_date="$pr_now_date"
@@ -721,11 +828,11 @@ for $pull (@{$VAR1}) {
 exit 0;' "$perldata" "$corg" "$cb")
         if [[ -z ${pr_now[0]} ]]; then
             # Cache the no
-            git-repo-pr-store --noopenpr
+            _git-repo-pr-store --noopenpr
             false; return
         else
             ## Cache the PR and its state
-            git-repo-pr-store "${pr_now[@]}"
+            _git-repo-pr-store "${pr_now[@]}"
             pr_url=${pr_now[0]}
             pr_state=${pr_now[1]}
             pr_date=${pr_now[2]}
@@ -756,7 +863,7 @@ exit 0;' "$perldata" "$corg" "$cb")
     true
 }
 
-git-repo-pr-store ()
+_git-repo-pr-store ()
 {
     local pr_url
     local pr_state
@@ -790,7 +897,7 @@ git-repo-pr-store ()
     fi
 }
 
-git-repo-pr-retrieve ()
+_git-repo-pr-retrieve ()
 {
     local -n pr_url=$1
     local -n pr_state=$2
@@ -856,48 +963,6 @@ git-repo-sync-with ()
         fi
     else
         git-sync-with-remote "$@"
-        status=$?
-    fi
-    return $status
-}
-
-git-repo-check ()
-{
-    git-repo-check-with "$@"
-}
-
-git-repo-check-with ()
-{
-    local arg1=$1
-    if [[ $arg1 =~ ^--def ]]; then
-        shift
-        local branch_name
-        branch_name=$(git-repo-default-branch)
-        ## clone-and-fork repos need to check with the default branch in the
-        ## canonical upstream branch.  If there is no 'upstream', then it's
-        ## probably a clone only, so check against the default branch in
-        ## origin.
-        local status
-        local upstream
-        upstream=$(git remote get-url upstream 2>/dev/null)
-        if [[ -n "${upstream}" ]]; then
-            cmd-echo -- "checking with branch '${branch_name}' in upstream '${upstream}'"
-            git-check-with-remote --remote upstream --branch "$branch_name" "$@"
-            status=$?
-        else
-            local origin
-            origin=$(git remote get-url origin 2>/dev/null)
-            if [[ -n "${origin}" ]]; then
-                cmd-echo -- "checking with branch '${branch_name}' in origin '${origin}'"
-                git-check-with-remote --remote origin --branch "$branch_name" "$@"
-                status=$?
-            else
-                cmd-echo --ec -- "Current repo is not a clone of a remote"
-                status=1
-            fi
-        fi
-    else
-        git-check-with-remote "$@"
         status=$?
     fi
     return $status
@@ -977,72 +1042,6 @@ git-repo-tags ()
 }
 
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
-git-repo-current-branch ()
-{
-    local warn=1
-    if [[ $1 == '--no-warn' ]]; then
-         warn=0
-         shift
-    fi
-
-    if [[ -n $1 ]]; then
-        cmd-echo --ec -- "Cannot set current branch yet"
-        false;return $?
-    else
-        local cb
-        cb=$($REALGIT branch --show-current)
-        if [[ -z $cb ]]; then
-            ((warn)) && cmd-echo --wc -- "--show-current can't find current branch. Are you in a rebase? Falling back to alt method"
-            cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
-            if [[ -z $cb ]]; then
-                ((warn)) && cmd-echo --ec -- "Cannot get current branch"
-                false;return $?
-            fi
-        fi
-        echo "$cb"
-    fi
-    true
-}
-
-git-repo-show-current-branch ()
-{
-    git-repo-current-branch
-}
-
-# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
-git-repo-default-branch ()
-{
-    if [[ -n $1 ]]; then
-        cmd-echo --ec -- "Cannot set default branch yet"
-        false; return
-    fi
-    local base_repo
-    for base_repo in "$(git-repo-is_worktree of)" "$(git root)"; do
-        [[ -n $base_repo ]] && break
-    done;
-    [[ -z $base_repo ]] && { false; return; }
-    local default_branch
-    local src
-    ## The first file is for repos that are clones. The second is for repos
-    ## that were never cloned, but instantiated locally.
-    for src in "$base_repo"/.git/refs/remotes/origin/HEAD "$base_repo"/HEAD; do
-        [[ -r $src ]] && default_branch=$(sed 's/.*\///' < "$src")
-    done
-    if [[ -n $default_branch ]]; then
-        echo "$default_branch"
-        true
-    else
-        cmd-echo --ec -- "Cannot find default branch for ${PWD}"
-        false
-    fi
-    return $?
-}
-
-git-repo-show-default-branch ()
-{
-    git-repo-default-branch
-}
-
 git-repo-source-branch ()
 {
     local current_branch
@@ -1134,18 +1133,28 @@ git-repo - act on or interrogate the current repo
 
 =head1 SYNOPSIS
 
- git-repo delete
- git-repo diff
- git-repo is
- git-repo ina
- git-repo info
- git-repo name
- git-repo pr-get
- git-repo reset/revert/restore
- git-repo sync
- git-repo tags
+ o - doc'ed and code not in order
+ n - not doc'ed but code in order
+ x - not doc'ed and code not in order
 
- git-repo purge/prune [repo-dir [repo-dir]... ]
+ n git-repo check
+ n git-repo current-branch
+ n git-repo default-branch
+   git-repo delete
+ o git-repo diff
+   git-repo is
+   git-repo ina
+   git-repo info
+   git-repo name
+ x git-repo-named-branches
+ n git-repo org
+   git-repo pr-get
+ o git-repo reset/revert/restore
+ x git-repo source-branch
+   git-repo sync
+   git-repo tags
+
+o git-repo purge/prune [repo-dir [repo-dir]... ]
 
  DESCRIPTION
 

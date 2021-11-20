@@ -33,6 +33,7 @@ _git_branch_is_a_pull ()
 
 git-branch-checkout ()
 {
+    echo "$(date): ${FUNCNAME[0]} $*" >> "$PERSONALDATA/$(basename "$0").audit"
     local tgt_branch=$1
     if [[ -z "$tgt_branch" ]]; then
         local PS3="Choose by number, q to quit: "
@@ -56,6 +57,7 @@ git-branch-checkout ()
     _git_branch_info_add_created_date "$tgt_branch"
 
 }
+
 git-branch-delete ()
 {
     local no_remote
@@ -523,6 +525,45 @@ git-branch-sync ()
     )
     return $?
 }
+
+git-branch-sync-check ()
+{
+    cd "$(git root)" || return 1
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+    declare grn=$(git repo name)
+    cmd-echo --title --color REVBLUE -- "*** Checking branch sync of repo ${grn}..."
+
+    # Refresh the repo
+    cmd-echo --color REVBLUE -- "Refresh repo..."
+    git fetch --all --prune --tags || return 1
+
+    declare br
+    for br in $(git branch list --strip); do
+        cmd-echo --color REVBLUE -- "Refreshing branch ${br}..."
+        git switch "$br" || return 1
+        git pull || return 1
+    done
+
+    # Get info for all the branches.
+    declare -a lines
+    mapfile -t lines < <(git branch --no-color -vv | sed 's/^\*//')
+    declare commitid
+    declare line
+    for line in "${lines[@]}"; do
+        declare -a tmp
+        read -r -a tmp <<<"$line"
+        [[ -z $commitid ]] && commitid=${tmp[1]}
+        if [[ $commitid != "${tmp[1]}" ]]; then
+            cmd-echo --wc -- "Inconsistent branches for $grn"
+            git branch -vv
+            return 1
+        fi
+    done
+    cmd-echo --color REVBLUE "Branches for $grn are consistent"
+
+    return 0
+}
+
 main ()
 {
     local action=$1
@@ -589,7 +630,7 @@ Extensions to the 'git branch' command. Obvious ones are not documented. Any act
 
 =over 4
 
-=item-- orphan
+=item --orphan
 
 TBD
 
