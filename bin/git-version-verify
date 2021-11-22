@@ -2,77 +2,85 @@
 
 # git-version-verify
 
-use strict;
+use 5.16.3;
 use warnings;
+
+use Getopt::Long;
 use IO::File;
 
-my @tmp;
+my %opt = ( update => 0 );
+GetOptions(
+    \%opt,
+    qw ( update
+      help )
+) or die("Options error");
+if ( $opt{help} ) {
+    exec "cat $0";
+}
 
-@tmp = split( /\s+/, qx($ENV{REALGIT} --version) );
+my @tmp                   = split( /\s+/, qx($ENV{REALGIT} --version) );
 my $git_version_installed = $tmp[-1];
 my @git_version_installed = split( /\./, $git_version_installed );
 
-@tmp = split( /\s+/, $ENV{REALGIT_VERIFIED_VERSION_STRING} );
-my $git_version_verified = $tmp[-1];
-my @git_version_verified = split( /\./, $git_version_verified );
+my $gvvfile = "$ENV{REALGIT_VERSION_VERIFY_FILE}";
+my ( $time, $git_version_last_verified ) = read_it($gvvfile);
+my @git_version_last_verified =
+  ( split( /\./, $git_version_last_verified // '' ), 0, 0, 0 )[ 0, 1, 2 ];
 
-my $gvvfile = "$ENV{PERSONALDATA}/git-version-verify.data";
-my %do      = (
-    'write' => 0,
-    'warn'  => 0
+my %do = (
+    'update' => $opt{update},
+    'warn'   => 0
 );
 my $reason;
 SEMANTIC_CHECK: for my $index ( 0, 1, 2 ) {
-    if ( $git_version_installed[$index] != $git_version_verified[$index] ) {
+    if ( $git_version_installed[$index] != $git_version_last_verified[$index] )
+    {
         if ( !-e $gvvfile ) {
             # Have not warned on this verified/installed version pair yet.
-            $reason    = 'new version';
-            $do{write} = 1;
-            $do{warn}  = 1;
+            $reason = 'initializing';
+            $do{update} = 1;
         } else {
-            my ( $time, $expected, $got ) = read_it($gvvfile);
             if ( !$ENV{CRON} || $ENV{CRON} eq 'false' ) {
-                # Warn Every. Single. Time. If we are not cron.
+                # Warn Every. Single. Time. If we are not cron. Don't warn in
+                # CRON jobs so we don't get a flood of emails.
                 $reason = 'interactive';
                 $do{warn} = 1;
-            } else {
-                if ( time() - $time >= 60 * 60 * 24 ) {
-                    # Warn only once a day in CRON jobs so we don't get a flood
-                    # of emails.
-                    $reason    = 'once a day in CRON jobs';
-                    $do{write} = 1;
-                    $do{warn}  = 1;
-                }
             }
         }
         last SEMANTIC_CHECK;
     }
 }
-if ( $do{write} ) {
-    write_it( $gvvfile, $git_version_verified, $git_version_installed );
-}
+my @warning;
 if ( $do{warn} ) {
-    warn ">>> WARNING: "
-      . ( $ARGV[0] ? "$ARGV[0]: " : '' )
-      . "Verified ($reason) against $git_version_verified, but $git_version_installed is installed.\n";
+    push @warning,
+      ( $ARGV[0] ? "$ARGV[0]: " : '' )
+      . "Verified ($reason) against $git_version_last_verified, but $git_version_installed is installed.";
 }
+if ( $do{update} ) {
+    push @warning,
+      "Writing $gvvfile, recording git version $git_version_installed.";
+    write_it( $gvvfile, $git_version_installed );
+}
+warn ">>> WARNING: " . join( qq(\n), @warning, '' )
+  if @warning;
+
 exit 0;
 
 sub write_it {
-    my ( $gvvfile, $expected, $got ) = @_;
+    my ( $gvvfile, $installed ) = @_;
     my $gvvh = IO::File->new("> $gvvfile");
-    $gvvh->print("time:@{[time()]},expected:$expected,got:$got\n");
+    $gvvh->print("time:@{[time()]},installed:$installed\n");
 }
 
 sub read_it {
     my ($gvvfile) = @_;
-    my ( $time, $expected, $got ) = ( 0, 0, 0 );
+    my ( $time, $installed ) = ( 0, 0 );
     if ( -r $gvvfile ) {
         my $gvvh = IO::File->new("< $gvvfile");
-        ( $time, $expected, $got ) =
+        ( $time, $installed ) =
           map { $_->[1] }
           map { [ split( /:/, $_ ) ] }
           map { chomp; split(/,/) } <$gvvh>;
     }
-    return ( $time, $expected, $got );
+    return ( $time, $installed );
 }
