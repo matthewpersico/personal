@@ -39,16 +39,25 @@ gitremote-forknclone ()
     local repo
     org="${1%%/*}"
     repo="${1##*/}"
-
-    if [[ $org == 'berg' ]]; then
-        cmd-echo "The 'Berg' project prefers work to take place in the canonical repo."
-        local response
-        response="$(cmd-yesno -q "Shall I attempt a direct clone of berg/$repo instead of a fork-n-clone")"
-        case "$response" in
-            y ) clone_org="$org" ;;
-            n ) : ;;
-            q ) false; return $? ;;
-        esac
+    local -a forkargs=('--forkof' "$org")
+    local -a msg
+    if [[ -r $PERSONALDATA/gitremote-forknclone-cloneonly ]]; then
+        if grep -q "org:$org" "$PERSONALDATA/gitremote-forknclone-cloneonly"; then
+           msg+=("The '$org' organization prefers work to take place in the canonical repo.")
+        fi
+        if grep -q "repo:$repo" "$PERSONALDATA/gitremote-forknclone-cloneonly"; then
+           msg+=("The owners of the '$repo' repo prefer work to take place in the canonical repo.")
+        fi
+        if [[ -n ${msg[0]} ]]; then
+            cmd-echo "${msg[@]}"
+            local response
+            response="$(cmd-yesno -q "Shall I attempt a direct clone of berg/$repo instead of a fork-n-clone")"
+            case "$response" in
+                y ) clone_org="$org"; forkargs=() ;;
+                n ) : ;;
+                q ) false; return $? ;;
+            esac
+        fi
     fi
-    git clone "${args[@]}" --tree '--forkof' "$org" "$remote:$clone_org/$repo" "${tgtdir[@]}"
+    git clone "${args[@]}" --tree "${forkargs[@]}" "$remote:$clone_org/$repo" "${tgtdir[@]}"
 }
