@@ -421,6 +421,11 @@ git-branch-sync ()
     # Get the source and any specific targets
     declare -A targs
     declare filter_targs=0
+    if [[ $1 =~ --catch ]]; then
+        shift;
+        git-branch-sync-catch-up
+    fi
+
     declare source=$1
     if [[ -n $source ]]; then
         shift
@@ -530,19 +535,7 @@ git-branch-sync-check ()
 {
     cd "$(git root)" || return 1
     # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-    declare grn=$(git repo name)
-    cmd-echo --title --color REVBLUE -- "*** Checking branch sync of repo ${grn}..."
-
-    # Refresh the repo
-    cmd-echo --color REVBLUE -- "Refresh repo..."
-    git fetch --all --prune --tags || return 1
-
-    declare br
-    for br in $(git branch list --strip); do
-        cmd-echo --color REVBLUE -- "Refreshing branch ${br}..."
-        git switch "$br" || return 1
-        git pull || return 1
-    done
+    git-branch-sync-catch-up
 
     # Get info for all the branches.
     declare -a lines
@@ -562,6 +555,25 @@ git-branch-sync-check ()
     cmd-echo --color REVBLUE "Branches for $grn are consistent"
 
     return 0
+}
+
+git-branch-sync-catch-up ()
+{
+    cd "$(git root)" || return 1
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+    declare grn=$(git repo name)
+    cmd-echo --title --color REVBLUE -- "*** Catching up branch sync of repo ${grn}..."
+
+    # Refresh the repo
+    cmd-echo --color REVBLUE -- "Refresh repo..."
+    git fetch --all --prune --tags || return 1
+
+    declare br
+    for br in $(git branch list --strip); do
+        cmd-echo --color REVBLUE -- "Refreshing branch ${br}..."
+        git switch "$br" || return 1
+        git pull || return 1
+    done
 }
 
 main ()
