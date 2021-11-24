@@ -73,7 +73,6 @@ _git-clone-set-triangle()
 
     ## Our own metadata
     git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.triangle-remote "${upstream_namespace}" || return $?
-
     return 0
 }
 
@@ -385,7 +384,12 @@ main ()
     if [[ -n "$opt_triangle_namespace" ]]; then
         cmd-echo -- "Setting up triangle workflow with ${githost_url}${opt_triangle_namespace}/${repo}..."
         _git-clone-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo" || return $?
-        git pull || return $? # To refresh from the upstream
+        if ! git pull ; then
+            cmd-echo --ec -- 'If the error refers to a missing ref whose name contains "master",' \
+                     "then your fork's default branch is not the same as the upstream." \
+                     "Fix or delete the fork and retry."
+            return $? # To refresh from the upstream
+        fi
     else
         local key='remote.origin.fetch'
         git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || return $?
