@@ -114,7 +114,7 @@ git-branch-delete ()
                     branch=$selected
                     break
                 fi
-            elif [[ "${$REPLY,,}" = 'q' ]]; then
+            elif [[ "${REPLY,,}" = 'q' ]]; then
                 return 0
             else
                 cmd-echo --id git-branch --ec -- "'$REPLY' is an invalid choice."
@@ -418,13 +418,15 @@ _git-branch-vv-sort ()
 
 git-branch-sync ()
 {
+    # Make sure all branches are caught up with their remotes.
+    git-branch-sync-catch-up
+
     # Get the source and any specific targets
     declare -A targs
     declare filter_targs=0
-    if [[ $1 =~ --catch ]]; then
-        shift;
-        git-branch-sync-catch-up
-    fi
+
+    declare starting_branch
+    starting_branch=$(git-branch-list --current)
 
     declare source=$1
     if [[ -n $source ]]; then
@@ -435,23 +437,40 @@ git-branch-sync ()
             shift
         done
     else
-        source=$(git-branch-list --current)
+        # Find the unique uuid, if any. If so, set that to the source branch.
+        source=$(git branch -vv | perl -nae '
+if ($F[0] eq q(*)) {
+  shift @F;
+};
+$br2id{$F[0]}=$F[1];
+$idc{$F[1]}++;
+delete $br2id{$F[0]} if $idc{$F[1]}>1;
+
+END {
+    for my $i (keys %idc) {
+        if ( $idc{$i} eq 1 ) {
+            for my $b (keys %br2id) {
+                if ( $br2id{$b} eq $i ) {
+                    push @u, $b;
+                }
+            }
+        }
+    }
+    if(@u==1) {
+        print qq($u[0]);
+    }
+}')
+        if [[ -z $source ]]; then
+            ## There was no unique branch. Just use whatever the current is.
+            source=$(git-branch-list --current)
+        fi
     fi
 
     (
         cd "$(git root)" || return 1
 
-        # Refresh the repo
-        cmd-echo --title --color REVBLUE -- "Refresh repo..."
-        git fetch --all --prune --tags || return 1
-
-        # Refresh the 'source' branch
-        cmd-echo --title --color REVBLUE -- "Refresh source branch ${source}..."
-        git switch "${source}" || return 1
-        git pull || return 1
-
-        # Get info for all the branches that can updated. Exclude the source,
-        # include only specified branches if there were any specified.
+        # Get info for all the branches that can be updated. Exclude the
+        # source, include only specified branches if there were any specified.
         declare -a lines
         mapfile -t lines < <(git branch --no-color -vv | sed -E -e 's/\*|\[|\]//g')
         declare line
@@ -461,7 +480,7 @@ git-branch-sync ()
             declare -a tmp
             read -r -a tmp <<<"$line"
             if [[ ${tmp[0]} == "$source" ]]; then
-                source_descr="${tmp[*]:0:2}"
+                source_descr="${tmp[0]} (${tmp[1]}:${tmp[3]})"
                 continue
             fi
             if ((filter_targs)); then
@@ -493,7 +512,7 @@ git-branch-sync ()
         echo
         resp=$(cmd-yesno --id "${0##*/}" "$prompt" "n")
         if [[ $resp == 'n' ]]; then
-            return
+            return 0
         fi
 
         declare source_commit
@@ -526,7 +545,7 @@ git-branch-sync ()
         # Return to the source branch since it very likely you will do the next
         # sync from the same branch.
         cmd-echo --title --color REVBLUE -- "Return to starting branch..."
-        git switch "${source}" || return 1
+        git switch "${starting_branch}" || return 1
     )
     return $?
 }
@@ -534,8 +553,7 @@ git-branch-sync ()
 git-branch-sync-check ()
 {
     cd "$(git root)" || return 1
-    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-    git-branch-sync-catch-up
+    git-branch-sync-catch-up || return 1
 
     # Get info for all the branches.
     declare -a lines
@@ -661,16 +679,22 @@ of the comment when written.
 =item --sync
 
 Take the commits on the "source-branch" argument and merge them into a list of
-target branches, or, if none are speficied all the other branches (local and
-remote) accesible in the current repo.
+target branches. First find all branches that are behind their remotes after
+the initial 'git fetch' and update them by switching to them and pulling.
+
+If target-branches are not specified, merge into all of them.
+
+If the source-branch is not specified, find a branch that has a commit id
+different than all other branches. If found, use that branch as the source. If
+more than one found, use the current branch as source.
 
 The merge strategy is --ff-only. If that fails for any branch, the command is
 aborted. That could leave some branches updated and some not. Using this
 strategy keeps all the branches in sync without any extraneous merge commits.
 
 The "target-branch-ish" arguments are pattern matches against the
-B<remote/branch> spec. Matching branches on different remotes care
-distinguished by specifying B<remote/branch> instead co just B<branch>.
+B<remote/branch> spec. Matching branches on different remotes is accomplished
+by specifying B<remote/branch> instead of just B<branch>.
 
 =item --vv
 
