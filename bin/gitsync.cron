@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 
-[[ -n $GIT_AUDIT ]] && echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
-
 # gitsync.cron
 
-# for the given repos, keep in sync with the default branch
-datafile="$(dirname "$0")/../data/gitsync.data"
+# For the given repos, see what's in sync and what's not
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+declare datafile="$(dirname "$0")/../data/gitsync.data"
 
+declare rc=0
 if [[ ! -r "$datafile" ]] || (( "$(wc -l < "$datafile")" == 0 )); then
     echo
     echo "No repos found to sync in ${datafile}."
@@ -22,12 +22,15 @@ else
                 cd "$ie"
                 echo
                 echo "**** ${PWD} ****"
-                git repo sync --default
+                git-branch sync-check
             )
+            rc=$(( rc || $? ))
         else
             echo "$ie not found; remove it from $datafile"
         fi
     done < "$datafile"
 fi
+
+exit $rc
 
 #  LocalWords:  datafile

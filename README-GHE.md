@@ -113,6 +113,7 @@ $ cd $HOME/personal/dotfiles
 $ . ./dotfilesbootstrap
 $ cd ..
 $ bin/makesymlinks -i dotfiles
+$ bin/github.env.init
 ```
 
 ## Test
@@ -216,3 +217,21 @@ ghe-from-gh machine-branch
 The command will refresh local and remote branches and then propagate the
 changes on the 'gh-machine-branch' to 'machine-branch'. It is up to you to then
 sync branches on GitHub Enterprise separately.
+
+# Integrating with an Employer's Environment
+
+* Create a setup similar to `personal` setup. I currently use the employer's
+  name as the directory name. However, as I try to move more useful and
+  non-proprietary items back to `personal`, I have found that they still need
+  to be executed after the employer's environment has been set up. Without an
+  employer's setup, I'd like to run them in `personal` profiles. I've solved
+  the problem by creating a link `empenv` (short for "employer's environment")
+  that points at the directory where the employer's environment is set up. I
+  then check to see if the link exists; if it doesn't, then I can safely
+  execute whatever the check was protecting.
+
+* For the `rsync-backup` setup:
+```
+mkdir -p $HOME/rsync-backup/logs
+mkdir -p $HOME/rsync-backup/config
+ln -s /The/root/of/the/rsync/backup/target $HOME/rsync-backup/data
