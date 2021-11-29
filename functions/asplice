@@ -68,19 +68,19 @@ my @output = splice @input,$offset,$length,qw(${addon[*]});
 say qq(@input);
 say qq(@output);
 ")
-            read -a fromperl_input <<< "${fromperl[0]}"
-            read -a fromperl_output <<< "${fromperl[1]}"
+            read -ra fromperl_input <<< "${fromperl[0]}"
+            read -ra fromperl_output <<< "${fromperl[1]}"
             input=("${base[@]}")
             cmd="asplice input --tgt output $offset $length ${addon[*]}"
             $cmd
             ok=1
-            if [[ ${#fromperl_input[@]} != ${#input[@]} ]] \
-                   || [[ ${#fromperl_output[@]} != ${#output[@]} ]]; then
+            if [[ ${#fromperl_input[@]} != "${#input[@]}" ]] \
+                   || [[ ${#fromperl_output[@]} != "${#output[@]}" ]]; then
                 ok=0; rv=1
             fi
             if ((ok==1)) && ((${#fromperl_output[@]} > 0)); then
                 for (( jdx=0; jdx < ${#fromperl_output[@]}; jdx++ )) ; do
-                    if [[ ${fromperl_output[$jdx]} != ${output[$jdx]} ]]; then
+                    if [[ ${fromperl_output[$jdx]} != "${output[$jdx]}" ]]; then
                         ok=0;rv=1
                         break
                     fi
@@ -88,7 +88,7 @@ say qq(@output);
             fi
             if ((ok==1)) && ((${#fromperl_input[@]})); then
                 for (( idx=0;idx < ${#fromperl_input[@]}; idx++ )) ; do
-                    if [[ ${fromperl_input[$idx]} != ${input[$idx]} ]]; then
+                    if [[ ${fromperl_input[$idx]} != "${input[$idx]}" ]]; then
                         ok=0;rv=1
                         break
                     fi
@@ -97,11 +97,11 @@ say qq(@output);
             if ((ok==0)); then
                 echo "For command: $cmd"
                 echo "Input:"
-                echo "    Perl: ${fromperl_input[@]}"
-                echo "    Bash: ${input[@]}"
+                echo "    Perl: ${fromperl_input[*]}"
+                echo "    Bash: ${input[*]}"
                 echo "Output:"
-                echo "    Perl: ${fromperl_output[@]}"
-                echo "    Bash: ${output[@]}"
+                echo "    Perl: ${fromperl_output[*]}"
+                echo "    Bash: ${output[*]}"
                 echo
             fi
         done
@@ -115,17 +115,6 @@ fi
 
 asplice - basic array manipulation, a la 'splice' in Perl
 
-=head1 SYNOPSIS
-
- # Move the last value of the array into the variable.
- apop source variable
-
- # Remove the last value of the array.
- apop source
-
- # This help.
- apop -h
-
 =head1 DESCRIPTION
 
  splice ARRAY [--tgt OUTARRAY] OFFSET LENGTH LIST
@@ -133,21 +122,23 @@ asplice - basic array manipulation, a la 'splice' in Perl
  splice ARRAY [--tgt OUTARRAY] OFFSET
  splice ARRAY [--tgt OUTARRAY]
 
+B<Note> This help text librally lifted from 'perldoc -f splice' because it has
+the best explanataion of what our function does.
+
 Removes the elements designated by OFFSET and LENGTH from an array, and
-replaces them with the elements of LIST, if any.  With --tgt OUTARRAY, assigns
-the elements removed from the array to OUTARRAY, which must be declared as a
-bash array (declare -a).  Note that this is not $OUTARRAY; we are passing this
-in by reference, not value, even though the bash manual for the declare
-function says this is not possible.
+replaces them with the elements of LIST, if any.  With `--tgt OUTARRAY`,
+assigns the elements removed from the array to OUTARRAY.  Note that this is not
+$OUTARRAY; we are passing this in by reference, not value, even though the bash
+manual for the declare function says this is not possible.
 
 The array grows or shrinks as necessary.  If OFFSET is negative then it starts
 that far from the end of the array.  If LENGTH is omitted, removes everything
 from OFFSET onward.  If LENGTH is negative, removes the elements from OFFSET
 onward except for -LENGTH elements at the end of the array.  If both OFFSET and
-LENGTH are omitted, removes everything.  If OFFSET is past the end of the
-array, Perl issues a warning, and splices at the end of the array.
+LENGTH are omitted, removes everything.
 
-The following equivalences hold (assuming "$#a >= $i" )
+Although they are not coded this way (we use the much shorter direct bash
+manipulations), the following equivalences hold (assuming "${#a} >= $i")
 
 declare -a a
 apush a $x $y       asplice a ${#a[@]} 0 $x $y
