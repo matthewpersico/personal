@@ -38,8 +38,10 @@ shopt -s expand_aliases
 ##
 ## Start here
 ##
-export OPTROOT=/opt/mop
-export OPTBIN=$OPTROOT/bin
+if [[ -d /opt/mop ]]; then
+    export OPTROOT=/opt/mop
+    export OPTBIN=$OPTROOT/bin
+fi
 export PERSONALROOT=${TILDAE}/personal
 export PERSONALBIN=$PERSONALROOT/bin
 export PERSONALDATA=$PERSONALROOT/data
@@ -77,16 +79,21 @@ if [[ -z "$(declare -F autoloaded-personal)" ]]; then
     ## have exported the functions. This script will run 'autoload -l' on
     ## specified functions to do just that - unshim the most widely used
     ## functions. Again, don't be verbose under cron.
-    _profile_tmp=()
-    ! $CRON && _profile_tmp=(-y)
-    _profile_tmp+=("$PERSONALDATA/autoload-unshim.dat")
-    [ -f "$PERSONALDATA/autoload-unshim.dat" ] && \
-        . "$PERSONALBIN/autoload-unshim"  "${_profile_tmp[@]}"
+    declare _profile_unshim_count=0
+    declare _profile_unshim_func
+    declare _profile_unshim_list="$PERSONALDATA/autoload-unshim.dat"
+    if [[ -f "$_profile_unshim_list" ]]; then
+        while read -r _profile_unshim_func; do
+            autoload -l "$_profile_unshim_func"
+            ((_profile_unshim_count+=1))
+        done < "$_profile_unshim_list"
+        ! $CRON && echo auto-unshimmed: $_profile_unshim_count
+    fi
 fi
 
 ## Now that functions are loaded, we can use them.
 ## Add our base paths.
-addpath -fx PATH "$OPTBIN"
+[[ -n $OPTBIN ]] && addpath -fx PATH "$OPTBIN"
 addpath -fx PATH "$PERSONALBIN"
 addpath -fx PATH "$LOCALBIN"
 ## Fix path we inherit from system - remove dups but, more importantly, non-existent paths.
