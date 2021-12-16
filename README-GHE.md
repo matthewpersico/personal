@@ -118,8 +118,10 @@ $ bin/github.env.init
 
 ## Test
 
-Before ending the existing terminal session, start up another one and make sure
-that all the dotfile links are in place and everything works.
+Before ending the existing terminal session, start up a new login seesion and
+make sure that all the dotfile links are in place and everything works. It
+**must** be a login session to fully exercise the profiles. See also [Post
+Setup](README.md#post_setup).
 
 ## Cleaning up
 
@@ -211,27 +213,27 @@ We are assuming that all changes on GitHub are in the `gh-machine-branch` branch
 * Execute
 
 ```
-ghe-from-gh machine-branch
+git branch sync
 ```
 
-The command will refresh local and remote branches and then propagate the
-changes on the 'gh-machine-branch' to 'machine-branch'. It is up to you to then
-sync branches on GitHub Enterprise separately.
+The command will refresh local and remote branches, find the one branch that is
+different than all the others and then propagate those changes to all the other
+branches.
+
+This only works if only one branch is out of sync with all the others. If that
+is not the case, you can pick which branch to propagate as the first argument
+to `git branch sync`. You can limit which branches get updated by specifying
+them as subsequent arguments.
 
 # Integrating with an Employer's Environment
 
-* Create a setup similar to `personal` setup. I currently use the employer's
-  name as the directory name. However, as I try to move more useful and
-  non-proprietary items back to `personal`, I have found that they still need
-  to be executed after the employer's environment has been set up. Without an
-  employer's setup, I'd like to run them in `personal` profiles. I've solved
-  the problem by creating a link `empenv` (short for "employer's environment")
-  that points at the directory where the employer's environment is set up. I
-  then check to see if the link exists; if it doesn't, then I can safely
-  execute whatever the check was protecting.
-
-* For the `rsync-backup` setup:
-```
-mkdir -p $HOME/rsync-backup/logs
-mkdir -p $HOME/rsync-backup/config
-ln -s /The/root/of/the/rsync/backup/target $HOME/rsync-backup/data
+Create a setup similar to `personal` setup. I currently use the employer's name
+as the directory name. However, as I try to move more useful and
+non-proprietary items back to `personal`, I have found that they still need to
+be executed after the employer's environment has been set up. Without an
+employer's setup, I'd like to run them in `personal` profiles. I've solved the
+problem by creating a link `empenv` (short for "employer's environment") that
+points at the directory where the employer's environment is set up. I then
+check to see if the link exists; if it doesn't, then I can safely execute
+whatever the check was protecting. In future employment situations, you may
+just want to start out with `empenv` as a true directory.

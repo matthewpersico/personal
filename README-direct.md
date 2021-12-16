@@ -67,8 +67,10 @@ $ bin/github.env.init
 
 ## Test
 
-Before ending the existing terminal session, start up another one and make sure
-that all the dotfile links are in place and everything works.
+Before ending the existing terminal session, start up a new login seesion and
+make sure that all the dotfile links are in place and everything works. It
+**must** be a login session to fully exercise the profiles. See also [Post
+Setup](README.md#post_setup).
 
 # Keeping things in sync
 
