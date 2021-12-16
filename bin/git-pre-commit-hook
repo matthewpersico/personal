@@ -88,24 +88,44 @@ notify ()
     fi
 }
 
-pre_commit_ok_echo ()
+pre_commit_echo ()
 {
-    echo pre-commit hook: "$@"
+    declare prefix
+    prefix="$1>>> pre-commit hook: "
+    shift
+
+    declare continue=0
+    if [[ $1 == '-c' ]]; then
+        shift;
+        continue=1
+    fi
+
+    if [[ $continue == 1 ]]; then
+        echo -n "$(echo "$prefix" | tr '[:graph:]' ' ')"
+    else
+        echo -n "$prefix"
+    fi
+    echo "$*"
 }
 
 pre_commit_error_echo ()
 {
-    echo 'ERROR>>>' pre-commit hook: "$@"
+    pre_commit_echo ERROR "$@"
 }
 
 pre_commit_warning_echo ()
 {
-    echo 'WARNING>>>' pre-commit hook: "$@"
+    pre_commit_echo WARNING "$@"
 }
 
 pre_commit_info_echo ()
 {
-    echo 'INFO>>>' pre-commit hook: "$@"
+    pre_commit_echo INFO "$@"
+}
+
+pre_commit_ok_echo ()
+{
+    pre_commit_echo INFO "$@"
 }
 
 do_gcs_check ()
@@ -158,18 +178,21 @@ do_gcs_check ()
 
     ## Summary.
     if [[ -n ${gcs_files[0]} ]]; then
-        echo; pre_commit_error_echo "${gcs_messages[0]}"
-        echo "${gcs_files[0]}"
+        echo
+        pre_commit_error_echo "${gcs_messages[0]}"
+        pre_commit_error_echo -c "${gcs_files[0]}"
         exitval=1
     fi
     if [[ -n ${gcs_files[1]} ]]; then
-        echo; pre_commit_error_echo "${gcs_messages[1]}"
-        echo "${gcs_files[1]}"
+        echo
+        pre_commit_error_echo "${gcs_messages[1]}"
+        pre_commit_error_echo -c "${gcs_files[1]}"
         exitval=1
     fi
     if [[ -n ${gcs_files[2]} ]]; then
-        echo; pre_commit_info_echo "${gcs_messages[2]}"
-        echo "${gcs_files[2]}"
+        echo
+        pre_commit_info_echo "${gcs_messages[2]}"
+        pre_commit_info_echo -c "${gcs_files[2]}"
     fi
 }
 
@@ -278,7 +301,7 @@ do
     else
         nonfiles+=("$file")
     fi
-    ((opt_verbose)) && echo "$obj"
+    ((opt_verbose)) && pre_commit_info_echo -c "$obj"
 done
 
 if ((opt_verbose))
