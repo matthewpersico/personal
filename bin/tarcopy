@@ -2,7 +2,6 @@
 
 # tarcopy
 
-
 declare moreopts
 moreopts=1
 declare -a ext_tar_opts
@@ -34,7 +33,8 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
 done
 
 if (($#<2)); then
-    echo "usage : src [src...] tgtdir"
+    echo "Not enough arguments."
+    bash-usage "$0"
     exit 1
 fi
 
@@ -56,7 +56,7 @@ fi
 
 ## -B - reblock
 ## -C - instead of (cd "tgtdir"; tar...)
-tar cf - "${@:1:$# - 1}" | tar -C "$tgtdir" "${ext_tar_opts[@]}" -xf -B -
+tar cf - "${@:1:$# - 1}" | tar -C "$tgtdir" "${ext_tar_opts[@]}" -B -xf -
 exit $?
 
 :<<'__PODUSAGE__'
@@ -81,9 +81,56 @@ the --make-tgt option).
 
 =item src
 
-A file or a directory to be copied. The entire directory structure is
-copied. Copying directory structures intact is the raison d'etre for this
-script.
+A file or a directory to be copied. If a directory, the
+directory is copied to the target. In other words, given files
+
+  srcdir/a/b/c
+  srcdir/b
+
+the command
+
+  tarcopy srcdir tgtdir
+
+creates
+
+  tgtdir/srcdir/a/b/c
+  tgtdir/srcdir/b
+
+not
+
+  tgtdir/a/b/c
+  tgtdir/b
+
+If you want the latter, you need to do
+
+  tarcopy srcdir/* tgtdir
+
+But this has a problem; it does not copy hidden (dot) files. In order to copy
+those, use:
+
+ ( GLOBIGNORE=".:.." && tarcopy srcdir/* tgtdir )
+
+The 'srcdir/*' normally evaluates to only the non-hidden files in 'srcdir'. If
+there are hidden files, and you *want* to copy them, use the construct
+above. The GLOBALIGNORE assignment also sets 'dotglob' to true, so that *
+matches hidden files, but '.' and '..' are ignored.
+
+The parens are required because the typical
+
+ GLOBIGNORE=".:.." tarcopy srcdir/* tgtdir
+
+does not work and using the && leaves the assignment in your environment to
+affect all subsequent commands, unless you remember to unset it. The parans put
+the command in a subshell so that your current shell is unaffected.
+
+If your source has no "hidden files", then
+
+ tarcopy srcdir/* tgtdir
+
+will suffice.
+
+The entire directory structure is copied for directories. Copying directory
+structures intact is the raison d'etre for this script.
 
 =item tgt
 
@@ -109,8 +156,6 @@ Option to tar, verbose.
 Create the target directory if it does not exist. If it already exists, a
 message is printed, and the copy is still executed. 'mkdir -p' is the command
 used to create the directory, so 'tgtdir' can be a multilevel directory.
-
-=back
 
 =item --help
 

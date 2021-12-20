@@ -1,0 +1,124 @@
+#!/usr/bin/env bash
+
+# <Function Class: autoload>
+# <Function Justification: env>
+# Print a message when the file in which the function is called is sourced in. Used in conjuction with autoload.
+
+autotrack ()
+{
+    # Default is to track if we don't find a setting. To track nothing, set to
+    # 'none' in '~/.config/autoload-config.dat'.
+    if [[ -z $AUTOLOAD_TRACK ]] \
+           ||   [[ $AUTOLOAD_TRACK == 'all' ]] \
+           || { [[ $AUTOLOAD_TRACK =~ :cron: ]]       && $CRON; } \
+           || { [[ $AUTOLOAD_TRACK =~ :noncron: ]]    && ! $CRON; } \
+           || { [[ $AUTOLOAD_TRACK =~ :profile: ]]    && [[ -n $RUNNING_IN_PROFILE ]]; } \
+           || { [[ $AUTOLOAD_TRACK =~ :nonprofile: ]] && [[ -z $RUNNING_IN_PROFILE ]]; }; then
+        declare tracking=$1
+        declare caller=${2:-$0}
+        echo -n "--- loaded ${tracking}" >&2
+        if [[ -f "$caller" ]]; then
+            echo -n " in $(basename "$caller")" >&2
+        fi
+        if [[ $caller == "$0" ]]; then
+            echo >&2
+        else
+            echo "; Hey, caller($caller) ne \$0($0)!" >&2
+        fi
+    fi
+}
+
+## Hopefully this won't recurse
+autotrack autotrack "$0"
+
+## We set the value for function tracking. Without any setting, all loads are
+## tracked.
+
+if [[ -f "$HOME/.config/autoload-config.dat" ]]; then
+   # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
+   . "$HOME/.config/autoload-config.dat"
+fi
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+autotrack - function to track function loading and reloading
+
+=head1 SYNOPSIS
+
+ # in file foo
+ foo ()
+ {
+     ....
+ }
+ autotrack foo $0
+
+=head1 DESCRIPTION
+
+ autotrack funcname source
+
+This function will print when a function file is loaded, and from where. You
+must add a call to autotrack after your function definition.
+
+By adding this call to the text of all your function definitions at the end of
+the file, you can see what functions are being loaded, and, more importantly,
+what functions are being constantly reloaded. To stop the reloaded functions
+from reloading, you can arrange to load them in your .profile. When used with
+C<autoload>, you should load them unshimmed (-l). B<Note:> We keep this a
+separate function because we don't want to muddy up autoload, which could go
+back into core bash.
+
+
+After a while, your environment will stablize and you will not want to see
+these messages at all. You can control when these messages are printed using
+the environment variable C<AUTOLOAD_TRACK>:
+
+ Value        Action
+ ----------------------------------------------------------------------------
+ ''           If AUTOLOAD_TRACK is not defined, the tracking message will
+              print each time a function file is loaded.
+
+ all          The tracking message will print each time a function file is
+              loaded.
+
+ none         The tracking message is never printed.
+
+ :cron:       Print the tracking message when called insinde of a cron job.
+              This is indicated by the definition of the environment variable
+              set to the text 'true'.
+
+ :noncron:    Print the tracking message when called outside of a cron job.
+              This is indicated by the definition of the environment variable
+              set to the text 'false'.
+
+ :nonprofile: Print the tracking message when called outside a .profile. This
+              is indicated by placing the definition and export of the
+              environment variable C<RUNNING_IN_PROFILE> at the top of your
+              .profile and then unsetting it when exiting the profile.
+
+Note that the last three values are delimited with ':'. This allows you to set
+C<AUTOLOAD_TRACK> to more than one of them as in ':cron:nonprofile:'. Although
+this is functionally equivilent to 'all', we provide this capability in order
+to future-proof this functionality, allowing some new, as yet unforseen
+sub-class of applications to be exercised.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item funcname
+
+Identification of the funtion being loaded. Should match the function name,
+which should match the file. This argument will be printed as presented.
+
+=item source
+
+Typically, just specify $0. The argument will be C<basename>d and printed,
+unless it is a sourcing shell (such as C<-bash>) in which case it will not be
+processed or printed.
+
+=back
+
+=cut
+
+__PODUSAGE__

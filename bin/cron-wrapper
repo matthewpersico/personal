@@ -14,8 +14,8 @@ declare -a _CW_mail_condition_list
 declare _CW_dow
 
 # Unshunted echos force output to cron, forcing an email, so the caller can fix
-# the crontab. They are all marked with '# <UNSHE>'. Any errors in this wrapper
-# will also force an email.
+# the crontab. They are all marked with '# <UNSHUNTED-ECHO>'. Any errors in
+# this wrapper will also force an email.
 
 _CW_need_to_keep_output () {
     if [[ -z $CW_mail_condition ]]; then
@@ -24,7 +24,7 @@ _CW_need_to_keep_output () {
     else
         if [[ ${CW_mail_condition} =~ ^\(.*\)$ ]]; then
             if [[ ${CW_mail_condition} =~ , ]]; then
-                # <UNSHE> 3
+                # <UNSHUNTED-ECHO> 3 lines
                 echo "Bash lists do not need commas."
                 echo "  CW_mail_condition='${CW_mail_condition}'."
                 echo "Correct and reload."
@@ -64,7 +64,7 @@ _CW_need_to_keep_output () {
                 _CW_keep_output+=("$condition")
                 ;;
             * )
-                # <UNSHE>
+                # <UNSHUNTED-ECHO>
                 echo "'$condition' is an invalid cron-wrapper mail condition"
                 exit 1
                 ;;
@@ -111,7 +111,7 @@ _CW_want_to_mail_it () {
                     fi
                     ;;
                 * )
-                    # <UNSHE>
+                    # <UNSHUNTED-ECHO>
                     echo "ASSERTION; _CW_mail_condition_list is invalid: ${_CW_mail_condition_list[*]}"
                     exit 1
                     ;;
@@ -133,8 +133,8 @@ _CW_mail_a_message () {
         _CW_mail_file=$(_CW_log_name mail-file)
         echo "Log: $_CW_log_file" > "$_CW_mail_file"
     fi
-    ## WORKISM
-    /home/mpersico5/personal/bin/local-mailme \
+    # Need full path, this operates outside of the profile space.
+    "${HOME}/personal/bin/local-mailme" \
         -f "${CW_from:-$USER@$(hostname)}" \
         -t "${CW_to:-${MAILTO:-$USER}}" \
         -s "$_CW_full_subject" \
@@ -149,18 +149,25 @@ _CW_log_name () {
 }
 
 main() {
+    while (($#)); do
+        shift # cron-wrapper takes no args. If there are args, they are used to
+              # ID the cron job in case of a sever crash of cron-wrapper. Let's
+              # get rid of them before they confuse some $1 reference in wither
+              # the profile or the command.
+    done
+
     if [[ -n $CW_link_log ]] && [[ ! $CW_link_log =~ false|true ]]; then
-        # <UNSHE>
+        # <UNSHUNTED-ECHO>
         echo "'$CW_link_log' is an invalid value for 'CW_link_log': valid values are 'true' and 'false'"
         exit 1
     fi
     if [[ -n $CW_include_profile_log ]] && [[ ! $CW_include_profile_log =~ false|true ]]; then
-        # <UNSHE>
+        # <UNSHUNTED-ECHO>
         echo "'$CW_include_profile_log' is an invalid value for 'CW_include_profile_log': valid values are 'true' and 'false'"
         exit 1
     fi
     if [[ -n $CW_profile ]] && [[ ! -f $CW_profile ]]; then
-        # <UNSHE>
+        # <UNSHUNTED-ECHO>
         echo "Profile $CW_profile not found"
         exit 1
     fi
@@ -214,8 +221,8 @@ main() {
                     (( ${#realargs[@]} )) && _CW_tmp="$_CW_tmp ${realargs[*]}"
                     _CW_tmp="$_CW_tmp (Envvars: $(env | grep -E ^CW | grep -v CW_command | sort | tr '\n' ' '))"
                     echo "$_CW_tmp"
-                ) >> "$(dirname "$0")"/../data/cron-wrapper."$(/usr/bin/date +%Y.%m.%d)".audit
-            ) 9>"$(dirname "$0")"/../data/cron-wrapper.lock
+                ) >> "${TILDAE}/.config/cron-wrapper.$(/usr/bin/date +%Y.%m.%d).audit"
+            ) 9>"${TILDAE}/.config/cron-wrapper.lock"
         fi
 
         # Execution. $CW_command could be "/some/interpreter script", so we
@@ -238,10 +245,10 @@ main() {
         \rm -f "${_CW_log_file}"
     fi
 
-    return 0
+    return $_CW_status
 }
 
-main
+main "$@"
 exit $?
 
 :<<'__PODUSAGE__'
@@ -287,7 +294,7 @@ have to call the profile internally; profile settings won't survive the exec.
 Set to 'false', the job and its CW variables will not be written to the audit
 file. The default is to record that info in
 
-  "$(dirname "$0")"/../data/cron-wrapper."$(/usr/bin/date +%Y.%m.%d)".audit
+  "${TILDAE}/.config/cron-wrapper."$(/usr/bin/date +%Y.%m.%d)".audit
 
 =item CW_mail_condition
 

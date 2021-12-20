@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+# -*- sh -*-
+# shellcheck shell=bash
 
 [[ -n $GIT_AUDIT ]] && echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
 
@@ -13,6 +14,7 @@ cmd_echo_id='git-push'
 declare dispatch_to_real_git=1
 declare opt_popup=0
 declare opt_pr=0
+declare opt_pr_force=0
 
 declare -a pass_on
 
@@ -31,6 +33,14 @@ while (( $# )); do
             ;;
         --pr )
             opt_pr=1
+            ;;
+        --pr-force )
+            opt_pr=1
+            opt_pr_force=1
+            ;;
+        --no-pr )
+            opt_pr=0
+            opt_pr_force=0
             ;;
         --help | -h )
             git-usage "$0"
@@ -106,9 +116,15 @@ if ((opt_popup || opt_pr)); then
 
     declare url
     if ((opt_pr)); then
-        if ! url=$(git repo pr-get --open --remote "$remote" ); then
+        declare do_pr=0
+        if ((opt_pr_force)); then
+            cmd-echo -- "Not looking for existing pr"
+            do_pr=1
+        elif ! url=$(git repo pr-get --open --remote "$remote" ); then
             cmd-echo -- "No open existing PR found, popping up create URL..."
-
+            do_pr=1
+        fi
+        if((do_pr)); then
             declare current_branch
             current_branch="$(git repo current-branch)"
 
@@ -157,7 +173,7 @@ git-push - extension to git push
 
 =head1 SYNOPSIS
 
- git-push [STANDARD OPTS] --popup|--pr ...
+ git-push [STANDARD OPTS] --popup|--pr[-force]|no-pr ...
 
 =head1 DESCRIPTION
 
@@ -176,6 +192,19 @@ Start a browser (via git web--browser) pointing to the URL of the origin for the
 Start a browser (via git web--browser) pointing to the URL to create a new pull request using the current repo as the source if there is no existing PR. If there is an existing PR, its URL is used.
 
 Note: This only really works with the triangle workflow of forked 'origin' and original 'upstream' or an original 'origin'. Those assumptions are baked into a lot of the logic. Any other push targets, go open a PR in the GUI.
+
+=back
+
+=item pr-force
+
+Same as --pr, but skip the lookup for an existing PR and assume there isn't one. Useful when you know there is no PR and the repo is old and the lookup would take minutes.
+
+Note: This only really works with the triangle workflow of forked 'origin' and original 'upstream' or an original 'origin'. Those assumptions are baked into a lot of the logic. Any other push targets, go open a PR in the GUI.
+
+=item no-pr
+
+Passed to us so that logic in 'git commit' is more straightforward. We explictiyl don't do any pull request processing.
+
 
 =back
 

@@ -1,4 +1,5 @@
-#!/usr/bin/env bash
+# -*- sh -*-
+# shellcheck shell=bash
 
 # The psuedo-ksh autoloader.
 
@@ -23,7 +24,8 @@
 
 autoload_calc_shimsize ()
 {
-    echo $((AUTOLOAD_SHIM_OVERHEAD + 3 * ${#1}))
+    ## There are four instances of the function name in the shim.
+    echo $((AUTOLOAD_SHIM_OVERHEAD + 4 * ${#1}))
 }
 
 _autoload_split_fpath ()
@@ -110,12 +112,17 @@ _aload()
                         ## For the first function loaded, we will not know
                         ## AUTOLOAD_SHIM_OVERHEAD. We can only calculate it
                         ## after we have loaded one function.
-                        if [[ $AUTOLOAD_SHIM_OVERHEAD ]]; then
-                            local size
-                            size=$(wc -c < "$funcfile")
-                            local shimsize
-                            shimsize=$(autoload_calc_shimsize "$func")
-                            if (( size <= shimsize)); then
+                        if [[ -n $AUTOLOAD_SHIM_OVERHEAD ]]; then
+                            ## As we do to calc the base shimsize, we strip off
+                            ## everything outside the function, including the {}
+                            ## that define it.
+                            local code_size
+                            code_size=$(sed -e '1,/^{/d' -e '/^}/,$d' "$funcfile" | wc -c)
+                            ## We take the base shim size and apply the
+                            ## function name to it.
+                            local shim_size
+                            shim_size=$(autoload_calc_shimsize "$func")
+                            if (( code_size <= shim_size)); then
                                 doshim=0
                                 andevaled=', optimized'
                                 ((optimized+=1))
@@ -136,6 +143,7 @@ _aload()
                 ## and used by subshells.
                 local brandtext
                 brandtext="eval \"\$(type $func | sed -e 1d -e 4ilocal\\ AUTOLOADED=\\'$func\\')\""
+
                 if ((doshim)); then
                     ## Don't bother trying to save space by shoving all the
                     ## eval text below onto one unreadable line; new lines will
@@ -168,18 +176,29 @@ _aload()
                 if((evalstat==0)); then
                     ((loaded+=1))
                     # shellcheck disable=SC2163 ## exporting $func, we want that behavior
-                    ((doexport)) && export -f "$func" && andexported=', exported' && ((exported+=1))
+                    if ((doexport)); then
+                        export -f "$func"
+                        andexported=', exported'
+                        ((exported+=1))
+                    fi
+
                     ((doverbose)) && echo "$func autoloaded${andexported}${andevaled}"
-                    if [[ ! $AUTOLOAD_SHIM_OVERHEAD ]] && ((doshim)); then
+                    if [[ -z $AUTOLOAD_SHIM_OVERHEAD ]] && ((doshim)); then
                         ## ...we have just loaded the first function shim into
                         ## memory. Let's calc the AUTOLOAD_SHIM_OVERHEAD size
                         ## to use going forward. In theory, we could check
                         ## again here to see if we should optimize and source
-                        ## in this function, now that we now the
+                        ## in this function, once we know the
                         ## AUTOLOAD_SHIM_OVERHEAD. In practice, it's not worth
                         ## duping that code or creating a function to do so for
                         ## one function.
-                        AUTOLOAD_SHIM_OVERHEAD=$(($(type "$func" | tail +4 | wc -c)-1))
+
+                        ## The calculation strips off everything outside the
+                        ## function, including the {} that define it. We also
+                        ## remove all instances of the function name in the
+                        ## shim code for this calc to make is as normalized as
+                        ## possible.
+                        AUTOLOAD_SHIM_OVERHEAD=$(type "$func" | sed -e "s/$func//g" -e '1,/^{/d' -e '/^}/,$d' | wc -c)
                         export AUTOLOAD_SHIM_OVERHEAD
                     fi
                 else
@@ -446,13 +465,14 @@ NOTES
 
         o Calling 'autoload' on a function that already exists (either shimmed
           or expanded) silently ignores the request to load the shim unless it
-          has been previously removed (-u) or you force the reload (-r).
+          has been previously removed (-u), you force the reload (-r), or you
+          are unshimming (-l).
 
         o Changing and reloading a function that has been exported does not
           require it be re-exported; the modifications will appear in
           subsequent subshells.
 
-        o Using '-1'
+        o Using '-l'
 
           If the function is one that you *never* want shimmed, add the text
           'NO_SHIM' to a comment in the function. Then -l or not, you'll always
@@ -482,6 +502,10 @@ NOTES
           directly. For a few calls, the overhead of repeatedly running the
           shim is not expensive, but in a tight loop, it might be. Caveat
           Programmer.
+
+          At a higher level, though, if there are functions that you discover
+          get repeatedly loaded and evaled from their files, you should arrange
+          to just have them unshimmed in your login profile.
 
         o Although the number of functions in the environment does not change
           by using 'autoload', the amount of memory they take up can be greatly
@@ -539,23 +563,6 @@ NOTES
           all of these functions so that they are available in subshells; you
           do not have to re-source the autoload file in '.bashrc'.
 
-        o Even with all of these shenanigans, you will find cases where no
-          matter how hard you try, your autoloaded functions will be
-          unavailable to you, even if you run 'autoload -x -f'. The typical
-          condition for this is starting up not a subshell, but a brand new
-          DIFFERENT shell. And the typical example of this is git extentions.
-
-          At the time of this writing, git extentions work by taking a command
-          'git foo' and looking for a file 'git-foo' on the path. 'git' then
-          executes 'git-foo' in a new shell - it executes your command in
-          /bin/sh. That's not a subshell of your process. It will not get your
-          exported shell functions. Ballgame over.
-
-          If you find that you want your functions to be available in such
-          circumstances, convert them back to plain old scripts, make sure they
-          are 'sh' compliant and take the read/parse hit every time they are
-          run.
-
 EOH
 }
 
@@ -603,25 +610,11 @@ autoreload ()
     autoload -r "$@"
 }
 
-autotrack ()
-{
-    #if ! $CRON; then
-        declare tracking=$1
-        declare caller=${2:-$0}
-        declare ENVVAR; ENVVAR="LOADED_$(tr '-' '_' <<< "$tracking")"
-        if [[ -z ${!ENVVAR} ]]; then
-            echo -n "--- " >&2
-            [[ -f "$caller" ]] && echo -n "$(basename "$0") " >&2
-            echo "loaded ${tracking}" >&2
-        fi
-    #fi
-    export "$ENVVAR"=1
-}
+## When we source in autoload:
 
-
-## When we source in autoload, we export (but NOT autoload) the autoload
-## functions so that they are available in subshells and you don't have to
-## source in the autoload file in subshells.
+## 1) we export (but NOT autoload) the autoload functions so that they are
+## available in subshells and you don't have to source in the autoload file in
+## subshells.
 export -f _aload \
        _autoload_dump \
        _autoload_edit \
@@ -632,5 +625,4 @@ export -f _aload \
        _autoload_split_fpath \
        autoload \
        autoload_calc_shimsize \
-       autoreload \
-       autotrack
+       autoreload

@@ -5,6 +5,30 @@
 # profile
 ## Linked by ~/.profile.${USER}
 
+## How to tell if we are running during profile setup or not
+RUNNING_IN_PROFILE=1
+export RUNNING_IN_PROFILE
+
+# CRON def, must be before anything that can reference it. It should be set in
+# your contab to the word 'true'. You can then check with an if statement:
+
+#   if $CRON; then
+#   if ! $CRON; then
+
+# Each of these will end up executing the command 'true' or 'false' which will
+# set $? to The Right Value.
+# CRON def, must be before anything that can reference it
+[[ -z "$CRON" ]] && CRON=false;
+export CRON
+
+## For use under sudo
+if [[ "$1" = '--tildae' ]]; then
+    export TILDAE=$2; shift; shift;
+    echo "Base for this profile is overriden to TILDAE=${TILDAE}"
+else
+    export TILDAE=$HOME
+fi
+
 ## How to plug in (monkeypatch) set -x, VERBOSE_PROFILE, etc, if needed
 [[ -x "${TILDAE}/profile.${USER}.monkeypatch" ]] && . "${TILDAE}/profile.${USER}.monkeypatch"
 
@@ -48,6 +72,9 @@ export PERSONALDATA=$PERSONALROOT/data
 export LOCALROOT=${TILDAE}/local
 export LOCALBIN=$LOCALROOT/bin
 export LOCALDATA=$LOCALROOT/data
+if [[ -d ${TILDAE}/.config ]]; then
+    export CONFIGDIR=${TILDAE}/.config
+fi
 
 ##
 ## autoload setup
@@ -62,33 +89,51 @@ if [[ -z "$(declare -F autoload )" ]]; then
 fi
 
 if [[ -z "$(declare -F autoloaded-personal)" ]]; then
-    declare -a _profile_tmp
+    declare -a _profile_autoload_args
+    _profile_autoload_args=(-x -o)
+    declare -a _profile_autoload_summary
 
-    ## autoload everything. Order does not matter here since it's all shims so
-    ## nothing needs to know about anything else until it's actually called, in
-    ## which case its shim, or its full function code, will be ready. Don't be
-    ## verbose under cron.
-    _profile_tmp=(-x -o -a "$PERSONALROOT/functions")
-    ! $CRON && _profile_tmp+=(-y)
-    autoload "${_profile_tmp[@]}"
+    ## First, load the config for autotrack.
+    if [[ -f ${CONFIGDIR}/autotrack.config ]]; then
+        . "${CONFIGDIR}/autotrack.config"
+    fi
+
+    ## Next, load autoload tracking, unshimmed, since every other function will
+    ## use it.
+    autoload "${_profile_autoload_args[@]}" \
+             "${_profile_autoload_summary[@]}" \
+             -l \
+             autotrack
+    declare _profile_unshim_count=1
 
     ## Over time you discover that many of your functions are only used in the
     ## context of backticks and other scripts that are executed but never
     ## sourced into your current process directly. That means that all of these
     ## subshells are going to re-evalute the shim over and over, even if you
-    ## have exported the functions. This script will run 'autoload -l' on
+    ## have exported the functions. This code will run 'autoload -l' on
     ## specified functions to do just that - unshim the most widely used
-    ## functions. Again, don't be verbose under cron.
-    declare _profile_unshim_count=0
+    ## functions. Don't be verbose under cron.
     declare _profile_unshim_func
-    declare _profile_unshim_list="$PERSONALDATA/autoload-unshim.dat"
+    declare _profile_unshim_list="${TILDAE}/.config/autoload-unshim.config"
     if [[ -f "$_profile_unshim_list" ]]; then
         while read -r _profile_unshim_func; do
-            autoload -l "$_profile_unshim_func"
+            autoload "${_profile_autoload_args[@]}" \
+                     -l \
+                     "$_profile_unshim_func"
             ((_profile_unshim_count+=1))
         done < "$_profile_unshim_list"
-        ! $CRON && echo "          auto-unshimmed: $_profile_unshim_count"
+        ! $CRON && echo "autoload: auto-unshimmed:$_profile_unshim_count"
     fi
+
+    ## Finally, autoload everything else. Order does not matter here since it's all
+    ## shims, so nothing needs to know about anything else until it's actually
+    ## called, in which case its shim, or its full function code, will be
+    ## ready.
+    ! $CRON && _profile_autoload_summary+=(-y)
+    autoload "${_profile_autoload_args[@]}" \
+             "${_profile_autoload_summary[@]}" \
+             -a "$PERSONALROOT/functions"
+
 fi
 
 ## Now that functions are loaded, we can use them.
@@ -134,7 +179,7 @@ for _profile_env in "${_profile_env_init_list[@]}"; do
     fi
 done
 
-if [[ "$CRON" = 'false' ]]; then
+if ! $CRON; then
     ## Items we don't need in a cron job, some potentially fatal in that
     ## environment
 
@@ -183,3 +228,5 @@ fi
 
 "$HOME/personal/bin/monkeytell" \
     "$VERBOSE_PROFILE" "${TILDAE}/profile.${USER}" 'end'
+
+unset RUNNING_IN_PROFILE
