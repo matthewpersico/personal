@@ -34,6 +34,17 @@ git ()
         set -x
     fi
 
+    # Apparently, you can't create a git alias for an extended or expanded git
+    # script or function. So we alias them here and handle any arguments in the
+    # alias expansion.
+    local -A git_aliases
+    git_aliases=([wt]=worktree [st]=status [stx]='status -ext' [ls]=ls-files)
+    local alias="$1"; shift
+    local -a commands=("$alias")
+    if [[ -n ${git_aliases[$alias]} ]]; then
+        asplit "${git_aliases[$alias]}" -a commands
+    fi
+
     # We made 'git' a function so that it would operate in the current process
     # space. This, in turn, means that any 'cd's that are executed by this
     # function "stick" for the caller.  However, this function is still calling
@@ -51,23 +62,11 @@ git ()
     local -A doandcdlist
     doandcdlist=([clone]=1 [go]=1 [worktree]=1 [repo]=1)
 
-    # Apparently, you can't create a git alias for an extended or expanded git
-    # script or function. So we alias them here and handle any arguments in the
-    # alias expansion.
-    local -A git_aliases
-    git_aliases=([wt]=worktree [st]=status [stx]='status -ext' [ls]=ls-files)
-    local alias="$1"; shift
-    local -a commands=("$alias")
-    if [[ -n ${git_aliases[$alias]} ]]; then
-        asplit "${git_aliases[$alias]}" -a commands
-    fi
-
     # Set up the temp file to hold the target dir if we've been asked to
-    # execute one of the 'cd'ing commands. This command is so ubiquitous that
-    # we are not going to pay the cumulative time penalty of sourcing
-    # 'mktemp.binc' every time we run the function; we just use the same format
-    # for the tempfile name that we find in that library.
-    :
+    # execute one of the 'cd'ing commands. These functions (git) are so
+    # ubiquitous that we are not going to pay the cumulative time penalty of
+    # sourcing 'mktemp.binc' every time we run the function; we just use the
+    # same format for the tempfile name that we find in that library.
     local -a args
     if [[ -n "${doandcdlist[${commands[0]}]}" ]]; then
         doandcdfile=$(mktemp -t "tmp.$$.git-wrapper.doandcd.${commands[0]}.XXXXXXXXX")
@@ -78,11 +77,12 @@ git ()
     # Execute either our command wrapper or the real git command, looking for a
     # function or a script that matches git-$command, just like git does.
 
-    # Except that we will execute a function if we find it.
+    # Except that *we* will execute a function if we find it. Real git won't.
 
-    # And we will happily execute a function or script that matches a real git
-    # command.
+    # And *we* will happily execute a function or script that matches a real
+    # git command. Real git won't.
 
+    local status
     local ex_ten_pan_d_command="git-${commands[0]}"
     local is_func
     local is_script
@@ -96,16 +96,19 @@ git ()
             cmd-echo --id 'GIT WRAPPER' --dc -- "Calling $t $ex_ten_pan_d_command ${args[*]}"
         fi
         commands[0]="${ex_ten_pan_d_command}"
+        # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+        export GIT_DISPATCHER=inprogress
         "${commands[@]}" "${args[@]}"
+        status=$?
+        unset GIT_DISPATCHER
     else
         if [[ ",${GIT_DISPATCHER_VERBOSE}," =~ ,${commands[0]},|,${alias},|all ]]; then
             cmd-echo --id 'GIT WRAPPER' --dc -- "Calling ${REALGIT} ${commands[*]} ${args[*]}"
         fi
 
         "${REALGIT}" "${commands[0]}" "${args[@]}"
+        status=$?
     fi
-
-    local status=$?
 
     # If the command succeeds and we have a valid directory changing command in
     # the temp file, change directory.
