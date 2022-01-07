@@ -152,6 +152,11 @@ uniqpath -dx PATH
 ## the xterminit file here (via xtermfuncs) as it contains functions that we
 ## cannot break out into their own files for autoload since xterminit is run
 ## under ksh before bash is invoked on chimera machines at Bloomberg.
+declare -a _profile_env_list
+if [[ -f ${TILDAE}/empenv/bin/early.env ]]; then
+    _profile_env_list+=("${TILDAE}/empenv/bin/early.env")
+fi
+
 declare -a _profile_env_init_list
 _profile_env_init_list+=('util.env' 'cd.env' 'perl.env' 'git.env')
 _profile_env_init_list+=('ansi-colors.env' 'xtermfuncs')
@@ -162,16 +167,22 @@ fi
 if [[ ! -d ${TILDAE}/empenv ]]; then
     _profile_env_init_list+=('python.env')
 fi
+declare _profile_env_init
+for _profile_env_init in "${_profile_env_init_list[@]}"; do
+    _profile_env_list+=("$PERSONALBIN/${_profile_env_init}")
+done
 
-declare _profile_env _profile_envvar _profile_envvar_val
-for _profile_env in "${_profile_env_init_list[@]}"; do
+declare _profile_env _profile_env_full _profile_envvar _profile_envvar_val
+for _profile_env_full in "${_profile_env_list[@]}"; do
+    declare _profile_env
+    _profile_env=$(basename "$_profile_env_full")
     _profile_envvar="$(echo "${_profile_env^^}" | tr -d '.' | tr '-' '_')_LOADED"
     _profile_envvar_val="$(eval echo "\$$_profile_envvar")"
     if [[ -z "$_profile_envvar_val" ]]; then
         "$HOME/personal/bin/monkeytell" \
             "$VERBOSE_PROFILE" "${TILDAE}/profile.${USER}" "Loading $_profile_env"
         # shellcheck disable=SC1090
-        . "$PERSONALBIN/$_profile_env"
+        . "$_profile_env_full"
     else
         "$HOME/personal/bin/monkeytell" \
             "$VERBOSE_PROFILE" "${TILDAE}/profile.${USER}" \
