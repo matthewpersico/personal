@@ -1,0 +1,182 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# bash_history_grep
+
+declare OPTSARGS
+declare shortopts='ilm:fhd:'
+declare longopts='host:,local,localhost,dirs,days:,matchdir:,match-dir:file,help'
+
+# Process the command line.
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") ## "${FUNCNAME[0]}" -- "$@") ## in functions
+declare status=$?
+((status != 0)) && exit $status ## return $status ## in functions
+
+# Reset the command line ($@).
+eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+declare -a grepopts
+declare -a hostfilt
+declare -a epoch_ago
+declare -a matchdir
+declare daysago
+while true
+do
+    declare option=$1
+    shift
+    [ "$option" != '--' ] && option=${option##-} && option=${option##-}
+    case "$option" in
+        host )
+            # shellcheck disable=SC2034 # remove when implemented
+            hostfilt=("--hostname" "$1")
+            shift
+            ;;
+        local | localhost )
+            hostfilt=("--hostname" "$(hostname)")
+            shift
+            ;;
+        d | days )
+            daysago=$(($1 - 1));
+            shift;
+            epoch_ago=('--epoch-ago' "$(( $(date --date='00:00' +%s) - (daysago*86400) ))")
+            ;;
+        i | l )
+            grepopts+=("$option")
+            ;;
+        dirs )
+            dodir=--include-dir
+            ;;
+        m | matchdir | match-dir)
+            matchdir=("--match-dir" "$1")
+            shift
+            ;;
+        f | file )
+            dofile=--include-file
+            ;;
+        h | help )
+            bash-usage hist
+            exit 0
+            ;;
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo -e -- "$option is an invalid option. See $0 --help"
+            exit 1 ## return 1 in functions
+            ;;
+    esac
+done
+
+pattern_to_match="${1:-.*}"
+##perl -d:ptkdb -S ## no-ptkdb-issue
+perl -d:ptkdb -S bash_history_parse "${epoch_ago[@]}" "${hostfilt[@]}" $dodir $dofile "${matchdir[@]}" "${grepopts[@]}" -- "$pattern_to_match"
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+bash_history_grep - enhancements to the display functionality of the 'history' command
+
+=head1 SYNOPSIS
+
+ bash_history_grep [--da[ys] n] [--di[rs] | -m matchdir] [--host hostname | --local ] [-f|-l] [-i] ['regex to grep for']
+ bash_history_grep [-h|--help]
+
+=head1 DESCRIPTION
+
+Use this command to search for previously submitted commands, possibly across
+multiple processes, from prior days.
+
+Use of this command implies the following two conditions:
+
+=over 4
+
+=item PROMPT_COMMAND=bash_history_sync
+
+C<bash_history_sync> is a command in this repo that primarily adds C<pwd>
+information for each command. That information can be displayed by this
+command.
+
+=item C<bash_history_init> is executed each time a new shell is started
+
+C<bash_history_init> is a function in this repo that sets up how we handle
+history. Primarily, it sets up a new history file for every interactive
+session.
+
+=back
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item 'regex to grep for'
+
+If you want to search for a particular command, quote a regex to search
+for. Strings without any regex metacharacters will have C<.*> pre and
+post-pended to them to turn them into a regex that will find the string at any
+position in the command. Supplying an anchoring metacharacter such as C<^> or
+C<$> overrides that.
+
+Unless you are searching for a string with no metacharacters and no spaces, you
+should always single quote the search string so that the shell does not eat any
+metacharacters before the make it to this command.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -d n|--days n
+
+Include commands as far back as C<n> days ago in the search. C<n> must be
+greater than 0. We count C<n> using midnight so C<n == 1> means today, C<n ==
+2> means today and yesterday, etc.> This is opposed to using rolling 24 hour
+periods.
+
+Using this option implies that we will be searching in history from multiple
+sessions. Without --days, searches will be limited to commands in only the
+current session's history file.
+
+=item --dirs
+
+Show the current working directory for each command at the time it was
+issued. (Detail what happens for C<cd> and ilk).
+
+=item -m matchdir
+
+Use this to limit the search to those commands executed while the current
+working directory matches the regex 'matchdir'.
+
+=item --host hostname
+
+The commands are stored in history files whose name contains the value of
+C<hostname>. By default, we search all history files nomatter what the
+host. Use this option to match a specific machine.
+
+=item --local
+
+The commands are stored in history files whose name contains the value of
+C<hostname>. By default, we search all history files nomatter what the host
+when we search multiple history files. Use this option to match only the
+current machine.
+
+=item -f
+
+Include the name of the history file in which the commands are located.
+
+=item -l
+
+Print only the name of the history file in which the commands are located.
+
+=item -i
+
+Make the command search is case insensitive.
+
+=item -h|--help
+
+Print this help.
+
+=back
+
+__PODUSAGE__
