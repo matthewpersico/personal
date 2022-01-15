@@ -10,7 +10,8 @@ declare reset_normal="${ANSI_RESET}"
 declare reset_title=''
 declare nonl=''
 declare local_nonl=''
-declare continueline=0
+declare continuation_line=0
+declare no_continuation_line=0
 declare head=0
 declare title=0
 declare join=0
@@ -52,7 +53,7 @@ declare interactive=1
 # don't have to match up.
 declare OPTSARGS
 declare shortopts='inachfsojwedp::x'
-declare longopts='head,title,id:,help,wc,ec,dc,color:,oii,noreverse,norev,reverse,rev'
+declare longopts='head,title,id:,help,wc,ec,dc,color:,oii,noreverse,norev,reverse,rev,noc'
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 declare status=$?
 ((status != 0)) && echo "cmd-echo: getopt failure" && exit $status
@@ -86,7 +87,9 @@ while true; do
         a )
             append=1 ;;
         c )
-            continueline=1 ;;
+            continuation_line=1 ;;
+        noc )
+            no_continuation_line=1 ;;
         h | help )
             bash-usage "$0" && exit 0;;
         f | s | o )
@@ -185,19 +188,23 @@ if ((opt_stderr)); then
 fi
 ((head)) && echo
 declare argcnt="$#"
+if [[ -n "${id}" ]]; then
+    prefix="${prefix//>>> />>>}${id}:"
+    id=''
+fi
+if [[ -n "${msg_status}" ]]; then
+    prefix="${prefix//>>> />>>}${msg_status}:"
+    msg_status=''
+fi
+if ((append)); then
+    prefix=''
+fi
 for arg in "$@"; do
-    if [[ -n "${id}" ]]; then
-        prefix="${prefix//>>> />>>}${id}:"
-        id=''
+    if ((continuation_line == 1)); then
+        prefix="${prefix//[![:space:]]/ }"
     fi
-    if [[ -n "${msg_status}" ]]; then
-        prefix="${prefix//>>> />>>}${msg_status}:"
-        msg_status=''
-    fi
-
-    if ((append)); then
-        prefix=''
-    fi
+    ## If there is a next line, it should be a continuation line
+    ((no_continuation_line == 0)) && continuation_line=1
     if ((opt_stderr)); then
         holdstdout=$(get-next-descriptor)
         eval "exec $holdstdout>&1"  ## Link file descriptor with stdout, which saves stdout.
@@ -219,9 +226,6 @@ for arg in "$@"; do
         echo $local_nonl -e "${docolor}${prefix}${arg}${dorest}${doresn}"
     fi
 
-    ## If there is a next line, it should be a continue line
-    ((continueline)) || continueline=1
-
     ## Reset out of title
     if ((title)); then
         title=0 ## no need to reset for ever
@@ -237,30 +241,26 @@ done
 
 exit 0 ## USAGE guard during sourcing this file.
 
-:<<'__PODUSAGE__'
+:<<__PODUSAGE__
 =head1 NAME
 
   cmd-echo - label echo with some prefix and highlighting
 
 =head1 SYNOPSIS
 
-cmd-echo [--oii] [--head] [--title] [-n] [-a] [-c] [-i] [-id "id" ] \
+cmd-echo [--oii] [--head] [--title] [-n] [-a] [-c|--noc] [-i] [-id "id" ] \
          [j] [ [-w[c]|-e[c]|-d[c]|--color [REV]COLOR] [-p 'prefix' ] -- "text" ["text"...]
 
 =head1 DESCRIPTION
 
-Call 'cmd-echo' to print the first "text" on a line with a reversed-color
-prefix. Print subsequent lines indented with reversed color spaces, indicating
-continuation. The name of the calling script is no longer printed. Too
-difficult get it right with a mixture of functions and scripts at different
-nesting levels. It is sufficient just to be able to pick out our messages vs
-those printed by the utilities we call.
+Call "cmd-echo" to print the first "text" on a line with a prefix. Subsequent
+lines are printed indented with spaces, indicating continuation.
 
-The reversed and color adornments are is skipped if we think the output is not
-a terminal; i.e., a log file.
+Reversed and color adornments, if any, are skipped if we think the output is
+not a terminal; i.e., a log file.
 
-The text is echo'ed to STDOUT. Redirect the command yourself if you want to put
-the output on a different discriptor.
+The text is echo-ed to STDOUT. Redirect the command yourself if you want to put
+the output on a different discriptor (i.e., STDERR).
 
 =head1 OPTIONS
 
@@ -295,12 +295,18 @@ Do not print a new line after printing the last argument.
 -item -a
 
 Do not print the prefix when printing these lines. Using in conjunction with -n
-and specifying only one line for each call allows you 'a'ppend to a single line
+and specifying only one line for each call allows you (a)ppend to a single line
 as progress takes place in your process.
 
 =item -c
 
-Print the first "text" element as a continuation line.
+Print all lines as continuation lines, substituting spaces1 for the prefix. You
+must provide the same prefix that you used in prior calls if you are trying to
+get multiple calls to line up.
+
+=item -noc
+
+Print no lines as continuation lines; all lines get the prefix.
 
 =item -i
 

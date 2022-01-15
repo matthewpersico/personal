@@ -478,29 +478,39 @@ END {
         declare line
         declare -A brm # branch-remote-map
         declare source_descr
+        declare -A commit_map
         for line in "${lines[@]}"; do
-            declare -a tmp
-            read -r -a tmp <<<"$line"
-            if [[ ${tmp[0]} == "$source" ]]; then
-                source_descr="${tmp[0]} (${tmp[1]}:${tmp[*]:3})"
-                continue
-            fi
-            if ((filter_targs)); then
-                declare key
-                for key in "${!targs[@]}"; do
-                    if [[ ${tmp[0]} =~ $key ]]; then
-                        brm[${tmp[0]}]=${tmp[2]}
-                        break
-                    fi
-                done
+            declare source_name
+            declare commit_id
+            declare remote_branch
+            declare commit_msg
+            read -r source_name commit_id remote_branch commit_msg <<<"$line"
+            if [[ ${source_name} == "$source" ]]; then
+                source_descr="${source_name} (${commit_id}:${commit_msg})"
             else
-                brm[${tmp[0]}]=${tmp[2]}
+                if ((filter_targs)); then
+                    declare key
+                    for key in "${!targs[@]}"; do
+                        if [[ ${source_name} =~ $key ]]; then
+                            brm[${source_name}]=${remote_branch}
+                            break
+                        fi
+                    done
+                else
+                    brm[${source_name}]=${remote_branch}
+                fi
             fi
+            ((commit_map[$commit_id] += 1))
         done
 
         # Confirmation
         cmd-echo --title --color REVBLUE -- "Full branch list before sync..."
         _git-branch-vv-sort
+        if (( ${#commit_map[@]} == 1 )); then
+            cmd-echo --title --color REVBLUE -- "All branches in sync. No action to take."
+            return 0
+        fi
+
         declare resp
         declare prompt="Propagate '$source_descr' to"
         if (( filter_targs )); then

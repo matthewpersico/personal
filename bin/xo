@@ -11,7 +11,7 @@ use on_exit
 debug=0
 forceX=0
 emacs_exe=$(type -P emacs)
-emacsclient_exe=$(type -P emacsclient)
+emacsclient_exe="${emacs_exe}client"
 declare -a git_is_mod ## These are modified files in a git repo
 declare -a which ## We used to use the 'which' utility to find these
 declare -a org ## The org file
@@ -56,6 +56,15 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
         root )
             emacs_exe="$1/emacs"
             emacsclient_exe="$1/emacsclient"
+            declare i
+            for i in $emacs_exe $emacsclient_exe; do
+                [[ -x "$i" ]] || (cmd-echo "Cannot find '$i'. --root cannot be used." && exit 1);
+            done
+            shift
+            ;;
+        exe )
+            emacs_exe="$1"
+            emacsclient_exe="${1}client"
             declare i
             for i in $emacs_exe $emacsclient_exe; do
                 [[ -x "$i" ]] || (cmd-echo "Cannot find '$i'. --root cannot be used." && exit 1);
@@ -224,7 +233,8 @@ xo - Start up emacs, using X and client mode where possible.
 
 =head1 SYNOPSIS
 
-  xo [--debug] [--forceX] [--root] \\
+  xo [--debug] [--forceX] [--root /path/to/emacs-root-dir] \\
+     [--exe /path/to/emacs ] \\
      [--org|--todo] [--gim] [--which file[,file...]] \\
      [-- any-emacs-opts] [file [file...]]
 
@@ -268,6 +278,11 @@ to use it anyway.
 
 Root directory of the emacs install, if you are using multiple version in
 places other than the default.
+
+=item --exe
+
+Direct path to the executable. If the path is /foo/bar/emacs.something, then
+/foo/bar/emacs.somethingclient must also exist.
 
 =item --org, --todo
 
