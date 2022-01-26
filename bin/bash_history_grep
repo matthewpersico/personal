@@ -38,12 +38,16 @@ do
             shift
             ;;
         d | days )
-            daysago=$(($1 - 1));
+            if [[ $1 =~ ^a ]]; then
+                daysago=10000
+            else
+                daysago=$(($1 - 1));
+            fi
             shift;
             epoch_ago=('--epoch-ago' "$(( $(date --date='00:00' +%s) - (daysago*86400) ))")
             ;;
         i | l )
-            grepopts+=("$option")
+            grepopts+=("-$option")
             ;;
         dirs )
             dodir=--include-dir
@@ -56,7 +60,7 @@ do
             dofile=--include-file
             ;;
         h | help )
-            bash-usage hist
+            bash-usage bash_history_grep
             exit 0
             ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
@@ -70,7 +74,7 @@ done
 
 pattern_to_match="${1:-.*}"
 ##perl -d:ptkdb -S ## no-ptkdb-issue
-perl -d:ptkdb -S bash_history_parse "${epoch_ago[@]}" "${hostfilt[@]}" $dodir $dofile "${matchdir[@]}" "${grepopts[@]}" -- "$pattern_to_match"
+bash_history_parse "${epoch_ago[@]}" "${hostfilt[@]}" $dodir $dofile "${matchdir[@]}" "${grepopts[@]}" -- "$pattern_to_match"
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -129,7 +133,8 @@ metacharacters before the make it to this command.
 
 =item -d n|--days n
 
-Include commands as far back as C<n> days ago in the search. C<n> must be
+Include commands as far back as C<n> days ago in the search. If <n> is 'a', we
+include all available commands as far back as we have. Otherwise, C<n> must be
 greater than 0. We count C<n> using midnight so C<n == 1> means today, C<n ==
 2> means today and yesterday, etc.> This is opposed to using rolling 24 hour
 periods.
