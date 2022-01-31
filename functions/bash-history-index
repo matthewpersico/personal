@@ -1,0 +1,51 @@
+#!/usr/bin/env bash
+
+# <Function Class: hist>
+# <Function Justification: Optimzation: called every prompt print.>
+
+bash-history-index ()
+{
+    local index_file
+    index_file="$HISTDIR/.histindex"
+
+    if [[ $1 == '--outfile' ]]; then
+        index_file="$2"
+        shift; shift;
+    fi
+
+    local -a files=("$@")
+    local argcount="${#files[@]}"
+    local verbose=1
+    ((argcount == '0')) && files=("$HISTFILE") && argcount=1 && verbose=0
+    local i
+    for i in "${files[@]}"; do
+        if ((verbose==1)); then
+            ((argcount-=1))
+            echo "$i... ($argcount remaining)"
+        fi
+
+        local start
+        start=$(head -1 "$i")
+        local end
+        end=$(tail -2 "$i" | head -1)
+
+
+        local my_index_file
+        my_index_file=${index_file}.$(date +%s.%N).$$
+
+        bash-file-lock "$index_file" || return $?
+
+        perl -MData::Dumper \
+             -e 'do $ARGV[0] if (-r $ARGV[0]);
+ ($start=$ARGV[2])=~ s/#([0-9]+).*/$1/;
+ ($end=$ARGV[3])=~ s/#([0-9]+).*/$1/;
+ $index{$ARGV[1]}={start=>$start,end=>$end};
+ $Data::Dumper::Sortkeys=1;
+ print Data::Dumper->Dump([\%index],[qw(*index)])' \
+             "$index_file" "$i" "$start" "$end" > "$my_index_file"
+        \mv -f "$my_index_file" "$index_file"
+
+        bash-file-lock --unlock "$index_file" || return $?
+    done
+}
+autotrack bash-history-index "$0"

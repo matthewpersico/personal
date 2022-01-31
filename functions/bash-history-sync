@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+
+# <Function Class: hist>
+# <Function Justification: env>
+
+bash-history-sync ()
+{
+    builtin history -a         #1 append history lines from this session to the history file
+    HISTFILESIZE=$HISTSIZE     #2 expand the allowable number of lines so we never cut off any commands
+    builtin history -c         #3 clear the history list by deleting all of the entries
+    builtin history -r         #4 read the history file and append the contents to the history list
+
+    #5 Add the pwd to the hist file.
+    perl -e '
+         ## Load the history file
+         open(IH, "<$ARGV[0]");@lines=<IH>;close(IH);
+
+         if(@lines) {
+             chomp $lines[-2];
+             $lines[-2] =~ s/ ## pwd =>.*//;
+             $lines[-2] .= " ## pwd => $ARGV[1]\n";
+             open(OH, ">$ARGV[0]");print OH @lines;close(OH);
+         }
+    ' "$HISTFILE" "${PWD}"
+
+    #6 Update the hist files time index
+    bash-history-index
+}
+autotrack bash-history-sync "$0"

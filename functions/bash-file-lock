@@ -1,0 +1,32 @@
+#!/usr/bin/env bash
+
+# <Function Class: hist>
+# <Function Justification: Optimzation: called every prompt print.>
+
+bash-file-lock ()
+{
+    declare action='lock'
+    if [[ $1 == '--unlock' ]]; then
+        action='unlock'
+        shift
+    fi
+
+    declare file_to_lock=$1
+    declare lock=${file_to_lock}.lock
+    [[ ! -f "$lock" ]] && touch "$lock"
+
+    if [[ $action == 'lock' ]]; then
+        exec 201>"$lock"
+        if ! flock -x -w5 201; then
+            echo "Cannot lock the file '$file_to_lock' via the lock file '$lock'. Aborting"
+            false; return $?
+        fi
+    elif [[ $action == 'unlock' ]]; then
+        if ! flock -u 201; then
+            echo "Cannot unlock the file '$file_to_lock' via the lock file '$lock'. Aborting"
+            false; return $?
+        fi
+    fi
+    true; return $?
+}
+autotrack bash-file-lock "$0"
