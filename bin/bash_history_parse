@@ -30,6 +30,11 @@ my @files;
 
 if ( $opt{'epoch-ago'} ) {
     my $index_file = "$ENV{HISTDIR}/.histindex";
+    ## In theory, we should flock the index before reading it. In practice
+    ## we've never seen where the file changed out from under us as we
+    ## processed it, and if it did, then only a bash history inquiry would fail
+    ## and we could just re-run it. It's not worth trying to coordinate a flock
+    ## call here with a flock call in shell.
     do $index_file;
     @files = grep { $index{$_}->{start} >= $opt{'epoch-ago'} }
       map {
@@ -42,13 +47,20 @@ if ( $opt{'epoch-ago'} ) {
               "$_ has bad start and/or end indexing in $index_file\n";
             ();
         }
-      } keys %index;
+      }
+      grep { -r }
+      keys %index;
 } else {
     @files = ( $ENV{HISTFILE} );
 }
 FILE: for my $file (@files) {
     next FILE
       if ( $opt{hostname} and $file !~ m/$opt{hostname}/ );
+    ## In theory, we should flock the hist file before reading it. In practice
+    ## we've never seen where the file changed out from under us as we
+    ## processed it, and if it did, then only a bash history inquiry would fail
+    ## and we could just re-run it. It's not worth trying to coordinate a flock
+    ## call here with a flock call in shell.
     my $ih = IO::File->new("< $file")
       or die "Cannot open $file:$!";
 

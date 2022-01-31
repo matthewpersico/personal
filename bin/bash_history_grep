@@ -8,9 +8,9 @@ declare shortopts='ilm:fhd:'
 declare longopts='host:,local,localhost,dirs,days:,matchdir:,match-dir:file,help'
 
 # Process the command line.
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") ## "${FUNCNAME[0]}" -- "$@") ## in functions
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 declare status=$?
-((status != 0)) && exit $status ## return $status ## in functions
+((status != 0)) && exit $status
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -19,6 +19,7 @@ eval set -- "$OPTSARGS"
 # variables.
 declare -a grepopts
 declare -a hostfilt
+hostfilt=('--hostname' "$(hostname)")
 declare -a epoch_ago
 declare -a matchdir
 declare daysago
@@ -30,11 +31,15 @@ do
     case "$option" in
         host )
             # shellcheck disable=SC2034 # remove when implemented
-            hostfilt=("--hostname" "$1")
+            if [[ $1 = 'all' ]]; then
+                hostfilt=('--hostname' '.*')
+            else
+                hostfilt=('--hostname' "$1")
+            fi
             shift
             ;;
         local | localhost )
-            hostfilt=("--hostname" "$(hostname)")
+            hostfilt=('--hostname' "$(hostname)")
             shift
             ;;
         d | days )
@@ -53,7 +58,7 @@ do
             dodir=--include-dir
             ;;
         m | matchdir | match-dir)
-            matchdir=("--match-dir" "$1")
+            matchdir=('--match-dir' "$1")
             shift
             ;;
         f | file )
@@ -73,7 +78,7 @@ do
 done
 
 pattern_to_match="${1:-.*}"
-##perl -d:ptkdb -S ## no-ptkdb-issue
+## no-ptkdb-issue : perl -d:ptkdb -S \
 bash_history_parse "${epoch_ago[@]}" "${hostfilt[@]}" $dodir $dofile "${matchdir[@]}" "${grepopts[@]}" -- "$pattern_to_match"
 
 :<<'__PODUSAGE__'
@@ -156,8 +161,10 @@ working directory matches the regex 'matchdir'.
 =item --host hostname
 
 The commands are stored in history files whose name contains the value of
-C<hostname>. By default, we search all history files nomatter what the
-host. Use this option to match a specific machine.
+C<hostname>. By default, we search only history files that match the current
+hostname. Use this option to match a specific machine, or 'all' for all
+machines. This option is really only useful for an NFS mounted home directory
+across multiple machines. The C<hostname> can be a regular expression.
 
 =item --local
 
