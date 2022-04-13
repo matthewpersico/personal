@@ -58,11 +58,12 @@ Either way, we will refer to this branch as `machine-branch` later on.
 This step stores existing dotfiles and links to new ones in the repo.
 
 ```
-$ cd $HOME/personal/dotfiles
-$ . ./dotfilesbootstrap
-$ cd ..
-$ bin/makesymlinks -i dotfiles
-$ bin/github.env.init
+cd $HOME/personal/dotfiles
+. ./dotfilesbootstrap
+cd ..
+bin/makesymlinks -i dotfiles
+export REALGIT=$(which git)
+bin/github.env.init
 ```
 
 ## Test
