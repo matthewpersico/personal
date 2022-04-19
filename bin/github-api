@@ -36,6 +36,7 @@ main ()
     local doexec=1
     local -a otherparams
     local opt_data_mode=0
+    local opt_page_limit=0
     local override_url
     local -a override_args
     local -a re_exec
@@ -67,6 +68,11 @@ main ()
         case $option in
             override-url )
                 override_url=${ovalue:-$1}
+                [[ -z "$ovalue" ]] && shift
+                ;;
+
+            page-limit )
+                opt_page_limit=${ovalue:-$1}
                 [[ -z "$ovalue" ]] && shift
                 ;;
 
@@ -354,6 +360,10 @@ main ()
             # shellcheck disable=SC2059
             pageprint="$(printf "$pagenumfmt" $pagenum)"
             # shellcheck disable=SC2004
+            if ((opt_page_limit)) && ((pagenums[1] > opt_page_limit)); then
+                github-api-echo "${pagenums[1]} pages of data available, limiting to the first ${opt_page_limit}..."
+                pagenums[1]=${opt_page_limit}
+            fi
             ((!silent)) && github-api-echo "$pagenum of ${pagenums[1]} pages of data fetched..."
             ((pagenum+=1))
             while (( pagenum <= "${pagenums[1]}" )); do

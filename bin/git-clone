@@ -22,8 +22,7 @@ _git_clone_record_named_branches ()
 
 _git-clone-set-triangle()
 {
-    local githost_url
-    githost_url=$1
+    local githost_url=$1;shift
     local githostkeycheck
     githostkeycheck=$( git kv --key-only --section svcs | grep -E "^$githost_url$")
     if [[ -n "$githostkeycheck" ]] ; then
@@ -34,12 +33,10 @@ _git-clone-set-triangle()
             return 1
         fi
     fi
-    local upstream_namespace
-    upstream_namespace=$2
-    local origin_namespace
-    origin_namespace=$3
-    local repo
-    repo=$4
+    local upstream_namespace=$1;shift
+    local origin_namespace=$1;shift
+    local upstream_repo=$1;shift
+    local origin_repo=$1; shift
 
     local default_branch
     default_branch=$(git repo default-branch)
@@ -49,9 +46,9 @@ _git-clone-set-triangle()
     triangle_workflow[branch.${default_branch}.mergeoptions]="--ff-only"
     triangle_workflow[branch.${default_branch}.remote]="upstream"
 
-    triangle_workflow[remote.origin.url]="${githost_url}${origin_namespace}/${repo}"
+    triangle_workflow[remote.origin.url]="${githost_url}${origin_namespace}/${origin_repo}"
     triangle_workflow[remote.pushdefault]="origin"
-    triangle_workflow[remote.upstream.url]="${githost_url}${upstream_namespace}/${repo}"
+    triangle_workflow[remote.upstream.url]="${githost_url}${upstream_namespace}/${upstream_repo}"
 
     local key
     for key in "${!triangle_workflow[@]}"; do
@@ -271,8 +268,27 @@ main ()
     else
         cmd-echo -id "$cmd_echo_id" -- "Neither --githost nor --tree were specified. Cloning right here (${PWD})."
     fi
-
     local tgt="$namespace/$tgtdir"
+    local forked_repo
+    if ((opt_make_fork)); then
+        ## Then try to make a fork of the repo from the upstream org
+        ## supplied. If the fork exists on the server, no harm no foul; we just
+        ## continue on with what we found.
+        cmd-echo -- "github-api --server $githost --data-mode --wait fork $opt_triangle_namespace $repo..."
+        forked_repo=$(github-api --server "$githost" --data-mode --wait fork "$opt_triangle_namespace" "$repo")
+        local dq="$?"
+        if [[ $dq != '0' ]]; then
+            return $?
+        fi
+        if [[ $forked_repo != "$repo" ]]; then
+            if ((tgt_override==0)); then
+                cmd-echo -wc -- "Forked repo of $repo is named $forked_repo. Will use $forked_repo going forward."
+                tgt="$namespace/$forked_repo"
+            else
+                cmd-echo -wc -- "Forked repo of $repo is named $forked_repo. Will reference $forked_repo going forward, but still use $tgtdir as the local repo directory, as requested."
+            fi
+        fi
+    fi
     if [[ -e "$tgt" ]]; then
         local resp
         if ((opt_y)); then
@@ -298,55 +314,9 @@ main ()
         fi
     fi
 
-    if ((opt_make_fork)); then
-        ## Then try to make a fork of the repo from the upstream org
-        ## supplied. If the fork exists, no harm no foul; we just continue on
-        ## with what we found.
-        cmd-echo -- "github-api --server $githost --data-mode --wait fork $opt_triangle_namespace $repo..."
-        local forked_repo
-        forked_repo=$(github-api --server "$githost" --data-mode --wait fork "$opt_triangle_namespace" "$repo")
-        local dq="$?"
-        if [[ $dq != '0' ]]; then
-            return $?
-        fi
-        if [[ $forked_repo != "$repo" ]]; then
-            repo="$forked_repo"
-            if ((tgt_override==0)); then
-                cmd-echo -wc -- "Forked repo of $repo is named $forked_repo. Will use $forked_repo going forward."
-                tgt="$namespace/$forked_repo"
-            else
-                cmd-echo -wc -- "Forked repo of $repo is named $forked_repo. Will reference $forked_repo going forward, but still use $tgtdir as the local repo directory, as requested."
-            fi
-            if [[ -e "$tgt" ]]; then
-                local resp
-                if ((opt_y)); then
-                    resp='y'
-                else
-                    resp=$(cmd-yesno "'$tgt' exists. Will not clone over it. Remove it" n)
-                fi
-                if [[ "$resp" = 'n' ]]; then
-                    cmd-echo -n -- "Keeping."
-                    if ((opt_use_githost_dir)); then
-                        if [[ -n "$doandcdfile" ]]; then
-                            cmd-echo -c -- " Going to $tgt..."
-                            echo "git go $tgt" > "$doandcdfile"
-                        else
-                            cmd-echo -c -- " Execute" "    git go $tgt" "to use."
-                        fi
-                    else
-                        echo
-                    fi
-                    return 1
-                else
-                    rm -rf "$tgt"
-                fi
-            fi
-        fi
-    fi
-
     ## Do the clone
-    cmd-echo -- "$REALGIT clone ${pass_on[*]} ${githost_url}$namespace/$repo $tgt ..."
-    if ! $REALGIT clone "${pass_on[@]}" "${githost_url}$namespace/$repo" "$tgt"; then
+    cmd-echo -- "$REALGIT clone ${pass_on[*]} ${githost_url}$namespace/${forked_repo:-$repo} $tgt ..."
+    if ! $REALGIT clone "${pass_on[@]}" "${githost_url}$namespace/${forked_repo:-$repo}" "$tgt"; then
         return $?
     fi
 
@@ -385,7 +355,7 @@ main ()
     dirlist "$tgt"
     if [[ -n "$opt_triangle_namespace" ]]; then
         cmd-echo -- "Setting up triangle workflow with ${githost_url}${opt_triangle_namespace}/${repo}..."
-        _git-clone-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo" || return $?
+        _git-clone-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo" "${forked_repo:-$repo}"|| return $?
         if ! git pull ; then
             cmd-echo --ec -- 'If the error refers to a missing ref whose name contains "master",' \
                      "then your fork's default branch is not the same as the upstream." \
@@ -398,7 +368,6 @@ main ()
         git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || return $?
         ## ^ allows git checkout -b 3 pull/origin/3
     fi
-    set +x
     git remote -v
 
     if ((opt_worktree)); then

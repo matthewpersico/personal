@@ -1,4 +1,4 @@
-#!/opt/bb/bin/bash
+#!/usr/bin/env bash
 
 ## git-pre-commit-hook
 
@@ -136,7 +136,6 @@ do_gcs_check ()
     ## of ways to strictly enforce or bypass this (utilities that process GCS
     ## markers are an example.)
     declare gcsfile="$G_gitroot/.gcs"
-    [[ ! -r $gcsfile ]] && echo "no .gcs file, bail early" && return 0
 
     declare -a gcs_messages
     gcs_messages[0]="One or more files has an explicit commit stop. Please address."
@@ -151,18 +150,18 @@ do_gcs_check ()
         ## GCS marker in them and move on.
         [[ $file =~ \.gcs$ ]] && continue
 
-        declare gcs_marker
+        declare gcs_marker=''
         ## First, is there a GCS marker that is not countermanded with
         ## <GCSLITERAL> on the same line.
         gcs_marker=$(grep -H -n -E '<GCS>' "$file" | grep -v '<GCSLITERAL>')
 
         ## Next check the gcs file for matches. If in this file, we don't
         ## commit. Period...
-        declare gcsfile_match
-        gcsfile_match=$(grep "$file" "$gcsfile")
+        declare gcsfile_match=''
+        [[ -r $gcsfile ]] && gcsfile_match=$(grep "$file" "$gcsfile")
 
         ## ...unless the entry has an :ignore marker.
-        declare gcsfile_ignore
+        declare gcsfile_ignore=''
         if [[ -n $gcsfile_match ]]; then
             gcsfile_ignore=$(grep ':ignore' <<< "$gcsfile_match")
         fi
@@ -549,7 +548,17 @@ for (@ARGV){
             then
                 shellcheck "${shellfiles[@]}" 1>"$G_tfile" 2>&1
                 check "$G_tfile" \
-                      "One of more files has failed shellcheck checks. Please review."
+                      "One or more files has failed shellcheck checks. Please review."
+                declare shellfile
+                declare shebang_check
+                for shellfile in "${shellfiles[@]}"; do
+                    shebang_check=$(head -1 "$shellfile")
+                    if [[ $shebang_check != "#!/usr/bin/env bash" ]]; then
+                        echo "$shellfile does not have a standard shebang line (#!/usr/bin/env bash). It has '$shebang_check' instead." > "$G_tfile"
+                    fi
+                done
+                check "$G_tfile" \
+                      "One or more files has failed shebang checks. Please review."
             else
                 echo "Skipping shell checks, by request."
             fi
@@ -624,15 +633,15 @@ git-pre-commit-hook - a script for the pre-commit hook in git
 
 This script is not executed directly, but rather by git during a commit. It can be installed in either of three ways:
 
-* Place a copy of it in the '.git/hooks' directory of your local repo, renamed to 'pre-commit'.
+1) Place a copy of it in the '.git/hooks' directory of your local repo, renamed to 'pre-commit'.
 
-* Create a file .git/hooks/pre-commit in your local repo with the command
+2) Create a file .git/hooks/pre-commit in your local repo with the command
 
   git-pre-commit-hook "$@"
 
-  in it, assuming that this script is in PATH
+in it, assuming that this script is in PATH.
 
-* Create that same file in you 'git-template' directory, so that it is copied into every repo you clone.
+3) Create that same file in your 'git-template' directory, so that it is copied into every repo you clone.
 
 You can test it by running '.git/hooks/pre-commit' in your current repo; the commit will not
 run in this mode, obviously.

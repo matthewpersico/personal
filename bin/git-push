@@ -1,4 +1,4 @@
-# -*- sh -*-
+#!/usr/bin/env bash
 # shellcheck shell=bash
 
 [[ -n $GIT_AUDIT ]] && echo "$(date): ${0##*/}" >> "${TILDAE:-$HOME}/.gitaudit"
@@ -60,30 +60,33 @@ fi
 ## Then we tack on our actions if requested.
 if ((opt_popup || opt_pr)); then
     # Get info for our repo.
-    declare remote
-    remote=$(git-get-default-remote)
+    ## TODO: I don't think we need remote_url and then the remote_tag later
+    ## from we re-derive what I think is the same info.
+    declare remote_url
+    remote_url=$(git-get-default-remote)
     declare svc
     declare org
     declare repo
     declare orgrepo
     declare url_svc
-    svc=${remote%:*}; svc=${svc##*@}; svc=${svc%.*}
+    svc=${remote_url%:*}; svc=${svc##*@}; svc=${svc%.*}
     if [[ $svc =~ ^http(s)? ]]; then
-        read -r svc org repo < <(git utils decode-http "$remote")
+        read -r svc org repo < <(git utils decode-http "$remote_url")
         orgrepo="$org/$repo"
     else
-        orgrepo=${remote#*:}
+        orgrepo=${remote_url#*:}
         org=${orgrepo%/*}
     fi
     url_svc="$(git kv --get "browser-urls.$svc")"
 
     # Get info 'upstream', or 'origin'.
     declare remote_svcorgrepo
-    declare remote
-    for remote in upstream origin; do
-        remote_svcorgrepo=$(git config --get "remote.${remote}.url")
+    declare remote_tag
+    for remote_tag in upstream origin; do
+        remote_svcorgrepo=$(git config --get "remote.${remote_tag}.url")
         [[ -n $remote_svcorgrepo ]] && break;
     done
+
     declare remote_svc
     declare remote_orgrepo
     declare remote_org
@@ -120,7 +123,7 @@ if ((opt_popup || opt_pr)); then
         if ((opt_pr_force)); then
             cmd-echo -- "Not looking for existing pr"
             do_pr=1
-        elif ! url=$(git repo pr-get --open --remote "$remote" ); then
+        elif ! url=$(git repo pr-get --open --remote "$remote_tag" ); then
             cmd-echo -- "No open existing PR found, popping up create URL..."
             do_pr=1
         fi
