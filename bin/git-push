@@ -16,8 +16,7 @@ declare opt_popup=0
 declare opt_pr=0
 declare opt_pr_force=0
 
-declare -a pass_on
-
+declare -a pass_to_push
 ## DO NOT attempt to convert this to a 'getopt' implementation; it would
 ## require specifying and handling every existing option in 'git push',
 ## and it is just not necessary.
@@ -47,127 +46,26 @@ while (( $# )); do
             exit 0
             ;;
         * )
-            pass_on+=("$arg")
+            pass_to_push+=("$arg")
             ;;
     esac
 done
 
 if ((dispatch_to_real_git)); then
     ## Currently, we ALWAYS run the real git push first.
-    "$REALGIT" push "${pass_on[@]}" || exit $?
+    "$REALGIT" push "${pass_to_push[@]}" || exit $?
 fi
 
 ## Then we tack on our actions if requested.
+declare -a pass_to_pr
 if ((opt_popup || opt_pr)); then
-    # Get info for our repo.
-    ## TODO: I don't think we need remote_url and then the remote_tag later
-    ## from we re-derive what I think is the same info.
-    declare remote_url
-    remote_url=$(git-get-default-remote)
-    declare svc
-    declare org
-    declare repo
-    declare orgrepo
-    declare url_svc
-    svc=${remote_url%:*}; svc=${svc##*@}; svc=${svc%.*}
-    if [[ $svc =~ ^http(s)? ]]; then
-        read -r svc org repo < <(git utils decode-http "$remote_url")
-        orgrepo="$org/$repo"
-    else
-        orgrepo=${remote_url#*:}
-        org=${orgrepo%/*}
-    fi
-    url_svc="$(git kv --get "browser-urls.$svc")"
-
-    # Get info 'upstream', or 'origin'.
-    declare remote_svcorgrepo
-    declare remote_tag
-    for remote_tag in upstream origin; do
-        remote_svcorgrepo=$(git config --get "remote.${remote_tag}.url")
-        [[ -n $remote_svcorgrepo ]] && break;
-    done
-
-    declare remote_svc
-    declare remote_orgrepo
-    declare remote_org
-    declare remote_repo
-    if [[ $remote_svcorgrepo =~ ^http(s)? ]]; then
-        read -r remote_svc remote_org remote_repo < <(git utils decode-http "$remote_svcorgrepo")
-        remote_orgrepo="${remote_org}/${remote_repo}"
-        remote_svcorgrepo="${remote_svc}:${remote_org}/${remote_repo}"
-    else
-        remote_svcorgrepo=${remote_svcorgrepo%.git}
-        remote_svc=${remote_svcorgrepo%:*}; remote_svc=${remote_svc##*@}; remote_svc=${remote_svc%.*}
-        remote_orgrepo=${remote_svcorgrepo#*:}
-        remote_org=${remote_orgrepo%/*}
-        remote_repo=${remote_orgrepo#*/}
-    fi
-
-    # Make sure we realize we are not clean, in case that's unexpected.
-    declare statusdata
-    statusdata=$(mktempfile)
-    rm-on-exit "$statusdata"
-    git status --porcelain -b -uno > "$statusdata"
-    declare linecount
-    linecount=$(wc -l < "$statusdata")
-    declare outofdate
-    outofdate=$(grep '##' "$statusdata" | grep '\[')
-    if ((linecount > 1)) || [[ -n "$outofdate" ]]; then
-        cmd-echo -wc -- "Current status not clean:"
-        git status
-    fi
-
-    declare url
-    if ((opt_pr)); then
-        declare do_pr=0
-        if ((opt_pr_force)); then
-            cmd-echo -- "Not looking for existing pr"
-            do_pr=1
-        elif ! url=$(git repo pr-get --open --remote "$remote_tag" ); then
-            cmd-echo -- "No open existing PR found, popping up create URL..."
-            do_pr=1
-        fi
-        if((do_pr)); then
-            declare current_branch
-            current_branch="$(git repo current-branch)"
-
-            declare default_branch
-            default_branch=$(git repo default-branch)
-            if [[ "$current_branch" = "$default_branch" ]]; then
-                cmd-echo -wc -- "Not generating a PR. Using the default branch '${default_branch}' branch on a clone won't work; you've already pushed to ${default_branch}."
-                exit 1
-            fi
-
-            ## This url does let us PR against an arbitrary branch. Use the
-            ## extra information we wrote at branch/worktree creation time.
-            declare from_branch
-            from_branch=$(git config --get "worktree.${current_branch}.${GIT_EXT_META_PREFIX}-from-branch")
-
-            ## Fallback for a worktree created before we started writing the
-            ## ${GIT_EXT_META_PREFIX}-from-branch. Going forward, we always write
-            ## ${GIT_EXT_META_PREFIX}-from-branch, even if it is the default.
-            [[ -z $from_branch ]] && from_branch=$(git repo default-branch)
-
-            if [[ "$remote_org" != "$org" ]]; then
-                url="$url_svc/$remote_orgrepo/compare/$from_branch...$org:$current_branch"
-            else
-                url="$url_svc/$remote_orgrepo/compare/$from_branch...$current_branch"
-            fi
-        else
-            cmd-echo -- "Existing PR found, popping it up..."
-        fi
-    else
-        url="$url_svc/$orgrepo"
-    fi
-
-    git web--browse "$url" &
+    ((opt_popup))    && pass_to_pr+=('--popup')
+    ((opt_pr))       && pass_to_pr+=('--pr')
+    ((opt_pr_force)) && pass_to_pr+=('--pr-force')
+    git-pr "${pass_to_pr[@]}"
 fi
 
-exit 0
-
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
-## 'POD' in __PODUSAGE__.
+exit $?
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -206,8 +104,7 @@ Note: This only really works with the triangle workflow of forked 'origin' and o
 
 =item no-pr
 
-Passed to us so that logic in 'git commit' is more straightforward. We explictiyl don't do any pull request processing.
-
+Passed to us so that logic in 'git commit' is more straightforward. We explictily don't do any pull request processing.
 
 =back
 
