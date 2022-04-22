@@ -23,6 +23,7 @@ main ()
     ## If there's any chance that this will be in a script that will be dotted in,
     ## remove the explicit out_cmd calls.
     local moreopts=1
+
     local server='github'
     local token_file="$HOME/.github"
     local verbose=0
@@ -282,6 +283,7 @@ main ()
             ;;
 
         url)
+            # shellcheck disable=SC2269 #https://github.com/koalaman/shellcheck/wiki/SC2269
             url="$url"
             ;;
 
@@ -460,18 +462,24 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
             contents)
                 case $htmlstatus in
                     200 )
+                        ((!verbose)) && silent=1 ## If you want contents, you
+                                                 ## probably don't want the
+                                                 ## JSON, headers, etc. Unless
+                                                 ## you do. :-)
                         # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
                         echo '$VAR1=' > "$perldata"
                         json_xs -t dumper < "$curldata" >> "$perldata"
-                        echo ';'
+                        echo ';' >> "$perldata"
                         perl -MMIME::Base64 -e 'do $ARGV[0]; print decode_base64($VAR1->{content})' "$perldata"
                         ;;
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
+                        set +x
                         false; return
                         ;;
                 esac
+                set +x
                 ;;
 
             exists )
@@ -715,6 +723,8 @@ Find information about **open** pull requests.
 =item contents
 
 Get a file. Specify the path to the file relative to the repo root. The optional parameter 'ref' is the commit/branch/tag for the version you want. Default is the version at the head of the default branch.
+
+Unlike most, if not all other commands, this one, by default will B<not> print headers and the resulting JSON. If you want all that, add the C<--verbose> flag to your call. You can also  use one of the format options (C<--stream-data>, C<--perl-data>)
 
 =item url
 

@@ -7,8 +7,6 @@
 use mktemp
 use on_exit
 
-declare opt_popup=1
-declare opt_pr=0
 declare -a git_web__browse_args
 declare more_our_opts=1
 while [[ "$1" =~ ^- ]] && ((more_our_opts)); do
@@ -48,9 +46,6 @@ while [[ "$1" =~ ^- ]] && ((more_our_opts)); do
             git-usage --real web--browse "$0"
             exit 0
             ;;
-        pr )
-            opt_pr=1
-            more_our_opts=0;;
         ##
         ## Options to pass onto real git web--browse
         ##
@@ -60,9 +55,9 @@ while [[ "$1" =~ ^- ]] && ((more_our_opts)); do
     esac
 done
 
-git_web__browse_args+=("$@")
-
-if ((opt_popup || opt_pr)); then
+if (($#)); then
+    git_web__browse_args+=("$@")
+else
     declare remote
     remote=$(git-get-default-remote)
     declare svc
@@ -71,38 +66,11 @@ if ((opt_popup || opt_pr)); then
     repo=${remote#*:}
 
     declare url
-    if ((opt_pr)); then
-        declare statusdata
-        statusdata=$(mktempfile)
-        rm-on-exit "$statusdata"
-        git status --porcelain -b -uno > "$statusdata"
-        declare linecount
-        linecount=$(wc -l < "$statusdata")
-        declare outofdate
-        outofdate=$(grep '##' "$statusdata" | grep '\[')
-        if ((linecount > 1)) || [[ -n "$outofdate" ]]; then
-            cmd-echo -wc -- "Current status not clean:"
-            git status
-        fi
-
-        declare url
-        if ! url=$(git repo pr --get); then
-            cb="$(git repo current-branch)"
-            url="$(git kv --get "browser-urls.$svc")/$repo/pull/new/$cb"
-            declare default_branch
-            default_branch=$(git repo default-branch)
-            if [[ "$cb" = "$default_branch" ]]; then
-                cmd-echo -wc -- "Using the default branch '${default_branch}' can bring up the wrong PR url: $url"
-            fi
-        fi
-    else
-        url="$(git kv --get "browser-urls.$svc")/$repo"
-    fi
-
-    $REALGIT web--browse "$url" &
-else
-    $REALGIT web--browse "${git_web__browse_args[@]}" &
+    url="$(git kv --get "browser-urls.$svc")/$repo"
+    git_web__browse_args+=("$url")
 fi
+
+$REALGIT web--browse "${git_web__browse_args[@]}" &
 
 exit 0
 
@@ -117,22 +85,26 @@ git-web - Wrapper for 'git web--browse'
 
 =head1 SYNOPSIS
 
- git-web [--pr] ...
+ git-web ...
 
 =head1 DESCRIPTION
 
-Start a browser (using the git web--browser rules for finding one on the
-system), pointing at the current repo's origin site at the remote git server.
+Run git the web--browser command, with extentions.
+
+=head1 ARGUMENTS
+
+The git web--browser function requires a target of some sort to look at as its arguments. We have extended it so that if there are no arguments, the current directory's repo's origin site at the remote git server is the target.
 
 =head1 OPTIONS
 
 =over 4
 
-=item pr
+=item --set-browser /path/to/browser
 
-Start a browser pointing to the URL for the existing pull request for this
-branch. If none is found, use the URL to create a new pull request.
+Sets the appropriate variables in the .git configuration files to identify the browser to use.
 
 =back
+
+=cut
 
 __PODUSAGE__
