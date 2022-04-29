@@ -53,26 +53,30 @@ declare -a pscl_flags
 declare git_editor
 declare opt_confirm=0
 declare debug
-declare moreopts
-moreopts=1
-while [[ "$1" =~ ^- ]] && ((moreopts)); do
-    declare original="$1"
-    shift
-    declare option
-    option=$(dashstripper "$original")
-    ## This bit deals with --foo=bar instead of --foo bar
-    declare okey=''
-    declare ovalue=''
-    if [[ "$option" =~ = ]]; then
-        okey=${option%%=*}  ## Removes longest string on the right.
-        ovalue=${option#*=} ## Removes shortest string on the left. These
-                            ## asymetric matches Do The Right Thing in the face
-                            ## of an option=value pair where the value itself
-                            ## has an = in it.
-        option="$okey"
-    fi
 
-    case $option in
+# Read the options and args from command line. Note that the long and short
+# don't have to match up.
+declare OPTSARGS
+declare shortopts='hx'
+declare longopts='debug,verbose,commit,diff::,cached,sclonly,sclpick:,sclmatch:'
+longopts="$longopts,nosclonly,gcsonly,nogcsonly,filesonly,skip-no-source-ctrl-log,edit"
+longopts="$longopts,confirm,editor:,color:,nountracked,inter,interactive"
+
+# Process the command line.
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+declare status=$?
+((status != 0)) && exit $status ## return $status ## in functions
+
+# Reset the command line ($@).
+eval set -- "$OPTSARGS"
+
+# Reprocess the command line, extracting options and their arguments into
+# variables.
+while true; do
+    declare option=$1
+    shift
+    [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
+    case "$option" in
         h | help )
             git-usage "$0"
             true; exit
@@ -94,7 +98,19 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
             pscl_flags+=(--for-commit "$parsed_cl_root")
             ;;
         diff)
-            pscl_flags+=(--diff)
+            ## Arguments to --diff must come in to the script in "cuddled ="
+            ## form because that's how 'getopt' works for options with optional
+            ## args.  Otherwise, how could it tell if
+            ##
+            ## --diff --w
+            ##
+            ## is --diff=-w or -w is a separate arg?. Since we have cuddled
+            ## form already, We pass "cuddled =" form on to help the
+            ## process-source-ctrl-log arg parser. Note that $1 will be '', not
+            ## unassigned, if no args are passed, so it must be shifted off
+            ## always.
+            [[ -z "$1" ]] && pscl_flags+=(--diff) || pscl_flags+=("--diff=$1")
+            shift
             ;;
         cached)
             pscl_flags+=(--cached)
@@ -103,12 +119,8 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
             pscl_flags+=(--sclonly)
             ;;
         sclpick | sclmatch)
-            declare sclpick
-            sclpick=${ovalue:-$1}
-            ## If $ovalue is blank, we took arg from the next command line arg;
-            ## need to shift it off.
-            [[ -z "$ovalue" ]] && shift
-            pscl_flags+=('--sclpick' "$sclpick")
+            pscl_flags+=("$option" "$1")
+            shift
             ;;
         nosclonly)
             pscl_flags+=(--nosclonly)
@@ -132,14 +144,12 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
             opt_confirm=1
             ;;
         editor)
-            git_editor=$2
-            shift;;
+            git_editor=$1
+            shift
+            ;;
         color)
-            color=${ovalue:-$1}
-            ## If $ovalue is blank, we took arg from the next command line arg;
-            ## need to shift it off.
-            [[ -z "$ovalue" ]] && shift
-            pscl_flags+=(--color "$color")
+            pscl_flags+=(--color "$1")
+            shift
             ;;
         nountracked )
             pscl_flags+=(--nountracked)
@@ -147,12 +157,11 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
         inter* )
             pscl_flags+=(--interactive)
             ;;
-        --)
-            moreopts=0
-            ;;
-        * )
-            cmd-echo --ec -- "$original is an invalid option. See $0 --help";
-            false; exit;
+        --)  break ;; ## VITAL!!! Exits the while loop, no more options,
+                      ## remaining $*, if any, are args
+        *)
+            cmd-echo -ec -- "$option is an invalid option. See $0 --help"
+            false; exit
             ;;
     esac
 done

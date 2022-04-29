@@ -70,8 +70,9 @@ sub main {
         # These three options are for formatting and will be ignored if
         # --for-commit is set.
         'color=s',    # Same as the git values.
-        'diff',       # Include git diff output mixed in with the status and
-                      # changelog info.
+        'diff:s',     # Include git diff output mixed in with the status and
+                      # changelog info. The arg is a set of optional flags to
+                      # the diff command.
         'cached',     # Controls the diff output.
 
         'sclonly',    # Only process files with a changelog entry.
@@ -104,6 +105,12 @@ sub main {
         @obsolete
     ) or die "Bad options";
 
+    if ( $opt{diff} eq '' ) {
+        $opt{diff} = 1;         # 0 is no diff and no --diff. '' means --diff with no
+                                # args, but that's logical false, so we set logical
+                                # true. If there are args to --diff, the string will
+                                # have a length and be true.
+    }
     my $found_obsolete = join( q(, ),
         grep { exists $opt{$_} }
         map { ( split( /=/, $_ ) )[0] } @obsolete );
@@ -448,8 +455,13 @@ sub format_scl {
     #
     my @diff_text;
     if ( $opt{diff} ) {
+        my @diffargs = ('diff');
+        if ( $opt{diff} ne '1' ) {
+            push @diffargs, split( /,/, $opt{diff} );
+        }
         @diff_text =
-          map { chomp; $_ } qx(git -c color.diff=$opt{color} diff $opt{cached});
+          map { chomp; $_ }
+          qx(git -c color.diff=$opt{color} @diffargs $opt{cached});
         my $entry;
         for my $line (@diff_text) {
             if ( $line =~ m/^....diff --git a/ ) {
