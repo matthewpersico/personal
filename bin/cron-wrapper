@@ -1,9 +1,19 @@
 #!/usr/bin/env bash
-# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-# shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
-# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 
 # cron-wrapper
+
+# That shebang ^ is not necessarily the same bash that the user is expecting to
+# get. But it should be close enough on any modern system to work this
+# script. It works for bash as low as 4.2.46(2).
+
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+#    - declare and assign separately
+# shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
+#    - CW envvars not capitalized, assigned in this script, and accessed outside a function
+# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+#    - can't determine the exact profile being sourced at check time
+
+export CRON_WRAPPER=true
 
 declare _CW_epoch=$(/usr/bin/date +%s)
 declare _CW_timestamp=$(/usr/bin/date --date "@$_CW_epoch" +%Y.%m.%dT%H.%M.%S )
@@ -151,9 +161,9 @@ _CW_log_name () {
 main() {
     while (($#)); do
         shift # cron-wrapper takes no args. If there are args, they are used to
-              # ID the cron job in case of a sever crash of cron-wrapper. Let's
-              # get rid of them before they confuse some $1 reference in wither
-              # the profile or the command.
+              # ID the cron job in case of a severe crash of
+              # cron-wrapper. Let's get rid of them before they confuse some $1
+              # reference in either the profile or the command.
     done
 
     if [[ -n $CW_link_log ]] && [[ ! $CW_link_log =~ false|true ]]; then
@@ -198,18 +208,45 @@ main() {
             fi
         fi
 
+        # After processing the profile, the desired shell is probably on
+        # PATH. In order to make command that we are running obey that shell,
+        # we must do two things:
+
+        # 1 - Set SHELL to be that shell so that when the subprocess starts,
+        # that's the shell it uses.
+
+        # 2 - The command that we are running CANNOT HAVE A SHEBANG line. If
+        # there is a SHEBANG line, THAT shebang line may or may not be
+        # executed; I am not sure. What I am sure of is that with a shebang
+        # line, we lose function definitions. Maybe the shebang runs and it
+        # isn't a login so we never run the profiles. I am not sure. Anyway, if
+        # you want to run a script with your profile via cron-wrapper, make
+        # sure it does not have a shebang.
+
+        SHELL=$(which bash)
+
         # Diagnostics
         if [[ $CW_dump_env = 'true' ]]; then
             echo
             echo 'CW - Dump environment requested...'
+
+            if [[ -n $CW_profile ]]; then
+                echo
+                echo "CW - Profile $CW_profile has been sourced"
+            fi
+
             echo
             echo 'CW - Environment variables are'
             env | sort | grep -E '^[A-Za-z_]+='
+
             echo
             echo 'CW - Loaded functions are are'
             env | sort | grep -E '^BASH'
+
             echo
             echo 'CW - Dump environment end.'
+
+            echo
         fi
 
         # Record the run. Maybe.
@@ -270,14 +307,18 @@ cron-wrapper - wrap cron jobs in some output logic
 =head1 DESCRIPTION
 
 Instead of just calling a cron and getting spurious output on success or
-possibly no output even on a failure, describe when to get output and whast to
+possibly no output even on a failure, describe when to get output and what to
 include in that output.
 
 =head1 ARGUMENTS
 
-No arguments, all params are passed as environment variables. Make the crontab
-easier to read. However, you need to set each variable for each job; as
-environment variables, they will carry over to the next job.
+Only one argument is allowed. That argument is shifted out of the way and
+ignored. Its presence in the crontab maay make it easier to determine what
+failed in emails sent out by the crontab, but it is otherwise not used.
+
+The script to run and its arguments are defined in the crontab. It makes the
+crontab easier to read. However, you need to reset each variable before each job in
+the crontab; as environment variables, they will carry over to the next job.
 
 =over 4
 
@@ -285,9 +326,15 @@ environment variables, they will carry over to the next job.
 
 =item CW_profile=/path/to/profile
 
-If set, will run the specified profile. Under some circumstances, this is not
-enough. For example, anyscript using the flock-exec-myself trick is going to
-have to call the profile internally; profile settings won't survive the exec.
+If set, will run the specified profile before running the command. However,
+some settings in profiles seem to be lost if your command has a shebang
+line. For scripts you want to run via cron-wrapper, using a profile, do not use
+a shebang line. You don't really need one interactively if the desired
+interpreter is in your path.
+
+We have also found that sometimes, this is not enough. For example, any script
+using the flock-exec-myself trick is going to have to call the profile
+internally; profile settings won't survive the exec.
 
 =item CW_audit
 
@@ -337,6 +384,20 @@ quote it.
 =item CW_arg_list=('an arg' 'the next arg')
 
 The args to use for the command. This is a bash array.
+
+=back
+
+=head1 ENVIRONMENT VARIABLES
+
+=over 4
+
+=item CRON_WRAPPER
+
+cron-wrapper sets the envvar to the string 'true'. That allows you to test for
+being run by cron-wrapper with code like:
+
+  if $CRON_WRAPPER; then
+    ...
 
 =back
 

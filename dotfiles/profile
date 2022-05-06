@@ -1,23 +1,27 @@
 #!/usr/bin/env bash
+
+# profile
+# Linked by ~/.profile.${USER}
+
+# Note: the shebang is ignored. It is only there to help editors and
+# linters. profiles are not executed. They are sourced into the shell that
+# calls them, to which any line with a # is a comment.
+
 # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
 
-# profile
-## Linked by ~/.profile.${USER}
-
-## How to tell if we are running during profile setup or not
+# How to tell if we are running during profile setup or not
 RUNNING_IN_PROFILE=1
 export RUNNING_IN_PROFILE
 
-# CRON def, must be before anything that can reference it. It should be set in
-# your contab to the word 'true'. You can then check with an if statement:
-
+# CRON def, must be before anything that can reference it.
+# It should be set at the very top of your "crontab" to the word 'true'.
+# If we are under cron, $CRON, it will be 'true' below.
+# If we are not under cron, $CRON will be blank below. In that case, we set it to 'false'.
+# Now "$CRON" will end up executing the command 'true' or 'false' which will
+# set $? to The Right Value in if statments such as:
 #   if $CRON; then
 #   if ! $CRON; then
-
-# Each of these will end up executing the command 'true' or 'false' which will
-# set $? to The Right Value.
-# CRON def, must be before anything that can reference it
 [[ -z "$CRON" ]] && CRON=false;
 export CRON
 
@@ -66,6 +70,11 @@ export PERSONALDATA=$PERSONALROOT/data
 export LOCALROOT=${TILDAE}/local
 export LOCALBIN=$LOCALROOT/bin
 export LOCALDATA=$LOCALROOT/data
+## Python creates this, but our python.env is a bit of a mess right now, so we
+## stick this definition here.
+export DOTLOCALROOT=${TILDAE}/.local
+export DOTLOCALBIN=$DOTLOCALROOT/bin
+export DOTLOCALDATA=$DOTLOCALROOT/data
 if [[ -d ${TILDAE}/.config ]]; then
     export CONFIGDIR=${TILDAE}/.config
 fi
@@ -130,6 +139,7 @@ fi
 [[ -n $OPTBIN ]] && addpath -fx PATH "$OPTBIN"
 addpath -fx PATH "$PERSONALBIN"
 addpath -fx PATH "$LOCALBIN"
+addpath -fx PATH "$DOTLOCALBIN"
 ## Fix path we inherit from system - remove dups but, more importantly, non-existent paths.
 uniqpath -dx PATH
 
@@ -228,5 +238,8 @@ fi
 
 "$HOME/personal/bin/monkeytell" \
     "$VERBOSE_PROFILE" "${TILDAE}/profile.${USER}" 'end'
+
+RAN_PROFILE="PID:$$ at $(date)"
+export RAN_PROFILE
 
 unset RUNNING_IN_PROFILE
