@@ -2,34 +2,61 @@
 
 # git-track
 
+get_remote ()
+{
+    local -a remotes
+    mapfile -t remotes < <(git remote)
+    if ((${#remotes[@]} == 1 )); then
+        return "${remotes[0]}"
+    else
+        local remote
+        select remote in "${remotes[@]}" quit; do
+            [[ $remote == 'quit' ]] && { false; return; }
+            [[ -n $remote ]] && break;
+        done
+        return "$remote"
+    fi
+}
+
 main ()
 {
-    ## Get the branch or remote branch or remote/branch to process
-    local -A trackit
-    if (( $# == 0 )) || [[ $1 =~ -h ]]; then
-        git-usage "$0"; true; return
-    elif (( $# ==2 )); then
-        trackit[remote]="$1"
-        trackit[branch]="$2"
-    elif [[ $1 =~ / ]]; then
-        trackit[remote]=${1%%/*}
-        trackit[branch]=${1##*/}
-    else
-        local -a remotes
-        mapfile -t remotes < <(git remote)
-        if ((${#remotes[@]} == 1 )); then
-            trackit[remote]=${remotes[0]}
-        else
-            local remote
-            select remote in "${remotes[@]}" quit; do
-                [[ $remote == 'quit' ]] && { false; return; }
-                [[ -n $remote ]] && break;
+    if [[ $1 == '-a' ]]; then
+        shift
+        declare -A remotes
+        declare remote
+        if (( $# == 0 )); then
+            for remote in $(git remote); do
+                remotes[$remote]=1
             done
-            trackit[remote]="$remote"
+        else
+            remotes[$(get_remote)]=1
         fi
-    fi
+        declare branch
+        for branch in $(git branch -r); do
+            declare branch_remote=${branch%%/*}
+            if [[ -z ${remotes[$branch_remote]} ]]; then
+                continue
+            fi
+            git branch --track "${branch#"${branch_remote}"/}" "$branch"
+        done
+        git branch list -a
+    else
+        ## Get the branch or remote branch or remote/branch to process
+        local -A trackit
+        if (( $# == 0 )) || [[ $1 =~ -h ]]; then
+            git-usage "$0"; true; return
+        elif (( $# ==2 )); then
+            trackit[remote]="$1"
+            trackit[branch]="$2"
+        elif [[ $1 =~ / ]]; then
+            trackit[remote]=${1%%/*}
+            trackit[branch]=${1##*/}
+        else
+            trackit[remote]=$(get_remote)
+        fi
 
-    $REALGIT checkout --track "${trackit[remote]}/${trackit[branch]}"
+        $REALGIT checkout --track "${trackit[remote]}/${trackit[branch]}"
+    fi
 }
 
 main "$@"
@@ -45,10 +72,19 @@ git-track - checkout a remote branch locally
  git track branchname
  git track remotename branchname
  git track remotename/branchname
+ git track -a
+ git track -a remotename
 
 =head1 DESCRIPTION
 
-If branch B<branchname> exists in remote B<remotename> (default B<origin>), check it out.
+If branch B<branchname> exists in remote B<remotename>, create a tracking branch and check it out.
+
+If B<remotename> is not specified, use the default if there is only one. Otherwise, choose from multiple remotes.
+
+B<git branch --track-remote> is an earlier attempt to do this and it checks to see if the branch is already tracked. This code does not. Maybe rectify that at some point.
+
+With -a, find all the remote branches on all remotes and track them all.
+
 
 =cut
 
