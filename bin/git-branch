@@ -395,7 +395,11 @@ _git-branch-vv-sort ()
     use strict;use warnings;
     my $maxbracket=0;
     my @out;
-    for my $line (qx(git branch -vv)) {
+    my $cmd = q(git branch -vv);
+    if ($ARGV[0] eq q(--color)) {
+        $cmd =~ s/branch/branch --color=always/;
+    }
+    for my $line (qx($cmd)) {
         my $bracketloc = index( $line, q(]) );
         push @out, { left => substr($line, 0, $bracketloc+1),
                      right => substr($line, $bracketloc+2),
@@ -415,7 +419,7 @@ _git-branch-vv-sort ()
         ? 1
         : substr($a->{line},1) cmp substr($b->{line},1);
       } @out;
-'
+' -- "$@"
 }
 
 git-branch-sync ()
@@ -622,8 +626,8 @@ main ()
             return $?
             ;;
         --vv)
-            git-branch -vv
-            return $?
+            _git-branch-vv-sort --color
+            true; return $?
             ;;
     esac
 
@@ -712,7 +716,7 @@ by specifying B<remote/branch> instead of just B<branch>.
 
 =item --vv
 
-Synonym for -vv.
+Synonym for -vv, but with columated formatting.
 
 =back
 
