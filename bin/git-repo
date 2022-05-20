@@ -589,6 +589,9 @@ git-repo-info ()
     mapfile                 -t -O ${#lines[@]} lines < <(git config --get-regexp "remote.*.url" | sort)
 
     local -a display
+    local key
+    local value
+    local max
     for line in "${lines[@]}"; do
         read -r key value <<< "$line"
         [[ $key =~ ${GIT_EXT_META_PREFIX}-pr ]] && continue
@@ -596,19 +599,22 @@ git-repo-info ()
         display+=("$key" "$value")
     done
     ((max+=1))
+
+    if [[ $1 != '--no-pulls' ]]; then
+        key="Latest pull request"
+        (( ${#key} > max )) && max=${#key}
+    fi
     printf "%-${max}s: %s\n" "${display[@]}"
 
     if [[ $1 != '--no-pulls' ]]; then
         local pr_data
-        pr_data=$(git-repo-pr-get "$1")
-        # shellcheck disable=SC2181 #https://github.com/koalaman/shellcheck/wiki/SC2181
-        if (($?==0)); then
-            cmd-echo -n -- "Latest pull request:"
-            echo " $pr_data"
+        if pr_data=$(git-repo-pr-get "$1"); then
+            value="$pr_data"
         else
-            cmd-echo -- "No pull request found for this repo/branch."
+            value="None found for this repo/branch."
         fi
     fi
+    printf "%-${max}s: %s\n" "$key" "$value"
 }
 
 git-repo-name ()
@@ -849,7 +855,12 @@ exit 0;' "$perldata" "$corg" "$cb")
         # You effectively asked for the latest PR available, so we give
         # you the state of it with the URL.
         [[ $pr_state == 'open' ]] && pr_state="open, last updated"
-        ((opt_print)) && echo "${pr_state^} $pr_date - ${pr_url}"
+        if [[ $cached == 'yes' ]]; then
+            cached=", cached"
+        else
+            cached=''
+        fi
+        ((opt_print)) && echo "${pr_state^} $pr_date${cached} - ${pr_url}"
     else
         if [[ $opt_match_state == "$pr_state" ]]; then
             # You asked for a particular state, and we matched it, but you
@@ -1112,6 +1123,10 @@ main()
         fi
     fi
 
+    case $action in
+        status | st ) action=info;;
+    esac
+
     action_func_name="git-repo-${action}"
     if declare -F "$action_func_name" >/dev/null; then
         shift ## the $action
@@ -1149,7 +1164,7 @@ git-repo - act on or interrogate the current repo
  o git-repo diff
    git-repo is
    git-repo ina
-   git-repo info
+   git-repo info|st[atus]
    git-repo name
  o git-repo named-branches
  n git-repo org
