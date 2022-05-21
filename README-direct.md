@@ -5,6 +5,25 @@ GitHub.
 
 # Setup
 
+## ssh
+Make a `${HOME}/.ssh` directory if it does not already exist. Set it `chmod 700`. Copy your `id_rsa` and `id_rsa.pub` files into the directory and set them `chmod 401`
+
+## git
+Execute the following to install the latest version of git:
+```
+sudo add-apt-repository ppa:git-core/ppa
+sudo apt update
+apt list --upgradable
+sudo apt upgrade
+```
+
+## Local Software
+We put stuff that we build in /opt/mop:
+```
+sudo mkdir -p /opt/mop/build
+sudo chown -R /opt
+```
+
 ## Grab the repos
 
 There are two - one for git templates and the personal repo with all the code.
@@ -55,15 +74,16 @@ Either way, we will refer to this branch as `machine-branch` later on.
 
 ## Set up dotfiles
 
-This step stores existing dotfiles and links to new ones in the repo.
+This step stores existing dotfiles and links to new ones in the repo. The log file is so that you can have a record od what fails so that you can go back and correct it.
 
 ```
 cd $HOME/personal/dotfiles
 . ./dotfilesbootstrap
 cd ..
-bin/makesymlinks -i dotfiles
+bin/makesymlinks -i dotfiles 2>&1 | tee bin/makesymlinks.log
 export REALGIT=$(which git)
 bin/github.env.init
+git-kv --cat
 ```
 
 ## Test

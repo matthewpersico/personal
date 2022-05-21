@@ -1,7 +1,9 @@
 # README
+
 All my UNIX goodies including dotfiles so I can put them on any machine.
 
 ## Initial Setup
+
 There are two items to read:
 
 * If you simply want to sync your local environment with the GitHub repo
@@ -20,7 +22,7 @@ loaded:
 --- loaded alarm
 --- loaded apush
 --- loaded aunshift
---- loaded autoloaded_personal
+--- loaded autoloaded-personal
 --- loaded cdplus
 --- loaded ecd
 --- loaded editor_opt
@@ -46,7 +48,7 @@ separate line in the file `$HOME/.config/autoload-unshim.config`.
 
 Once you see no more such items, you can shut off the messages during profile
 loading by setting and exporting `AUTOLOAD_TRACK` in
-`$HOME/.config/autoload-config.dat`, which is read by `autoload` when it is
+`$HOME/.config/autotrack.config`, which is read by `autoload` when it is
 sourced in a profile. Set `AUTOLOAD_TRACK` to one of the following values:
 
 * all - Track every function load.
@@ -57,6 +59,17 @@ sourced in a profile. Set `AUTOLOAD_TRACK` to one of the following values:
 
 The default, if `$HOME/.config/autoload-config.dat` is not found, is `all`, so
 that in a new environment, you can see what's happening.
+
+### Perl modules
+
+Many of the utilities in this repo either use Perl or are Perl. Make sure these
+modules are installed:
+
+* File::Slurp
+* Lingua::EN::Inflect
+* Term::ReadLine::Gnu
+* Tk
+* Devel::ptkdb
 
 ### rsync-backups
 
