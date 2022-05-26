@@ -390,35 +390,60 @@ git-branch-comment ()
 
 _git-branch-vv-sort ()
 {
-    # Sort so that origin is always on top and the text is justified.
-    perl -e '
+    # Sort so that the commits are in commit time descending, branch name ascending order.
+    perl -e '#line 395
     use strict;use warnings;
+
+    # Here, we get the time for each commit and do the column justification without colors.
+    my %data;
     my $maxbracket=0;
+    for my $line (qx($ENV{REALGIT} branch -vv --color=never)) {
+        my %line_meta;
+        my @fields = split(/\s+/, $line);
+        $line_meta{branch} = substr($fields[3],1,-1); # strip []
+        $line_meta{commit} = $fields[2];
+        $line_meta{time} = (map { chomp; $_ }
+                            qx(git show -s --format=%ci $line_meta{commit}))[0];
+
+        # Column justification
+        my $bracketloc = index( $line, q(]) );
+        $line_meta{bracketloc} = $bracketloc;
+        ($bracketloc > $maxbracket) and $maxbracket = $bracketloc;
+        $data{"$line_meta{commit},$line_meta{branch}"} = \%line_meta;
+    }
+    for my $d (values %data) {
+        $d->{comment_offset} = q( ) x ($maxbracket - $d->{bracketloc} + 1);
+    }
+
+    # Here, we get the colored (or not) output.
     my @out;
     my $cmd = q(git branch -vv);
-    if ($ARGV[0] eq q(--color)) {
+    if (@ARGV and $ARGV[0] eq q(--color)) {
         $cmd =~ s/branch/branch --color=always/;
     }
     for my $line (qx($cmd)) {
-        my $bracketloc = index( $line, q(]) );
-        push @out, { left => substr($line, 0, $bracketloc+1),
-                     right => substr($line, $bracketloc+2),
-                     bracketloc => $bracketloc,
-                     line => $line };
-        ($bracketloc > $maxbracket) and $maxbracket = $bracketloc;
+        # Folding in the commit time and the column justification.
+        TIME_INSERT: for my $d ( values %data ) {
+            if ( index($line, $d->{commit}) != -1
+                 and
+                 index($line, $d->{branch}) != -1) {
+               $line =~ s/$d->{commit}/$d->{commit} ($d->{time})/;
+               $line =~ s/\]/\]$d->{comment_offset}/;
+               $d->{line} = $line;
+               last TIME_INSERT;
+            }
+        }
     }
-    for my $d (@out) {
-        $d->{right} = q( ) x ($maxbracket - $d->{bracketloc} + 1) . $d->{right};
-    }
-    print
-      map { "$_->{left}$_->{right}" }
+
+    # Sort by time descending, branch name ascending
+    my @p =
+      map { "$_->{line}" }
       sort {
-      ( $a->{line} =~ /\[origin/ and $b->{line} !~ /\[origin/ )
-      ? -1
-      : ( $b->{line} =~ /\[origin/ and $a->{line} !~ /\[origin/ )
-        ? 1
-        : substr($a->{line},1) cmp substr($b->{line},1);
-      } @out;
+      ( $b->{time} cmp $a->{time}
+        or
+        substr($a->{line},1) cmp substr($b->{line},1) )
+      } values %data;
+    print @p;
 ' -- "$@"
 }
 
