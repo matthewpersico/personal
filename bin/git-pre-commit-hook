@@ -364,7 +364,7 @@ for (@ARGV){
     declare do_perl=0
     declare -a shellfiles
     declare do_shellcheck=0
-    declare do_shebang_check=0
+    declare do_shebang=0
     declare -a pythonfiles
     declare do_python=0
     declare file
@@ -375,8 +375,12 @@ for (@ARGV){
           && [ -z "${skips[perltidy]}" ] \
           && [ -z "${skips[perlcompile]}" ] ; } \
         && perl -V 1>/dev/null 2>&1 && do_perl=1
+
     { [ -z "${skips[shellcheck]}" ] && [ -z "${skips[shell]}" ] ; } \
         && shellcheck -V 1>/dev/null 2>&1 && do_shellcheck=1
+    { [ -z "${skips[shebang]}" ] && [ -z "${skips[shell]}" ] ; } \
+        && do_shebang=1
+
     { [ -z "${skips[python]}" ] && [ -z "${skips[py]}" ] ; } \
         && python -V 1>/dev/null 2>&1 && do_python=1
 
@@ -546,25 +550,31 @@ for (@ARGV){
 
         if ((${#shellfiles[@]}))
         then
-            if ((do_shellcheck==1))
-            then
-                shellcheck "${shellfiles[@]}" 1>"$G_tfile" 2>&1
-                check "$G_tfile" \
-                      "One or more files has failed shellcheck checks. Please review."
-                if ((do_shebang_check)); then
+            if ((do_shellcheck==0)) && ((do_shebang)); then
+                echo "Skipping all shell checks, by request."
+            else
+                if ((do_shellcheck==1))
+                then
+                    shellcheck "${shellfiles[@]}" 1>"$G_tfile" 2>&1
+                    check "$G_tfile" \
+                          "One or more files has failed shellcheck checks. Please review."
+                else
+                    echo "Skipping shellcheck, by request."
+                fi
+                if ((do_shebang==1)); then
                     declare shellfile
-                    declare shebang_check
+                    declare shebang_text
                     for shellfile in "${shellfiles[@]}"; do
-                        shebang_check=$(head -1 "$shellfile")
-                        if [[ $shebang_check != "#!/usr/bin/env bash" ]]; then
-                            echo "$shellfile does not have a standard shebang line (#!/usr/bin/env bash). It has '$shebang_check' instead." > "$G_tfile"
+                        shebang_text=$(head -1 "$shellfile" | grep '^#!')
+                        if [[ -n $shebang_text ]]; then
+                            echo "$shellfile has a shebang line ($shebang_text)" > "$G_tfile"
                         fi
                     done
                     check "$G_tfile" \
                           "One or more files has failed shebang checks. Please review."
+                else
+                    echo "Skipping shebang checks, by request."
                 fi
-            else
-                echo "Skipping shell checks, by request."
             fi
         fi
 
@@ -584,7 +594,7 @@ for (@ARGV){
                       "One of more files has failed python isort checks. Please review. You can run 'isort --overwrite-in-place' on the failed files to fix them." \
                       "$pyrc"
             else
-                echo "Skipping python black, by request."
+                echo "Skipping python checks, by request."
             fi
         fi
 
@@ -779,7 +789,7 @@ Skip one or more validations:
 
   shellcheck
   shell (short for shellcheck)
-  shebang_check (shells only)
+  shebang (shells only)
 
   python (black and isort format checks)
   py (short for python)
