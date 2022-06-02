@@ -99,6 +99,7 @@ main ()
     local opt_extref=''
     local do_push=0
     local opt_pr=''
+    local -a opt_skip_hook
 
     ## This hunk of processing was written after git-clone and is an attempt to
     ## NOT have to duplicate all existing arg processing, as is done in
@@ -210,6 +211,18 @@ ${message:$limidx} - $(git worktree get-name)"
                     original='--no-verify'
                     ## pass this on, updated
                     ;;
+                skip-hook )
+                    declare skip_tag="${ovalue:-$1}"
+                    [[ -z "$ovalue" ]] && shift
+                    if [[ "$GIT_HOOK_SKIP_TAGS" == *" $skip_tag " ]]; then
+                        opt_skip_hook+=(--skip "$skip_tag")
+                    else
+                        cmd_echo --ec -- "'$skip_tag' is not a valid skip tag. Valid skip tags are $GIT_HOOK_SKIP_TAGS"
+                        exit 1
+                    fi
+                    ## no pass_on_args here, processed before commit
+                    continue
+                    ;;
                 push )
                     do_push=1
                     ## no pass_on_args here, processed after commit
@@ -247,6 +260,10 @@ ${message:$limidx} - $(git worktree get-name)"
 
     if ((do_interactive)) && ((!opt_scl)); then
         cmdecho --wc -- "--interactive without --scl ignored"
+    fi
+
+    if ((${#opt_skip_hook[@]})); then
+        export GPCHA="${opt_skip_hook[*]}"
     fi
 
     ((do_push)) && cmd-echo -- 'Committing...'
