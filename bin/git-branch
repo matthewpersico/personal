@@ -390,7 +390,8 @@ git-branch-comment ()
 
 _git-branch-vv-sort ()
 {
-    # Sort so that the commits are in commit time descending, branch name ascending order.
+    # Sort so that the commits are in commit time descending, branch name
+    # ascending order.
     perl -e '#line 395
     use strict;use warnings;
 
@@ -418,8 +419,13 @@ _git-branch-vv-sort ()
     # Here, we get the colored (or not) output.
     my @out;
     my $cmd = q(git branch -vv);
-    if (@ARGV and $ARGV[0] eq q(--color)) {
-        $cmd =~ s/branch/branch --color=always/;
+    if (@ARGV) {
+        if ($ARGV[0] eq q(--color)) {
+            $cmd =~ s/branch/branch --color=always/;
+        }
+        if ($ARGV[0] eq q(--nocolor)) {
+            $cmd =~ s/branch/branch --color=never/;
+        }
     }
     for my $line (qx($cmd)) {
         # Folding in the commit time and the column justification.
@@ -492,8 +498,12 @@ END {
     }
 }')
         if [[ -z $source ]]; then
-            ## There was no unique branch. Just use whatever the current is.
-            source=$(git-branch-list --current)
+            ## There was no unique branch. Find the newest.
+            source=$(_git-branch-vv-sort --nocolor | head -1 | perl -nae '
+if ($F[0] eq q(*)) {
+  shift @F;
+};
+print $F[0]')
         fi
     fi
 
@@ -579,14 +589,16 @@ END {
                 git push "$remote_ref" "HEAD:${remote_branch}" || return 1
             fi
         done
-        # Show results
-        cmd-echo --title --color REVBLUE -- "Full branch list after sync..."
-        _git-branch-vv-sort
 
         # Return to the source branch since it very likely you will do the next
         # sync from the same branch.
         cmd-echo --title --color REVBLUE -- "Return to starting branch..."
         git switch "${starting_branch}" || return 1
+
+        # Show results
+        cmd-echo --title --color REVBLUE -- "Full branch list after sync..."
+        _git-branch-vv-sort
+
     )
     return $?
 }
@@ -652,6 +664,10 @@ main ()
             ;;
         --vv)
             _git-branch-vv-sort --color
+            true; return $?
+            ;;
+        --vvnc)
+            _git-branch-vv-sort --nocolor
             true; return $?
             ;;
     esac
