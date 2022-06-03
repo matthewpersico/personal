@@ -551,26 +551,33 @@ for (@ARGV){
             if [[ -n ${skips[shell]} ]]; then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping shell checks, ${G_skip_messages[${skips[shell]}]}."
             else
+                if [[ -n ${skips[shebang]} ]]; then
+                    ((opt_verbose)) && pre_commit_ok_echo "Skipping shebang check, ${G_skip_messages[${skips[shebang]}]}."
+                else
+                    declare shellfile
+                    declare shebang_text
+                    declare shellcheck_shell_text
+                    rm -f "$G_tfile"
+                    touch "$G_tfile"
+                    for shellfile in "${shellfiles[@]}"; do
+                        shebang_text=$(head -1 "$shellfile" | grep '^#!')
+                        if [[ -n $shebang_text ]]; then
+                            echo "$shellfile has a shebang line ($shebang_text)" >> "$G_tfile"
+                        fi
+                        shellcheck_shell_text=$(head -2 "$shellfile" | tail  -1 | grep '^# shellcheck shell=')
+                        if [[ -z $shellcheck_shell_text ]]; then
+                            echo "$shellfile is missing a 'shellcheck shell=' definition line" >> "$G_tfile"
+                        fi
+                    done
+                    check "$G_tfile" \
+                          "One or more files has failed shebang checks. Please review."
+                fi
                 if [[ -n ${skips[shellcheck]} ]]; then
                     ((opt_verbose)) && pre_commit_ok_echo "Skipping shellcheck, ${G_skip_messages[${skips[shellcheck]}]}."
                 else
                     shellcheck "${shellfiles[@]}" 1>"$G_tfile" 2>&1
                     check "$G_tfile" \
                           "One or more files has failed shellcheck checks. Please review."
-                fi
-                if [[ -n ${skips[shebang]} ]]; then
-                    ((opt_verbose)) && pre_commit_ok_echo "Skipping shebang check, ${G_skip_messages[${skips[shebang]}]}."
-                else
-                    declare shellfile
-                    declare shebang_text
-                    for shellfile in "${shellfiles[@]}"; do
-                        shebang_text=$(head -1 "$shellfile" | grep '^#!')
-                        if [[ -n $shebang_text ]]; then
-                            echo "$shellfile has a shebang line ($shebang_text)" > "$G_tfile"
-                        fi
-                    done
-                    check "$G_tfile" \
-                          "One or more files has failed shebang checks. Please review."
                 fi
             fi
         fi
