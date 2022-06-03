@@ -21,44 +21,24 @@ get_remote ()
 
 main ()
 {
-    if [[ $1 == '-a' ]]; then
-        shift
-        declare -A remotes
-        declare remote
-        if (( $# == 0 )); then
-            for remote in $(git remote); do
-                remotes[$remote]=1
-            done
-        else
-            remotes[$(get_remote)]=1
-        fi
-        declare branch
-        for branch in $(git branch -r); do
-            declare branch_remote=${branch%%/*}
-            if [[ -z ${remotes[$branch_remote]} ]]; then
-                continue
-            fi
-            git branch --track "${branch#"${branch_remote}"/}" "$branch"
-        done
-        git branch list -a
+    ## Get the branch or remote branch or remote/branch to process
+    local -A trackit
+    if (( $# == 0 )) || [[ $1 =~ -h ]]; then
+        git-usage "$0"; true; return
+    elif (( $# ==2 )); then
+        git-usage "$0"; false; return
+    elif [[ $1 =~ / ]]; then
+        trackit[remote]=${1%%/*}
+        trackit[branch]=${1##*/}
     else
-        ## Get the branch or remote branch or remote/branch to process
-        local -A trackit
-        if (( $# == 0 )) || [[ $1 =~ -h ]]; then
-            git-usage "$0"; true; return
-        elif (( $# ==2 )); then
-            trackit[remote]="$1"
-            trackit[branch]="$2"
-        elif [[ $1 =~ / ]]; then
-            trackit[remote]=${1%%/*}
-            trackit[branch]=${1##*/}
-        else
-            trackit[remote]=$(get_remote)
-            trackit[branch]="$1"
-        fi
-
-        $REALGIT checkout --track "${trackit[remote]}/${trackit[branch]}"
+        trackit[remote]=$(get_remote)
+        trackit[branch]="$1"
     fi
+    declare remote_branch="${trackit[remote]}/${trackit[branch]}"
+    declare local_branch=$remote_branch
+    [[ ${trackit[remote]} == 'origin' ]] && local_branch="${trackit[branch]}"
+    $REALGIT checkout -b "$local_branch" --track "$remote_branch"
+
 }
 
 main "$@"
@@ -71,22 +51,17 @@ git-track - checkout a remote branch locally
 
 =head1 SYNOPSIS
 
- git track branchname
- git track remotename branchname
- git track remotename/branchname
- git track -a
- git track -a remotename
+ git track [remotename/]branchname
 
 =head1 DESCRIPTION
 
-If branch B<branchname> exists in remote B<remotename>, create a tracking branch and check it out.
+If branch B<branchname> exists in remote B<remotename>, create a tracking branch named "remotename/branchname" and check it out.
 
-If B<remotename> is not specified, use the default if there is only one. Otherwise, choose from multiple remotes.
+If B<remotename> is not specified, use the default if there is only one. Otherwise, choose from multiple remotes. Once the remote is chosen, the branch name will be "remotename/branchname" if "remotename" is not "origin". for "origin", the branch name will be just "branchname".
+
+The branch must exist on the remote.
 
 B<git branch --track-remote> is an earlier attempt to do this and it checks to see if the branch is already tracked. This code does not. Maybe rectify that at some point.
-
-With -a, find all the remote branches on all remotes and track them all.
-
 
 =cut
 
