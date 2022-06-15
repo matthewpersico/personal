@@ -1,0 +1,141 @@
+# -*- sh -*-
+# shellcheck shell=bash
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+
+# viui
+
+# Give any command line a UI.
+
+[[ $1 =~ -h ]] && bash-usage "$0" && exit 0
+
+# Make sure we have a config location to use. Not implementing the full XDG
+# spec.
+declare CONFIG_HOME="$HOME/.config/viui"
+mkdir -p "$CONFIG_HOME"
+
+# Get the command. Should be on your PATH so that we can use the command name
+# for the config file names without having to worry about slashes.
+declare command=$1
+if [[ -z $command ]]; then
+    declare -a cmds
+    declare cmd
+    for cmd in "$CONFIG_HOME"/*.cmd; do
+        # shellcheck disable=SC2207 #https://github.com/koalaman/shellcheck/wiki/SC2207
+        cmds+=($(basename "$cmd" .cmd))
+    done
+    COLUMNS=1 ## One character wide terminal, forces list to be one column.
+    select command in "${cmds[@]}" quit; do
+        if [[ $command == 'quit' ]]; then exit 1; fi
+        break
+    done
+fi
+
+# Init the command template and data file
+declare command_template="$CONFIG_HOME/${command}.cmd"
+declare command_data_file="$CONFIG_HOME/${command}.data"
+if [[ ! -f $command_template ]]; then
+    declare -a command_args=("$command")
+    declare -a command_data
+    cmd-echo "Creating template for command $command"
+    declare resp='not empty'
+    while [[ -n $resp ]]; do
+        resp=$(prompt "Enter an option for template, <Return>to end:")
+        if [[ -n $resp ]]; then
+            if [[ $resp =~ ^- ]]; then
+                command_args+=("$resp")       # Add the --option
+                resp=$(dashstripper "$resp")
+                command_args+=("\$v_$resp")     # Add the option's value variable
+                command_data+=("v_$resp=''")    # Set the option's value variable empty
+            elif [[ $resp =~ ^\+ ]]; then
+                resp=$(dashstripper '+' "$resp")
+                command_args+=("\$fv_$resp")         # Add the option's flag and value variable
+                command_data+=("fv_$resp='--$resp'") # Set the option's flag and value variable to the flag
+            fi
+        fi
+    done
+    echo "${command_args[@]}" > "$command_template"
+    chmod +x "$command_template"
+    echo "# viui: Options for '$command'" > "$command_data_file"
+    echo "# v_* takes an optional value for the required option" >> "$command_data_file"
+    echo "# fv_* takes an optional flag and value for the non-required option" >> "$command_data_file"
+    for el in "${command_data[@]}"; do
+        echo "$el" >> "$command_data_file"
+    done
+fi
+
+# Set the data and read it in.
+vi "$command_data_file"
+# shellcheck disable=SC1090
+. "$command_data_file"
+
+# Read in the template and apply the data.
+declare exec_string
+exec_string=$(eval echo "$(cat "$command_template")")
+
+# Check and run
+declare default='n'
+declare prompt="$exec_string (y/n) [$default]: "
+declare resp
+while true; do
+    read -r -p "$prompt" resp
+    resp=$"${resp,,}"
+    if [[ -n "$default" ]] && [[ -z "$resp" ]]; then
+        resp=$default
+    fi
+    if [ "$resp" = 'y' ]
+    then
+        set -o pipefail
+        $exec_string
+        exit $?
+    else
+        echo Bye.
+        exit 0
+    fi
+done
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+viui - wrap a hackey UI around anything
+
+=head1 SYNOPSIS
+
+ viui [commandname]
+
+=head1 DESCRIPTION
+
+Store cli program options in a file that can be easily edited and then plugged
+into the command line call, intead of having to remember them each time.
+
+For required options, specify the option like -f or --bar. We will create a
+variable to give that option a value if needed and the option will always be
+specified.
+
+For optional options, specify +f or ++bar. We will then create a variable to
+hold both the option and a value, inited with the option flag.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item commandname
+
+The command to run. Also used as the name for the .template and .data files. If
+it exists, you are jumped right into editing the options data. If not, you are
+prompted to enter said data. With no command, list all available commands.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --help
+
+This help text.
+
+=back
+
+=cut
+
+__PODUSAGE__

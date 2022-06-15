@@ -18,6 +18,7 @@ declare join=0
 declare id=''
 declare append=0
 declare prefix='>>> '
+declare continuation_prefix='    '
 declare opt_color=0
 declare opt_stderr=0
 declare opt_reverse=0
@@ -147,8 +148,6 @@ while true; do
             opt_reverse=1 ;;
         oii | only-if-interactive )
             ((interactive==0)) && exit 0 ;;
-        p )
-            prefix=$1; shift ;;
         x )
             set -x;;
         -- ) break ;; ## ## VITAL!!! Exits the while loop, no more options,
@@ -193,11 +192,11 @@ fi
 ((head)) && echo
 declare argcnt="$#"
 if [[ -n "${id}" ]]; then
-    prefix="${prefix//>>> />>>}${id}:"
+    prefix="${prefix/% / [${id}]} "
     id=''
 fi
 if [[ -n "${msg_status}" ]]; then
-    prefix="${prefix//>>> />>>}${msg_status}:"
+    prefix="${prefix/% / ${msg_status}:} "
     msg_status=''
 fi
 if ((append)); then
@@ -205,7 +204,7 @@ if ((append)); then
 fi
 for arg in "$@"; do
     if ((continuation_line == 1)); then
-        prefix="${prefix//[![:space:]]/ }"
+        prefix=$continuation_prefix
     fi
     ## If there is a next line, it should be a continuation line
     ((no_continuation_line == 0)) && continuation_line=1
@@ -253,18 +252,19 @@ exit 0 ## USAGE guard during sourcing this file.
 =head1 SYNOPSIS
 
 cmd-echo [--oii] [--head] [--title] [-n] [-a] [-c|--noc] [-i] [-id "id" ] \
-         [j] [ [-w[c]|-e[c]|-d[c]|--color [REV]COLOR] [-p 'prefix' ] -- "text" ["text"...]
+         [j] [ [-w[c]|-e[c]|-d[c]|--color [REV]COLOR] -- "text" ["text"...]
 
 =head1 DESCRIPTION
 
-Call "cmd-echo" to print the first "text" on a line with a prefix. Subsequent
-lines are printed indented with spaces, indicating continuation.
+Call "cmd-echo" to print the first "text" on a line with a prefix
+'>>>'. Subsequent lines are printed indented with spaces, indicating
+continuation.
 
 Reversed and color adornments, if any, are skipped if we think the output is
 not a terminal; i.e., a log file.
 
 The text is echo-ed to STDOUT. Redirect the command yourself if you want to put
-the output on a different discriptor (i.e., STDERR).
+the output on a different output descriptor (i.e., STDERR).
 
 =head1 OPTIONS
 
@@ -352,11 +352,6 @@ the message to stderr.
 Print the string 'WARNING', 'ERROR', or 'DEBUG' before the message with an
 orange (easier to read than yellow), red or blue background, respectively and
 print the message to stderr.
-
-=item -p
-
-Instead of '>>> ' printed before each line, print this instead. A blank prefix
-('') does what you'd expect.
 
 =back
 

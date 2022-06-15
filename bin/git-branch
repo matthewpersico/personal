@@ -66,11 +66,13 @@ git-branch-delete ()
     no_remote=0
     local opt_yes
     opt_yes=0
+    local opt_force
+    opt_force=0
     local do_go_set
     do_go_set=1
     local OPTSARGS
-    local shortopts='y'
-    local longopts='yes,no-remote,declare-only,no-go-set'
+    local shortopts='yf'
+    local longopts='yes,no-remote,declare-only,no-go-set,force'
 
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
     local status=$?
@@ -84,6 +86,7 @@ git-branch-delete ()
             -y|--yes) opt_yes=1 ;;
             --no-remote|--declare-only) no_remote=1 ;;
             --no-go-set) do_go_set=0 ;;
+            -f|--force) opt_force=1 ;;
             -h|--help) git-usage "$0"; return 0 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
@@ -135,16 +138,12 @@ git-branch-delete ()
         was_fetched=$(_git_branch_was_fetched "$current_branch"; echo $?)
 
         local -a delarg
-        if _git_branch_is_a_pull "$branch"; then
+        if ((opt_force)); then
             delarg=('-D')
         else
             delarg=('-d')
         fi
         local brdelstat
-        cmd-echo --id git-branch -dc -- "Normal deletes use -d, we seem to need to use -D for pulls." \
-                 "That may be because the pull is not merged?" \
-                 "We are about to 'git branch ${delarg[*]} $branch'." \
-                 "Once you figure out what's going on with pulls, you can remove this diagnostic."
         ${REALGIT} branch "${delarg[@]}" "$branch"
         brdelstat=$?
         if ((brdelstat)); then

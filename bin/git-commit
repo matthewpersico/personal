@@ -42,7 +42,7 @@ git-commit-with-source-ctrl-log ()
                 moreopts=0
                 ;;
             * )
-                cmd-echo -- "$original is poopy invalid option. See $0 --help"
+                cmd-echo --id 'git-commit' -- "$original is an invalid option. See $0 --help"
                 exit 1
                 ;;
         esac
@@ -131,7 +131,7 @@ main ()
                     exit 0
                     ;;
                 wc | wscl )
-                    cmd-echo -- "--$option is deprecated. Use --scl in the future."
+                    cmd-echo --id 'git-commit' -- "--$option is deprecated. Use --scl in the future."
                     ;& ## bash fall through and unconditionally execute next case
                 scl )
                     opt_scl=1
@@ -202,24 +202,28 @@ ${message:$limidx} - $(git worktree get-name)"
                     continue
                     ;;
                 ammend )
-                    cmd-echo "Can you please learn how to spell 'amend'?"
+                    cmd-echo --id 'git-commit' "Can you please learn how to spell 'amend'?"
                     original='--amend'
                     ## pass this on, updated
                     ;;
                 no-hooks | no-hook | nohooks | nohook | noverify )
-                    cmd-echo -- "$original => --no-verify"
+                    cmd-echo --id 'git-commit' -- "$original => --no-verify"
                     original='--no-verify'
                     ## pass this on, updated
                     ;;
                 skip-hook )
-                    declare skip_tag="${ovalue:-$1}"
+                    declare skip_hook_tag="${ovalue:-$1}"
                     [[ -z "$ovalue" ]] && shift
-                    if [[ "$GIT_HOOK_SKIP_TAGS" == *" $skip_tag " ]]; then
-                        opt_skip_hook+=(--skip "$skip_tag")
-                    else
-                        cmd-echo --ec -- "'$skip_tag' is not a valid skip tag. Valid skip tags are $GIT_HOOK_SKIP_TAGS"
-                        exit 1
-                    fi
+                    declare -a skip_hook_tags
+                    IFS=, read -r -a skip_hook_tags <<< "$skip_hook_tag"
+                    for skip_hook_tag in "${skip_hook_tags[@]}"; do
+                        if [[ "$GIT_HOOK_SKIP_TAGS" == *" $skip_hook_tag "* ]]; then
+                            opt_skip_hook+=(--skip "$skip_hook_tag")
+                        else
+                            cmd-echo --id 'git-commit' --ec -- "'$skip_hook_tag' is not a valid skip hook tag. Valid skip hook tags are $GIT_HOOK_SKIP_TAGS"
+                            exit 1
+                        fi
+                    done
                     ## no pass_on_args here, processed before commit
                     continue
                     ;;
@@ -266,7 +270,7 @@ ${message:$limidx} - $(git worktree get-name)"
         export GPCHA="${opt_skip_hook[*]}"
     fi
 
-    ((do_push)) && cmd-echo -- 'Committing...'
+    ((do_push)) && cmd-echo --id 'git-commit' -- 'Committing...'
     if ((opt_scl)); then
         git-commit-with-source-ctrl-log "${pass_on_args[@]}"
     else
@@ -278,7 +282,7 @@ ${message:$limidx} - $(git worktree get-name)"
     status=$?
 
     if ((status == 0 && do_push)); then
-        cmd-echo -- 'Pushing...'
+        cmd-echo --id 'git-commit' -- 'Pushing...'
         git push $opt_pr
         status=$?
         if [[ -z $opt_pr ]]; then
@@ -288,9 +292,9 @@ ${message:$limidx} - $(git worktree get-name)"
             pr_url=$(git repo pr-get --open)
             # shellcheck disable=SC2181 #https://github.com/koalaman/shellcheck/wiki/SC2181
             if (($? == 0)); then
-                cmd-echo -- "Existing, open pull request: $pr_url"
+                cmd-echo --id 'git-commit' -- "Existing, open pull request: $pr_url"
             else
-                cmd-echo -- "No open pull request found for this repo/branch."
+                cmd-echo --id 'git-commit' -- "No open pull request found for this repo/branch."
             fi
         fi
     fi
@@ -375,6 +379,22 @@ item id related to this work.
 =item --no[[-]hooks|verify
 
 Aliases for --no-verify.
+
+=item --skip-hook skiphooktag[,...]
+
+A section of the hook to skip. Comma separated lists and multiple invocations
+are both accepted. Valid tags of tests to skip:
+
+ perl        - both perl tests
+ perltidy    - just the perltidy tests
+ perlcompile - no '-c' invocation
+
+ python      - no black or isort
+
+ shell       - both shell tests
+ shellcheck  - do not run 'shellcheck'
+ shebang     - we check that our scripts do NOT have a shebang. This tag skips
+               that check
 
 =item --push
 

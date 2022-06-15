@@ -588,6 +588,7 @@ git-repo-info ()
     [[ -n $wt ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "worktree.$wt" | sort)
     mapfile                 -t -O ${#lines[@]} lines < <(git config --get-regexp "remote.*.url" | sort)
 
+    # Figure out the max length for column spacing.
     local -a display
     local key
     local value
@@ -599,13 +600,15 @@ git-repo-info ()
         display+=("$key" "$value")
     done
     ((max+=1))
-
     if [[ $1 != '--no-pulls' ]]; then
         key="Latest pull request"
         (( ${#key} > max )) && max=${#key}
     fi
+
+    # Print everything but the pull info.
     printf "%-${max}s: %s\n" "${display[@]}"
 
+    # Now get any pull info and print it.
     if [[ $1 != '--no-pulls' ]]; then
         local pr_data
         if pr_data=$(git-repo-pr-get "$1"); then
