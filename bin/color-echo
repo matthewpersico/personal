@@ -57,13 +57,12 @@ while true; do
         nr)
             reset='' ;;
         fg)
-            fgname=$1; shift ;;
-        BLACK | BLUE | CYAN | GREEN | MAGENTA | ORANGE| RED | WHITE | YELLOW )
-            fgname="ANSI_FG_${option}" ;;
+            fgname="ANSI_FG_${1^^}"; shift ;;
+        BLACK | BLUE | CYAN | GREEN | MAGENTA | ORANGE| RED | WHITE | YELLOW | \
         black | blue | cyan | green | magenta | orange| red | white | yellow )
             fgname="ANSI_FG_${option^^}" ;;
         bg)
-            bgname=$1
+            bgname="ANSI_BG_${1^^}"
             shift
             ;;
         bl | blink | BL | BLINK)
@@ -78,13 +77,13 @@ while true; do
             underscore="$ANSI_UNDERSCORE" ;;
         h | help )
             bash-usage "$0"
-            exit 0
+            true; exit
             ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
-            cmd-echo -ec -- "$option is an invalid option. See $0 --help"
-            exit 1
+            cmd-echo --id color-echo -ec -- "$option is an invalid option. See $0 --help"
+            false; exit
             ;;
     esac
 done
@@ -93,24 +92,32 @@ done
 if [[ -n "$fgname" ]]; then
     fgcolor="${!fgname}"
     if [[ -z "$fgcolor" ]]; then
-        cmd-echo "'$fgname' is not a valid foreground color"
-        bash-usage "$0"
-        exit 1
+        cmd-echo --id color-echo "'$fgname' is not a valid foreground color"
+        false; exit
     fi
 fi
 if [[ -n "$bgname" ]]; then
     bgcolor="${!bgname}"
     if [[ -z "$bgcolor" ]]; then
-        cmd-echo "'$bgname' is not a valid background color"
-        bash-usage "$0"
-        exit 1
+        cmd-echo --id color-echo "'$bgname' is not a valid background color"
+        false; exit
+    fi
+fi
+
+if [[ -n $fgname ]] && [[ -n $bgname ]]; then
+    declare f=${fgname//ANSI_FG_/}
+    declare b=${bgname//ANSI_BG_/}
+    if [[ $f == "$b" ]]; then
+        cmd-echo --id color-echo "Cannot set foreground and background the same color ($f)"
+        set +x
+        false; exit
     fi
 fi
 
 ## print
 echo $nonl -e "$blink$bold$concealed$reverse$underscore$fgcolor$bgcolor$*$reset"
 
-exit 0 ## usage guard when sourcing
+true; exit ## usage guard when sourcing
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -162,7 +169,7 @@ Adjust with these attributes. You can use any combination of them.
 =item --fg color, --bg color
 
 'color' is one of black, blue, cyan, green, magenta, red, white, yellow. You
-can use --fg and --bg together.
+can use --fg and --bg together. You cannot set both to be the same color.
 
 =item --'color'
 
