@@ -57,32 +57,32 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
         exact) opt_exact=1 ;;
         type) opt_type="${type_searches[$1]:-$1}"; shift;;
         grep)
-            cmd-echo --ec -j -- '--grep for searching the contents of' \
+            cmd-echo --id git-find --ec -j -- '--grep for searching the contents of' \
                      'found files is not supported. Run git-grep with' \
                      '''--find "find arguments"''';
             false; exit ;;
         --) moreopts=0;;
-        *) cmd-echo -- "$original is an invalid option. See $0 --help"
+        *) cmd-echo --id git-find -- "$original is an invalid option. See $0 --help"
            false; exit ;;
     esac
 done
 
 if (( ! opt_last_existed )); then
     declare local_e=0
-    (( opt_le_checkout )) && cmd-echo --ec "Option --checkout only applies to --last-existed" &&  local_e=1
-    (( opt_le_get )) && cmd-echo --ec "Option --get only applies to --last-existed" &&  local_e=1
-    (( opt_le_show )) && cmd-echo --ec "Option --show only applies to --last-existed" &&  local_e=1
+    (( opt_le_checkout )) && cmd-echo --id git-find --ec "Option --checkout only applies to --last-existed" &&  local_e=1
+    (( opt_le_get )) && cmd-echo --id git-find --ec "Option --get only applies to --last-existed" &&  local_e=1
+    (( opt_le_show )) && cmd-echo --id git-find --ec "Option --show only applies to --last-existed" &&  local_e=1
     (( local_e )) && { false; exit; }
 else
     if (( opt_le_checkout + opt_le_get + opt_le_show > 1)); then
-        cmd-echo --ec "Options --checkout, --get, and --show are mutex"
+        cmd-echo --id git-find --ec "Options --checkout, --get, and --show are mutex"
         false; exit
     fi
 fi
 
 if [[ -n "$timecomp" ]]; then
     if [[ ! -f "$timecompfile" ]]; then
-        cmd-echo --ec -- "Cannot find file '$timecompfile' for $timecomp comparison"
+        cmd-echo --id git-find --ec -- "Cannot find file '$timecompfile' for $timecomp comparison"
         false; exit
     fi
 
@@ -116,7 +116,7 @@ if ((opt_conflicts)); then
         if [[ "$opt_grep_opts_verbose" = '-l' ]]; then
             echo "$cf"
         else
-            cmd-echo -head -- "Conflicts in $cf"
+            cmd-echo --id git-find -head -- "Conflicts in $cf"
             # shellcheck disable=SC2086 # we want $opt_grep_opts_verbose to "disappear" if empty.
             perl -ne '
 BEGIN{
@@ -138,13 +138,13 @@ my $dummy = 6;
     done
     if (( opt_edit )); then
         if [[ -z "$EDITOR" ]]; then
-            cmd-echo -- "No EDITOR env variable found"
+            cmd-echo --id git-find -- "No EDITOR env variable found"
             false; exit
         fi
         if (( ${#conflict_files[@]} )); then
             $EDITOR "${conflict_files[@]}"
         else
-            cmd-echo -- "No conflicts found"
+            cmd-echo --id git-find -- "No conflicts found"
         fi
     fi
     (( ${#conflict_files[@]} )) && { false; exit; }
@@ -159,13 +159,13 @@ fi
 if ((opt_last_existed)); then
     declare file=$1; shift
     if [[ -f $file ]]; then
-        cmd-echo --ec -- "--last-existed does not apply; '$file' still exists"
+        cmd-echo --id git-find --ec -- "--last-existed does not apply; '$file' still exists"
         false; exit
     fi
 
     declare le_sha
     le_sha=$(git rev-list -n 1 "$(git rev-list -n 1 HEAD -- "$file")"^ -- "$file")
-    [[ -z $le_sha ]] && cmd-echo -- "'$file' not located history" && { false; exit; }
+    [[ -z $le_sha ]] && cmd-echo --id git-find -- "'$file' not located history" && { false; exit; }
     if (( opt_le_show )); then
         git show "${le_sha}:${file}" || { false; exit; }
         true; exit
@@ -175,7 +175,7 @@ if ((opt_last_existed)); then
         resp=$(cmd-yesno 'Do you want to restore the file directly with --checkout instead of --get' 'n')
         if [[ $resp == 'n' ]]; then
             git show "${le_sha}:${file}" > "$(git root)/${file}.${le_sha}" || exit $?
-            cmd-echo "Contents in ${file}.${le_sha}"
+            cmd-echo --id git-find "Contents in ${file}.${le_sha}"
             true; exit
         else
             opt_le_checkout=1
@@ -285,7 +285,7 @@ fi
 
 if (( opt_edit )); then
     if [[ -z "$EDITOR" ]]; then
-        cmd-echo -- "No EDITOR env variable found"
+        cmd-echo --id git-find -- "No EDITOR env variable found"
         false; exit
     fi
     $EDITOR "${output[@]}"

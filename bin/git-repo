@@ -34,18 +34,18 @@ git-repo-check-with ()
         local upstream
         upstream=$(git remote get-url upstream 2>/dev/null)
         if [[ -n "${upstream}" ]]; then
-            cmd-echo -- "checking with branch '${branch_name}' in upstream '${upstream}'"
+            cmd-echo --id git-repo -- "checking with branch '${branch_name}' in upstream '${upstream}'"
             git-check-with-remote --remote upstream --branch "$branch_name" "$@"
             status=$?
         else
             local origin
             origin=$(git remote get-url origin 2>/dev/null)
             if [[ -n "${origin}" ]]; then
-                cmd-echo -- "checking with branch '${branch_name}' in origin '${origin}'"
+                cmd-echo --id git-repo -- "checking with branch '${branch_name}' in origin '${origin}'"
                 git-check-with-remote --remote origin --branch "$branch_name" "$@"
                 status=$?
             else
-                cmd-echo --ec -- "Current repo is not a clone of a remote"
+                cmd-echo --id git-repo --ec -- "Current repo is not a clone of a remote"
                 status=1
             fi
         fi
@@ -65,16 +65,16 @@ git-repo-current-branch ()
     fi
 
     if [[ -n $1 ]]; then
-        cmd-echo --ec -- "Cannot set current branch yet"
+        cmd-echo --id git-repo --ec -- "Cannot set current branch yet"
         false;return $?
     else
         local cb
         cb=$($REALGIT branch --show-current)
         if [[ -z $cb ]]; then
-            ((warn)) && cmd-echo --wc -- "--show-current can't find current branch. Are you in a rebase? Falling back to alt method"
+            ((warn)) && cmd-echo --id git-repo --wc -- "--show-current can't find current branch. Are you in a rebase? Falling back to alt method"
             cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
             if [[ -z $cb ]]; then
-                ((warn)) && cmd-echo --ec -- "Cannot get current branch"
+                ((warn)) && cmd-echo --id git-repo --ec -- "Cannot get current branch"
                 false;return $?
             fi
         fi
@@ -92,7 +92,7 @@ git-repo-show-current-branch ()
 git-repo-default-branch ()
 {
     if [[ -n $1 ]]; then
-        cmd-echo --ec -- "Cannot set default branch yet"
+        cmd-echo --id git-repo --ec -- "Cannot set default branch yet"
         false; return
     fi
     local base_repo
@@ -111,7 +111,7 @@ git-repo-default-branch ()
         echo "$default_branch"
         true
     else
-        cmd-echo --ec -- "Cannot find default branch for ${PWD}"
+        cmd-echo --id git-repo --ec -- "Cannot find default branch for ${PWD}"
         false
     fi
     return $?
@@ -154,16 +154,16 @@ git-repo-delete ()
 
     if [[ -n "$dirmode" ]]; then
         ## We were given the directory containing the repo
-        \cd "$dirmode" || { cmd-echo "Cannot cd $dirmode"; false; return; }
+        \cd "$dirmode" || { cmd-echo --id git-repo "Cannot cd $dirmode"; false; return; }
         local root_or_err
         root_or_err="$(git root 2>&1)"
         local status=$?
         if ((status)); then
-            cmd-echo -- "$root_or_err"
-            \cd "$returnpath" || { cmd-echo "Cannot cd $returnpath"; false; return; }
+            cmd-echo --id git-repo -- "$root_or_err"
+            \cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
             return $status
         else
-            \cd "$root_or_err" || { cmd-echo "Cannot cd $root_or_err"; false; return; }
+            \cd "$root_or_err" || { cmd-echo --id git-repo "Cannot cd $root_or_err"; false; return; }
         fi
     elif ((!current)); then
         ## Then we were given a local repo URL; find it and go there
@@ -174,7 +174,7 @@ git-repo-delete ()
         local githost_url
         githost_url=$(git kv --get "svcs.$githost")
         if [[ -z "$githost_url" ]]; then
-            cmd-echo -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
+            cmd-echo --id git-repo -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
             return 1
         fi
 
@@ -199,29 +199,29 @@ git-repo-delete ()
 
         ## Make sure it's clean
         if [[ -d wt ]] && (($(find wt | wc -l) > 1)); then
-            cmd-echo "worktrees directory not empty:"
+            cmd-echo --id git-repo "worktrees directory not empty:"
             ls -la wt
-            cmd-echo
-            cmd-echo "Will not delete repo"
+            cmd-echo --id git-repo
+            cmd-echo --id git-repo "Will not delete repo"
             false; return
         fi
 
         dirty=$(git status --porcelain)
         if [[ -n "$dirty" ]]; then
             git status
-            cmd-echo
-            cmd-echo "Will not delete current repo"
+            cmd-echo --id git-repo
+            cmd-echo --id git-repo "Will not delete current repo"
             false; return
         fi
 
-        \cd .. || { cmd-echo "Cannot cd .."; false; return; }
+        \cd .. || { cmd-echo --id git-repo "Cannot cd .."; false; return; }
         \rm -rf "$repo"
         status=$?
         ((status != 0)) && { false; return; } ## If the rm fails, we should see
                                               ## error messages, no need to add
                                               ## more.
 
-        cmd-echo "Done. Not touching remote repo. Resetting git list..."
+        cmd-echo --id git-repo "Done. Not touching remote repo. Resetting git list..."
         ## Remove the just-deleted repo from the list of local git repos.
         git go-set
 
@@ -238,15 +238,15 @@ git-repo-delete ()
 
     ## Go there.
     if [[ ! "$returnpath" = '/' ]]; then
-        \cd "$returnpath" || { cmd-echo "Cannot cd $returnpath"; false; return; }
+        \cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
     else
-        \cd ~ || { cmd-echo "Cannot cd ~"; false; return; }
+        \cd ~ || { cmd-echo --id git-repo "Cannot cd ~"; false; return; }
     fi
 
     ## Feed "there" back to the git function to make it stick.
     if [[ -n "$doandcdfile" ]]; then
         echo "ecd ${PWD}" > "$doandcdfile"
-        cmd-echo -n -- "Done. "
+        cmd-echo --id git-repo -n -- "Done. "
     fi
 
     return $status
@@ -301,7 +301,7 @@ git-repo-diff ()
                 moreopts=0
                 ;;
             * )
-                cmd-echo -- "$original is an invalid option. See $0 --help"
+                cmd-echo --id git-repo -- "$original is an invalid option. See $0 --help"
                 false; return
                 ;;
         esac
@@ -315,12 +315,12 @@ git-repo-diff ()
         repo[left]=${PWD}
         repo[right]=$(realpath "$1")
     else
-        cmd-echo -- "Need at least one directory"
+        cmd-echo --id git-repo -- "Need at least one directory"
         git-usage "$0"; false; return
     fi
 
     if [[ "${repo[left]}" = "${repo[right]}" ]]; then
-        cmd-echo -- "Other dir is this dir. Whoops! Bye."
+        cmd-echo --id git-repo -- "Other dir is this dir. Whoops! Bye."
         false; return
     fi
 
@@ -362,9 +362,9 @@ git-repo-diff ()
     done
     if [[ "${#missingright[@]}" != '0' ]]; then
         if ((name_only)); then
-            cmd-echo -- "These files do not exist in ${repo[right]}" "${missingright[@]}"
+            cmd-echo --id git-repo -- "These files do not exist in ${repo[right]}" "${missingright[@]}"
         else
-            cmd-echo -- "These files do not exist in ${repo[right]}" "${missingright[@]}"
+            cmd-echo --id git-repo -- "These files do not exist in ${repo[right]}" "${missingright[@]}"
         fi
     fi
 
@@ -377,9 +377,9 @@ git-repo-diff ()
     done
     if [[ "${#missingleft[@]}" != '0' ]]; then
         if ((name_only)); then
-            cmd-echo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}"
+            cmd-echo --id git-repo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}"
         else
-            cmd-echo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}"
+            cmd-echo --id git-repo -- "These files do not exist in ${repo[left]}" "${missingleft[@]}"
         fi
     fi
 
@@ -396,7 +396,7 @@ git-repo-diff ()
             elif ((edit)); then
                 editable+=("$leftf" "$rightf")
             else
-                cmd-echo -- '-----'
+                cmd-echo --id git-repo -- '-----'
                 local diffcmd
                 # shellcheck disable=SC2230
                 diffcmd=$(which colordiff 2>/dev/null)
@@ -411,7 +411,7 @@ git-repo-diff ()
 
     if (( ${#editable[@]} )); then
         if [[ -z "$EDITOR" ]]; then
-            cmd-echo -- "No EDITOR env variable found"
+            cmd-echo --id git-repo -- "No EDITOR env variable found"
             false; return
         else
             $EDITOR "${editable[@]}"
@@ -577,7 +577,7 @@ for $entry (@$VAR1) {
 
 git-repo-info ()
 {
-    cmd-echo --title "Configs:"
+    cmd-echo --id git-repo --title "Configs:"
 
     local -a lines
     local cb; cb="$(git-repo-current-branch)"
@@ -699,7 +699,7 @@ git-repo-pr-get ()
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
-                cmd-echo -ec -- "$option is an invalid option. See $0 --help"
+                cmd-echo --id git-repo -ec -- "$option is an invalid option. See $0 --help"
                 false; return
                 ;;
         esac
@@ -721,7 +721,7 @@ git-repo-pr-get ()
         fi
     done
     if [[ -z "$remote_url" ]]; then
-        cmd-echo -ec -- "Cannot find any remotes in '${remotes[*]}' to check for pull requests"
+        cmd-echo --id git-repo -ec -- "Cannot find any remotes in '${remotes[*]}' to check for pull requests"
         false; return
     fi
     local remote_svc=${remote_url%:*}
@@ -962,18 +962,18 @@ git-repo-sync-with ()
         local upstream
         upstream=$(git remote get-url upstream 2>/dev/null)
         if [[ -n "${upstream}" ]]; then
-            cmd-echo -- "syncing with ${deftext}branch '${branch_name}' in upstream '${upstream}'"
+            cmd-echo --id git-repo -- "syncing with ${deftext}branch '${branch_name}' in upstream '${upstream}'"
             git-sync-with-remote --remote upstream --branch "$branch_name" "$@"
             status=$?
         else
             local origin
             origin=$(git remote get-url origin 2>/dev/null)
             if [[ -n "${origin}" ]]; then
-                cmd-echo -- "syncing with ${deftext}branch '${branch_name}' in origin '${origin}'"
+                cmd-echo --id git-repo -- "syncing with ${deftext}branch '${branch_name}' in origin '${origin}'"
                 git-sync-with-remote --remote origin --branch "$branch_name" "$@"
                 status=$?
             else
-                cmd-echo --ec -- "Current repo is not a clone of a remote"
+                cmd-echo --id git-repo --ec -- "Current repo is not a clone of a remote"
                 status=1
             fi
         fi
@@ -998,7 +998,7 @@ git-repo-purge()
     for repo in "${repos[@]}"; do
         (
             \cd "$repo" || { true; exit; }
-            cmd-echo -- "$repo"
+            cmd-echo --id git-repo -- "$repo"
             local ok_to_purge=1
             # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
             if [[ -d wt ]] && (($(ls wt | wc -l))); then
@@ -1035,19 +1035,19 @@ git-repo-revert ()
 
 git-repo-restore ()
 {
-    cmd-echo "Cleaning..."
+    cmd-echo --id git-repo "Cleaning..."
     git dorealclean
 
-    cmd-echo "Unstaging..."
+    cmd-echo --id git-repo "Unstaging..."
     local -a files
     readarray -t files < <(git is committable)
     git reset HEAD -- "${files[@]}"
 
-    cmd-echo "Uncheckouting..."
+    cmd-echo --id git-repo "Uncheckouting..."
     readarray -t files < <(git is modified)
     git checkout -- "${files[@]}"
 
-    cmd-echo "Status..."
+    cmd-echo --id git-repo "Status..."
     git status
 
 }
@@ -1088,7 +1088,7 @@ git-repo-named-branches ()
     fi
 
     if [[ ! $1 =~ ^(true|false)$ ]]; then
-        cmd-echo --ec -- "${FUNCNAME[0]}: $1 is not 'true' or false"
+        cmd-echo --id git-repo --ec -- "${FUNCNAME[0]}: $1 is not 'true' or false"
         false; return
     fi
     git config --type bool --replace-all "${GIT_EXT_META_PREFIX}.named-branches" "$1"
@@ -1137,7 +1137,7 @@ main()
     else
         case $action in
             * )
-                cmd-echo --ec --id git-repo -- "unknown git repo action '$action'"
+                cmd-echo --id git-repo --ec --id git-repo -- "unknown git repo action '$action'"
                 return 1
                 ;;
         esac

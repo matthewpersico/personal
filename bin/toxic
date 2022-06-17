@@ -6,7 +6,7 @@
 [[ $1 =~ -h ]] && bash-usage "$0" && exit 0
 
 if [[ -n $VIRTUAL_ENV ]]; then
-    cmd-echo --ec -- "Cannot run toxic while in VIRTUAL_ENV ($VIRTUAL_ENV)" "Run 'deactivate' first."
+    cmd-echo --id toxic --ec -- "Cannot run toxic while in VIRTUAL_ENV ($VIRTUAL_ENV)" "Run 'deactivate' first."
     exit 1
 fi
 
@@ -14,7 +14,7 @@ fi
 start_action ()
 {
     echo "$1" > "$rc"
-    [[ -n "$2" ]] && cmd-echo -- "$2..."
+    [[ -n "$2" ]] && cmd-echo --id toxic -- "$2..."
 
 }
 
@@ -54,7 +54,7 @@ while (<>) {
 
 option_dne_action ()
 {
-    cmd-echo --ec -- "$1 does not apply with action $2"
+    cmd-echo --id toxic --ec -- "$1 does not apply with action $2"
 }
 
 ##
@@ -149,7 +149,7 @@ while true; do
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
-            cmd-echo -ec -- "$option is an invalid option. See $0 --help"
+            cmd-echo --id toxic -ec -- "$option is an invalid option. See $0 --help"
             exit 1 ## return 1 in functions
             ;;
     esac
@@ -167,15 +167,15 @@ if [[ -n $1 ]]; then
         ## No action, just options
         echo noop > /dev/null
     else
-        cmd-echo --ec -- "'$action' is not one of ${actions_list[*]} ${single_actions_list[*]}"
+        cmd-echo --id toxic --ec -- "'$action' is not one of ${actions_list[*]} ${single_actions_list[*]}"
         exit 1
     fi
 fi
 
 if [[ $action ]]; then
-    (( repeat > 1 )) && [[ $action != 'pytest' ]] && cmd-echo --wc -- "'--repeat' is ignored for '$action'"
+    (( repeat > 1 )) && [[ $action != 'pytest' ]] && cmd-echo --id toxic --wc -- "'--repeat' is ignored for '$action'"
     if [[ $action =~ ^($single_actions_re)$ ]]; then
-        [[ -n $stop_here ]] && cmd-echo --wc -- "'--only' and '--stop-at' are ignored for '$action'"
+        [[ -n $stop_here ]] && cmd-echo --id toxic --wc -- "'--only' and '--stop-at' are ignored for '$action'"
     elif [[ $action =~ ^($actions_re)$ ]]; then
         ## Override check
         override_action=$action
@@ -186,7 +186,7 @@ if [[ $action ]]; then
                && [[ $action != "$draacc" ]] \
                && [[ $action != "clean" ]] \
                && [[ $stop_here = '0' ]]; then
-            cmd-echo -ec -- "$override_action cannot be executed; last phase executed was '$last_action'."
+            cmd-echo --id toxic -ec -- "$override_action cannot be executed; last phase executed was '$last_action'."
             exit 1
         else
             action=$override_action
@@ -201,20 +201,20 @@ else
            && [[ $action != "$draacc" ]] \
            && [[ $action != 'clean' ]] \
            && [[ $action != 'end' ]]; then
-        cmd-echo --wc -- "The following files have changed since the last toxic run:"
+        cmd-echo --id toxic --wc -- "The following files have changed since the last toxic run:"
         ls -lat "${newer[@]}"
         declare use_draacc=1
         declare newer_entry
         for newer_entry in "${newer[@]}"; do
             if [[ $(basename "$newer_entry") =~ ^requirements ]]; then
-                cmd-echo --wc -- "Resuming at 'clean' instead of default resume action of '$draacc' because '$newer_entry' has changed and is a requirements file."
+                cmd-echo --id toxic --wc -- "Resuming at 'clean' instead of default resume action of '$draacc' because '$newer_entry' has changed and is a requirements file."
                 action=clean
                 use_draacc=0
                 break
             fi
         done
         if ((use_draacc)); then
-            cmd-echo --wc -- "Resuming at  default resume action of '$draacc' instead of '$action' due to changed files."
+            cmd-echo --id toxic --wc -- "Resuming at  default resume action of '$draacc' instead of '$action' due to changed files."
             action="$draacc"
         fi
     fi
@@ -229,14 +229,14 @@ while [[ -n $action ]]; do
         clean )
             if [[ -e .toxic.clean ]]; then
                 if ! cmd-yesno "It appears that you just cleaned. Do you really want to clean again?"; then
-                    cmd-echo 'Re-run without the "clean" action'
+                    cmd-echo --id toxic 'Re-run without the "clean" action'
                     exit 1
                 fi
             fi
 
             start_action "$action" "cleaning"
 
-            cmd-echo --color BLUE -- 'git dorealclean'
+            cmd-echo --id toxic --color BLUE -- 'git dorealclean'
             git dorealclean -e requirements-local.txt -e '*logit*' || exit $?
             touch .toxic.clean
 
@@ -252,7 +252,7 @@ while [[ -n $action ]]; do
             ((verbose)) && add_args+=('--log-cli-level=INFO')
             (( ${#add_args[@]} )) && add_args=('--' "${add_args[@]}")
 
-            cmd-echo --color BLUE -- "tox ${args[*]} ${add_args[*]}"
+            cmd-echo --id toxic --color BLUE -- "tox ${args[*]} ${add_args[*]}"
             tox "${args[@]}" "${add_args[@]}" | uflog
             pipe-check
 
@@ -262,25 +262,25 @@ while [[ -n $action ]]; do
         pytest* )
             args=("$@")
 
-            cmd-echo --color BLUE -- "source .tox/py${py_short_ver}/bin/activate"
+            cmd-echo --id toxic --color BLUE -- "source .tox/py${py_short_ver}/bin/activate"
             # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
             source .tox/py"${py_short_ver}"/bin/activate
 
             # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
             if [[ $action == pytest ]]; then
-                cmd-echo --color BLUE -- "pytest ${args[*]}"
+                cmd-echo --id toxic --color BLUE -- "pytest ${args[*]}"
                 pytest "${args[@]}" || exit 1
             elif [[ $action == pytestdb ]]; then
-                cmd-echo --color BLUE -- "pytest --pdb $*"
+                cmd-echo --id toxic --color BLUE -- "pytest --pdb $*"
                 pytest --pdb "$@"
             elif [[ $action == pytestdbe ]]; then
-                cmd-echo --color BLUE -- "xo --nobg --geo-only --eval \"(pdb \\\"pytest --pdb $*\\\")\""
+                cmd-echo --id toxic --color BLUE -- "xo --nobg --geo-only --eval \"(pdb \\\"pytest --pdb $*\\\")\""
                 xo --nobg --geo-only --eval "(pdb \"pytest --pdb $*\")"
             elif [[ $action == pytestdbu ]]; then
-                cmd-echo --color BLUE -- "pytest --pdbcls pudb.debugger:Debugger --pdb -s $*"
+                cmd-echo --id toxic --color BLUE -- "pytest --pdbcls pudb.debugger:Debugger --pdb -s $*"
                 pytest --pdbcls pudb.debugger:Debugger --pdb -s "$@"
             else
-                cmd-echo --ec -- "$action not a valid test action"
+                cmd-echo --id toxic --ec -- "$action not a valid test action"
                 exit 1
             fi
             action=single_action_end
@@ -289,28 +289,28 @@ while [[ -n $action ]]; do
         pyrun* )
             args=("$@")
 
-            cmd-echo --color BLUE -- "source .tox/py${py_short_ver}/bin/activate"
+            cmd-echo --id toxic --color BLUE -- "source .tox/py${py_short_ver}/bin/activate"
             # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
             source .tox/py"${py_short_ver}"/bin/activate
 
-            cmd-echo --color BLUE -- "cd .tox/py${py_short_ver} (refroot)"
+            cmd-echo --id toxic --color BLUE -- "cd .tox/py${py_short_ver} (refroot)"
             (
                 cd ".tox/py${py_short_ver}" || exit 1
                 # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
                 if [[ $action == pyrun ]]; then
-                    cmd-echo --color BLUE -- "python ${args[*]}"
+                    cmd-echo --id toxic --color BLUE -- "python ${args[*]}"
                     python "${args[@]}" || exit 1
                 elif [[ $action == pyrundb ]]; then
-                    cmd-echo --color BLUE -- "python --pdb $*"
+                    cmd-echo --id toxic --color BLUE -- "python --pdb $*"
                     python -m pdb "$@"
                 elif [[ $action == pyrundbe ]]; then
-                    cmd-echo --color BLUE -- "xo --nobg --geo-only --eval \"(pdb \\\"python --pdb $*\\\")\""
+                    cmd-echo --id toxic --color BLUE -- "xo --nobg --geo-only --eval \"(pdb \\\"python --pdb $*\\\")\""
                     xo --nobg --geo-only --eval "(pdb \"python --pdb $*\")"
                 elif [[ $action == pyrundbu ]]; then
-                    cmd-echo --color BLUE -- "python --pdbcls pudb.debugger:Debugger --pdb -s $*"
+                    cmd-echo --id toxic --color BLUE -- "python --pdbcls pudb.debugger:Debugger --pdb -s $*"
                     python --pdbcls pudb.debugger:Debugger -m pdb -s "$@"
                 else
-                    cmd-echo --ec -- "$action not a valid run action"
+                    cmd-echo --id toxic --ec -- "$action not a valid run action"
                     exit 1
                 fi
             ) || exit "$?"
@@ -320,10 +320,10 @@ while [[ -n $action ]]; do
         activate )
             args=("$@")
 
-            cmd-echo --color ORANGE -- "You cannot activate with toxic because" \
+            cmd-echo --id toxic --color ORANGE -- "You cannot activate with toxic because" \
                      "the environment will not survive the exit from the toxic subproc."\
                      "Run this command instead:"
-            cmd-echo --color BLUE -- "source .tox/py${py_short_ver}/bin/activate"
+            cmd-echo --id toxic --color BLUE -- "source .tox/py${py_short_ver}/bin/activate"
 
             action=single_action_end
             ;;
@@ -331,7 +331,7 @@ while [[ -n $action ]]; do
         flake )
             start_action "$action" "flaking"
 
-            cmd-echo --color BLUE -- 'tox -e flake8'
+            cmd-echo --id toxic --color BLUE -- 'tox -e flake8'
             tox -e flake8 | uflog
             pipe-check
 
@@ -348,7 +348,7 @@ while [[ -n $action ]]; do
                                            last=$f; echo "$last";
                                        fi
                                    done)
-            cmd-echo --color BLUE -- "tox -e mypy -- ${mypyarg[*]}"
+            cmd-echo --id toxic --color BLUE -- "tox -e mypy -- ${mypyarg[*]}"
             tox -e mypy -- "${mypyarg[@]}" | uflog
             pipe-check
 
@@ -358,10 +358,10 @@ while [[ -n $action ]]; do
         black )
             start_action "$action" "blacking"
 
-            cmd-echo --color BLUE -- 'tox -e black'
+            cmd-echo --id toxic --color BLUE -- 'tox -e black'
             if ! tox -e black; then
-                cmd-echo -wc -- 're-blacking to fix...'
-                cmd-echo --color BLUE -- '.tox/black/bin/python -m black .'
+                cmd-echo --id toxic -wc -- 're-blacking to fix...'
+                cmd-echo --id toxic --color BLUE -- '.tox/black/bin/python -m black .'
                 "$root_dir"/.tox/black/bin/python -m black .
             fi
 
@@ -371,7 +371,7 @@ while [[ -n $action ]]; do
         doc )
             start_action "$action" "doc'ing"
 
-            cmd-echo --color BLUE -- 'tox -e docs'
+            cmd-echo --id toxic --color BLUE -- 'tox -e docs'
             tox -e docs || exit 1
 
             end_action "$action"
@@ -386,7 +386,7 @@ while [[ -n $action ]]; do
             #    mapfile -t newer < <(cd "$(git root)" && git find --abspath --newer "$rc")
             #    if [[ -n "${newer[0]}" ]]
             #    then
-            #        cmd-echo -- "The following files have changed since the last complete, successful toxic run:"
+            #        cmd-echo --id toxic -- "The following files have changed since the last complete, successful toxic run:"
             #        ls -lat "${newer[@]}"
             #        action='restart'
             #    fi
@@ -410,7 +410,7 @@ while [[ -n $action ]]; do
             exit 0
             ;;
 
-        * ) cmd-echo -ec -- "Invalid action '$action'" \
+        * ) cmd-echo --id toxic -ec -- "Invalid action '$action'" \
                      "Valid actions are: ${actions_list[*]}"
             exit 1
             ;;
@@ -419,7 +419,7 @@ done
 
 declare activate_cmd
 activate_cmd=$(ls .tox/py*/bin/activate)
-cmd-echo -- \
+cmd-echo --id toxic -- \
          "All stages complete."\
          "For testing, source in '$activate_cmd'." \
          "To restart, use 'toxic restart'."

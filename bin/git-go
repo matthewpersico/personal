@@ -86,7 +86,7 @@ while true; do
                   tmp=$(git remote get-url upstream 2>/dev/null)
                   # shellcheck disable=SC2154
                   if [[ -z $tmp ]]; then
-                      cmd-echo -ec -- "No upstream for current repo (${PWD})"
+                      cmd-echo --id git-go -ec -- "No upstream for current repo (${PWD})"
                       false; exit
                   fi
                   tgts=("${tmp/*:/}")
@@ -113,21 +113,21 @@ while true; do
         i | index ) opt_repo_no=$1; shift ;;
         limited ) limited=('--limited' "$1"); shift ;;
         doandcd ) doandcdfile=$1; shift;;
-        set ) cmd-echo -- Working...
+        set ) cmd-echo --id git-go -- Working...
               git go-set; true; exit;;
-        prune ) cmd-echo -- Working...
+        prune ) cmd-echo --id git-go -- Working...
               git go-prune; true; exit;;
         h | help ) git-usage "$0"; true; exit ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
-            cmd-echo -ec -- "$option is an invalid option. See $0 --help"
+            cmd-echo --id git-go -ec -- "$option is an invalid option. See $0 --help"
             false; exit
             ;;
     esac
 done
 if ((opt_stat!=2)) && ((opt_brief)); then
-    cmd-echo -ec -- "Cannot specify --brief without --dirty"
+    cmd-echo --id git-go -ec -- "Cannot specify --brief without --dirty"
     git-usage "$0"; false; exit
 fi
 
@@ -170,13 +170,13 @@ done
 
 if ((${#REPOS[@]}==0)); then
     if (( ${#origtgts[@]} == 0 )); then
-        cmd-echo -ec -- "No repos available."
+        cmd-echo --id git-go -ec -- "No repos available."
     elif (( ${#origtgts[@]} == 1 )); then
-        cmd-echo -ec -- "Filter '${origtgts[*]}' does not match any repo"
+        cmd-echo --id git-go -ec -- "Filter '${origtgts[*]}' does not match any repo"
     else
         declare allfilts
         ajoin allfilts -s ',' "${origtgts[@]}"
-        cmd-echo -ec -- "Filters '$allfilts' do not match any repo"
+        cmd-echo --id git-go -ec -- "Filters '$allfilts' do not match any repo"
     fi
     false; exit
 else
@@ -187,7 +187,7 @@ else
                 cd "${TILDAE:-$HOME}/$r" || { echo "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
                 if (( $(git status --porcelain | wc  -l) )); then
                     echo
-                    cmd-echo -- "$r"
+                    cmd-echo --id git-go -- "$r"
                     git status
                 fi
             )
@@ -215,13 +215,13 @@ else
                 if ((opt_stat==1)); then
                     echo "$rexp"
                     (
-                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo --id git-go -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
                         git status --porcelain
                     )
                     echo
                 elif ((opt_stat==2)); then
                     (
-                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo --id git-go -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
                         if (( $(git status --porcelain | wc -l) )); then
                             echo "$rexp"
                             if ((opt_brief==0)); then
@@ -232,7 +232,7 @@ else
                     )
                 elif ((opt_comments)); then
                     (
-                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo --id git-go -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
                         declare output
                         output="$(git comment --show --hi)"
                         # shellcheck disable=SC2030 #https://github.com/koalaman/shellcheck/wiki/SC2030
@@ -256,7 +256,7 @@ else
         done
         exit
     elif ((${#REPOS[@]}==1)); then
-        cmd-echo -- "Matches only ${REPOS[0]}. Going there."
+        cmd-echo --id git-go -- "Matches only ${REPOS[0]}. Going there."
         REPO=${REPOS[0]}
     else
         declare REPO
@@ -277,7 +277,7 @@ else
         if ((${#REPOS[@]}==1)); then
             ## Re-check singlematch condition in case we modified REPOS
             ## above.
-            cmd-echo -- "Matches only ${REPOS[0]}. Going there."
+            cmd-echo --id git-go -- "Matches only ${REPOS[0]}. Going there."
             REPO=${REPOS[0]}
         else
             readarray -t REPOS < <(tail-number-add "${REPOS[@]}")
@@ -305,7 +305,7 @@ else
                     git go --limited "$repolist" "${REPLY#/}"
                     break
                 else
-                    cmd-echo -ec -- "'$REPLY' is an invalid choice"
+                    cmd-echo --id git-go -ec -- "'$REPLY' is an invalid choice"
                 fi
             done
         fi
@@ -314,7 +314,7 @@ fi
 
 if [[ -n "$REPO" ]]; then
     if [[ ! -d "${TILDAE:-$HOME}/$REPO" ]]; then
-        cmd-echo --ec -- "'$REPO' does not exist. It will be removed from consideration."
+        cmd-echo --id git-go --ec -- "'$REPO' does not exist. It will be removed from consideration."
         git go-set
         false; exit
     fi

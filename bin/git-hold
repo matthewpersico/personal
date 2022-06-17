@@ -54,7 +54,7 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
             moreopts=0
             ;;
         * )
-            cmd-echo -- "$original is an invalid option. See $0 --help"
+            cmd-echo --id git-hold -- "$original is an invalid option. See $0 --help"
             false; exit
             ;;
     esac
@@ -65,7 +65,7 @@ holddir=$1
 shift
 
 if [[ ! "$holddir" =~ ^/ ]]; then
-    cmd-echo -- "rooting in ~/.git-hold"
+    cmd-echo --id git-hold -- "rooting in ~/.git-hold"
     mkdir -p "$HOME/.git-hold" || { false; exit; }
     holddir="$HOME/.git-hold/$holddir"
 fi
@@ -73,7 +73,7 @@ fi
 (
     builtin cd "$repo" || { false; exit; }
     if ! git repo name . > /dev/null; then
-        cmd-echo -- "'$repo' is not a git repo"
+        cmd-echo --id git-hold -- "'$repo' is not a git repo"
         false; exit
     fi
     true; exit
@@ -81,7 +81,7 @@ fi
 
 if (( drop )); then
     if [[ ! -d "$holddir" ]]; then
-        cmd-echo -- "'$holddir' not found, cannot drop"
+        cmd-echo --id git-hold -- "'$holddir' not found, cannot drop"
         false; exit;
     else
         builtin cd "$holddir"/.. || { false; exit; } ## cd command will spit out an error message
@@ -93,7 +93,7 @@ if (( drop )); then
     fi
 elif (( restore )); then
     if [[ ! -d "$holddir" ]]; then
-        cmd-echo -- "'$holddir' not found, cannot restore"
+        cmd-echo --id git-hold -- "'$holddir' not found, cannot restore"
         false; exit;
     else
         repo=$(realpath "$repo") ## in case we stupidly specified a relative
@@ -111,14 +111,14 @@ elif (( restore )); then
                 fullfile=$(realpath "$file")
                 declare diffst
                 if (( diff )); then
-                    cmd-echo -- "diff $fullfile $repo/$file"
+                    cmd-echo --id git-hold -- "diff $fullfile $repo/$file"
                     diff "$fullfile" "$repo/$file"
                 else
                     diff -q "$fullfile" "$repo/$file" > /dev/null
                 fi
                 diffst=$?
                 if ((diffst==0)); then
-                    cmd-echo -- "Skipping target same as source '$fullfile'..."
+                    cmd-echo --id git-hold -- "Skipping target same as source '$fullfile'..."
                     continue
                 fi
 
@@ -146,9 +146,9 @@ else
     ## not restore, but hold (copy)
     if [[ -d "$holddir" ]]; then
         if (( overwrite )); then
-            cmd-echo -- "'$holddir' exists, --overwrite specified, will copy to it"
+            cmd-echo --id git-hold -- "'$holddir' exists, --overwrite specified, will copy to it"
         else
-            cmd-echo -- "'$holddir' exists, will not copy to it"
+            cmd-echo --id git-hold -- "'$holddir' exists, will not copy to it"
             false; exit;
         fi
     fi
@@ -156,7 +156,7 @@ else
     mkdir -p "$holddir"
     holddir=$(realpath "$holddir")
     (
-        ((!verbose)) && cmd-echo -- "Working..."
+        ((!verbose)) && cmd-echo --id git-hold -- "Working..."
         builtin cd "$repo" || { false; exit; } ## cd command will spit out an error message
         declare file
         declare -A git_is_deleted
@@ -170,7 +170,7 @@ else
                                            ## keep stdin clear for yesno
         for file in "${files[@]}"; do
             if ((git_is_deleted[$file])); then
-                ((verbose)) && cmd-echo -- "Skipping git rm'ed '$file'..."
+                ((verbose)) && cmd-echo --id git-hold -- "Skipping git rm'ed '$file'..."
                 continue ## skipping git rm'ed file
             fi
 
@@ -178,13 +178,13 @@ else
             fullfile=$(realpath "$file")
 
             if [[ -h "$fullfile" ]]; then
-                ((verbose)) && cmd-echo -- "Skipping link '$file'..."
+                ((verbose)) && cmd-echo --id git-hold -- "Skipping link '$file'..."
                 continue
             fi
 
             declare diffst
             if (( diff )); then
-                cmd-echo -- "diff $fullfile $holddir/$file"
+                cmd-echo --id git-hold -- "diff $fullfile $holddir/$file"
                 diff "$fullfile" "$holddir/$file"
                 diffst=$?
             else
@@ -197,7 +197,7 @@ else
             fi
 
             if ((diffst==0)); then
-                cmd-echo -- "Skipping target same as source '$file'..."
+                cmd-echo --id git-hold -- "Skipping target same as source '$file'..."
                 continue
             fi
 
@@ -222,7 +222,7 @@ else
         done
     )
 fi
-cmd-echo -- 'Done.'
+cmd-echo --id git-hold -- 'Done.'
 true; exit
 
 ## Go grab the usage template the file USAGE
