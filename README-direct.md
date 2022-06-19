@@ -10,27 +10,27 @@ GitHub.
 * Put your `id_rsa` and `id_rsa.pub` files on a USB stick and insert the stick into you machine.
 * Mount and copy (assuming the USB drive comes up as D:):
 ```
-sudo mkdir /mnt/d
-sudo mount -t drvfs d: /mnt/d
-cp /mnt/d/id* ~/.ssh/
-sudo umount /mnt/d
-chmod 400 ~/.ssh/id*
+$ sudo mkdir /mnt/d
+$ sudo mount -t drvfs d: /mnt/d
+$ cp /mnt/d/id* ~/.ssh/
+$ sudo umount /mnt/d
+$ chmod 400 ~/.ssh/id*
 ```
 
 ## git
 Execute the following to install the latest version of git:
 ```
-sudo add-apt-repository ppa:git-core/ppa
-sudo apt update
-apt list --upgradable
-sudo apt upgrade
+$ sudo add-apt-repository ppa:git-core/ppa
+$ sudo apt update
+$ apt list --upgradable
+$ sudo apt upgrade
 ```
 
 ## Local Software
 We put stuff that we build in /opt/mop:
 ```
-sudo mkdir -p /opt/mop/build
-sudo chown -R /opt
+$ sudo mkdir -p /opt/mop/build
+$ sudo chown -R $USER /opt
 ```
 
 ## Grab the repos
@@ -46,7 +46,7 @@ $ git clone ${GH_REMOTE_REF}/.git-template.git .git-template
 $ vi ~/.gitconfig
     i[init]
     <TAB>templatedir = <EXPAND THE VALUE OF $HOME HERE>/.git-template
-    :wq
+    <ESC>:wq
 $ git clone ${GH_REMOTE_REF}/personal.git personal
 ```
 
@@ -86,13 +86,13 @@ Either way, we will refer to this branch as `machine-branch` later on.
 This step stores existing dotfiles and links to new ones in the repo. The log file is so that you can have a record od what fails so that you can go back and correct it.
 
 ```
-cd $HOME/personal/dotfiles
-. ./dotfilesbootstrap
-cd ..
-bin/makesymlinks -i dotfiles 2>&1 | tee bin/makesymlinks.log
-export REALGIT=$(which git)
-bin/github.env.init
-git-kv --cat
+$ cd $HOME/personal/dotfiles
+$ . ./dotfilesbootstrap
+$ cd ..
+$ bin/makesymlinks -i dotfiles 2>&1 | tee bin/makesymlinks.log
+$ export REALGIT=$(which git)
+$ bin/github.env.init
+$ git-kv --cat
 ```
 
 ## Test
@@ -112,14 +112,20 @@ We also assume that you are working on your live machine branch, so commits and
 pushes happen on the repo in that directory.  You'll need another clone
 of the repo to do all the merging work without disturbing the live repo.
 
+## Start a new session
+
+This will allow us to use our tools to make life easier.
+
 ## Setting up the non-live repo
 
 * Clone the GH repo to a non-temp location.
-
-* Setup `machine-branch`
-
 ```
-git checkout --track origin/machine-branch
+github-clone matthewpersico/personal
+```
+
+* Setup `machine-specific-branch`
+```
+git checkout --track origin/$(cd $HOME/personal; git branch --list -c)
 ```
 
 ## Sending branch changes to all other branches
@@ -139,15 +145,15 @@ git push
 
 ### Sync
 
-* Move to the non-live GHE repo to sync things up.
+* Move to the non-live GH repo to sync things up.
 * Execute
 
 ```
-git branch --sync machine-branch
+git branch sync 
 ```
 
-The command will refresh local and remote branches and then propagate the
-changes on the specified branch to all the others.
+The command will refresh local and remote branches and do its best to then propagate the
+changes on the branch with the lastest changes to all the others.
 
 ## Getting main changes to all other branches
 
@@ -156,7 +162,7 @@ machine branches; all you are doing is swapping the source and the target.
 
 ### Sync
 
-* Move to the non-live GHE repo to sync things up.
+* Move to the non-live GH repo to sync things up.
 * Execute
 
 ```
