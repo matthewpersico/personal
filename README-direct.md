@@ -6,7 +6,16 @@ GitHub.
 # Setup
 
 ## ssh
-Make a `${HOME}/.ssh` directory if it does not already exist. Set it `chmod 700`. Copy your `id_rsa` and `id_rsa.pub` files into the directory and set them `chmod 401`
+* Make a `${HOME}/.ssh` directory if it does not already exist. Set it `chmod 700`.
+* Put your `id_rsa` and `id_rsa.pub` files on a USB stick and insert the stick into you machine.
+* Mount and copy (assuming the USB drive comes up as D:):
+```
+sudo mkdir /mnt/d
+sudo mount -t drvfs d: /mnt/d
+cp /mnt/d/id* ~/.ssh/
+sudo umount /mnt/d
+chmod 400 ~/.ssh/id*
+```
 
 ## git
 Execute the following to install the latest version of git:
