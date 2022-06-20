@@ -83,3 +83,33 @@ ln -s /The/root/of/the/rsync/backup/target $HOME/rsync-backup/data
 ```
 
 See the `rsync-backup*` files for more details.
+
+### No password `sudo`
+Run `sudo visudo` and see if there is a `sudo` group for which all commands can be run. If so
+```
+$ sudo usermod -G sudo matthew
+```
+Otherwise, add the user directly as an entry in the sudo file using `visudo` to ad this line:
+```
+matthew ALL=(ALL) NOPASSWD:ALL
+```
+
+### WSL behind a firewall
+
+Find the magic proxy incantations and add to `/etc/apt/apt.conf.d/proxy.conf`. In Bloomberg:
+
+```
+Acquire::http::Proxy "the http:// to the proxy";
+Acquire::https::Proxy "the https:// to the proxy";
+```
+When not connected to a VPN, not behind a firewall, rename the file out of the way.
+
+### WSL starts as root
+
+Add these lines to `/etc/wsl.conf`:
+
+```
+[user]
+default=<$USER>
+```
+
