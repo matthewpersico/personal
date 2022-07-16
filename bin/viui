@@ -1,6 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
-    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
 
 # viui
 
@@ -33,6 +33,12 @@ fi
 # Init the command template and data file
 declare command_template="$CONFIG_HOME/${command}.cmd"
 declare command_data_file="$CONFIG_HOME/${command}.data"
+[[ $2 == "--init" ]] && rm -f "$command_template"
+if [[ $2 == '--edit' ]]; then
+    vi "$command_template" "$command_data_file"
+    true; exit $?
+fi
+
 if [[ ! -f $command_template ]]; then
     declare -a command_args=("$command")
     declare -a command_data
@@ -44,12 +50,16 @@ if [[ ! -f $command_template ]]; then
             if [[ $resp =~ ^- ]]; then
                 command_args+=("$resp")       # Add the --option
                 resp=$(dashstripper "$resp")
+                resp=${resp//-/_}
                 command_args+=("\$v_$resp")     # Add the option's value variable
                 command_data+=("v_$resp=''")    # Set the option's value variable empty
             elif [[ $resp =~ ^\+ ]]; then
                 resp=$(dashstripper '+' "$resp")
+                resp=${resp//-/_}
                 command_args+=("\$fv_$resp")         # Add the option's flag and value variable
                 command_data+=("fv_$resp='--$resp'") # Set the option's flag and value variable to the flag
+            else
+                cmd-echo --id viui --ec "Must use -,--,+ or ++ specifier"
             fi
         fi
     done
@@ -100,12 +110,18 @@ viui - wrap a hackey UI around anything
 
 =head1 SYNOPSIS
 
- viui [commandname]
+ viui [commandname] [--init|--edit]
+ viui --help
 
 =head1 DESCRIPTION
 
 Store cli program options in a file that can be easily edited and then plugged
-into the command line call, intead of having to remember them each time.
+into the command line call, instead of having to remember them each time.
+
+=head2 INITIALIZATION
+
+If the command is being run for the first time (or you use the --init option),
+you will be prompted for each option and the templates will be created for you.
 
 For required options, specify the option like -f or --bar. We will create a
 variable to give that option a value if needed and the option will always be
@@ -113,6 +129,63 @@ specified.
 
 For optional options, specify +f or ++bar. We will then create a variable to
 hold both the option and a value, inited with the option flag.
+
+Options with dashes in them (like --dash-inside) will be handled properly when
+converted to variables.
+
+=head2 USAGE
+
+Once the templates are created, the data file will be brought up in vi so that
+you can specify arguments to the options, if required. Once updated, write the
+file, quite vi and the command will be run.
+
+=head2 EDITING
+
+Once you have the templates (located in
+$HOME/.config/viui/<command>.[cmd|data]), you can edit them for corner cases,
+such as needing two of the same option. For example:
+
+ $ viui tester
+ Enter an option for template, <Return>to end: --contact
+ Enter an option for template, <Return>to end:
+
+This produces two files:
+
+=over 4
+
+=item $HOME/.config/viui/tester.cmd
+
+ tester --contact $v_contact
+
+=item $HOME/.config/viui/tester.data
+
+ # viui: Options for 'tester'
+ # v_* takes an optional value for the required option
+ # fv_* takes an optional flag and value for the non-required option
+ v_contact=''
+
+=back
+
+Now, suppose 'tester' needed two '--contact' options. You would change
+both files (using --edit)
+
+=over 4
+
+=item $HOME/.config/viui/tester.cmd
+
+ tester --contact $v_contact1 --contact $v_contact2
+
+=item $HOME/.config/viui/tester.data
+
+ # viui: Options for 'tester'
+ # v_* takes an optional value for the required option
+ # fv_* takes an optional flag and value for the non-required option
+ v_contact1=''
+ v_contact2=''
+
+=back
+
+Further modifications for other edge cases are left to the imagination.
 
 =head1 ARGUMENTS
 
@@ -122,13 +195,22 @@ hold both the option and a value, inited with the option flag.
 
 The command to run. Also used as the name for the .template and .data files. If
 it exists, you are jumped right into editing the options data. If not, you are
-prompted to enter said data. With no command, list all available commands.
+prompted to enter said data. With no command, list all available commands and
+pick one.
 
 =back
 
 =head1 OPTIONS
 
 =over 4
+
+=item --init
+
+If the templates exist, removed them so you can start over.
+
+=item --edit
+
+Edit the templates in vi to cover corner cases.
 
 =item --help
 
