@@ -22,6 +22,7 @@ declare continuation_prefix='    '
 declare opt_color=0
 declare opt_stderr=0
 declare opt_reverse=0
+declare lineno=''
 declare color=NONE
 declare -A colors
 colors=(
@@ -57,8 +58,8 @@ declare interactive=1
 # Read the options and args from command line. Note that the long and short
 # don't have to match up.
 declare OPTSARGS
-declare shortopts='inachfsojwedp::x'
-declare longopts='head,title,id:,help,wc,ec,dc,color:,oii,noreverse,norev,reverse,rev,noc'
+declare shortopts='inachfsojwedp::xl:'
+declare longopts='head,title,id:,help,wc,ec,dc,color:,oii,noreverse,norev,reverse,rev,noc,lineno:,nolineno:'
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 declare status=$?
 ((status != 0)) && echo "cmd-echo: getopt failure" && exit $status
@@ -85,6 +86,12 @@ while true; do
             # shellcheck disable=SC2034 # id is referenced indirectly below:
             ##                               for i in "id" "msg_status"
             id="$1"; shift ;;
+        l | lineno )
+            lineno=$1;shift
+            ;;
+        nolineno )
+            shift
+            ;;
         i )
             interactive=1 ;;
         n )
@@ -159,6 +166,11 @@ while true; do
     esac
 done
 
+if [[ -n $lineno ]] && [[ -z $id ]]; then
+    cmd-echo --id cmd-echo --wc "Won't print line number without --id option"
+    lineno=''
+fi
+
 declare dorest
 declare doresn
 declare docolor=${colors[$color]}
@@ -199,6 +211,7 @@ fi
 ((head)) && echo
 declare argcnt="$#"
 if [[ -n "${id}" ]]; then
+    [[ -n $lineno ]] && id="$id:$lineno"
     prefix="${prefix/% / [${id}]} "
     id=''
 fi
@@ -338,6 +351,19 @@ them in subshells to capture output. So, don't try to add the
 auto-determination to the code. We've already ripped it out once. Leave --id
 off unless you come to an output that you don't understand; then find it and
 add '--id'.
+
+=item -l|--lineno $LINENO
+
+Print the line number where cmd-line was called. Specified as $LINENO in
+bash. Will not print if --id is not specified.
+
+Note: As above, don't try to auto-determine the line number in this code; pass
+it in.
+
+=item --nolineno $LINENO
+
+Provided for you to globally change the flag in your code to stop line numbers
+from printing when you've finished debugging your problem.
 
 =item --color [REV]COLOR
 
