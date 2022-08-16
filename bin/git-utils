@@ -5,23 +5,33 @@
 
 declare scope='git-utils'
 
-git-utils-decode-http ()
+git-utils-decode-url ()
 {
-    local http=$1
+    local scheme=$1
 
     local repo
-    repo=${http##*/}
-    http=${http/\/$repo/}
+    repo=${scheme##*/}
+    scheme=${scheme/\/$repo/}
 
     local org
-    org=${http##*/}
-    http=${http/\/$org/}
+    org=${scheme##*/}
+    if [[ $org != "$scheme" ]]; then
+        scheme=${scheme/\/$org/}
+    else
+        org=${scheme##*:}
+        scheme=${scheme/:$org/}
+    fi
 
-    local svc
+    local serverid
     # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
-    read -r svc noop < <(git kv --section urls | grep "$http" )
+    serverid=$scheme
 
-    echo "$svc" "$org" "$repo"
+    serverid=${serverid%%.*}
+    serverid=${serverid##*@}
+    serverid=${serverid##*//}
+    serverid=${serverid%%:*}
+
+    echo "$serverid" "$scheme" "$org" "$repo"
 }
 
 git-utils-main()
@@ -59,26 +69,34 @@ git-utils - bits and pieces that don't belong anywhere else
 
 =head1 SYNOPSIS
 
-git-utils decode-http "http-based-git-url"
+git-utils decode-url "git-url"
 
 =head1 DESCRIPTION
 
-Miscellanwous functionality.
+Miscellaneous functionality.
 
 =head1 ACTIONS
 
 =over 4
 
-=item decode-http
+=item decode-url
 
-Given an http reprentation of a git url, give back the service name, org and repo.
+Given a git url, give back the serverid, scheme, org and repo.
 
-  $ url='https://github.com/koalaman/shellcheck'
-  $ read -r svc org repo < <(git utils decode-http "$url")
-  $ echo "$svc $org $repo"
-  github koalaman shellcheck
+  url='https://github.com/koalaman/shellcheck'
+  read -r serverid scheme org repo < <(git utils decode-url "$url")
+  echo "#$serverid $scheme $org $repo"
+  #github https://github.com koalaman shellcheck
 
-=back
+  url='git@github.com:koalaman/shellcheck'
+  read -r serverid scheme org repo < <(git utils decode-url "$url")
+  echo "#$serverid $scheme $org $repo"
+  #github git@github.com koalaman shellcheck
+
+  url='bbgithub:koalaman/shellcheck'
+  read -r serverid scheme org repo < <(git utils decode-url "$url")
+  echo "#$serverid $scheme $org $repo"
+  #bbgithub bbgithub koalaman shellcheck
 
 =cut
 
