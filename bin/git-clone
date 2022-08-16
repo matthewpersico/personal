@@ -28,7 +28,7 @@ _git-clone-set-triangle()
     githostkeycheck=$( git kv --key-only --section svcs | grep -E "^$githost_url$")
     if [[ -n "$githostkeycheck" ]] ; then
         echo "Supposed to provide a URL, not a service name. Converting..."
-        githost_url=$(git kv --get "svcs.githostkeycheck")
+        githost_url=$(git kv --get "svcs.$githostkeycheck")
         if [[ -z "$githost_url" ]]; then
             echo "No url found for githost '$1'";
             return 1
@@ -210,7 +210,7 @@ main ()
         local -a tmpa
         asplit "${pass_on[0]}" -s : -a tmpa
         if [[ "${tmpa[0]}" = "${pass_on[0]}" ]]; then
-            cmd-echo -id "$cmd_echo_id" --ec -- "githost specified and no 'githost:' found in '${pass_on[0]}'"
+            cmd-echo -id "$cmd_echo_id" --ec -- "githost not specified and no 'githost:' found in '${pass_on[0]}'"
             return 1
         fi
         githost="${tmpa[0]}"
@@ -220,6 +220,8 @@ main ()
     fi
     ashift pass_on
 
+    declare noop
+    read -r githost noop noop noop < <(git utils serverid-from-url "${githost}")
     local githost_url
     githost_url="$(git kv --get "svcs.${githost}")"
     if [[ -z "$githost_url" ]]; then
@@ -400,6 +402,7 @@ main ()
 
 main "$@"
 exit $?
+echo "$noop" > /dev/null # in lieu of shellcheck 2034
 
 :<<'__PODUSAGE__'
 =head1 NAME

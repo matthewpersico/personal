@@ -172,9 +172,11 @@ git-repo-delete ()
         repo=$1;shift
 
         local githost_url
+        local noop
+        read -r githost noop noop noop < <(git utils decode-url "$githost")
         githost_url=$(git kv --get "svcs.$githost")
         if [[ -z "$githost_url" ]]; then
-            cmd-echo --id git-repo -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
+            cmd-echo --id git-repo -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section serverid)"
             return 1
         fi
 
@@ -183,7 +185,8 @@ git-repo-delete ()
         git go "$githost/$namespace/$repo"
         status=$?
         ((status != 0)) && { false; return; } ## If the git go fails, we should
-        ## see error messages, no need to
+                                              ## see error messages, no need to
+                                              ## do anything else.
     else # we were told to delete the directory/repo we are currently in
         if [[ -z $GIT_DISPATCHER ]]; then
             git-dispatch-warning "git-repo delete --current"
@@ -549,7 +552,6 @@ git-repo-is_openpr ()
         # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
         tmpfile=$(mktempfile)
         rm-on-exit "$tmpfile"
-
         github-api --server "$server" --perl-data pulls "$tgt_namespace/$repo" > "$tmpfile"
         local tmpout
         tmpout=$(perl -e '
@@ -1148,6 +1150,7 @@ main()
 
 main "$@"
 exit $?
+echo "$noop" > /dev/null # in lieu of shellcheck 2034
 
 :<<'__PODUSAGE__'
 =head1 NAME
