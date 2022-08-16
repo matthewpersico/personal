@@ -1,0 +1,29 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# to-browser
+
+(
+    declare port_start=65535
+    declare port_end=1025
+    declare port=$port_start
+    while ! is-port-open "$port" && ((port_start != port_end)); do
+        port=$((port-=1))
+    done
+    if ! is-port-open "$port"; then
+        exec $0 "$@"
+    fi
+
+    declare command=$1;shift
+    declare -a args
+    case $command in
+        man ) args=('-P' 'cat');;
+        perldoc ) args=('-T');;
+    esac
+    args+=("$@")
+    cmd-echo "http://localhost:$port"
+    while true; do
+        echo -e "HTTP/1.1 200 OK\n\n$($command "${args[@]}")" \
+            | nc -l -k -p $port -q 1 1>/dev/null 2>&1
+    done
+    ) &
