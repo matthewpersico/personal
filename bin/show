@@ -6,7 +6,8 @@
 declare o_width=1056
 declare o_height=500
 declare do_join=0
-declare -a yadargs
+declare renderer='yad'
+declare -a renderer_args
 
 # Define the options. ':' suffix for a mandatory value to an option, '::' for
 # an optional one. Note that the long and short don't have to match up.
@@ -57,7 +58,7 @@ while true && [[ $1 =~ ^- ]]; do
             do_join=1
             ;;
         t | tail)
-            yadargs+=(--auto-scroll)
+            renderer_args+=(--tail)
             ;;
         --)
             break ;; ## VITAL!!! Exits the while loop, no more options,
@@ -70,7 +71,7 @@ while true && [[ $1 =~ ^- ]]; do
     esac
 done
 
-yadargs+=(--text-info --title="$*")
+renderer_args+=(--text-info --title="$*")
 
 declare do_filt=cat
 declare -a cmd
@@ -86,43 +87,43 @@ case $1 in
         ;;
     tail )
         cmd=("$@")
-        yadargs+=(--auto-scroll)
+        renderer_args+=(--tail)
         ;;
     * )
         cmd=("$@")
         ;;
 esac
 
-yadargs+=(--width="$o_width" --height="$o_height")
-set -x
+renderer_args+=(--width="$o_width" --height="$o_height")
+
 if ((do_join)); then
-    "${cmd[@]}" 2>&1 | $do_filt | yad "${yadargs[@]}" &
+    "${cmd[@]}" 2>&1 | $do_filt | $renderer "${renderer_args[@]}" &
 else
-    "${cmd[@]}" | $do_filt  | yad "${yadargs[@]}" &
+    "${cmd[@]}" | $do_filt  | $renderer "${renderer_args[@]}" &
 fi
-set +x
+
 :<<'__PODUSAGE__'
 =head1 NAME
 
-show - Run a command and pipe the stdout to a yad text box
+show - put command line output to a gui coompnent
 
 =head1 SYNOPSIS
 
  show [-w|-width] pixels] [-h|--height] pixels] \
-     [-j|--join] [-t|--tail] some command here
+     [-j|--join] [-t|--tail] [--] some command here
  show --help
 
 =head1 DESCRIPTION
 
-Any command that prints to stdout can have its output routed to a yad text
-box using yad. This is good for long outputs that you would either have to page
-or scroll in a terminal.
+Any command that prints to stdout can have its output routed to a gui text box.
+This is good for long outputs that you would either have to page or scroll in a
+terminal.
 
 =head1 ARGUMENTS
 
 All arguments except for the options below are run as the command and its
-arguments. stdout is piped to a yad text box whose scrollbar is left at the
-top of the box.
+arguments. stdout is piped to a text box whose scrollbar stays at the top of
+the box as input is added, by default.
 
 There are three commands currently that have specific processing:
 
@@ -130,31 +131,32 @@ There are three commands currently that have specific processing:
 
 =item perldoc
 
-'perldoc' is recognized and called with the '-u' option to strip control
-characters that won't render nicely in the text box.
+'perldoc' is recognized and control characters that won't render nicely in the
+text box are stripped out.
 
 =item man
 
-'man' is recognized and the output is filtered through 'col -b' strip control
-characters that won't render nicely in the text box.
+'man' is recognized and control characters that won't render nicely in the
+text box are stripped out.
 
 =item tail
 
-'tail' is recognized and the text box is set to --auto-scroll so that you are
+'tail' is recognized and the text box is set to --tail so that you are
 brought to the end of the output and kept there as if using 'tail -f'.
 
 =back
 
 =head1 OPTIONS
 
-Notes:
+=head2 Notes
 
-- Your options to yad should come before the command.
+- We are currently using 'yad' as the rendering engine. Any options to yad should come before the command.
 
-- If your command has options, you need to add a '--' end-of-options marker, or
-  else the option will be reported as unrecognized by yad:
+- If your command has options, you need to add a '--' end-of-options marker, or else the options will be reported as unrecognized by yad:
 
-  yad -- command --opt --op2 arg arg
+  show -- command --opt --op2 arg arg
+
+=head2 Options
 
 =over 4
 
@@ -174,7 +176,7 @@ output and kept there.
 
 =item --help
 
-This text. And no, you cannot 'show show --help'. :-)
+This text. And yes, you can 'show -- show --help'. :-)
 
 =back
 

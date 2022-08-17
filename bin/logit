@@ -11,9 +11,10 @@ declare logfile=''
 declare opt_add_args_to_logfile=0
 declare logdir=''
 declare teeit=0
-declare zenityit=0
-declare zenity_only=0
-declare teeit=0
+declare guiit=0
+declare gui_only=0
+declare browserit=0
+declare browser_only=0
 declare tsit=0
 declare edit=''
 declare edit_echo=''
@@ -22,7 +23,7 @@ declare purge=''
 declare notimestamp=''
 declare attime=''
 declare isat=0
-declare -a zenity_geo
+declare -a gui_geo
 declare opt_logonly=0
 declare -a envs
 
@@ -36,13 +37,16 @@ declare shortopts='kz'
 declare longopts
 
 ajoin longopts -s , \
-      isat aa at: tee zenity zo zenity-only zw: zh: log: dir: \
-      edit edit-on-fail edit-echo \
+      h help \
+      aa at: isat logonly log: dir: \
+      tee tpe tpae tppe tpye \
+      gui gui-only gw: gh: gpe gpae gppe gpye \
+      browser browser-only bpe bpae bppe bpye \
+      edit-echo edit edit-on-fail \
       purge purgeprev purgeyesterday \
-      notimestamp tpye tppe tpae tpe zpe ts help logonly \
-      env: reinvoke:
+      reinvoke: notimestamp ts env:
 
-# Process the command line.
+# Process the command line, first time around.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 declare status=$?
 if ((status != 0)); then
@@ -69,6 +73,8 @@ while true; do
     shift
     [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
     case "$option" in
+        h|help)
+            bash-usage "$0"; exit 0 ;;
         aa )
             opt_add_args_to_logfile=1
             ;;
@@ -87,14 +93,12 @@ while true; do
             cmd-echo ' '
             exit 0
             ;;
-        logonly )
-            opt_logonly=1
-            ;;
         isat)
             isat=1
             ;;
-        h|help)
-            bash-usage "$0"; exit 0 ;;
+        logonly )
+            opt_logonly=1
+            ;;
         log)
             logfile="$1"
             shift ;;
@@ -104,28 +108,62 @@ while true; do
         tee)
             teeit=1
             ;;
-        zpe | zpae | zppe | zpye )
+        tpe | tpae | tppe | tpye )
+            teeit=1
             purge=all
             case "$option" in
-                zppe)
+                tppe)
                     purge=prev
                     ;;
-                zpye)
+                tpye)
                     purge=yesterday
                     ;;
             esac
             edit="$LOGIT_EDITOR"
             [[ -z "$edit" ]] && edit="$EDITOR"
-            ;& ## unconditional dropthrough
-        z | zo | zenity | zenity-only | zw | zh)
-            zenityit=1
-            zenity_geo=(--width 1320 --height 800)
+            ;;
+        gui | gui-only | gw | gh)
+            guiit=1
+            gui_geo=(--width 1320 --height 800)
             case "$option" in
-                zw) zenity_geo[1]="${1}"; shift;;
-                zh) zenity_geo[3]="${1}"; shift;;
-                zenity-only | zo )
-                    zenity_only=1;;
-                zenity | z) : ;;
+                gw) gui_geo[1]="${1}"; shift;;
+                gh) gui_geo[3]="${1}"; shift;;
+                gui-only)
+                    gui_only=1;;
+                gui) : ;;
+            esac
+            ;;
+        gpe | gpae | gppe | gpye )
+            guiit=1
+            edit="$LOGIT_EDITOR"
+            [[ -z "$edit" ]] && edit="$EDITOR"
+            purge=all
+            case "$option" in
+                gppe)
+                    purge=prev
+                    ;;
+                gpye)
+                    purge=yesterday
+                    ;;
+            esac
+            ;;
+        browser )
+            browserit=1 ;;
+        browser-only )
+            browserit=1
+            browser_only=1;;
+        bpe | bpae | bppe | bpye )
+            browserit=1
+            edit="$LOGIT_EDITOR"
+            [[ -z "$edit" ]] && edit="$EDITOR"
+            purge=all
+            case "$option" in
+                bppe)
+                    purge=prev
+                    ;;
+                bpye)
+                    purge=yesterday
+                    ;;
             esac
             ;;
         edit-echo)
@@ -161,20 +199,6 @@ while true; do
         notimestamp)
             notimestamp=1
             ;;
-        tpe | tpae | tppe | tpye )
-            teeit=1
-            edit="$LOGIT_EDITOR"
-            [[ -z "$edit" ]] && edit="$EDITOR"
-            purge=all
-            case "$option" in
-                tppe)
-                    purge=prev
-                    ;;
-                tpye)
-                    purge=yesterday
-                    ;;
-            esac
-            ;;
         ts)
             tsit=1
             ;;
@@ -191,10 +215,10 @@ while true; do
 done
 
 if ((isat)) \
-       && { (( teeit+zenityit )) \
+       && { (( teeit+guiit+browserit )) \
                 || \
                 [[ -n "${edit}${edit_on_fail}" ]]; }; then
-    echo "Cannot use --at with any of --teeit, --zenityit, --edit, --edit_on_fail"
+    echo "Cannot use --at with any of of the --tee, --gui, --browser, --edit, or --edit_on_fail options."
     bash-usage "$0"; exit 1
 fi
 
@@ -287,10 +311,12 @@ if [[ -n "$purge" ]]; then
 fi
 
 touch "$logspec" ## Critical for tee below
-if ((zenity_only == 0 )); then
-    logmsg="Logfile is: $logspec"
+if ((gui_only == 1 )); then
+    logmsg='--gui-only, log will not be retained'
+elif ((browser_only == 1 )); then
+    logmsg='--browser-only, log will not be retained'
 else
-    logmsg='--zenity-only, log will not be retained'
+    logmsg="Logfile is: $logspec"
 fi
 
 if ((! isat)); then
@@ -306,45 +332,56 @@ if ((opt_logonly)); then
     exit 0
 fi
 
-if ((teeit || zenityit)); then
+if ((teeit || guiit || browserit)); then
     declare termer=''
 
     declare -a terms
-    ((zenityit)) && terms+=('zenity')
+    ((guiit)) && terms+=('yad')
+    ((browserit)) && [[ -n "$BROWSER" ]] && terms+=('browser')
     terms+=(xterm rxvt mrxvt)
-    declare i
-    for i in "${terms[@]}"; do
-        # shellcheck disable=SC2230
-        [[ -z "$termer" ]] && [[ -n "$(type -P "$i" 2>/dev/null)" ]] && termer=$(type -P "$i")
+    declare termer
+    declare termcmd
+    declare fulltermcmd
+    for termer in "${terms[@]}"; do
+        if [[ $termer == 'browser' ]]; then
+            termcmd="$BROWSER"
+        else
+            termcmd=$termer
+        fi
+        fulltermcmd="$(type -P "$termcmd" 2>/dev/null)"
+        if [[ -n $fulltermcmd ]]; then
+            break
+        fi
     done
-
-    # Locate the popup tailing xterm close to the invoking xterm window for
-    # convenience.
-    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-    declare xtermxy=$(xterm-cli --pid ${PPID} location get)
-    declare xtermx=$((${xtermxy%%:*}+20))
-    declare xtermy=$((${xtermxy##*:}+20))
-
-    # Size the popup tailing xterm with respect to screen real estate.
-    termheight=$(x-current-root --height)
-    if ((termheight >1024)); then termheight=40; else termheight=20; fi
-
-    declare -a colors
-    if [[ $termer =~ xterm ]]; then
-        colors=('-fg' "$(xterm-cli --pid ${PPID} foreground)" '-bg' "$(xterm-cli --pid ${PPID} background)")
-    fi
 
     declare title
     title="logit tee of '$command ${cmdargs[*]}' on $(hostname)"
-    ((!zenity_only)) && title="$title [log is $logspec]"
-    if [[ $termer =~ zenity ]]; then
-        $termer --text-info --auto-scroll \
-                "${zenity_geo[@]}" \
+    ((!gui_only)) && ((!browser_only)) && title="$title [log is $logspec]"
+
+    if [[ $termer =~ yad ]]; then
+        $fulltermcmd --text-info --tail \
+                "${gui_geo[@]}" \
                 --title "$title" \
                 < <(tail -f "$logspec") \
             &
+    elif [[ $termer =~ browser ]]; then
+        to-browser tail -f "$logspec" &
     else
-        $termer -g 132x${termheight}+${xtermx}+${xtermy} \
+        # Locate the popup tailing xterm close to the invoking xterm window for
+        # convenience.
+        # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+        declare xtermxy=$(xterm-cli --pid ${PPID} location get)
+        declare xtermx=$((${xtermxy%%:*}+20))
+        declare xtermy=$((${xtermxy##*:}+20))
+
+        # Size the popup tailing xterm with respect to screen real estate.
+        termheight=$(x-current-root --height)
+        if ((termheight >1024)); then termheight=40; else termheight=20; fi
+
+        declare -a colors
+        colors=('-fg' "$(xterm-cli --pid ${PPID} foreground)" '-bg' "$(xterm-cli --pid ${PPID} background)")
+
+        $fulltermcmd -g 132x${termheight}+${xtermx}+${xtermy} \
                 -title "$title" \
                 "${colors[@]}" \
                 -e tail -f "$logspec" \
@@ -360,8 +397,8 @@ if ((teeit || zenityit)); then
     # shellcheck disable=SC2009 #https://github.com/koalaman/shellcheck/wiki/SC2009
     termerpid=$(ps -ef | grep "$logspec" | grep 'tail -f' | grep "$termer" | perl -an -e 'for(@F){/[0-9]+/ && do {print $_; exit}}')
 
-    if [[ $termer =~ zenity ]]; then
-        ## Ending the zenity process doesn't end the tail and exiting this
+    if [[ $termer =~ gui ]]; then
+        ## Ending the gui process doesn't end the tail and exiting this
         ## program doesn't end the tail either. We must arrange for it to
         ## explicitly end when this program exits. Otherwise, the tails pile up
         ## in the process table. Also make sure that we flush the log and wait
@@ -370,13 +407,11 @@ if ((teeit || zenityit)); then
                       && sleep 2 \
                       && ps -p $tailpid >/dev/null 2>/dev/null \
                       && kill $tailpid >/dev/null 2>/dev/null"
-        if((zenity_only)); then
+        if((gui_only)); then
             cmds="$cmds && rm -f $logspec"
         fi
         do-on-exit "$cmds"
     fi
-
-
 fi
 
 (
@@ -501,14 +536,18 @@ exit $status
 :<<__USAGE__
 logit [ --at time ] \\
       [ --env [FOO=BAR[,FOO2=BAR2... ] ]] \\
-      [ --tee | [--zenity[-only]|-z[o]|-zh:height|-zw:width] ] \\
+      [ --tee | \\
+        [ --gui[-only]|-gh:height|-gw:width ] | \\
+        [ --browser[-only] ] ] \\
       [ --log log_basename ] \\
       [ --aa ]
       [ --notimestamp ] \\
       [ --dir log_directory ] \\
-      [ [--edit ] || [ --edit-echo ] || [ --edit-on-fail ]] \\
+      [ [ --edit ] | [ --edit-echo ] | [ --edit-on-fail ] ] \\
       [ --purge | --purgeprev | --purgeyesterday ] \\
       [ --tp[[|a]|y|pe ] \\
+      [ --gp[[|a]|y|pe ] \\
+      [ --bp[[|a]|y|pe ] \\
       [ --ts ] \\
       [ -- ] \\
       command [arg ..]
@@ -542,23 +581,41 @@ OPTIONS:
       --tee    - Spin up a terminal and show the log output in it as it is
                  generated.
 
-      --zenity|-z
-               - Spin up a zenity text dialog and show the log output in it as
-                 it is generated. If zenity is not available, we fall back to
+      --gui
+               - Spin up a gui text dialog and show the log output in it as it
+                 is generated. If a gui is not available, we fall back to
                  --tee.
 
-      --zenity-only|-zo
-               - Spin up a zenity text dialog and show the log output in it as
-                 it is generated. Delete the underlying log file when done.
-                 If zenity is not available, we fall back to --tee and retain the log.
+      --gui-only
+               - Spin up a gui text dialog and show the log output in it as it
+                 is generated. Delete the underlying log file when done.  If a
+                 gui is not available, we fall back to --tee and retain the
+                 log.
 
-      --zh:height
-      --zw:width
-               - Spin up a zenity text dialog as with '--zenity', and also change
-                 the size.
+      --gh:height
+      --gw:width
+               - Spin up a gui text dialog as with '--gui', and also change the
+                 size.  If a gui is not available, we fall back to --tee and
+                 retain the log.
+
+      --browser
+               - Start a browser and show the log output in it as it is
+                 generated. If $BROWSER is not set or the specified browser
+                 is not available, we fall back to --tee.
+
+      --browser-only
+               - Start a browser and show the log output in it as it is
+                 generated. Delete the underlying log file when done. If
+                 $BROWSER is not set or the specified browser is not available,
+                 we fall back to --tee and retain the log.
 
       --log    - Provide a root name for the log if
                  the command is generic.
+
+      --dir    - Put the logs in specifed directory. If not
+                 specfied, logs will be placed in the './logit' subdir,
+                 if it exists. Otherwise, logs will be placed in the current
+                 directory.
 
       --aa     - Short for 'add args'. Concatinates all the arguments to the
                  command into one string, using '-' as a separator and appends
@@ -570,11 +627,6 @@ OPTIONS:
                - Do not add a timestamp or the pid of the logit process to the
                  log name.  Use if the log name provided by --log is unique or
                  you don't care about overwriting logs.
-
-      --dir    - Put the logs in specifed directory. If not
-                 specfied, logs will be placed in the './logit' subdir,
-                 if it exists. Otherwise, logs will be placed in the current
-                 directory.
 
       --edit   - Look for \$LOGIT_EDITOR ($LOGIT_EDITOR), then
                  \$EDITOR ($EDITOR). Run the first one found in order
@@ -612,13 +664,21 @@ OPTIONS:
 
       --tpye   - A shortcut for --tee --purgeyesterday --edit.
 
-      --zpe|zpae
-               - A shortcut for --zenity --purge --edit, the three most commonly
-                 used switches. 'pa' is purge all, which is the default.
+      --gpe|gpae
+               - A shortcut for --gui --purge --edit. 'pa' is purge all, which
+                 is the default.
 
-      --zppe   - A shortcut for --zenity --purgeprev --edit.
+      --gppe   - A shortcut for --gui --purgeprev --edit.
 
-      --zpye   - A shortcut for --zenity --purgeyesterday --edit.
+      --gpye   - A shortcut for --gui --purgeyesterday --edit.
+
+      --bpe|bpae
+               - A shortcut for --browser --purge --edit. 'pa' is purge all, which
+                 is the default.
+
+      --bppe   - A shortcut for --browser --purbeprev --edit.
+
+      --gpye   - A shortcut for --browser --purgeyesterday --edit.
 
       --ts     - Use the 'ts' command to prepend a time stamp to each
                  output line.

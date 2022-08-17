@@ -1,29 +1,107 @@
 # -*- sh -*-
 # shellcheck shell=bash
 
-# to-browser
+# browse
 
-(
-    declare port_start=65535
-    declare port_end=1025
-    declare port=$port_start
-    while ! is-port-open "$port" && ((port_start != port_end)); do
-        port=$((port-=1))
-    done
-    if ! is-port-open "$port"; then
-        exec $0 "$@"
-    fi
+if [[ $1 =~ ^-{1,2}h ]]; then
+    bash-usage "$0"
+    true; exit $?
+fi
 
-    declare command=$1;shift
-    declare -a args
-    case $command in
-        man ) args=('-P' 'cat');;
-        perldoc ) args=('-T');;
-    esac
-    args+=("$@")
-    cmd-echo "http://localhost:$port"
-    while true; do
-        echo -e "HTTP/1.1 200 OK\n\n$($command "${args[@]}")" \
-            | nc -l -k -p $port -q 1 1>/dev/null 2>&1
-    done
-    ) &
+declare do_join=0
+if [[ $1 =~ ^-{1,2}j ]]; then
+    shift
+    do_join=1
+fi
+
+declare port_start=65535
+declare port_end=1025
+declare port=$port_start
+while ! is-port-open "$port" && ((port_start != port_end)); do
+    port=$((port-=1))
+done
+if ! is-port-open "$port"; then
+    exec $0 "$@"
+fi
+
+declare url="http://localhost:$port"
+if [[ -n $BROWSER ]]; then
+    $BROWSER $url &
+else
+    cmd-echo $url
+fi
+
+declare command=$1;shift
+declare -a args
+case $command in
+    man ) args=('-P' 'cat');;
+    perldoc ) args=('-T');;
+esac
+args+=("$@")
+
+if ((do_join)); then
+    (echo -e "HTTP/1.1 200 OK\n\n"; $command "${args[@]}" 2>&1 ) \
+        | nc -l -p $port 1>/dev/null 2>&1
+else
+    (echo -e "HTTP/1.1 200 OK\n\n"; $command "${args[@]}") \
+        | nc -l -p $port 1>/dev/null 2>&1
+fi
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+browse - put command line output to a browser
+
+=head1 SYNOPSIS
+
+ browser [-j|--join] command [arg [arg..]]
+ browser --help
+
+=head1 DESCRIPTION
+
+Takes the output of the command, starts up a 'netcat' and feeds the output to
+it. This serves as a very, very "mini" HTML server. It hunts down an open port
+starting at 65355 and working down.
+
+If $BROWSER is defined and available, opens up $BROWSER with a url that will
+point at the netcat server. If not, prints the url that you can copy into a
+browser.
+
+=head1 ARGUMENTS
+
+All arguments except for the options below are run as the command and its
+arguments.
+
+There are two commands currently that have specific processing:
+
+=over 4
+
+=item perldoc
+
+'perldoc' is recognized and control characters that won't render nicely in the
+text box are stripped out.
+
+=item man
+
+'man' is recognized and control characters that won't render nicely in the
+text box are stripped out.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --join
+
+Route stderr to the text box also.
+
+=item -h|--help
+
+This text
+
+=back
+
+=cut
+
+__PODUSAGE__
