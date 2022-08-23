@@ -75,24 +75,28 @@ renderer_args+=(--text-info --title="$*")
 
 declare do_filt=cat
 declare -a cmd
-case $1 in
-    perldoc)
-        shift
-        cmd=('perldoc' "$@")
-        do_filt=uncolor
-        ;;
-    man)
-        cmd=("$@")
-        do_filt=uncolor
-        ;;
-    tail )
-        cmd=("$@")
-        renderer_args+=(--tail)
-        ;;
-    * )
-        cmd=("$@")
-        ;;
-esac
+if [[ -n $1 ]]; then
+    case $1 in
+        perldoc)
+            shift
+            cmd=('perldoc' "$@")
+            do_filt=uncolor
+            ;;
+        man)
+            cmd=("$@")
+            do_filt=uncolor
+            ;;
+        tail )
+            cmd=("$@")
+            renderer_args+=(--tail)
+            ;;
+        * )
+            cmd=("$@")
+            ;;
+    esac
+else
+    cmd=('cat' '-')
+fi
 
 renderer_args+=(--width="$o_width" --height="$o_height")
 
@@ -110,41 +114,18 @@ show - put command line output to a gui coompnent
 =head1 SYNOPSIS
 
  show [-w|-width] pixels] [-h|--height] pixels] \
-     [-j|--join] [-t|--tail] [--] some command here
+     [-j|--join] [-t|--tail] [--] command [args...]
+
+ command [args...] [ | command [args...] ]\
+     | show [-w|-width] pixels] [-h|--height] pixels] \
+          [-j|--join] [-t|--tail] [--]
  show --help
 
 =head1 DESCRIPTION
 
-Any command that prints to stdout can have its output routed to a gui text box.
-This is good for long outputs that you would either have to page or scroll in a
-terminal.
-
-=head1 ARGUMENTS
-
-All arguments except for the options below are run as the command and its
-arguments. stdout is piped to a text box whose scrollbar stays at the top of
-the box as input is added, by default.
-
-There are three commands currently that have specific processing:
-
-=over 4
-
-=item perldoc
-
-'perldoc' is recognized and control characters that won't render nicely in the
-text box are stripped out.
-
-=item man
-
-'man' is recognized and control characters that won't render nicely in the
-text box are stripped out.
-
-=item tail
-
-'tail' is recognized and the text box is set to --tail so that you are
-brought to the end of the output and kept there as if using 'tail -f'.
-
-=back
+Takes the output of the command or the last output of a pipelineand feeds it to
+gui text box.  This is good for long outputs that you would either have to page
+or scroll in a terminal.
 
 =head1 OPTIONS
 
@@ -179,6 +160,37 @@ output and kept there.
 This text. And yes, you can 'show -- show --help'. :-)
 
 =back
+
+=head1 ARGUMENTS
+
+All remaining arguments are run as the command to capture and its
+arguments. stdout is piped to a text box whose scrollbar stays at the top of
+the box as input is added, by default.
+
+There are three commands that currently have specific processing when used as
+arguments. However, if those commands are part of a pipe that feeds into
+'show', the specific processing is not executed; 'show' cannot know the
+commands in the upstream pipeline.
+
+=over 4
+
+=item perldoc
+
+'perldoc' is recognized and control characters that won't render nicely in the
+text box are stripped out.
+
+=item man
+
+'man' is recognized and control characters that won't render nicely in the
+text box are stripped out.
+
+=item tail
+
+'tail' is recognized and the text box is set to --tail so that you are
+brought to the end of the output and kept there as if using 'tail -f'.
+
+=back
+
 
 =cut
 

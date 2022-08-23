@@ -31,19 +31,27 @@ else
     cmd-echo $url
 fi
 
-declare command=$1;shift
 declare -a args
-case $command in
-    man ) args=('-P' 'cat');;
-    perldoc ) args=('-T');;
-esac
-args+=("$@")
+declare command=$1
+if [[ -n $command ]]; then
+    # Assume args are command to run and it's args
+    shift
+    case $command in
+        man ) args=('-P' 'cat');;
+        perldoc ) args=('-T');;
+    esac
+    args+=("$@")
+else
+    # Assume we are on the end of a pipe, so we just cat stdin.
+    command='cat'
+    args=('-')
+fi
 
 if ((do_join)); then
     (echo -e "HTTP/1.1 200 OK\n\n"; $command "${args[@]}" 2>&1 ) \
         | nc -l -p $port 1>/dev/null 2>&1
 else
-    (echo -e "HTTP/1.1 200 OK\n\n"; $command "${args[@]}") \
+    (echo -e "HTTP/1.1 200 OK\n\n"; $command "${args[@]}" ) \
         | nc -l -p $port 1>/dev/null 2>&1
 fi
 
@@ -54,39 +62,22 @@ browse - put command line output to a browser
 
 =head1 SYNOPSIS
 
- browser [-j|--join] command [arg [arg..]]
- browser --help
+ to-browser [-j|--join] command [args...]
+ command [args...] [ | command [args...] ...] \
+     | to-browser
+ to-browser --help
 
 =head1 DESCRIPTION
 
-Takes the output of the command, starts up a 'netcat' and feeds the output to
-it. This serves as a very, very "mini" HTML server. It hunts down an open port
-starting at 65355 and working down.
+Takes the output of the command or the last output of a pipeline, starts up an
+instance of 'netcat' and feeds the output to the instance of netcat. This
+serves as a very, very "mini" HTML server. It starts looking for open ports for
+the 'netcat' command at 65355 and works its way down.
 
-If $BROWSER is defined and available, opens up $BROWSER with a url that will
-point at the netcat server. If not, prints the url that you can copy into a
-browser.
+Once started, if $BROWSER is defined and available, opens up $BROWSER with a
+url that will point at the netcat server. If not, prints the url that you can
+copy into a browser.
 
-=head1 ARGUMENTS
-
-All arguments except for the options below are run as the command and its
-arguments.
-
-There are two commands currently that have specific processing:
-
-=over 4
-
-=item perldoc
-
-'perldoc' is recognized and control characters that won't render nicely in the
-text box are stripped out.
-
-=item man
-
-'man' is recognized and control characters that won't render nicely in the
-text box are stripped out.
-
-=back
 
 =head1 OPTIONS
 
@@ -99,6 +90,30 @@ Route stderr to the text box also.
 =item -h|--help
 
 This text
+
+=back
+
+=head1 ARGUMENTS
+
+All remaining arguments run as the command to catpure and its
+arguments.
+
+There are two commands that currently have specific processing when used as
+arguments. However, if those commands are part of a pipe that feeds into
+'to-browser', the specific processing is not executed; 'to-browser' cannot know
+the commands in the upstream pipeline.
+
+=over 4
+
+=item perldoc
+
+'perldoc' is recognized and control characters that won't render nicely in the
+text box are stripped out.
+
+=item man
+
+'man' is recognized and control characters that won't render nicely in the
+text box are stripped out.
 
 =back
 
