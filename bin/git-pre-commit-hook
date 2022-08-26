@@ -393,13 +393,14 @@ for (@ARGV){
         skips[shellcheck]=$G_skip_by_missing
     fi
 
-    if [[ -z ${skips[python]} ]] \
-           && python -V 1>/dev/null 2>&1 \
-           && black -V 1>/dev/null 2>&1 \
-           && isort -V 1>/dev/null 2>&1; then
-        :
-    else
-        skips[python]=$G_skip_by_missing
+    if [[ -z ${skips[python]} ]]; then
+        if ! python -V 1>/dev/null 2>&1; then
+            skips[python]=$G_skip_by_missing
+        else
+            black --version 1>/dev/null 2>&1 || skips[black]=$G_skip_by_missing
+            isort --version 1>/dev/null 2>&1 || skips[isort]=$G_skip_by_missing
+            pylint --version 1>/dev/null 2>&1 || skips[pylint]=$G_skip_by_missing
+        fi
     fi
 
     ## Now group them.
@@ -587,17 +588,36 @@ for (@ARGV){
             if [[ -n ${skips[python]} ]]; then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping python checks, ${G_skip_messages[${skips[python]}]}."
             else
-                black --check "${pythonfiles[@]}" 1>"$G_tfile" 2>&1
-                declare pyrc=$?
-                check "$G_tfile" \
-                      "One of more files has failed python black checks. Please review. You can run 'black' on the failed files to fix them." \
-                      "$pyrc"
+                if [[ -n ${skips[black]} ]]; then
+                    ((opt_verbose)) && pre_commit_ok_echo "Skipping black checks, ${G_skip_messages[${skips[black]}]}."
+                else
+                    black --check "${pythonfiles[@]}" 1>"$G_tfile" 2>&1
+                    declare pyrc=$?
+                    check "$G_tfile" \
+                          "One of more files has failed python black checks. Please review. You can run 'black' on the failed files to fix them." \
+                          "$pyrc"
+                fi
 
-                isort --check "${pythonfiles[@]}" 1>"$G_tfile" 2>&1
-                pyrc=$?
-                check "$G_tfile" \
-                      "One of more files has failed python isort checks. Please review. You can run 'isort --overwrite-in-place' on the failed files to fix them." \
-                      "$pyrc"
+                if [[ -n ${skips[isort]} ]]; then
+                    ((opt_verbose)) && pre_commit_ok_echo "Skipping isort checks, ${G_skip_messages[${skips[isort]}]}."
+                else
+                    isort --check "${pythonfiles[@]}" 1>"$G_tfile" 2>&1
+                    pyrc=$?
+                    check "$G_tfile" \
+                          "One of more files has failed python isort checks. Please review. You can run 'isort --overwrite-in-place' on the failed files to fix them." \
+                          "$pyrc"
+                fi
+
+                if [[ -n ${skips[pylint]} ]]; then
+                    ((opt_verbose)) && pre_commit_ok_echo "Skipping pylint checks, ${G_skip_messages[${skips[pylint]}]}."
+                else
+                    isort "${pythonfiles[@]}" 1>"$G_tfile" 2>&1
+                    pyrc=$?
+                    check "$G_tfile" \
+                          "One of more files has failed python pylint checks. Please review." \
+                          "$pyrc"
+                fi
+
             fi
         fi
 
@@ -796,12 +816,17 @@ Skip one or more validations:
   shell (short for shellcheck)
   shebang (shells only)
 
-  python (black and isort format checks)
+  python (black, isort and pylint format checks)
+  black
+  isort
+  pylint
 
   all - use this to just skip the whole hook. If using a git commit command,
   you could just specify '--no-verify' to 'git commit' to skip the hook, but if
   the commit is called from within some other code, you'll need some other way
   to skip the hook; this is it.
+
+  Specify the option multiple times for multiple skips.
 
 =item --help
 

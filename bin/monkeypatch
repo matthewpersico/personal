@@ -11,12 +11,17 @@ mps=(["${TILDAE}/bash_profile.monkeypatch"]=VERBOSE_PROFILE
      ["${TILDAE}/bashrc.${USER}.monkeypatch"]=VERBOSE_RC
     )
 
+declare -A envvarseen
 _envvar_check ()
 {
-    if [[ ${!1} = true ]]; then
-        echo "${1} is set; unset ${1} yourself."
-    else
-        echo "envvar ${1} is not set"
+    if [[ -z ${envvarseen[$1]} ]]; then
+        if [[ ${!1} = true ]]; then
+            echo "${1} is set; unset ${1} yourself."
+            unset "$1"
+        else
+            echo "envvar ${1} is not set"
+        fi
+        envvarseen[$1]='seen'
     fi
 }
 
@@ -26,6 +31,7 @@ main()
     for mp in "${!mps[@]}"; do
         if [[ $1 == 'whack' ]]; then
             rm -rfv "$mp"
+            _envvar_check "${mps[$mp]}"
         elif [[ $1 == 'off' ]]; then
             if [[ -f $mp ]]; then
                 echo "chmod a-x $mp"
