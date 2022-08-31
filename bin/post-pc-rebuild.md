@@ -29,14 +29,13 @@ sudo add-apt-repository ppa:kelleyk/emacs
 sudo apt update
 sudo apt upgrade
 ```
-* Alow emails to be sent out, esp. from cron
+* SKIP - Allow emails to be sent out, esp. from cron
 ```
 sudo apt install ssmtp
 sudo vi /etc/ssmtp/ssmtpf.conf
 <i>
 root=matthew.persico@gmail.com
-mailhub=smtp.gmail.com:465
-hostname=<<hostname>>.localdomain
+mailhub=smtp.gmail.com:587
 FromLineOverride=YES
 AuthUser=matthew.persico@gmail.com
 AuthPass=$(cat /mnt/c/Users/matth/Documents/ssh/Gmail*.txt)
