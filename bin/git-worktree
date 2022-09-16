@@ -991,21 +991,26 @@ git-worktree-purge()
     for wt in "${wts[@]}"; do
         (
             cd "$wt" || exit 0;
-            cmd-echo ${celn} $LINENO --id git-worktree -- "$wt"
-            local ok_to_purge=1
-            if git repo pr-get --open; then
-                ok_to_purge=0
-            fi
-            if ! git repo is pristine -v; then
-                ok_to_purge=0
-            fi
-            if ((ok_to_purge)); then
-                local resp
-                resp=$(cmd-yesno --id git-worktree -dc "Worktree is pristine. Delete it" n)
-                [[ $resp == 'y' ]] && git wt del --current --yes
-            fi
             echo
+            cmd-echo ${celn} $LINENO --id git-worktree --title --color BLUE -- "$wt"
+            local ok_to_purge=1
+            local pr
+            pr=$(git repo pr-get --open)
+            local prstat=$?
+            cmd-echo ${celn} $LINENO --id git-worktree -- "Pull Request: $pr"
+            if [[ $prstat == '0' ]] || \
+                   ! git repo is pristine -v; then
+                ok_to_purge=0
+            fi
+            if ((ok_to_purge==1)); then
+                local resp
+                resp=$(cmd-yesno --id git-worktree -q -dc "Worktree is pristine. Delete it" n)
+                [[ $resp == 'y' ]] && git wt del --current --yes
+                [[ $resp == 'q' ]] && exit 37 # random, otherwise unlikely
+                                              # status, to break the for loop
+            fi
         )
+        (( $? == 37 )) && break;
     done
 }
 

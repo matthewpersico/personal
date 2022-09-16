@@ -3,7 +3,32 @@
 
 # cmd-pause
 
-declare prompt_text
-prompt_text="$(cmd-echo -i -n "$1")"
-shift
-pause "$prompt_text" "$@"
+[[ $1 =~ -h ]] && pause -h && exit 0
+declare -a cmd_echo_args=('-i' '-n')
+if [[ $1 =~ -id ]]; then
+    shift
+    cmd_echo_args+=('--id' "$1")
+    shift
+fi
+
+declare arg
+declare -a pause_args
+declare -a other_args
+while (($#)); do
+    arg=$1; shift
+    if [[ $arg =~ -(w|wc|e|ec|d|dc|-)$ ]]; then
+        cmd_echo_args+=("$arg")
+    elif [[ $arg =~ -(id|color) ]]; then
+        cmd_echo_args+=("$arg" "$1")
+        shift
+    else
+        other_args+=("$arg")
+    fi
+done
+
+## The first element of ${other_args[@]} should be the prompt. Move it to
+## ${cmd_echo_args[@]}.
+cmd_echo_args+=("${other_args[0]}")
+other_args=("${other_args[@]:1}")
+pause_text="$(cmd-echo "${cmd_echo_args[@]}")"
+pause "${pause_args[@]}" "$pause_text" "${other_args[@]}"

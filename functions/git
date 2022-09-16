@@ -83,7 +83,7 @@ git ()
     # And *we* will happily execute a function or script that matches a real
     # git command. Real git won't.
 
-    local status
+    local cmd_status
     local ex_ten_pan_d_command="git-${commands[0]}"
     local is_func
     local is_script
@@ -100,7 +100,7 @@ git ()
         # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
         export GIT_DISPATCHER=inprogress
         "${commands[@]}" "${args[@]}"
-        status=$?
+        cmd_status=$?
         unset GIT_DISPATCHER
     else
         if [[ ",${GIT_DISPATCHER_VERBOSE}," =~ ,${commands[0]},|,${alias},|all ]]; then
@@ -108,12 +108,12 @@ git ()
         fi
 
         "${REALGIT}" "${commands[0]}" "${args[@]}"
-        status=$?
+        cmd_status=$?
     fi
 
     # If the command succeeds and we have a valid directory changing command in
     # the temp file, change directory.
-    if ((status == $(true; echo $?))) \
+    if ((cmd_status == $(true; echo $?))) \
            && [[ -n "$doandcdfile" ]] \
            && (( $(wc -l < "$doandcdfile") > 0 )); then
         local -a cdcmd
@@ -125,10 +125,8 @@ git ()
                      } ; \
                }; then
             "${cdcmd[@]}"
-            status=$?
         else
             cmd-echo --id 'GIT WRAPPER' -ec -- "Cannot '${cdcmd[*]}' - only 'cd', 'ecd', 'go', 'git-go' and 'git go' are supported"
-            false; status=$?
         fi
     fi
 
@@ -139,7 +137,7 @@ git ()
     # cleanups take care of it.
     [[ -n $doandcdfile ]] && \rm -f "$doandcdfile"
 
-    return $status
+    return $cmd_status
 }
 autotrack git "$0"
 :<<'__PODUSAGE__'
