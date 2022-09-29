@@ -36,19 +36,28 @@ bash-history-index ()
         local my_index_file
         my_index_file=${index_file}.$(date +%s.%N).$$
 
-        bash-file-lock "$index_file" || return $?
+        perl -e '
+ use Data::Dumper;
+ use Fcntl qw(:flock);
+ use File::Copy;
 
-        perl -MData::Dumper \
-             -e 'do $ARGV[0] if (-r $ARGV[0]);
+ if (-r $ARGV[0]) {
+   open(FH,$ARGV[0]);
+   flock(FH,LOCK_EX);
+   do $ARGV[0];
+ }
+
  ($start=$ARGV[2])=~ s/#([0-9]+).*/$1/;
  ($end=$ARGV[3])=~ s/#([0-9]+).*/$1/;
  $index{$ARGV[1]}={start=>$start,end=>$end};
  $Data::Dumper::Sortkeys=1;
- print Data::Dumper->Dump([\%index],[qw(*index)])' \
-             "$index_file" "$i" "$start" "$end" > "$my_index_file"
-        \mv -f "$my_index_file" "$index_file"
+ open(MFH, $ARGV[4]);
+ print MFH Data::Dumper->Dump([\%index],[qw(*index)]);
+ close(MFH);
+ copy($ARGV[4], $ARGV[0]);
+ flock(FH,LOCK_UN);
+' "$index_file" "$i" "$start" "$end" "$my_index_file"
 
-        bash-file-lock --unlock "$index_file" || return $?
     done
 }
 autotrack bash-history-index "$0"
