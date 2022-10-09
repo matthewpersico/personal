@@ -1,15 +1,23 @@
 # WSL
 
 * Install a distro.
-* Install GWSL. If already installed and the distro is new, open GWSL up and make sure that GWSL Distro Tools > Display/Audio Auto-Exporting is set (check mark).
 * Start up a session.
-* Check GWSL integration:
+* Pin the icon to the taskbar.
+* Check WSLg integration:
 ```
-echo $DISPLAY
-```
+$ echo $DISPLAY
+:0
+$ ls -la /tmp/.X11-unix
+total 4
+drwxrwxrwx 2 root    root      60 Oct  8 17:15 .
+drwxrwxrwt 3 root    root    4096 Oct  8 17:15 ..
+srwxrwxrwx 1 matthew matthew    0 Oct  8 17:15 X0
+``` 
+If the two numbers match, you're good. If not, change the `DISPLAY` variable to match.
 * Open up sudo
 ```
 sudo vi sudoers.$USER
+<:syntax off>
 <i>
 <$USER> ALL=(ALL) NOPASSWD:ALL
 <esc:wq>
@@ -29,26 +37,50 @@ sudo add-apt-repository ppa:kelleyk/emacs
 sudo apt update
 sudo apt upgrade
 ```
-* SKIP - Allow emails to be sent out, esp. from cron
+* Add X support
+```
+sudo apt install x11-apps -y
+xterm & # to test
+```
+* Allow emails to be sent out, esp. from cron. Reference: https://www.nixtutor.com/linux/send-mail-with-gmail-and-ssmtp/
 ```
 sudo apt install ssmtp
-sudo vi /etc/ssmtp/ssmtpf.conf
+
+sudo vi /etc/ssmtp/ssmtp.conf
+<:syntax off>
 <i>
 root=matthew.persico@gmail.com
 mailhub=smtp.gmail.com:587
+hosdtname=MONOLITH
 FromLineOverride=YES
 AuthUser=matthew.persico@gmail.com
 AuthPass=$(cat /mnt/c/Users/matth/Documents/ssh/Gmail*.txt)
-UseTLS=YES
+UseSTARTTLS=YES
 <esc:wq>
+
+sudo vi /etc/ssmtp/revaliases
+<:syntax off>
+<i>
+root:root@MONOLITH:smtp.gmail.com:587
+matthew:matthew@MONOLITH:smtp.gmail.com:587
+<esc:wq>
+
+# Testing...
+ssmtp matthew.persico@verizon.net <<EOD
+Subject: This is a test
+Line 1
+Line 2
+Line 3
+EOD
 ```
 * Set up cron
 ```
-sudo vi /etc/sudoers
+sudo vi /etc/sudoers.d/cron
+<:syntax off>
 <i>
 %sudo ALL=NOPASSWD: /etc/init.d/cron start
 <esc:wq>
-crontab -e
+# Do the following for crontab -e and sudo crontab -e
 <i>
 MAILTO=matthew.persico@gmail.com
 <esc:wq>
