@@ -570,11 +570,19 @@ for (@ARGV){
                     for shellfile in "${shellfiles[@]}"; do
                         shebang_text=$(head -1 "$shellfile" | grep '^#!')
                         if [[ -n $shebang_text ]]; then
-                            echo "$shellfile has a shebang line ($shebang_text)" >> "$G_tfile"
+                            if grep '<<<git-commit' "$shellfile" | grep -q ALLOW_SHEBANG; then
+                                : # shebang was locally allowed.
+                            else
+                                echo "$shellfile has a shebang line ($shebang_text)" >> "$G_tfile"
+                            fi
                         fi
                         shellcheck_shell_text=$(head -2 "$shellfile" | tail  -1 | grep '^# shellcheck shell=')
                         if [[ -z $shellcheck_shell_text ]]; then
-                            echo "$shellfile is missing a 'shellcheck shell=' definition line" >> "$G_tfile"
+                            if grep '<<<git-commit' "$shellfile" | grep -q ALLOW_MISSING_SHELLCHECK_SHELL; then
+                                : # missing shellcheck shell directive was locally allowed.
+                            else
+                                echo "$shellfile is missing a 'shellcheck shell=' definition line" >> "$G_tfile"
+                            fi
                         fi
                     done
                     check "$G_tfile" \
