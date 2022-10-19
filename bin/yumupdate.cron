@@ -1,0 +1,33 @@
+## -*- sh -*-
+# shellcheck shell=bash
+
+alias same=diff # so that code "reads" correctly.
+
+## logs...
+declare logroot
+logroot=$(mktemp -t yumupdate.XXXXXXXXXX)
+declare yumlog="${logroot}.yum"
+declare yumbefore="${logroot}.yumbefore"
+declare yumafter="${logroot}.yumafter"
+declare yumdiff="${logroot}.yumdiff"
+
+(
+    echo "===== yum ====="
+    echo "** df before"
+    df -h /
+    yum list > "$yumbefore"
+
+    echo
+    echo "** update"
+    yum upgrade -y
+
+    echo
+    echo "** df after"
+    df -h /
+    yum list > "$yumafter"
+) 1>"$yumlog" 2>&1
+
+if ! same "$yumbefore" "$yumafter" > "$yumdiff"; then
+    cat "$yumlog"
+    cat "$yumdiff"
+fi

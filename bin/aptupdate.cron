@@ -1,0 +1,41 @@
+## -*- sh -*-
+# shellcheck shell=bash
+
+alias same=diff # so that code "reads" correctly.
+
+## logs...
+declare logroot
+logroot=$(mktemp -t aptupdate.XXXXXXXXXX)
+declare aptlog="${logroot}.apt"
+declare aptbefore="${logroot}.aptbefore"
+declare aptafter="${logroot}.aptafter"
+declare aptdiff="${logroot}.aptdiff"
+
+(
+    echo "===== apt ====="
+    echo "** df before"
+    df -h /
+    dpkg -l > "$aptbefore"
+
+    echo
+    echo "** update"
+    apt-get update -y --force-yes
+
+    echo
+    echo "** upgrade"
+    apt-get upgrade -y --force-yes
+
+    echo
+    echo "** cleanup"
+    apt-get autoremove -y --force-yes
+
+    echo
+    echo "** df after"
+    df -h /
+    dpkg -l > "$aptafter"
+) 1>"$aptlog" 2>&1
+
+if ! same "$aptbefore" "$aptafter" > "$aptdiff"; then
+    cat "$aptlog"
+    cat "$aptdiff"
+fi
