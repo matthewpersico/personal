@@ -1,0 +1,183 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# nc
+
+use mktemp
+use on_exit
+
+debug=0
+nedit_exe=$(type -P nedit)
+if [[ -z $nedit_exe ]] ; then
+    echo "No nedit executable found. Bye!"
+    false; exit
+fi
+neditclient_exe="${nedit_exe}-client"
+declare -a git_is_mod ## These are modified files in a git repo
+declare -a which      ## We used to use the 'which' utility to find these
+declare more_opts=1
+declare -a nedit_opts
+while ((more_opts)) && [[ "$1" =~ ^- ]]; do
+    original="$1"
+    option=$(dashstripper "$1")
+    shift ## That way you avoid endless loops on invalid options.
+
+    case $option in
+        debug | x ) set -x; debug=1 ;;
+        which )
+            declare tmp
+            tmp=$(type -P "$1")
+            shift
+            if [[ -z "$tmp" ]]; then
+                cmd-echo --id xo -wc -- "$1 not found; skipping"
+            else
+                which+=("$tmp")
+            fi
+            ;;
+       gim )
+            mapfile -t git_is_mod < <(git what is mod 2>/dev/null)
+            if [[ -z "${git_is_mod[0]}" ]]; then
+                if ! git root 2>/dev/null 1>&2; then
+                    cmd-echo --id xo -- "--gim not allowed; not in a git repo"
+                else
+                    cmd-echo --id xo -- "No modified git files found."
+                fi
+                false; exit
+            fi
+            ;;
+        help )
+            bash-usage "$0"; true; exit;;
+        -- )
+            more_opts=0
+            ;;
+        * )
+            cmd-echo --id xo -- "$original is an invalid option. See $0 --help"
+            false; exit;;
+    esac
+done
+
+## Temp file for processing and diagnostic messages.
+procs=$(mktempfile xo.$$)
+rm-on-exit "$procs"
+
+##
+## Main
+##
+
+OS=$(uname -s)
+case $OS in
+    Linux | \
+    GNU/Linux )
+        pscmd="ps -o pid,ppid,command -U ${USER}"
+        grepargs='nedit -server'
+        ;;
+    * )
+        cmd-echo --id xo "ps command for $OS not defined"
+        false; exit
+        ;;
+esac
+cutstart=$($pscmd | head -1 | sed 's/ PID.*/ PID/')
+cutstart=${#cutstart}
+((cutstart+=1))
+cutend=$($pscmd | head -1 | sed 's/PPID.*/PPID/')
+cutend=${#cutend}
+cutrange="${cutstart}-${cutend}"
+
+## Get potential nedit server processes.
+$pscmd | grep "$grepargs" | grep -v grep  >"$procs" 2>&1
+if ((debug)); then
+    cat "$procs"
+fi
+
+serverup=$(cut -c "$cutrange" "$procs" | wc -l)
+if ((debug)); then
+    echo "serverup = $serverup"
+fi
+
+declare -a allfiles
+allfiles=("$@" "${org[@]}" "${git_is_mod[@]}" "${which[@]}" "${ncrc[@]}")
+if ((serverup==0)); then
+    declare rootx=$XTERMGEO_X
+    declare rooty=$XTERMGEO_Y
+    $nedit_exe -server -g "+${rootx}+${rooty}" \
+               "${nedit_opts[@]}" "${allfiles[@]}" &
+elif ((serverup==1)); then
+    if ((${#allfiles[@]})); then
+        $neditclient_exe "${nedit_opts[@]}" "${allfiles[@]}" &
+    else
+        cmd-echo --id xo "Server already up. Specify a file to edit."
+        $pscmd | head -1
+        cat "$procs"
+    fi
+fi
+true; exit
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+nc - Start up nedit
+
+=head1 SYNOPSIS
+
+  nc [--debug] [--gim] [--which file[,file...]] \\
+     [-- any-nedit-opts] [file [file...]]
+
+  nc --help
+
+=head1 DESCRIPTION
+
+Starts nedit in server mode, subsequently using client mode. Lots of
+extra goodies added, mostly defined via the options. However, one extra thing
+we do when running under X is query the server for the root size and then we
+force start nedit in approximately the center of the root. That way we don't
+have to recenter on each startup and we don't have to deal with "start location
+droop".
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item file
+
+Files to edit. But see options below for other items to filter or substitute for a file list.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --debug
+
+'nc' is a shell script. Run with 'set -x' to see what's borken.
+
+=item --gim
+
+Stands for GIM or Git Is Modified. Find all the files that look like they have
+been modified (not committed) in the current directory (if it is a git repo)
+and edit those.
+
+=item --which
+
+Take fhe files specified as basenames and look for them on PATH.
+
+=item -- any-nedit-opts
+
+Notice, this is '-- any-nedit-opts' and not '--any-nedit-opts'.  The '--'
+signals that there are no more options for 'nc'. All subsequent '-' and '--'
+flags, if any, (represented by 'any-nedit-opts') are passed directly to
+nedit. See 'man nedit' for a full list. One of the more useful is:
+
+=over 4
+
+=item -line n
+
+Open the file at line n.
+
+=back
+
+=back
+
+=cut
+
+__PODUSAGE__
