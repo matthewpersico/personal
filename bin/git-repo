@@ -153,16 +153,16 @@ git-repo-delete ()
 
     if [[ -n "$dirmode" ]]; then
         ## We were given the directory containing the repo
-        \cd "$dirmode" || { cmd-echo --id git-repo "Cannot cd $dirmode"; false; return; }
+        builtin cd "$dirmode" || { cmd-echo --id git-repo "Cannot cd $dirmode"; false; return; }
         local root_or_err
         root_or_err="$(git root 2>&1)"
         local status=$?
         if ((status!=$(true; echo $?))); then
             cmd-echo --id git-repo -- "$root_or_err"
-            \cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
+            builtin cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
             return $status
         else
-            \cd "$root_or_err" || { cmd-echo --id git-repo "Cannot cd $root_or_err"; false; return; }
+            builtin cd "$root_or_err" || { cmd-echo --id git-repo "Cannot cd $root_or_err"; false; return; }
         fi
     elif ((!current)); then
         ## Then we were given a local repo URL; find it and go there
@@ -214,8 +214,8 @@ git-repo-delete ()
             false; return
         fi
 
-        \cd .. || { cmd-echo --id git-repo "Cannot cd .."; false; return; }
-        \rm -rf "$repo" || return ## If the rm fails, we should see error
+        builtin cd .. || { cmd-echo --id git-repo "Cannot cd .."; false; return; }
+        builtin rm -rf "$repo" || return ## If the rm fails, we should see error
         ## messages, no need to add more.
 
         cmd-echo --id git-repo "Done. Not touching remote repo. Resetting git list..."
@@ -235,9 +235,9 @@ git-repo-delete ()
 
     ## Go there.
     if [[ ! "$returnpath" = '/' ]]; then
-        \cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
+        builtin cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
     else
-        \cd ~ || { cmd-echo --id git-repo "Cannot cd ~"; false; return; }
+        builtin cd ~ || { cmd-echo --id git-repo "Cannot cd ~"; false; return; }
     fi
 
     ## Feed "there" back to the git function to make it stick.
@@ -427,10 +427,10 @@ git-repo-is ()
         verbose=1
         shift
     fi
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || return; }
+    [[ "$1" ]] && [[ $1 != . ]] && { builtin cd "$1" || return; }
     git rev-parse --show-toplevel 2>/dev/null 1>&2
     declare status=$?
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd -    || return; }
+    [[ "$1" ]] && [[ $1 != . ]] && { builtin cd -    || return; }
     (( verbose )) && ( (( status )) && echo false || echo true )
     return $status
 }
@@ -491,7 +491,7 @@ git-repo-is_fork ()
     fi
     (
         # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
-        \cd "${1:-.}" # so that the git remote works on the current dir as well
+        builtin cd "${1:-.}" # so that the git remote works on the current dir as well
         # as a specified repo dir
         local origin
         local fork_of=''
@@ -631,9 +631,9 @@ git-repo-name ()
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-org ()
 {
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || return; }
+    [[ "$1" ]] && [[ $1 != . ]] && { builtin cd "$1" || return; }
     name=$(git remote -v 2>/dev/null | grep origin |  sed -e 's/.*://' -e 's/\/.*//' | sort -u)
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd - || return; }
+    [[ "$1" ]] && [[ $1 != . ]] && { builtin cd - || return; }
     [[ -z "$name" ]] && { false; return; }
     echo "$name"
     true
@@ -994,7 +994,7 @@ git-repo-purge()
     local repo
     for repo in "${repos[@]}"; do
         (
-            \cd "$repo" || { true; exit; }
+            builtin cd "$repo" || { true; exit; }
             cmd-echo --id git-repo -- "$repo"
             local ok_to_purge=1
             # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012

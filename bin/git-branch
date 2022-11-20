@@ -74,7 +74,10 @@ git-branch-delete ()
     local shortopts='yf'
     local longopts='yes,no-remote,declare-only,no-go-set,force'
 
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || return
+    if ! OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@"); then
+        git-usage "$0"
+        false; return
+    fi
 
     eval set -- "$OPTSARGS"
     while true; do
@@ -314,7 +317,10 @@ git-branch-list ()
     local shortopts='rac'
     local longopts='strip,nostrip,remote,all,current,no-warn'
 
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || return
+    if ! OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@"); then
+        cmd-echo --id git-branch --ec -- "Exiting."
+        false; return
+    fi
 
     # Reset the command line ($@).
     eval set -- "$OPTSARGS"
@@ -498,7 +504,7 @@ print $F[0]')
     fi
 
     (
-        cd "$(git root)" || return
+        builtin cd "$(git root)" || return
 
         # Get info for all the branches that can be updated. Exclude the
         # source, include only specified branches if there were any specified.
@@ -594,7 +600,7 @@ print $F[0]')
 
 git-branch-sync-check ()
 {
-    cd "$(git root)" || return
+    buitin cd "$(git root)" || return
     git-branch-sync-catch-up || return
     # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
     declare grn=$(git repo name)
@@ -621,7 +627,7 @@ git-branch-sync-check ()
 
 git-branch-sync-catch-up ()
 {
-    cd "$(git root)" || return
+    builtin cd "$(git root)" || return
     # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
     declare grn=$(git repo name)
     cmd-echo --id git-branch --title --color REVBLUE -- "*** Catching up branch sync of repo ${grn}..."
