@@ -16,7 +16,7 @@ forceX=0
 emacs_exe=$(type -P emacs)
 if [[ -z $emacs_exe ]] ; then
     echo "No emacs executable found. Bye!"
-    exit 1
+    false; exit
 fi
 emacsclient_exe="${emacs_exe}client"
 declare -a git_is_mod ## These are modified files in a git repo
@@ -43,7 +43,7 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             else
                 $emacs_exe -g +${rootx}+${rooty} "$@" &
             fi
-            exit 0
+            true; exit
             ;;
         nobg )
             nobg=1
@@ -67,7 +67,7 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             emacsclient_exe="$1/emacsclient"
             declare i
             for i in $emacs_exe $emacsclient_exe; do
-                [[ -x "$i" ]] || (cmd-echo --id xo "Cannot find '$i'. --root cannot be used." && exit 1);
+                [[ -x "$i" ]] || (cmd-echo --id xo "Cannot find '$i'. --root cannot be used." && { false; exit; });
             done
             shift
             ;;
@@ -76,7 +76,7 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             emacsclient_exe="${1}client"
             declare i
             for i in $emacs_exe $emacsclient_exe; do
-                [[ -x "$i" ]] || (cmd-echo --id xo "Cannot find '$i'. --root cannot be used." && exit 1);
+                [[ -x "$i" ]] || (cmd-echo --id xo "Cannot find '$i'. --root cannot be used." && { false; exit; });
             done
             shift
             ;;
@@ -88,7 +88,7 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
                 else
                     cmd-echo --id xo -- "No modified git files found."
                 fi
-                exit 1
+                false; exit
             fi
             ;;
         nf )
@@ -101,12 +101,12 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             use_rc=0
             ;;
         help )
-            bash-usage "$0"; exit 0;;
+            bash-usage "$0"; { true; exit; } ;;
         -- )
             more_opts=0
             ;;
         * )
-            cmd-echo --id xo -- "$original is an invalid option. See $0 --help"; exit 1;;
+            cmd-echo --id xo -- "$original is an invalid option. See $0 --help"; { false; exit; } ;;
     esac
 done
 
@@ -135,7 +135,7 @@ case $OS in
         ;;
     * )
         cmd-echo --id xo "ps command for $OS not defined"
-        exit 1
+        false; exit
         ;;
 esac
 cutstart=$($pscmd | head -1 | sed 's/ PID.*/ PID/')
@@ -163,7 +163,7 @@ fi
 ## Get potential emacs server processes. The last grep is because emacsclient
 ## is called usually directly (no path, no processing by this script) when the
 ## $EDITOR command is used.
-$pscmd | grep "$grepargs" | grep -v grep | \
+$pscmd | grep "$grepargs" | grep -v ' grep '| \
     grep -vi "$emacs_exe -Q" | \
     grep -vi "$emacsclient_exe -c" | \
     grep -vi " emacsclient -c " | \
@@ -246,7 +246,7 @@ else
     cat "$procs"
 fi
 
-exit 0
+true; exit
 
 :<<'__PODUSAGE__'
 =head1 NAME
