@@ -60,13 +60,13 @@ git-repo-current-branch ()
 {
     local warn=1
     if [[ $1 == '--no-warn' ]]; then
-         warn=0
-         shift
+        warn=0
+        shift
     fi
 
     if [[ -n $1 ]]; then
         cmd-echo --id git-repo --ec -- "Cannot set current branch yet"
-        false;return $?
+        false; return
     else
         local cb
         cb=$($REALGIT branch --show-current)
@@ -75,7 +75,7 @@ git-repo-current-branch ()
             cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
             if [[ -z $cb ]]; then
                 ((warn)) && cmd-echo --id git-repo --ec -- "Cannot get current branch"
-                false;return $?
+                false; return
             fi
         fi
         echo "$cb"
@@ -114,7 +114,6 @@ git-repo-default-branch ()
         cmd-echo --id git-repo --ec -- "Cannot find default branch for ${PWD}"
         false
     fi
-    return $?
 }
 
 git-repo-show-default-branch ()
@@ -157,8 +156,8 @@ git-repo-delete ()
         \cd "$dirmode" || { cmd-echo --id git-repo "Cannot cd $dirmode"; false; return; }
         local root_or_err
         root_or_err="$(git root 2>&1)"
-        local status=$?; true
-        if ((status!=$?)); then
+        local status=$?
+        if ((status!=$(true; echo $?))); then
             cmd-echo --id git-repo -- "$root_or_err"
             \cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
             return $status
@@ -177,16 +176,14 @@ git-repo-delete ()
         githost_url=$(git kv --get "svcs.$githost")
         if [[ -z "$githost_url" ]]; then
             cmd-echo --id git-repo -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section serverid)"
-            return 1
+            false; return
         fi
 
-        added
         ## Go to what we want to whack, to make sure it's there.
-        git go "$githost/$namespace/$repo"
-        status=$?
-        ((status != 0)) && { false; return; } ## If the git go fails, we should
-                                              ## see error messages, no need to
-                                              ## do anything else.
+        git go "$githost/$namespace/$repo" || return ## If the git go fails, we
+        ## should see error
+        ## messages, no need to do
+        ## anything else.
     else # we were told to delete the directory/repo we are currently in
         if [[ -z $GIT_DISPATCHER ]]; then
             git-dispatch-warning "git-repo delete --current"
@@ -218,11 +215,8 @@ git-repo-delete ()
         fi
 
         \cd .. || { cmd-echo --id git-repo "Cannot cd .."; false; return; }
-        \rm -rf "$repo"
-        status=$?
-        ((status != 0)) && { false; return; } ## If the rm fails, we should see
-                                              ## error messages, no need to add
-                                              ## more.
+        \rm -rf "$repo" || return ## If the rm fails, we should see error
+        ## messages, no need to add more.
 
         cmd-echo --id git-repo "Done. Not touching remote repo. Resetting git list..."
         ## Remove the just-deleted repo from the list of local git repos.
@@ -338,7 +332,7 @@ git-repo-diff ()
     local -A rightfiles
     for which in left right; do
         perl -e 'chdir $ARGV[0];
-             print qx(git ls-files)' "${repo[$which]}" > "${list[$which]}"
+                          print qx(git ls-files)' "${repo[$which]}" > "${list[$which]}"
         if [[ -n "$exclude" ]]; then
             grep -v "$exclude" "${list[$which]}" > "${list[$which]}.filt"
             mv "${list[$which]}.filt" "${list[$which]}"
@@ -418,7 +412,7 @@ git-repo-diff ()
             false; return
         else
             $EDITOR "${editable[@]}"
-            return $?
+            return
         fi
     fi
 
@@ -433,10 +427,10 @@ git-repo-is ()
         verbose=1
         shift
     fi
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || { false; return; } }
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || return; }
     git rev-parse --show-toplevel 2>/dev/null 1>&2
     declare status=$?
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd -    || { false; return; } }
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd -    || return; }
     (( verbose )) && ( (( status )) && echo false || echo true )
     return $status
 }
@@ -464,9 +458,9 @@ git-repo-is_pristine ()
         if ! git worktree ina && (( $(git worktree list | wc -l) != 1 )); then
             echo Found worktrees:
             git worktree list | tail -n +2 # Do not print the root repo for the
-                                           # worktrees, which is always the
-                                           # first entry of the wt list
-                                           # command.
+            # worktrees, which is always the
+            # first entry of the wt list
+            # command.
         fi
     fi
     false
@@ -498,7 +492,7 @@ git-repo-is_fork ()
     (
         # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
         \cd "${1:-.}" # so that the git remote works on the current dir as well
-                     # as a specified repo dir
+        # as a specified repo dir
         local origin
         local fork_of=''
         origin=$(git remote get-url origin)
@@ -506,11 +500,11 @@ git-repo-is_fork ()
             local server=${origin%%:*}
             local repo_path=${origin##*:}
             fork_of=$(perl -e'
-   use JSON::PP::Boolean;
-our $VAR1;
-eval "@ARGV";
-$VAR1->{parent} && print $VAR1->{parent}{full_name};
-' "$( github-api --silent --server "$server" --perl-data url repos/"$repo_path")")
+                              use JSON::PP::Boolean;
+                                  our $VAR1;
+                                      eval "@ARGV";
+                                           $VAR1->{parent} && print $VAR1->{parent}{full_name};
+                                                           ' "$( github-api --silent --server "$server" --perl-data url repos/"$repo_path")")
         fi
         ((print)) && [[ -n "$fork_of" ]] && echo "$fork_of"
         [[ -n "$fork_of" ]] ## return value
@@ -632,15 +626,14 @@ git-repo-name ()
     else
         false
     fi
-    return
 }
 
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-org ()
 {
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || { false; return; } }
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || return; }
     name=$(git remote -v 2>/dev/null | grep origin |  sed -e 's/.*://' -e 's/\/.*//' | sort -u)
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd - || { false; return; } }
+    [[ "$1" ]] && [[ $1 != . ]] && { \cd - || return; }
     [[ -z "$name" ]] && { false; return; }
     echo "$name"
     true
@@ -698,7 +691,7 @@ git-repo-pr-get ()
             remote )
                 remotes=("$1"); shift;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
-                         ## remaining $*, if any, are args
+            ## remaining $*, if any, are args
             *)
                 cmd-echo --id git-repo -ec -- "$option is an invalid option. See $0 --help"
                 false; return
@@ -746,7 +739,7 @@ git-repo-pr-get ()
 
     if ((opt_refresh==0)); then
         _git-repo-pr-retrieve pr_cache_url pr_cache_state pr_cache_date pr_cache_as_of pr_cache_version
-    # else we don't get any data, which causes cached to be set to no
+        # else we don't get any data, which causes cached to be set to no
     fi
 
     local cached
@@ -1016,7 +1009,7 @@ git-repo-purge()
             fi
             git-repo-pr-get --open \
                 && ok_to_purge=0 ## func returns success if it finds a open PR,
-                                 ## in which case we can't purge it.
+            ## in which case we can't purge it.
             ! git-repo-is_pristine -v && ok_to_purge=0
             if ((ok_to_purge)); then
                 resp=$(cmd-yesno --id git-repo -dc "Repo is pristine. Delete it" n)
@@ -1058,7 +1051,7 @@ git-repo-restore ()
 
 git-repo-tags ()
 {
-     git tag --list --sort=v:refname
+    git tag --list --sort=v:refname
 }
 
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
@@ -1088,7 +1081,7 @@ git-repo-named-branches ()
 
     if [[ -z $1 ]]; then
         git-repo-using-named-branches "$verbose"
-        return $?
+        return
     fi
 
     if [[ ! $1 =~ ^(true|false)$ ]]; then
@@ -1142,11 +1135,10 @@ main()
         case $action in
             * )
                 cmd-echo --id git-repo --ec --id git-repo -- "unknown git repo action '$action'"
-                return 1
+                false; return
                 ;;
         esac
     fi
-    return $?
 }
 
 main "$@"

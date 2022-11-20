@@ -66,9 +66,9 @@ kvstore_usage () {
 _kvstore_ns_check () {
   if [[ "$1" =~ \.lock$ ]]; then
     echo "namespace cannot end in .lock, reserved for lock githost"
-    return 1
+    false; return
   else
-    return 0
+    true; return
   fi
 }
 
@@ -86,6 +86,7 @@ _kvstore_path () {
 _kvstore_lock_then () {
   local lockfile="$1"
   local cmd="$2"
+  local status
   shift
   shift
   if type flock &>/dev/null; then
@@ -108,7 +109,7 @@ _kvstore_lock_then () {
         sleep 5
         if ! mkdir "$lockfile"; then
             echo "kvstore: Cannot grab lock (mkdir $lockfile)"
-            return 1
+            false; return
         fi
     fi
     "$cmd" "$@"
@@ -229,12 +230,12 @@ kvstore_lsfiles () {
 _kvstore_get_either () {
   local cutarg=$1; shift
   local ns="$1"
-  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && return 1
+  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && { false; return; }
   local path
   path=$(_kvstore_path "$ns")
   if [[ ! -f "$path" ]]; then
     echo "Error: path not found: $path" >&2
-    return 2
+    false; return
   fi
   cut "$cutarg" < "$path"
 }
@@ -249,35 +250,35 @@ kvstore_vals () {
 
 kvstore_get () {
   local ns="$1"
-  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && return 1
+  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && { false; return; }
   local key="$2"
-  [[ -z "$key" ]] && echo "Missing param: key" >&2 && return 1
+  [[ -z "$key" ]] && echo "Missing param: key" >&2 && { false; return; }
   local file
   file=$(_kvstore_path "$ns")
   if [[ ! -f "$file" ]]; then
     echo "Error: namespace file not found: $ns" >&2
-    return 2
+    false; return
   fi
   found=0
   _kvstore_each_file_kv "$file" _kvstore_echo_v_if_k_match "$key"
   if (( found == 0 )); then
     echo "Error: key not found in namespace $ns: $key" >&2
-    return 1
+    false; return
   fi
 }
 
 kvstore_set () {
   local ns="$1"
-  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && return 1
+  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && { false; return; }
   local key="$2"
-  [[ -z "$key" ]] && echo "Missing param: key" >&2 && return 1
+  [[ -z "$key" ]] && echo "Missing param: key" >&2 && { false; return; }
   local val="$3"
-  [[ -z "$val" ]] && echo "Missing param: value" >&2 && return 1
+  [[ -z "$val" ]] && echo "Missing param: value" >&2 && { false; return; }
   local path
   path=$(_kvstore_path "$ns")
   touch "$path"
   _kvstore_lock_then "${path}.lock" _kvstore_nonatomic_set "$path" "$key" "$val"
-  return $?
+  return
 }
 
 kvstore_mv () {
@@ -307,21 +308,21 @@ kvstore_mv () {
   done
 
   local ns="$1"
-  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2  && return 1
+  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && { false; return; }
   local key_from="$2"
-  [[ -z "$key_from" ]] && echo "Missing param: key_from" >&2  && return 1
+  [[ -z "$key_from" ]] && echo "Missing param: key_from" >&2 && { false; return; }
   local key_to="$3"
-  [[ -z "$key_to" ]] && echo "Missing param: key_to" >&2 && return 1
+  [[ -z "$key_to" ]] && echo "Missing param: key_to" >&2 && { false; return; }
 
   local val
   val=$(kvstore_get "$ns" "$key_from")
   if ! kvstore_get "$ns" "$key_from" >/dev/null; then
-    return 2
+    false; return
   fi
   if kvstore_get "$ns" "$key_to" &>/dev/null; then
     if ((!force)); then
       echo "Error: destination key already exists: $key_to" >&2
-      return 3
+      false; return
     fi
   else
     ## If the key isn't there, unset force if it was set, so we can skip the
@@ -336,11 +337,11 @@ kvstore_mv () {
 
 kvstore_rm () {
   local ns="$1"
-  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2  && return 1
+  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && { false; return; }
   local key="$2"
-  [[ -z "$key" ]] && echo "Missing param: key to remove" >&2  && return 1
+  [[ -z "$key" ]] && echo "Missing param: key to remove" >&2 && { false; return; }
   if ! kvstore_get "$ns" "$key" >/dev/null; then
-    return 2
+    false; return
   fi
   local path
   path=$(_kvstore_path "$ns")
@@ -391,12 +392,12 @@ complete -F _${ns}_kvstore_complete $cmd"
 
 kvstore_drop () {
   local ns="$1"
-  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && return 1
+  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && { false; return; }
   path=$(_kvstore_path "$ns")
   command rm "${path}" ## 'command' avoids any aliases or shell functions
                        ## defined by the user.
   local status=$?
-  if((status==0)); then
+  if((status==$(true; echo $?))); then
     \rm -rf "${path}.lock"
   fi
   return $status
@@ -431,7 +432,7 @@ kvstore_dump () {
   done
 
   local ns="$1"
-  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && return 1
+  [[ -z "$ns" ]] && echo "Missing param: namespace" >&2 && { false; return; }
   ((verbose)) && echo "$(basename "$ns"):"
   path=$(_kvstore_path "$ns")
   if ((raw)); then
@@ -440,7 +441,7 @@ kvstore_dump () {
       sed -e 's/^/"/' -e's/\t/"=>"/' -e 's/$/"/' "${path}"
   fi
 
-  return $?
+  return
 }
 
 kvstore_grep () {
@@ -454,19 +455,19 @@ kvstore () {
   if [[ -z "$cmd" ]]; then
     echo "Error: Command not specified" >&2
     echo "kvstore -h to see usage" >&2
-    return 1
+    false; return
   fi
   shift
 
   case "$cmd" in
     -h|--help)
       kvstore_usage
-      return 0
+      true; return
       ;;
     -v|--version)
       echo 3.0.2
       ## Make sure to keep in sync with the version in the usage statement above.
-      return 0
+      true; return
       ;;
     load)
       if [[ "$(basename -- "$0")" =~ kvstore ]]; then
@@ -477,67 +478,67 @@ kvstore () {
         echo
         echo "         . $0 load"
         echo
-        return 1
+        false; return
       else
-        return 0             ## Do nothing if sourcing into environment.
+        true; return             ## Do nothing if sourcing into environment.
       fi
       ;;
     ls | list)
       kvstore_ls "$@"
-      return $?
+      return
       ;;
     lsinfo)
       kvstore_lsinfo "$@"
-      return $?
+      return
       ;;
     lsfiles)
       kvstore_lsfiles "$@"
-      return $?
+      return
       ;;
     keys)
       kvstore_keys "$@"      ## namespace
-      return $?
+      return
       ;;
     vals)
       kvstore_vals "$@"      ## namespace
-      return $?
+      return
       ;;
     get)
       kvstore_get "$@"       ## namespace key
-      return $?
+      return
       ;;
     set)
       kvstore_set "$@"       ## namespace key value
-      return $?
+      return
       ;;
     rm)
       kvstore_rm "$@"        ## namespace key
-      return $?
+      return
       ;;
     mv)
       kvstore_mv "$@"        ## [-f] namespace from_key to_key
-      return $?
+      return
       ;;
     shellinit)
       kvstore_shellinit "$@" ## namespace
-      return 0
+      true; return
       ;;
     drop)
       kvstore_drop "$@"      ## namespace
-      return $?
+      return
       ;;
     dump)
       kvstore_dump "$@"      ## [-v] [-r] namespace
-      return $?
+      return
       ;;
     grep)
       kvstore_grep "$@"      ## grep args
-      return $?
+      return
       ;;
     *)
       echo "Error: Unrecognized command: $cmd" >&2
       echo "kvstore -h to see usage" >&2
-      return 1
+      false; return
       ;;
   esac
 }

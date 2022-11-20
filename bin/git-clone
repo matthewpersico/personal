@@ -13,7 +13,7 @@ cmd_echo_id='git-clone'
 
 _git_clone_record_created_date ()
 {
-    git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.created "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+    git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.created "$(date "$GIT_EXT_META_DATE_FMT")" || return
 }
 
 _git_clone_record_named_branches ()
@@ -31,7 +31,7 @@ _git-clone-set-triangle()
         githost_url=$(git kv --get "svcs.$githostkeycheck")
         if [[ -z "$githost_url" ]]; then
             echo "No url found for githost '$1'";
-            return 1
+            false; return
         fi
     fi
     local upstream_namespace=$1;shift
@@ -53,7 +53,7 @@ _git-clone-set-triangle()
 
     local key
     for key in "${!triangle_workflow[@]}"; do
-        git config --replace-all "$key" "${triangle_workflow[$key]}" || return $?
+        git config --replace-all "$key" "${triangle_workflow[$key]}" || return
     done
 
     ##
@@ -61,19 +61,18 @@ _git-clone-set-triangle()
     ##
     key='remote.origin.fetch'
 
-    git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || return $?
-    git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || return $?
+    git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || return
+    git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || return
     ## ^ allows git checkout -b 3 pull/origin/3
 
     key='remote.upstream.fetch'
-    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" || return $?
-    git config --add         $key "+refs/pull/*/head:refs/pull/upstream/*" || return $?
-    git config --add         $key "+refs/notes/*:refs/notes/*" || return $?
+    git config --replace-all $key "+refs/heads/*:refs/remotes/upstream/*" || return
+    git config --add         $key "+refs/pull/*/head:refs/pull/upstream/*" || return
+    git config --add         $key "+refs/notes/*:refs/notes/*" || return
     ## ^ allows git checkout -b 3 pull/upstream/3
 
     ## Our own metadata
-    git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.triangle-remote "${upstream_namespace}" || return $?
-    return 0
+    git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.triangle-remote "${upstream_namespace}" || return
 }
 
 main ()
@@ -147,7 +146,7 @@ main ()
                 if [[ "$tmp_otn" =~ ^- ]]; then
                     ## we got the next option, not an arg to this one
                     cmd-echo -id "$cmd_echo_id" --ec -- "Fork org ($tmp_otn) cannot start with a '-'."
-                    return 1
+                    false; return
                 fi
                 opt_triangle_namespace=${tmp_otn%/*}
                 if [[ ! "$tmp_otn" = "$opt_triangle_namespace" ]]; then
@@ -168,14 +167,14 @@ main ()
                 if [[ "$opt_worktree_name" =~ ^- ]]; then
                     ## we got the next option, not an arg to this one
                     cmd-echo -id "$cmd_echo_id" --ec -- "Worktree name ($opt_worktree_name) cannot start with a '-'."
-                    return 1
+                    false; return
                 fi
                 if [[ "$option" =~ f ]]; then
                     opt_worktree_fetch='--fetch'
                 fi
                 ;;
             --help | -h )
-                git-usage "$0"; return 0 ;;
+                git-usage "$0"; true; return ;;
             --debug | -x )
                 dispatch_to_real_git=0; set -x; do-on-exit set +x;;
             * )
@@ -192,7 +191,7 @@ main ()
         ## There are no options specified that make us think we want to run our
         ## clone code; go run system git clone.
         "$REALGIT" clone "${pass_on[@]}"
-        return $?
+        return
     fi
 
     ## WARNING: At this point, 'pass_on' should contain only the repo to clone
@@ -205,13 +204,13 @@ main ()
         opt_make_triangle=0
     fi
 
-    [[ -z "${pass_on[0]}" ]] && git-usage "$0" "Missing arguments" && return 1
+    [[ -z "${pass_on[0]}" ]] && git-usage "$0" "Missing arguments" && { false; return; }
     if [[ -z "${githost}" ]]; then
         local -a tmpa
         asplit "${pass_on[0]}" -s : -a tmpa
         if [[ "${tmpa[0]}" = "${pass_on[0]}" ]]; then
             cmd-echo -id "$cmd_echo_id" --ec -- "githost not specified and no 'githost:' found in '${pass_on[0]}'"
-            return 1
+            false; return
         fi
         githost="${tmpa[0]}"
         namespace="${tmpa[1]}"
@@ -226,7 +225,7 @@ main ()
     githost_url="$(git kv --get "svcs.${githost}")"
     if [[ -z "$githost_url" ]]; then
         cmd-echo -id "$cmd_echo_id" --ec -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section svcs)"
-        return 1
+        false; return
     fi
     if [[ "$namespace" == */* ]]; then
         local -a tmpa
@@ -239,7 +238,7 @@ main ()
 
     if [[ -z $namespace ]] || [[ -z $repo ]]; then
         cmd-echo -id "$cmd_echo_id" --ec -- "Missing one or both of namespace and repo args."
-        return 1
+        false; return
     fi
 
     local tgtdir
@@ -263,7 +262,7 @@ main ()
         shouldbein="$(git config --get --expand ext.git-repo-root.root)/$githost"
         if [[ ! -d "$shouldbein" ]]; then
             cmd-echo -ec -- "Cannot find '$shouldbein'." "Correct and re-execute."
-            return 1
+            false; return
         else
             cmd-echo -- "Going to $shouldbein"
             builtin cd "$shouldbein" || exit
@@ -280,8 +279,8 @@ main ()
         cmd-echo -- "github-api --server $githost --data-mode --wait fork $opt_triangle_namespace $repo..."
         forked_repo=$(github-api --server "$githost" --data-mode --wait fork "$opt_triangle_namespace" "$repo")
         local dq="$?"
-        if [[ $dq != '0' ]]; then
-            return $?
+        if [[ $dq != $(true; echo $?) ]]; then
+            return $dq
         fi
         if [[ $forked_repo != "$repo" ]]; then
             if ((tgt_override==0)); then
@@ -311,7 +310,7 @@ main ()
             else
                 echo
             fi
-            return 0
+            true; return
         else
             rm -rf "$tgt"
         fi
@@ -320,7 +319,7 @@ main ()
     ## Do the clone
     cmd-echo -- "$REALGIT clone ${pass_on[*]} ${githost_url}$namespace/${forked_repo:-$repo} $tgt ..."
     if ! $REALGIT clone "${pass_on[@]}" "${githost_url}$namespace/${forked_repo:-$repo}" "$tgt"; then
-        return $?
+        return
     fi
 
     ## Our own metadata
@@ -336,7 +335,7 @@ main ()
             if builtin cd "$tgt"; then
                 git-retimestamp
             else
-                cmd-echo -id "$cmd_echo_id" --ec -- "Cannot cd $tgt" && return 1
+                cmd-echo -id "$cmd_echo_id" --ec -- "Cannot cd $tgt" && { false; return; }
             fi
         )
         cmd-echo -- 'Done'
@@ -358,17 +357,17 @@ main ()
     dirlist "$tgt"
     if [[ -n "$opt_triangle_namespace" ]]; then
         cmd-echo -- "Setting up triangle workflow with ${githost_url}${opt_triangle_namespace}/${repo}..."
-        _git-clone-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo" "${forked_repo:-$repo}"|| return $?
+        _git-clone-set-triangle "${githost_url}" "$opt_triangle_namespace" "$namespace" "$repo" "${forked_repo:-$repo}" || return
         if ! git pull ; then
             cmd-echo --ec -- 'If the error refers to a missing ref whose name contains "master",' \
                      "then your fork's default branch is not the same as the upstream." \
                      "Fix or delete the fork and retry."
-            return $? # To refresh from the upstream
+            false; return # To refresh from the upstream
         fi
     else
         local key='remote.origin.fetch'
-        git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || return $?
-        git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || return $?
+        git config --replace-all $key "+refs/heads/*:refs/remotes/origin/*" || return
+        git config --add         $key "+refs/pull/*/head:refs/pull/origin/*" || return
         ## ^ allows git checkout -b 3 pull/origin/3
     fi
     git remote -v

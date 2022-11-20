@@ -54,13 +54,13 @@ dirlist ()
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
         case "$option" in
-            h|help) bash-usage dirlist; return 0 ;;
+            h|help) bash-usage dirlist; true; return ;;
             up) negs+=("-$1"); shift;;
             nosavetarget) target='--nopwd' ;;
             nosavecurrent) current='--nopwd' ;;
             clear|init)
                 DIRLIST=''
-                return 0;;
+                true; return ;;
             list|show) do_list=1 ;;
             menu|m) do_menu=1 ;;
             prune)
@@ -77,12 +77,12 @@ dirlist ()
                 done
                 DIRLIST="$newlist"
                 _dirlist_set
-                return 0;;
+                true; return ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
                 cmd-echo --id dirlist -ec -- "$option is an invalid option. See $0 --help"
-                return 1
+                false; return
                 ;;
         esac
     done
@@ -133,7 +133,7 @@ dirlist ()
                 ## we're not going to bother trying to figure out if this
                 ## version does or not.
                 # shellcheck disable=SC2046 # We want separation
-                builtin cd $(pwd | sed "s|$1|$2|") || return 1
+                builtin cd $(pwd | sed "s|$1|$2|") || return
             fi
         else
             local tgt
@@ -145,7 +145,7 @@ dirlist ()
             ## Simplest case - the arg is a directory we can reach or prior
             ## directory syntax.
             if [[ -d "$tgt" ]] || [[ "$tgt" = '-' ]]; then
-                builtin cd "$tgt" || return 1
+                builtin cd "$tgt" || return
             else
                 if is-int "$tgt"; then
 	                if is-neg "$tgt"; then
@@ -161,7 +161,7 @@ dirlist ()
 		                    tgtdir="$(dirname "$tgtdir")"
 		                    (( i=i+1 ))
 		                done
-		                builtin cd "$tgtdir" || return 1
+		                builtin cd "$tgtdir" || return
                     else
                         ## --------------------
                         ## Positive integer arg
@@ -178,7 +178,7 @@ dirlist ()
                             d=$(echo "${dirlista[(tgt-1)]}" |
                                              sed "s|$DIRLIST_PWD_INDIC||" |
                                              sed "s|~|${TILDAE:-$HOME}|")
-                            builtin cd "$d" || return 1
+                            builtin cd "$d" || return
 	                    fi
 	                fi
                 else
@@ -195,7 +195,7 @@ dirlist ()
                             select d in "$FILTERED_DIRLIST"; do
                                 break
                             done < <(echo noop)
-                            return 0
+                            true; return
                         else
                             # shellcheck disable=SC2086 # we want to split $FILTERED_DIRLIST
                             _dirlist_select $FILTERED_DIRLIST

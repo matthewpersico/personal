@@ -129,7 +129,7 @@ git-branch-delete ()
         ## $branch was either $1 or we did not ctrl-c out of the select.
         if [[ "$branch" = "$current_branch" ]]; then
             cmd-echo --id git-branch --ec -- "Nope, you can't delete the current branch."
-            return 1
+            false; return
         fi
 
         local was_fetched
@@ -151,7 +151,7 @@ git-branch-delete ()
         cmd-echo --id git-branch -- "Branch deleted locally."
 
         if [[ "$no_remote" = '1' ]]; then
-            return 0
+            true; return
         fi
 
         remotes=$(git remote)
@@ -184,35 +184,33 @@ git-branch-delete ()
 
     ## Update with changed branches
     ((do_go_set)) && git-go-set
-    return $?
 }
 
 git-branch-rename ()
 {
     if (($#!=2)); then
         git-usage "$0" "Need current and new branch names"
-        return 1
+        false; return
     fi
 
     local old_branch=$1; shift
     local new_branch=$1; shift
     if (($#)); then
         git-usage "$0" "       argument(s) '$*' are illegal"
-        return 1
+        false; return
     fi
 
     # Rename branch locally.
     echo "git branch -m $old_branch $new_branch ..."
-    ${REALGIT} branch -m "$old_branch" "$new_branch"        || return $?
+    ${REALGIT} branch -m "$old_branch" "$new_branch"        || return
 
     # Delete the old branch. DON'T DO THIS IF YOU HAVE AN OPEN PULL REQUEST!!!
     echo "git push origin --delete $old_branch ..."
-    git push origin --delete "$old_branch"         || return $?
+    git push origin --delete "$old_branch"         || return
 
     # Push the new branch, set local branch to track the new remote.
     echo "git push --set-upstream origin $new_branch"
     git push --set-upstream origin "$new_branch"
-    return $?
 }
 
 git-branch-orphan()
@@ -220,7 +218,7 @@ git-branch-orphan()
     ##Create an empty branch, for tools you want to keep, but not publish
     local remote=origin
     local branch=$1; shift
-    git checkout --orphan "$branch" || return $?
+    git checkout --orphan "$branch" || return
     local -a files
     readarray -t files < <(git what is new)
     if [[ -n "${files[0]}" ]]; then
@@ -234,7 +232,6 @@ git-branch-orphan()
 
     git commit --allow-empty "${comment[@]}"
     git push --set-upstream "$remote" "$branch"
-    return 0
 }
 
 git-branch-track-remote ()
@@ -254,16 +251,16 @@ git-branch-track-remote ()
 
     if [[ -z "$remote" ]] || [[ -z "$branch" ]]; then
         git-usage "$0" "Missing one or both arguments (remote, branch)"
-        return 1
+        false; return
     fi
     [[ -z "$local_branch" ]] && local_branch=$branch
     local local_branch_exists
     local_branch_exists="$($REALGIT -branch --list "$local_branch")"
     if [[ -z "$local_branch_exists" ]]; then
         ## Does not exist, create...
-        git checkout -b "$local_branch" || return 1
+        git checkout -b "$local_branch" || return
         ## ...then push
-        git push -u "$remote" "$branch" || return 1
+        git push -u "$remote" "$branch" || return
         _git_branch_info_add_created_date "$local_branch"
     else
         local already_tracking_remote
@@ -276,10 +273,9 @@ git-branch-track-remote ()
             local already_tracking_branch
             already_tracking_branch=$(git config branch."$local_branch".merge | sed 's|refs/heads/||')
             echo "Branch $local_branch is already tracking $already_tracking_branch in $already_tracking_remote"
-            return 1
+            false; return
         fi
     fi
-    return $?
 }
 
 git-branch-remote-track()
@@ -345,7 +341,7 @@ git-branch-list ()
     done
     if ((do_current)); then
         git repo current-branch "${cbargs[@]}"
-        return $?
+        return
     fi
 
     if [[ -n "$remote" ]]; then
@@ -365,7 +361,6 @@ git-branch-list ()
     else
         "${REALGIT}" branch "${opts[@]}" "$@"
     fi
-    return $?
 }
 
 git-branch-comment ()
@@ -503,7 +498,7 @@ print $F[0]')
     fi
 
     (
-        cd "$(git root)" || return 1
+        cd "$(git root)" || return
 
         # Get info for all the branches that can be updated. Exclude the
         # source, include only specified branches if there were any specified.
@@ -542,7 +537,7 @@ print $F[0]')
         _git-branch-vv-sort
         if (( ${#commit_map[@]} == 1 )); then
             cmd-echo --id git-branch --title --color REVBLUE -- "All branches in sync. No action to take."
-            return 0
+            true; return
         fi
 
         declare resp
@@ -558,7 +553,7 @@ print $F[0]')
         echo
         resp=$(cmd-yesno --id git-branch "$prompt" "n")
         if [[ $resp == 'n' ]]; then
-            return 0
+            true; return
         fi
 
         git switch "${source}"
@@ -571,37 +566,36 @@ print $F[0]')
             cmd-echo --id git-branch --title --color REVBLUE -- "Syncing $target..."
 
             # Copy the new commits from 'source' onto 'target':
-            $REALGIT switch "${target}" || return 1
-            $REALGIT pull || return 1
+            $REALGIT switch "${target}" || return
+            $REALGIT pull || return
             declare target_commit
             target_commit=$(git rev-parse HEAD)
             if [[ $source_commit != "$target_commit" ]]; then
-                git merge --ff-only "${source}" || return 1
+                git merge --ff-only "${source}" || return
 
                 # Send 'em off to the remote
                 declare remote_ref="${brm[${target}]%%/*}"
                 declare remote_branch="${brm[${target}]##*/}"
-                git push "$remote_ref" "HEAD:${remote_branch}" || return 1
+                git push "$remote_ref" "HEAD:${remote_branch}" || return
             fi
         done
 
         # Return to the source branch since it very likely you will do the next
         # sync from the same branch.
         cmd-echo --id git-branch --title --color REVBLUE -- "Return to starting branch..."
-        git switch "${starting_branch}" || return 1
+        git switch "${starting_branch}" || return
 
         # Show results
         cmd-echo --id git-branch --title --color REVBLUE -- "Full branch list after sync..."
         _git-branch-vv-sort
 
     )
-    return $?
 }
 
 git-branch-sync-check ()
 {
-    cd "$(git root)" || return 1
-    git-branch-sync-catch-up || return 1
+    cd "$(git root)" || return
+    git-branch-sync-catch-up || return
     # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
     declare grn=$(git repo name)
 
@@ -617,30 +611,30 @@ git-branch-sync-check ()
         if [[ $commitid != "${tmp[1]}" ]]; then
             cmd-echo --id git-branch --wc -- "Inconsistent branches for $grn"
             git branch -vv
-            return 1
+            false; return
         fi
     done
     cmd-echo --id git-branch --color REVBLUE "Branches for $grn are consistent"
 
-    return 0
+    true; return
 }
 
 git-branch-sync-catch-up ()
 {
-    cd "$(git root)" || return 1
+    cd "$(git root)" || return
     # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
     declare grn=$(git repo name)
     cmd-echo --id git-branch --title --color REVBLUE -- "*** Catching up branch sync of repo ${grn}..."
 
     # Refresh the repo
     cmd-echo --id git-branch --color REVBLUE -- "Refresh repo..."
-    git fetch --all --prune --tags || return 1
+    git fetch --all --prune --tags || return
 
     declare br
     for br in $(git branch list --strip); do
         cmd-echo --id git-branch --color REVBLUE -- "Refreshing branch ${br}..."
-        git switch "$br" || return 1
-        git pull || return 1
+        git switch "$br" || return
+        git pull || return
     done
 }
 
@@ -650,20 +644,20 @@ main ()
     case $action in
         -h | --help)
             git-usage "$0"
-            return  0
+            true; return
             ;;
         --current)
             shift
             git-branch --list --current "$@"
-            return $?
+            return
             ;;
         --vv)
             _git-branch-vv-sort --color
-            true; return $?
+            true; return
             ;;
         --vvnc)
             _git-branch-vv-sort --nocolor
-            true; return $?
+            true; return
             ;;
     esac
 
@@ -681,7 +675,6 @@ main ()
         ## Dispatch to real git branch
         "${REALGIT}" branch "$@"
     fi
-    return $?
 }
 
 main "$@"

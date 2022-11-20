@@ -63,7 +63,7 @@ _git_worktree_info_remove ()
     ## There is no git-sanctioned worktree section. It's all us, so we have to
     ## manage it. The 'branch' stuff we add will be taken care of when the
     ## branch is deleted.
-    git config --remove-section "worktree.$1" || return $?
+    git config --remove-section "worktree.$1"
 }
 
 _git_worktree_info_add_created_date ()
@@ -72,13 +72,13 @@ _git_worktree_info_add_created_date ()
     cr="$(date "$GIT_EXT_META_DATE_FMT")"
     local key
     for key in 'worktree' 'branch'; do
-        git config --replace-all "$key.$1.${GIT_EXT_META_PREFIX}-created" "$cr" || return $?
+        git config --replace-all "$key.$1.${GIT_EXT_META_PREFIX}-created" "$cr" || return
     done
 }
 
 _git_worktree_info_add_fetched_date ()
 {
-    git config --replace-all "worktree.$1.${GIT_EXT_META_PREFIX}-fetched" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+    git config --replace-all "worktree.$1.${GIT_EXT_META_PREFIX}-fetched" "$(date "$GIT_EXT_META_DATE_FMT")"
 }
 
 git-worktree-set ()
@@ -143,7 +143,7 @@ git-worktree-ina ()
         if [[ -f "$git_meta" ]] && grep -q '/worktrees/' "$git_meta"; then
             ## Then the repo root has a .git file with a worktree statement in
             ## it. Therefore we are in a worktree.
-            status=0
+            true; status=$?
             if [[ "$1" = '-v' ]]; then
                 grep  '/worktrees/' "$git_meta" | sed 's|.*worktrees/||'
             fi
@@ -155,14 +155,12 @@ git-worktree-ina ()
 git-worktree-get-name ()
 {
     git-worktree-ina -v
-    return $?
 }
 git-worktree-get-source-branch ()
 {
     local current_branch
     current_branch=$(git repo current-branch)
     git config --get "worktree.${current_branch}.${GIT_EXT_META_PREFIX}-from-branch"
-    return $?
 }
 
 git-worktree-create ()
@@ -312,7 +310,7 @@ git-worktree-create ()
                 wtfullpath=${PWD}
                 cmd-echo ${celn} $LINENO --id git-worktree -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
             else
-                return $?
+                return
             fi
         else
             cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch $localbranchname already exists locally. Cannot create it."
@@ -399,7 +397,7 @@ git-worktree-create ()
                         triangle_workflow[branch.${branch_from}.mergeoptions]="--ff-only"
                         triangle_workflow[branch.${branch_from}.remote]="upstream"
                         for key in "${!triangle_workflow[@]}"; do
-                            git config --replace-all "$key" "${triangle_workflow[$key]}" || return $?
+                            git config --replace-all "$key" "${triangle_workflow[$key]}" || return
                         done
                         ;;
                     * ) cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch '$branch_from' found more than once in refs list:" "${all_refs[@]}" \
@@ -776,18 +774,17 @@ $(ls -la)"
     theregit=${metadatadir}/gitdir
 
     ## Change the metadata files
-    perl -pi -e "s/$old_wtname/$new_wtname/g" "$heregit" "$theregit" \
-        || { false; return; }
+    perl -pi -e "s/$old_wtname/$new_wtname/g" "$heregit" "$theregit" || return
 
     ## Move the metadata dir
     local newmetadatadir
     newmetadatadir="$(dirname "$metadatadir")/$new_wtname"
-    mv "$metadatadir" "$newmetadatadir" || { false; return; }
+    mv "$metadatadir" "$newmetadatadir" || return
 
     cmd-echo ${celn} $LINENO --id git-worktree -- "Moving the local files..."
     ## Move us
     builtin cd .. || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd .." ; false; return; }
-    mv "$old_wtpath" "$new_wtpath" || { false; return; }
+    mv "$old_wtpath" "$new_wtpath" || return
 
     ## Register the rename
     local -a paths
@@ -883,7 +880,6 @@ git-worktree-diff-to-root ()
 git-worktree-diff-from-root ()
 {
     git-worktree-diff-to-root --reverse "$@"
-    return $?
 }
 
 git-worktree-show-merged ()
@@ -970,8 +966,8 @@ $(ls -la)"
     local markdate
     markdate="$(date "$GIT_EXT_META_DATE_FMT")"
 
-    git config --replace-all "$worktreekey" "$markdate" || return $?
-    git config --replace-all "$branchkey" "$markdate" || return $?
+    git config --replace-all "$worktreekey" "$markdate" || return
+    git config --replace-all "$branchkey" "$markdate" || return
 
     cmd-echo ${celn} $LINENO --id git-worktree "Worktree $worktreename, branch $branchname marked merged at $markdate"
 }
@@ -1065,7 +1061,7 @@ main ()
                 ;;
         esac
     fi
-    return $?
+    return
 }
 
 main "$@"
