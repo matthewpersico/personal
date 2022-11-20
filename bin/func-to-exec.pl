@@ -4,9 +4,8 @@ use 5.16.3;
 use warnings;
 
 use File::Basename;
-use FindBin;
 
-use lib "$FindBin::Bin/../lib";
+use lib $ENV{PERSONALLIB};
 use Misc qw(UNIX_TRUE UNIX_FALSE);
 
 our $force;

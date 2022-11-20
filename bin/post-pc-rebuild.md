@@ -101,7 +101,7 @@ MAILTO=matthew.persico@gmail.com
 <esc:wq>
 ```
 * Copy shortcuts in C:\Users\matth\Documents\WSL Stuff to shell:startup (Windows+r shell:startup). If they already exist, then reboot windows to restart them.
-* Follow https://github.com/matthewpersico/personal/blob/main/README.md.
+* Follow https://github.com/matthewpersico/personal/blob/main/README.md .
 
 WIP:
 
