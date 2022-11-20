@@ -46,7 +46,7 @@ git-repo-check-with ()
                 status=$?
             else
                 cmd-echo --id git-repo --ec -- "Current repo is not a clone of a remote"
-                status=1
+                false; status=$?
             fi
         fi
     else
@@ -157,8 +157,8 @@ git-repo-delete ()
         \cd "$dirmode" || { cmd-echo --id git-repo "Cannot cd $dirmode"; false; return; }
         local root_or_err
         root_or_err="$(git root 2>&1)"
-        local status=$?
-        if ((status)); then
+        local status=$?; true
+        if ((status!=$?)); then
             cmd-echo --id git-repo -- "$root_or_err"
             \cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
             return $status
@@ -679,9 +679,7 @@ git-repo-pr-get ()
     local shortopts=''
     local longopts='open,closed,merged,silent,refresh,update,remote:'
 
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-    local status=$?
-    ((status != 0)) && return $status
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || return
 
     eval set -- "$OPTSARGS"
 
@@ -813,6 +811,9 @@ git-repo-pr-get ()
 ##            in this dataset, figure it out from the closed/merged times.
 ## $ARGV[1] - org
 ## $ARGV[2] - current branch name
+use FindBin;
+use lib "$FindBin::Bin/../lib";
+use Misc qw(UNIX_TRUE UNIX_FALSE);
 do $ARGV[0];
 for $pull (@{$VAR1}) {
     my %pullinfo;
@@ -836,10 +837,10 @@ for $pull (@{$VAR1}) {
                       $pullinfo{state},
                       $pullinfo{date},
                   ), qq(\n);
-        exit 0;
+        exit UNIX_TRUE;
     }
 }
-exit 0;' "$perldata" "$corg" "$cb")
+exit UNIX_TRUE;' "$perldata" "$corg" "$cb")
         if [[ -z ${pr_now[0]} ]]; then
             # Cache the no
             _git-repo-pr-store --noopenpr
@@ -1149,7 +1150,7 @@ main()
 }
 
 main "$@"
-exit $?
+exit
 echo "$noop" > /dev/null # in lieu of shellcheck 2034
 
 :<<'__PODUSAGE__'

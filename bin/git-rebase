@@ -24,7 +24,7 @@ _git_rebase_via_ilog ()
 
     if(($($REALGIT log "${rebase_sha}..HEAD" | grep -c -E '^commit') < 2)); then
         cmd-echo --id git-rebase -ec -- "Not enough commits to rebase on"
-        exit 1
+        false; exit
     fi
 
     cmd-echo --id git-rebase --head 'Rebase-able commits:'
@@ -37,17 +37,15 @@ _git_rebase_via_ilog ()
         ## check the log
         if(($($REALGIT log "${rebase_sha}..HEAD" | grep -c -E '^commit') < 2)); then
             cmd-echo --id git-rebase -ec -- "Not enough commits remaining to rebase on"
-            exit 1
+            false; exit
         fi
 
         resp=$(pick "Rebase on $rebase_sha" "y/n/q" 'n')
         if [[ "$resp" = 'q' ]]; then
-            exit 0
+            true; exit
         fi
         if [[ "$resp" = 'y' ]]; then
-            "$REALGIT" rebase -i "$rebase_sha"
-            local status=$?
-            ((status)) && exit "$status"
+            "$REALGIT" rebase -i "$rebase_sha" || exit
             cmd-echo --id git-rebase --head 'Log is now:'
             if(($($REALGIT log | grep -c -E '^commit') > 2)); then
                 # shellcheck disable=SC2086 #No need to quote $rebase_sha
@@ -57,7 +55,7 @@ _git_rebase_via_ilog ()
                 ## work; just show the whole log
                 $REALGIT log
             fi
-            exit $status
+            exit
         fi
 
         ## Get the next log
@@ -79,11 +77,11 @@ main ()
         case $arg in
             --ilog | --log )
                 _git_rebase_via_ilog "$@"
-                exit $?
+                exit
                 ;;
             --help | -h )
                 git-usage "$0"
-                exit 0
+                true; exit
                 ;;
             * )
                 ## Eventually, you call the real command with "${pass_on[@]}"
@@ -94,19 +92,10 @@ main ()
 
     ## If we get here, it's just a straight rebase
     "$REALGIT" rebase "${pass_on[@]}"
-    local status=$?
-    if ((status==129)); then
-        git-usage "$0"
-        exit $status
-    fi
 }
 
 main "$@"
-exit $?
-
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
-## 'POD' in __PODUSAGE__.
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME

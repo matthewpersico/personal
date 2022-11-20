@@ -45,7 +45,6 @@ rollforward ()
 
 declare action='read'
 declare opt_v='' ## passed to commit
-declare status=0
 declare parsed_cl_root
 declare parsed_cl_commit
 declare parsed_cl_retain
@@ -64,9 +63,7 @@ longopts="$longopts,nosclonly,gcsonly,nogcsonly,filesonly,skip-no-source-ctrl-lo
 longopts="$longopts,confirm,editor:,color:,nountracked,inter,interactive"
 
 # Process the command line.
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
-declare status=$?
-((status != 0)) && exit $status ## return $status ## in functions
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -191,10 +188,9 @@ done
 
 ## Find and validate the source-ctrl-log
 declare source_ctrl_logdir
-source_ctrl_logdir=$(git root)
-if ((status != 0)); then
+if ! source_ctrl_logdir=$(git root); then
     git-usage "$0"
-    exit $status
+    flase; exit
 fi
 
 declare source_ctrl_log="${source_ctrl_logdir}/$GITFUNCS_SOURCE_CTRL_LOG_NAME"
@@ -228,7 +224,7 @@ export PSCL_LEAD_CHAR='*' ## NOTE: If you change the lead character for items
 ##
 if [[ "$action" != 'commit' ]]; then
     perl $debug -S process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
-    exit $?
+    exit
 fi
 
 ##
@@ -238,9 +234,7 @@ fi
 ## Backup
 source_ctrl_logbkp="${source_ctrl_log}.bkp"
 if [[ -f "$source_ctrl_log" ]]; then
-    cp "$source_ctrl_log" "$source_ctrl_logbkp"
-    status=$?
-    if ((status != 0)); then
+    if ! cp "$source_ctrl_log" "$source_ctrl_logbkp"; then
         cmd-echo --id git-process-source-ctrl-log --ec -- "Error backing up $source_ctrl_log"
         false; exit
     fi
@@ -288,16 +282,16 @@ rm-on-exit "$git_status_after"
     ## relative. Temporarily cd to the repo root so that git can find them, in
     ## case we are not in the repo root. We do so in subshell "()" so we don't
     ## have to cd back when done.
-    cd "$(git root)" || exit $?
+    cd "$(git root)" || exit
     $REALGIT status --porcelain > "$git_status_before" 2>&1
     if [[ -z "$git_editor" ]]; then
         git commit -F "$parsed_cl_commit" --edit $opt_v "${filelist_refreshed[@]}"
     else
         GIT_EDITOR=$git_editor git commit -F "$parsed_cl_commit" --edit $opt_v "${filelist_refreshed[@]}"
     fi
-    declare status=$?
-    if ((status==0)); then
-        ## POTENTIAL PROBLEM - even though status==0, it appears that if a git
+    declare status=$?; true
+    if ((status==$?)); then
+        ## POTENTIAL PROBLEM - even though status==true, it appears that if a git
         ## commit is aborted due to a coding error in the hook (as opposed to
         ## the hook finding a non-commitable condition and exiting non-zero),
         ## we don't get an error return, which means we don't rollback the
@@ -308,6 +302,7 @@ rm-on-exit "$git_status_after"
         $REALGIT status --porcelain > "$git_status_after" 2>&1
         diff -q "$git_status_before" "$git_status_after" 1>/dev/null
         diffstatus=$?
+        # diff returns 0 if there are no diffs. :facepalm:
         if ((diffstatus==0)); then
             cmd-echo --id git-process-source-ctrl-log --wc -- \
                      "The return status from 'git commit' has indicated a successful" \
@@ -316,16 +311,15 @@ rm-on-exit "$git_status_after"
                      "This can also happen if you edit one or more files being" \
                      "committed while you have the editor open, so DON'T DO THAT." \
                      "As a precaution we will roll back '$source_ctrl_log'."
-            status=1
+            false; status=$?
         fi
     fi
 
-    if((status!=0)); then
+    true
+    if((status!=$?)); then
         rollback
     else
         rollforward
     fi
     exit $status
 )
-declare status=$?
-exit $status

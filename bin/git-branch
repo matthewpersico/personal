@@ -10,17 +10,17 @@ use on_exit
 ## last and called last.
 _git_branch_info_remove ()
 {
-    git config --remove-section "branch.$1" || return $?
+    git config --remove-section "branch.$1"
 }
 
 _git_branch_info_add_created_date ()
 {
-    git config --replace-all "branch.$1.${GIT_EXT_META_PREFIX}-created" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+    git config --replace-all "branch.$1.${GIT_EXT_META_PREFIX}-created" "$(date "$GIT_EXT_META_DATE_FMT")"
 }
 
 _git_branch_info_add_fetched_date ()
 {
-    git config --replace-all "branch.$1.${GIT_EXT_META_PREFIX}-fetched" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+    git config --replace-all "branch.$1.${GIT_EXT_META_PREFIX}-fetched" "$(date "$GIT_EXT_META_DATE_FMT")"
 }
 
 _git_branch_was_fetched ()
@@ -40,14 +40,14 @@ git-branch-checkout ()
     if [[ -z "$tgt_branch" ]]; then
         local PS3="Choose by number, q to quit: "
         select tgt_branch in $(git-branch --list --strip); do
-            [[ "${REPLY,,}" = 'q' ]] && return 1
+            [[ "${REPLY,,}" = 'q' ]] && { false; return; }
             [[ -n "$tgt_branch" ]] && break
         done
     else
         shift
         if [[ "$(git-branch --list --strip "$tgt_branch")" != "$tgt_branch" ]]; then
             cmd-echo --id git-branch --ec -- "$tgt_branch does not exist to be checked out."
-            return 1
+            false; return
         fi
     fi
 
@@ -74,9 +74,7 @@ git-branch-delete ()
     local shortopts='yf'
     local longopts='yes,no-remote,declare-only,no-go-set,force'
 
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-    local status=$?
-    ((status != 0)) && git-usage "$0" && return $status
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || return
 
     eval set -- "$OPTSARGS"
     while true; do
@@ -87,12 +85,12 @@ git-branch-delete ()
             --no-remote|--declare-only) no_remote=1 ;;
             --no-go-set) do_go_set=0 ;;
             -f|--force) opt_force=1 ;;
-            -h|--help) git-usage "$0"; return 0 ;;
+            -h|--help) git-usage "$0"; true; return ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
                 cmd-echo --id git-branch -ec -- "$option is an invalid option. See 'git-branch --help'."
-                return 1 ;;
+                false; return ;;
         esac
     done
 
@@ -105,7 +103,7 @@ git-branch-delete ()
         readarray -t branchesa < <(git-branch-list --strip)
         if [[ ${#branchesa[@]} == '0' ]]; then
             cmd-echo --id git-branch --ec -- "No branches found. Are you in a git repo?"
-            return 1
+            false; return;
         fi
         local PS3
         PS3="Choose by number, q to quit: "
@@ -120,7 +118,7 @@ git-branch-delete ()
                     break
                 fi
             elif [[ "${REPLY,,}" = 'q' ]]; then
-                return 0
+                true; return
             else
                 cmd-echo --id git-branch --ec -- "'$REPLY' is an invalid choice."
             fi
@@ -320,9 +318,7 @@ git-branch-list ()
     local shortopts='rac'
     local longopts='strip,nostrip,remote,all,current,no-warn'
 
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-    local status=$?
-    ((status != 0)) && cmd-echo --id git-branch --ec -- "Exiting." && return $status
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || return
 
     # Reset the command line ($@).
     eval set -- "$OPTSARGS"
@@ -343,7 +339,7 @@ git-branch-list ()
                          ## remaining $*, if any, are args
             *)
                 cmd-echo --id git-branch -ec -- "'$option' is an invalid option. See '$0 --help'."
-                exit 1 ## return 1 in functions
+                false; return
                 ;;
         esac
     done
@@ -689,7 +685,7 @@ main ()
 }
 
 main "$@"
-exit $?
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME

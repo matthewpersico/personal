@@ -60,9 +60,7 @@ declare interactive=1
 declare OPTSARGS
 declare shortopts='inachfsojwedp::xl:'
 declare longopts='head,title,id:,help,wc,ec,dc,color:,oii,noreverse,norev,reverse,rev,noc,lineno:,nolineno:'
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
-declare status=$?
-((status != 0)) && echo "cmd-echo: getopt failure" && exit $status
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -103,7 +101,9 @@ while true; do
         noc )
             no_continuation_line=1 ;;
         h | help )
-            bash-usage "$0" && exit 0;;
+            bash-usage "$0"
+            true; exit
+            ;;
         f | s | o )
             echo "cmd-echo: -f, -s and -o are no longer used. Ignored..." ;;
         j )
@@ -145,7 +145,7 @@ while true; do
                     ;;
                 * )
                     echo "cmd-echo: $color is not one of BLACK, BLUE, CYAN, GREEN, MAGENTA, ORANGE, RED, WHITE, or YELLOW"
-                    exit 1
+                    false; exit
                     ;;
             esac
             ;;
@@ -154,14 +154,14 @@ while true; do
         rev* )
             opt_reverse=1 ;;
         oii | only-if-interactive )
-            ((interactive==0)) && exit 0 ;;
+            ((interactive==0)) && { true; exit; } ;;
         x )
             set -x;;
         -- ) break ;; ## ## VITAL!!! Exits the while loop, no more options,
                       ## remaining $*, if any, are args
         * )
             echo "cmd-echo: '$option' is an invalid option."
-            exit 1
+            false; exit
             ;;
     esac
 done
@@ -262,7 +262,7 @@ done
 
 ##eval "exec 2>&$holdstderr $holdstderr>&-"      ## Restore stderr and close file descriptor.
 
-exit 0 ## USAGE guard during sourcing this file.
+exit
 
 :<<__PODUSAGE__
 =head1 NAME
@@ -299,9 +299,9 @@ print happens to match one of the options to 'cmd-echo'.
 =item --oii|--only-if-interactive
 
 If --oii is specified and cmd-echo is called in a non-interactive mode (calling
-script output is redirected to a file, for example), exit 0 without printing
-anything.  When this flag is not used, then non-interactive prints are still
-performed, but the ascii control codes for colorization are not printed.
+script output is redirected to a file, for example), exit true, without
+printing anything.  When this flag is not used, then non-interactive prints are
+still performed, but the ascii control codes for colorization are not printed.
 
 =item --head
 

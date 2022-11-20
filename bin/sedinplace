@@ -38,9 +38,7 @@ declare shortopts='kcbvn:'
 declare longopts='keepscript,confirm,backup,verbose,new:'
 
 # Process the command line.
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
-declare status=$?
-((status != 0)) && exit $status
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -75,7 +73,7 @@ while true; do
                      ## remaining $*, if any, are args
         *)
             cmd-echo --id sedinplace -ec -- "$option is an invalid option. See $0 --help"
-            exit 1
+            false; exit
             ;;
     esac
 done
@@ -108,11 +106,9 @@ if [[ $opt_verbose = 1 ]]; then
 fi
 
 sedopts="$sedopt_inplace"
-sed $sedopts -f "$sedcmdfile" "${files[@]}"
-status=$?
-if [[ $status != 0 ]]; then
-    exitstatus=$status
-    cmd-echo --id sedinplace -- "Sed editor. Status $status." \
+if ! sed $sedopts -f "$sedcmdfile" "${files[@]}"; then
+    exitstatus=$?
+    cmd-echo --id sedinplace -- "Sed editor. Status $exitstatus." \
              "The directory where the files live must be writable" \
              "for sed's temporaries and the final product."
 fi
@@ -127,8 +123,8 @@ for f in "${files[@]}"; do
             fi
 		    \rm "${f}.sip"
         elif ((opt_new)); then
-            \mv "${f}" "${f}.${opt_new}";status=$?;((status)) && cmd-echo --id sedinplace -- "Rename ${f} ${f}.${opt_new} error. Exiting." && exit 1
-            \mv "${f}.sip" "${f}";status=$?;((status)) && cmd-echo --id sedinplace -- "Rename ${f}.sip ${f} error. Exiting." && exit 1
+            \mv "${f}" "${f}.${opt_new}";status=$?;((status)) && cmd-echo --id sedinplace -- "Rename ${f} ${f}.${opt_new} error. Exiting." && { false; exit; }
+            \mv "${f}.sip" "${f}";status=$?;((status)) && cmd-echo --id sedinplace -- "Rename ${f}.sip ${f} error. Exiting." &&  { false; exit; }
             ((opt_verbose)) && cmd-echo --id sedinplace -- "${f}.${opt_new}"
         elif ((opt_confirm)); then
             cmd-echo --id sedinplace

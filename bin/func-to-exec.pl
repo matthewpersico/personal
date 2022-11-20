@@ -1,9 +1,14 @@
 #!/usr/bin/env perl
 
-use strict;
+use 5.16.3;
 use warnings;
 
 use File::Basename;
+use FindBin;
+
+use lib "$FindBin::Bin/../lib";
+use Misc qw(UNIX_TRUE UNIX_FALSE);
+
 our $force;
 
 BEGIN {
@@ -40,7 +45,7 @@ if ( @ARGV == 0 ) {
 
 EOF
       ;
-    exit 0;
+    exit UNIX_TRUE;
 }
 
 my $current_pathfile     = '';
@@ -202,10 +207,7 @@ sub writeit {
     if ( !$current_file_has_pod ) {
         push @funclines, <<EOF;
 ## POD guard
-exit 0
-
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/.
+true; exit
 
 :<<'__PODUSAGE__'
 =head1 NAME

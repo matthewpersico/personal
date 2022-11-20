@@ -23,17 +23,14 @@ declare shortopts='i'
 declare longopts='backup:,transform:,recopy,copy,relink,link,no-relative,relative,verbose,quiet,slient,interactive,help'
 
 # Process the command line.
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") ## "${FUNCNAME[0]}" -- "$@") ## in functions
-declare status=$?
-((status != 0)) && exit $status ## return $status ## in functions
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
 
 # Reprocess the command line, extracting options and their arguments into
 # variables.
-while true; do # use real true (and false) not true (and false) because this
-               # script is used in booting an env that may not yet have true
+while true; do
     declare option=$1
     shift
     [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
@@ -54,13 +51,13 @@ while true; do # use real true (and false) not true (and false) because this
         i | interactive) interactive=1;;
         help)
             bash-usage "$0"
-            exit 0
+            true; exit
             ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
             cmd-echo --id makesymlink --ec -- "$option is an invalid option. See $0 --help"
-            exit 1
+            false; exit
             ;;
     esac
 done
@@ -101,7 +98,7 @@ if ((interactive)); then
     fi
 fi
 
-[[ "$resp" = 'n' ]] && exit 0
+[[ "$resp" = 'n' ]] && { true; exit; }
 if [[ -n "$backup_dir" ]]; then
     if [[ -f "$fulltgt" ]] || [[ -d "$fulltgt" ]]; then
         srctype='directory'; if [[ -f "$fulltgt" ]]; then srctype='file'; fi
@@ -122,14 +119,14 @@ elif ((relative)); then
     declare -a paths
     IFS=':' read -ra paths < <(relativize_two_paths "$fullsrc" "$fulltgt")
     (( verbosity > 1 )) && cmd-echo --id makesymlink -- "Creating symlink '${paths[2]}' to '${paths[1]}' in '${paths[0]}'."
-    (builtin cd "${paths[0]}" || exit 1
+    (builtin cd "${paths[0]}" || exit
      ln -s "${paths[1]}" "${paths[2]}")
 else
     (( verbosity > 1 )) && cmd-echo --id makesymlink -- "Creating symlink '$fulltgt' to '$fullsrc'."
     ln -s "$fullsrc" "$fulltgt"
 fi
 
-exit $?
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME

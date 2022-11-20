@@ -3,11 +3,11 @@
 
 # toxic
 
-[[ $1 =~ -h ]] && bash-usage "$0" && exit 0
+[[ $1 =~ -h ]] && bash-usage "$0" && { true; exit; }
 
 if [[ -n $VIRTUAL_ENV ]]; then
     cmd-echo --id toxic --ec -- "Cannot run toxic while in VIRTUAL_ENV ($VIRTUAL_ENV)" "Run 'deactivate' first."
-    exit 1
+    false; exit
 fi
 
 
@@ -26,7 +26,7 @@ end_action ()
     action="${actions_list[$idx]}"
     if [[ $stop_here == '1' ]] \
            || [[ $stop_here == "$action" ]]; then
-        exit 1
+        false; exit
     fi
 }
 
@@ -115,9 +115,7 @@ declare repeat=1
 declare verbose=0
 
 # Process the command line.
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") ## "${FUNCNAME[0]}" -- "$@") ## in functions
-declare status=$?
-((status != 0)) && exit $status ## return $status ## in functions
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -150,7 +148,7 @@ while true; do
                      ## remaining $*, if any, are args
         *)
             cmd-echo --id toxic -ec -- "$option is an invalid option. See $0 --help"
-            exit 1 ## return 1 in functions
+            false; exit
             ;;
     esac
 done
@@ -168,7 +166,7 @@ if [[ -n $1 ]]; then
         echo noop > /dev/null
     else
         cmd-echo --id toxic --ec -- "'$action' is not one of ${actions_list[*]} ${single_actions_list[*]}"
-        exit 1
+        false; exit
     fi
 fi
 
@@ -187,7 +185,7 @@ if [[ $action ]]; then
                && [[ $action != "clean" ]] \
                && [[ $stop_here = '0' ]]; then
             cmd-echo --id toxic -ec -- "$override_action cannot be executed; last phase executed was '$last_action'."
-            exit 1
+            false; exit
         else
             action=$override_action
         fi
@@ -230,14 +228,14 @@ while [[ -n $action ]]; do
             if [[ -e .toxic.clean ]]; then
                 if ! cmd-yesno --id toxic "It appears that you just cleaned. Do you really want to clean again?"; then
                     cmd-echo --id toxic 'Re-run without the "clean" action'
-                    exit 1
+                    false; exit
                 fi
             fi
 
             start_action "$action" "cleaning"
 
             cmd-echo --id toxic --color BLUE -- 'git dorealclean'
-            git dorealclean -e requirements-local.txt -e '*logit*' || exit $?
+            git dorealclean -e requirements-local.txt -e '*logit*' || exit
             touch .toxic.clean
 
             end_action "$action"
@@ -269,7 +267,7 @@ while [[ -n $action ]]; do
             # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
             if [[ $action == pytest ]]; then
                 cmd-echo --id toxic --color BLUE -- "pytest ${args[*]}"
-                pytest "${args[@]}" || exit 1
+                pytest "${args[@]}" || exit
             elif [[ $action == pytestdb ]]; then
                 cmd-echo --id toxic --color BLUE -- "pytest --pdb $*"
                 pytest --pdb "$@"
@@ -281,7 +279,7 @@ while [[ -n $action ]]; do
                 pytest --pdbcls pudb.debugger:Debugger --pdb -s "$@"
             else
                 cmd-echo --id toxic --ec -- "$action not a valid test action"
-                exit 1
+                false; exit
             fi
             action=single_action_end
             ;;
@@ -295,11 +293,11 @@ while [[ -n $action ]]; do
 
             cmd-echo --id toxic --color BLUE -- "cd .tox/py${py_short_ver} (refroot)"
             (
-                cd ".tox/py${py_short_ver}" || exit 1
+                cd ".tox/py${py_short_ver}" || exit
                 # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
                 if [[ $action == pyrun ]]; then
                     cmd-echo --id toxic --color BLUE -- "python ${args[*]}"
-                    python "${args[@]}" || exit 1
+                    python "${args[@]}" || exit
                 elif [[ $action == pyrundb ]]; then
                     cmd-echo --id toxic --color BLUE -- "python --pdb $*"
                     python -m pdb "$@"
@@ -311,9 +309,9 @@ while [[ -n $action ]]; do
                     python --pdbcls pudb.debugger:Debugger -m pdb -s "$@"
                 else
                     cmd-echo --id toxic --ec -- "$action not a valid run action"
-                    exit 1
+                    false; exit
                 fi
-            ) || exit "$?"
+            ) || exit
             action=single_action_end
             ;;
 
@@ -372,7 +370,7 @@ while [[ -n $action ]]; do
             start_action "$action" "doc'ing"
 
             cmd-echo --id toxic --color BLUE -- 'tox -e docs'
-            tox -e docs || exit 1
+            tox -e docs || exit
 
             end_action "$action"
             ;;
@@ -407,12 +405,12 @@ while [[ -n $action ]]; do
             ;;
 
         single_action_end )
-            exit 0
+            true; exit
             ;;
 
         * ) cmd-echo --id toxic -ec -- "Invalid action '$action'" \
                      "Valid actions are: ${actions_list[*]}"
-            exit 1
+            false; exit
             ;;
     esac
 done
@@ -423,7 +421,7 @@ cmd-echo --id toxic -- \
          "All stages complete."\
          "For testing, source in '$activate_cmd'." \
          "To restart, use 'toxic restart'."
-exit 0
+true; exit
 
 :<<'__PODUSAGE__'
 =head1 NAME

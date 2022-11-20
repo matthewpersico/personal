@@ -47,9 +47,7 @@ ajoin longopts -s , \
       reinvoke: notimestamp ts env:
 
 # Process the command line, first time around.
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
-declare status=$?
-if ((status != 0)); then
+if ! OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@"); then
     declare d0
     d0=$(basename "$0")
     cmd-echo --id logit --ec -- \
@@ -59,7 +57,7 @@ if ((status != 0)); then
              "Add -- as the last ${d0} option right before your command."\
              "Otherwise, did you type a wrong option, like maybe"\
              "--tail instead of --tee?"
-    exit $status
+    false; exit
 fi
 
 # Reset the command line ($@).
@@ -74,14 +72,14 @@ while true; do
     [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
     case "$option" in
         h|help)
-            bash-usage "$0"; exit 0 ;;
+            bash-usage "$0"; true; exit ;;
         aa )
             opt_add_args_to_logfile=1
             ;;
         at )
             if ((opts_count)); then
                 echo "--at must be first option"
-                exit 1
+                false; exit
             fi
             attime="$1"
             shift
@@ -91,7 +89,7 @@ while true; do
             at -m -f "$atfile" "$attime"
             sleep 5
             cmd-echo ' '
-            exit 0
+            true; exit
             ;;
         isat)
             isat=1
@@ -190,7 +188,7 @@ while true; do
             declare log=$1; shift
             if [[ ! -r "$log" ]]; then
                 cmd-echo --id logit --ec -- "'$log' does not exist"
-                exit 1
+                false; exit
             fi
             declare -a cmd
             read -r -a cmd < <(head -4 "$log" | tail -1)
@@ -210,7 +208,7 @@ while true; do
                      ## remaining $*, if any, are args
         *)
             cmd-echo --id logit -ec -- "$option is an invalid option; you probably forgot to add a -- option between the logit options and the command to run. See $0 --help"
-            exit 1 ;;
+            false; exit ;;
     esac
 done
 
@@ -219,13 +217,13 @@ if ((isat)) \
                 || \
                 [[ -n "${edit}${edit_on_fail}" ]]; }; then
     echo "Cannot use --at with any of of the --tee, --gui, --browser, --edit, or --edit_on_fail options."
-    bash-usage "$0"; exit 1
+    bash-usage "$0"; false; exit
 fi
 
 # Arg checking
 if [[ -z "$1" ]]; then
     echo "Command required."
-    bash-usage "$0"; exit 1
+    bash-usage "$0"; false; exit
 fi
 
 declare command
@@ -246,7 +244,7 @@ if [[ ! -x "$command" ]]; then
         if [[ $isafunc != "function" ]] \
         && [[ $isafunc != "alias" ]]; then
             echo "'$command' is not a function or alias and it either cannot not be found on PATH or is not executable."
-            exit 1
+            false; exit
         fi
     fi
 fi
@@ -329,7 +327,7 @@ if ((opt_logonly)); then
     # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
     (( ${#envs[@]} )) && echo -n "${envs[*]} "
     echo "$command ${cmdargs[*]}" '2>&1 | tee ' "$logspec"
-    exit 0
+    true; exit
 fi
 
 if ((teeit || guiit || browserit)); then
@@ -481,7 +479,7 @@ fi
     else
         $command "${cmdargs[@]}"
     fi
-    status=${PIPESTATUS[0]}
+    declare status=${PIPESTATUS[0]}
 
     echo "********************"
     echo "$logmsg"
@@ -493,7 +491,7 @@ fi
     echo "********************"
     exit "$status"
 ) >> "$logspec" 2>&1
-status=$?
+declare status=$?
 if (( !isat)); then
     echo "$logmsg"
     echo "Exit status: $status"

@@ -10,11 +10,11 @@
 ## Don't do my checks if I say not to.
 if [[ "$GIT_COMMIT_NO_VERIFY" = '1' ]]; then
     echo "****** GIT_COMMIT_NO_VERIFY='1'. Skipping hook. ******" >&2
-    exit 0
+    true; exit
 fi
 
 ## Don't do my checks if Perl testing involves git commands.
-[ "$HARNESS_ACTIVE" = '1' ] && exit 0
+[ "$HARNESS_ACTIVE" = '1' ] && { true; exit; }
 
 ##
 ## Globals and inits
@@ -28,7 +28,7 @@ G_tfile=$(mktemp)
 ## ...and we set up a trap for cleanup.
 trap finish EXIT SIGINT
 
-declare G_exitval=0 ## Assume correctness.
+true; declare G_exitval=$? ## Assume correctness.
 
 declare G_gitroot
 G_gitroot=$(git rev-parse --show-toplevel)
@@ -72,7 +72,7 @@ check ()
         echo
         pre_commit_error_echo "$errmsg"
         cat "$G_tfile"
-        G_exitval=1
+        false; G_exitval=$?
         if [[ -n $postmsg ]]; then
             echo
             echo "$postmsg"
@@ -184,13 +184,13 @@ do_gcs_check ()
         echo
         pre_commit_error_echo "${gcs_messages[0]}"
         pre_commit_error_echo -c "${gcs_files[0]}"
-        G_exitval=1
+        false; G_exitval=$?
     fi
     if [[ -n ${gcs_files[1]} ]]; then
         echo
         pre_commit_error_echo "${gcs_messages[1]}"
         pre_commit_error_echo -c "${gcs_files[1]}"
-        G_exitval=1
+        false; G_exitval=$?
     fi
     if [[ -n ${gcs_files[2]} ]]; then
         echo
@@ -243,7 +243,7 @@ that you can skip with:
 
 Skips: $GIT_HOOK_SKIP_TAGS
 EOF
-                exit 0;
+                true; exit 0
                 ;;
             s|skip)
                 if [[ "$GIT_HOOK_SKIP_TAGS" == *" $1 "* ]]; then
@@ -267,11 +267,11 @@ EOF
                     pre_commit_ok_echo "--help not allowed in GIT_PRE_COMMIT_HOOK_ARGS. Ignoring."
                 else
                     pod2text "$0" | ${PAGER:cat}
-                    exit 0
+                    true; exit
                 fi
                 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args.
-            *) echo "Internal error!"; pod2text "$0" | ${PAGER:cat}; exit 1 ;;
+            *) echo "Internal error!"; pod2text "$0" | ${PAGER:cat}; false; exit ;;
         esac
     done
 
@@ -651,11 +651,10 @@ for (@ARGV){
     ##
     ## Done.
     ##
-
-    if ((G_exitval==0)); then
+    true; if ((G_exitval==$?)); then
         if((opt_nocommit)); then
             pre_commit_ok_echo 'No errors, but --nocommit specified. Commit will be aborted.'
-            G_exitval=1
+            false; G_exitval=$?
         else
             pre_commit_ok_echo 'Commit will proceed.'
         fi
