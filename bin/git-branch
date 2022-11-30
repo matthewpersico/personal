@@ -637,7 +637,7 @@ git-branch-sync-catch-up ()
     git fetch --all --prune --tags || return
 
     declare br
-    for br in $(git branch list --strip); do
+    for br in $(git branch --list --strip); do
         cmd-echo --id git-branch --color REVBLUE -- "Refreshing branch ${br}..."
         git switch "$br" || return
         git pull || return
@@ -667,7 +667,11 @@ main ()
             ;;
     esac
 
-    declare opt_re='delete|rename|orphan|track-remote|remote-track|fetch-remote|remote-fetch|prune-remote|remote-prune|list|comment|sync'
+    declare opt_re="checkout|comment|delete|fetch-remote|list"
+    opt_re="${opt_re}|orphan|prune-remote|remote-fetch|remote-prune"
+    opt_re="${opt_re}|remote-track|rename|sync|sync-catch-up"
+    opt_re="${opt_re}|sync-check|track-remote"
+
     if [[ "$action" =~ ^-+($opt_re) ]]; then
         action=$(dashstripper "$action")
     elif [[ "$action" =~ ^${opt_re}$ ]]; then
@@ -697,6 +701,9 @@ git-branch - git extention of git branch
 
 =head1 SYNOPSIS
 
+ git branch --checkout [branch]
+ git branch --comment "text to write"
+ git branch --comment [--show|--get]
  git branch --delete oldBranch
  git branch --rename currentBranch newbranch
  git branch --orphan
@@ -705,25 +712,22 @@ git-branch - git extention of git branch
  git branch --prune-remote|--remote-prune
  git branch --list [[-c|--current]| [-r|--remote]| [-a|--all]] [--[no]strip]
  git branch --current
- git branch --comment
  git branch --sync source-branch [target-branch-ish...]
- git branch --vv
+ git branch --sync-catch-up
+ git branch --sync-check
+ git branch --vv[nc]
 
 =head1 DESCRIPTION
 
-Extensions to the 'git branch' command. Obvious ones are not documented. Any action not described here will be passed onto the actual 'git branch' command.
+Extensions to the 'git branch' command. Any action not described here will be passed onto the actual 'git branch' command.
 
 =head1 EXTENSIONS
 
 =over 4
 
-=item --orphan
+=item --checkout
 
-TBD
-
-=item --list
-
-Lists all branches. By default, lists just the local ones. -c lists only the current one. -r lists remotes. -a lists locals and remotes. --strip removes the spacing and the colors and the current branch indicator. --current is a short cut for 'list --current'.
+With an argument shows a list of existing branches to choose from. With an argument checks that it exists.
 
 =item --comment
 
@@ -732,6 +736,14 @@ of the comment when written.
 
  git branch --comment "some text explaining where you left off, maybe?"
  git branch --comment -[get|show]
+
+=item --list
+
+Lists all branches. By default, lists just the local ones. -c lists only the current one. -r lists remotes. -a lists locals and remotes. --strip removes the spacing and the colors and the current branch indicator. --current is a short cut for 'list --current'.
+
+=item --orphan
+
+TBD
 
 =item --sync
 
@@ -753,15 +765,13 @@ The "target-branch-ish" arguments are pattern matches against the
 B<remote/branch> spec. Matching branches on different remotes is accomplished
 by specifying B<remote/branch> instead of just B<branch>.
 
-=item --vv
-
-Synonym for -vv, but with columated formatting.
-
-=back
-
 =item --track-remote
 
 At some point, compare to B<git track> and consolidate the code.
+
+=item --vv
+
+Synonym for -vv, but with columated formatting. --vvnc removes the color.
 
 =back
 
