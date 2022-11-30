@@ -1,5 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
 
 # git-comment
 
@@ -16,7 +17,7 @@ main ()
     local opt_highest_only=0
     local opt_verbose=1
     local opt_delete=0
-    local opt_date=0
+    local opt_date_show=0
     local prefix="${GIT_EXT_META_PREFIX}"
 
     local -A keys
@@ -63,10 +64,10 @@ main ()
                 opt_highest_only=1
                 ;;
             nodate )
-                opt_date=0
+                opt_date_show=0
                 ;;
             date )
-                opt_date=1
+                opt_date_show=1
                 ;;
             show | get )
                 opt_show=1
@@ -94,9 +95,6 @@ main ()
         esac
     done
 
-    local commentdate
-    ((opt_date)) && commentdate="$(date "$GIT_EXT_META_DATE_FMT") - "
-
     if [[ ${#write_keys[*]} = '0' ]]; then
         if ((opt_show)) || ( (( $# == 0 )) && ((! opt_delete)) ); then
             ## With no args, no options, just show all keys.
@@ -123,14 +121,22 @@ main ()
         if [[ ${write_keys[$configtype]} = '1' ]]; then
             local configkey=${keys[$configtype]}
             if ((opt_show)); then
-                value="$(git config --get "$configkey")"
-                [[ -n $value ]] && \
-                    output[$configtype]="$(printf '%8s: %s\n' $configtype "$value")"
+                local comment="$(git config --get "$configkey")"
+                if [[ -n $comment ]]; then
+                    if ((opt_date_show)); then
+                        local commentdate="$(git config --get "${configkey}-date")"
+                        if [[ -n $commentdate ]]; then
+                            comment="$comment ($commentdate)"
+                        fi
+                    fi
+                    output[$configtype]="$(printf '%8s: %s\n' $configtype "$comment")"
+                fi
             elif ((opt_delete)); then
                 git config --unset "$configkey" || return
                 ((opt_verbose)) && cmd-echo --id git-comment -- "Comment removed for $configtype"
             else
-                git config --replace-all "$configkey" "${commentdate}$*" || return
+                git config --replace-all "$configkey" "$*" || return
+                git config --replace-all "${configkey}-date" "$(date "$GIT_EXT_META_DATE_FMT")" || return
                 ((opt_verbose)) && cmd-echo --id git-comment -- "Comment added for $configtype"
             fi
         fi

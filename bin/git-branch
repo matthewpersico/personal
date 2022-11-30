@@ -372,7 +372,7 @@ git-branch-list ()
 git-branch-comment ()
 {
     if [[ $1 =~ -(show|get) ]]; then
-        git comment --get --branch
+        git comment --get --branch "$@"
     else
         git comment --branch "$@"
     fi
@@ -680,7 +680,6 @@ main ()
     fi
 
     action_func_name="git-branch-${action}"
-    set +x
     if declare -F "$action_func_name" >/dev/null; then
         shift ## the $action
         "$action_func_name" "$@"
@@ -688,7 +687,6 @@ main ()
         ## Dispatch to real git branch
         "${REALGIT}" branch "$@"
     fi
-    set +x
 }
 
 main "$@"
@@ -703,7 +701,7 @@ git-branch - git extention of git branch
 
  git branch --checkout [branch]
  git branch --comment "text to write"
- git branch --comment [--show|--get]
+ git branch --comment [--show|--get] [--date]
  git branch --delete oldBranch
  git branch --rename currentBranch newbranch
  git branch --orphan
@@ -731,11 +729,17 @@ With an argument shows a list of existing branches to choose from. With an argum
 
 =item --comment
 
-Add a comment that can be retrieved later. The current time is added to the end
-of the comment when written.
+Add a comment that can be retrieved later.
 
  git branch --comment "some text explaining where you left off, maybe?"
- git branch --comment -[get|show]
+
+The current time is added to the end of the comment when retrieved if [--date] is used.
+
+ git branch --comment --get
+   branch: some text explaining where you left off, maybe?
+
+ git branch --comment --get --date
+   branch: some text explaining where you left off, maybe? (2022-11-29.21:49:27-0500)
 
 =item --list
 
@@ -764,6 +768,14 @@ strategy keeps all the branches in sync without any extraneous merge commits.
 The "target-branch-ish" arguments are pattern matches against the
 B<remote/branch> spec. Matching branches on different remotes is accomplished
 by specifying B<remote/branch> instead of just B<branch>.
+
+=item --sync-check
+
+Does all the comparisons for --sync so you can check before you actually sync.
+
+=item --sync-catch-up
+
+Does a pull for each branch, but does not sync the branches to each other.
 
 =item --track-remote
 
