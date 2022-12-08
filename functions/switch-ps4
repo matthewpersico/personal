@@ -1,0 +1,66 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# switch-ps4
+
+# <Function Class: n/a>
+# <Function Justification: env>
+
+switch-ps4 () {
+    if [[ -n $1 ]]; then
+        if [[ "$1" =~ -h ]]; then
+            bash-usage switch-ps4
+            return
+        fi
+        local ps4envar="PS4_${1^^}"
+        if [[ -n "${!ps4envar}" ]]; then
+            export PS4="${!ps4envar}"
+        else
+            cmd-echo --id switch-ps4 "'${ps4envar} not defined"
+        fi
+        return
+    else
+        local ps4envar
+        local -a ps4envars
+        readarray -t ps4envars < <(env | grep -E '^PS4_' | sed 's/=.*//'|sort)
+        select ps4envar in "${ps4envars[@]}" 'quit'; do
+            [[ -z $ps4envar ]] && continue
+            [[ $ps4envar != 'quit' ]] && export PS4=${!ps4envar}
+            return
+        done
+    fi
+}
+alias swap-ps4='switch-ps4 '
+alias ps4-swap='switch-ps4 '
+alias ps4-switch='switch-ps4 '
+autotrack switch-ps4 "$0"
+:<<'__PODUSAGE__'
+=head1 NAME
+
+switch-ps4 - choose between PS4 prompts
+
+=head1 SYNOPSIS
+
+ $ export PS4_DEFAULT='+'
+ $ export PS4_LONG="+\$(_PS4_source):\$LINENO> "
+
+ $ switch-ps4
+ 1) PS4_DEFUALT
+ 2) PS4_LONG
+ 3) quit
+ #? 2
+ $
+
+=head1 DESCRIPTION
+
+The synopsis says it all. Just define prompts in envars that start with 'PS4_'
+and you can switch between them. Aliases:
+
+ swap-ps4
+ ps4-switch
+ ps4-swap
+
+
+=cut
+
+__PODUSAGE__

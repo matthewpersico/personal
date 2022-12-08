@@ -175,7 +175,19 @@ _aload()
                 evalstat=$?
                 if((evalstat==0)); then
                     ((loaded+=1))
-                    # shellcheck disable=SC2163 ## exporting $func, we want that behavior
+
+                    # When trying to run under set -x, we can set PS4 to give
+                    # us the current file and function, except that on exported
+                    # functions defined outside of the current running script
+                    # these exported function, we lose the file information.
+
+                    # Unless we put it back. :-) And then we can access it in
+                    # PS4 with a little magic.
+                    local exportable="BASH_FUNCFILE_${func//-/__}"
+                    export "$exportable"="$funcfile"
+
+                    # shellcheck disable=SC2163 ## exporting $func, we want
+                    # that behavior
                     if ((doexport)); then
                         export -f "$func"
                         andexported=', exported'
@@ -324,7 +336,7 @@ _autoload_remove()
 
 _autoload_help()
 {
-    cat <<EOH
+    cat <<'EOH'
 NAME
         autoload
 
@@ -562,6 +574,81 @@ NOTES
           function and all of its support functions. Additionally, we export
           all of these functions so that they are available in subshells; you
           do not have to re-source the autoload file in '.bashrc'.
+
+        o Functions in bash can be found in the environment by dumping it with
+          the 'env' command. When you do so, you will notice that the code for
+          functions processed by this autoload are defined in the environment
+          with under an environment variable. For a function 'fooey',
+
+          BASH_FUNC_fooey%%=() { echo fooey;
+           echo bye;
+          }
+
+          Now, there are techniques to update the PS4 prompt to give
+          script/function and line information unser 'set -x'. However, for
+          these functions loaded into the environment, we lose the file in
+          which the functions were defined.
+
+          In order to solve that problem, when we process a function, we also
+          create an environment variable to hold that information. For our
+          hypothetical 'fooey' function, it would look like
+
+          BASH_FUNCFILE_fooey=/home/theuserhomedir/functions/fooey
+
+          We can take advantage of that by putting this code in your .bashrc file:
+
+              _PS4_source ()
+              {
+                  local -a source
+                  if [[ -n ${BASH_SOURCE[1]} ]]; then
+                      source+=("${BASH_SOURCE[1]##*/}")
+                  elif [[ -n ${FUNCNAME[1]} ]]; then
+                      local var="BASH_FUNCFILE_${FUNCNAME[1]//-/__}"
+                      local val=${!var}
+                      if [[ -n $val ]]; then
+                          source+=("$val")
+                      fi
+                  fi
+                  if [[ -z ${source[0]} ]]; then
+                      source+=("$0")
+                  fi
+                  if [[ -n ${FUNCNAME[1]} ]]; then
+                      source+=("${FUNCNAME[1]}()")
+                  fi
+                  if [[ -n ${source[1]} ]]; then
+                      echo "${source[0]}/${source[1]}"
+                  else
+                      echo "${source[0]}"
+                  fi
+              }
+              typeset -fx _PS4_source
+
+              PS4_LONG="+\$(_PS4_source):\$LINENO> "
+              export PS4_LONG
+
+              PS4_DEFAULT="+"
+              export PS4_DEFAULT
+
+              export PS4="$PS4_DEFAULT"
+
+          The default PS4 prompt is a set of +, one fot each nested shell
+          level. When you want to debug with 'set -x' and you want to know
+          where the code lines are coming from:
+
+          $ export PS4="$PS4_LONG"
+
+          Now the 'set -x' output will look something like:
+
+          +++/home/mpersico5/personal/functions/git/git():75> [[ -n '' ]]
+          +++/home/mpersico5/personal/functions/git/git():88> [[ -n '' ]]
+          +++/home/mpersico5/personal/functions/git/git():89> return 0
+          ++git-status/main():49> ((  0  ))
+          ++git-status/main():54> echo
+
+          ++git-status/main():55> echo '=== Status:'
+          === Status:
+          ++git-status/main():56> local outcmd=cat
+          +
 
 EOH
 }

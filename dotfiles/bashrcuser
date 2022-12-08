@@ -162,8 +162,39 @@ fi
 # PS2 is the continuation prompt string
 # PS3 is the select prompt string
 # PS4 is the trace prompt string (set -x). From https://www.reddit.com/r/bash/comments/xcejrb/comment/io52img/?utm_source=share&utm_medium=web2x&context=3
-PS4='+${BASH_SOURCE[0]##*/}/${FUNCNAME[0]}:$LINENO> '
-export PS4
+_PS4_source ()
+{
+    local -a source
+    if [[ -n ${BASH_SOURCE[1]} ]]; then
+        source+=("${BASH_SOURCE[1]##*/}")
+    elif [[ -n ${FUNCNAME[1]} ]]; then
+        local var="BASH_FUNCFILE_${FUNCNAME[1]//-/__}"
+        local val=${!var}
+        if [[ -n $val ]]; then
+            source+=("$val")
+        fi
+    fi
+    if [[ -z ${source[0]} ]]; then
+        source+=("$0")
+    fi
+    if [[ -n ${FUNCNAME[1]} ]]; then
+        source+=("${FUNCNAME[1]}()")
+    fi
+    if [[ -n ${source[1]} ]]; then
+        echo "${source[0]}/${source[1]}"
+    else
+        echo "${source[0]}"
+    fi
+}
+typeset -fx _PS4_source
+
+PS4_LONG="+\$(_PS4_source):\$LINENO> "
+export PS4_LONG
+
+PS4_DEFAULT="+"
+export PS4_DEFAULT
+
+export PS4="$PS4_DEFAULT"
 
 ##
 ## End of Prompts
