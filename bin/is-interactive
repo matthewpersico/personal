@@ -2,9 +2,51 @@
 # shellcheck shell=bash
 
 # is-interactive
+declare stream=1 # testing stdout
+declare stream_name='stdout'
+declare verbose=0
+while (($#)); do
+    case $1 in
+        --in  | -i | -0 )
+            stream=0
+            stream_name='stdin'
+            ;;
+        --out | -o | -1 )
+            ;;
+        --err | -e | -2 )
+            stream=2
+            stream_name='stderr'
+            ;;
+        --verbose | -v )
+            verbose=1
+            ;;
+        --vv )
+            verbose=2
+            ;;
+        *)
+            cmd-echo --id is-interactive --ec -- "$1 is not a valid option"
+            bash-usage "$0"
+            false; exit
+            ;;
+    esac
+    shift
+done
 
-tty > /dev/null
-exit 0 ## POD Guard
+[ -t $stream ]
+declare rv=$?
+if ((verbose)); then
+    if ((rv == 0)); then
+        echo -n 'interactive'
+    else
+        echo -n 'non-interactive'
+    fi
+    if((verbose == 2)); then
+        echo " $stream_name"
+    else
+        echo
+    fi
+fi
+exit $rv
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -13,17 +55,36 @@ is-interactive - determine if current process is connected to a terminal
 
 =head1 SYNOPSIS
 
- is-interactive
+ is-interactive [ [--in|-i|-0] | \
+                  [--out|-o|-1] | \
+                  [--err|-e|-2] ] \
+                [ [--verbose|-v] | --vv ]
 
 =head1 DESCRIPTION
 
-Determine if current process is connected to a terminal.
+Determine if current process is connected to a terminal. Default is to test fd=1 (stdout).
 
  if is-interactive; then
      prompt-for-responses
  else
      use-defaults
  fi
+
+=head1 OPTIONS
+
+=over 4
+
+=item [--in|-i|-0] | [--out|-o|-1] | [--err|-e|-2] ]
+
+Test stdin, stdout or stderr.
+
+=item --verbose|-v
+
+Print "intertactive" or "non-intertactive".
+
+=item --v
+
+Add the fd name to the "intertactive" or "non-intertactive" message.
 
 =cut
 

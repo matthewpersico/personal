@@ -111,9 +111,10 @@ sub main {
                                 # true. If there are args to --diff, the string will
                                 # have a length and be true.
     }
-    my $found_obsolete = join( q(, ),
-        grep { exists $opt{$_} }
-        map { ( split( /=/, $_ ) )[0] } @obsolete );
+    my $found_obsolete = join(
+        q(, ), grep { exists $opt{$_} }
+          map { ( split( /=/, $_ ) )[0] } @obsolete
+    );
 
     warn join( qq(\n),
         "Obsolete " . PL( "flag", @obsolete ) . " passed in, ignored:",
@@ -140,10 +141,8 @@ sub main {
         $opt{cached} = '';
     }
 
-    if ( $opt{edit} and not( $opt{diff} or $opt{nosclonly} or $opt{gcsonly} ) )
-    {
-        die
-"--edit has no effect without either of --diff, --nosclonly or --gcsonly\n";
+    if ( $opt{edit} and not( $opt{diff} or $opt{nosclonly} or $opt{gcsonly} ) ) {
+        die "--edit has no effect without either of --diff, --nosclonly or --gcsonly\n";
     }
 
     if ( $opt{sclonly} and $opt{nosclonly} ) {
@@ -157,10 +156,10 @@ sub main {
     if (    ( $opt{sclonly} or $opt{nosclonly} )
         and ( $opt{gcsonly} and $opt{nogcsonly} ) )
     {
-        die join( 'and ',
-            map  { "--$_" }
-            grep { $opt{$_} } qw(sclonly nosclonly gcsonly nogcsonly) )
-          . " are mutex\n";
+        die join(
+            'and ', map { "--$_" }
+              grep { $opt{$_} } qw(sclonly nosclonly gcsonly nogcsonly)
+        ) . " are mutex\n";
     }
 
     #
@@ -252,23 +251,23 @@ sub parse_scl {
     for my $chunk (@chunks) {
         for ( @{ $chunk->{orig_text} } ) {
 
-    # Parsing assumptions:
-    # 1) One SourceCtrlLog in git root for whole project.
-    #
-    # 2) Emacs variable add-log-always-start-new-record is set to
-    # 't'. That means every chunk has a filename, even if functions or
-    # text may be on the next line due to wrapping. In other words, you
-    # might see:
-    #    (some_long_func):
-    # or
-    #    Some text.
-    # but never:
-    #    * (some_long_func):
-    # or
-    #    * Some text.
-    # which simplifies the processing.
-    #
-    # 3) With #2, we can use Esc-Q to wrap text, so we have to account for that.
+            # Parsing assumptions:
+            # 1) One SourceCtrlLog in git root for whole project.
+            #
+            # 2) Emacs variable add-log-always-start-new-record is set to
+            # 't'. That means every chunk has a filename, even if functions or
+            # text may be on the next line due to wrapping. In other words, you
+            # might see:
+            #    (some_long_func):
+            # or
+            #    Some text.
+            # but never:
+            #    * (some_long_func):
+            # or
+            #    * Some text.
+            # which simplifies the processing.
+            #
+            # 3) With #2, we can use Esc-Q to wrap text, so we have to account for that.
             my $text;
             if (m|${filetag_re}\s*${functag_re}:(?:\s*${text_re})?|) {
 
@@ -280,19 +279,19 @@ sub parse_scl {
                 $chunk->{text}     = strip_text( $+{text} );
             } elsif (m|${filetag_re}(?::?(?:\s*${text_re})?)|) {
 
- # Patterns:
- # * file:\s*text - Normal
- # * file:        - File and text are too long, text pushed to next line
- # * file         - File and function are too long, function pushed to next line
+                # Patterns:
+                # * file:\s*text - Normal
+                # * file:        - File and text are too long, text pushed to next line
+                # * file         - File and function are too long, function pushed to next line
                 $chunk->{filespec} = catfile( $gitrootdir, $+{file} );
                 $chunk->{function} = NOFUNC;
                 $chunk->{text} =
                   defined( $+{text} ) ? strip_text( $+{text} ) : '';
             } elsif (m|${functag_re}:(?:\s${text_re})?$|) {
 
- # Patterns:
- # (function):\s*text - Normal
- # (function):        - Function and text are too long, text pushed to next line
+                # Patterns:
+                # (function):\s*text - Normal
+                # (function):        - Function and text are too long, text pushed to next line
                 $chunk->{function} = $+{func};
                 $chunk->{text} =
                   defined( $+{text} ) ? strip_text( $+{text} ) : '';
@@ -309,8 +308,7 @@ sub parse_scl {
         }
 
         # Done processing the chunk here, record it as an entry:
-        $entries{ $chunk->{filespec} }->{ $chunk->{function} }
-          ->{ $chunk->{chunk_id} } = $chunk;
+        $entries{ $chunk->{filespec} }->{ $chunk->{function} }->{ $chunk->{chunk_id} } = $chunk;
         if ( exists( $files_to_process{ $chunk->{filespec} } ) ) {
             $files_to_process{ $chunk->{filespec} } = 1;
         }
@@ -328,8 +326,7 @@ sub strip_text {
 sub create_commit_scl {
     my ( $new_scl_root, $interactive ) = @_;
 
-    my ( $commit_f, $retain_f ) =
-      ( "${new_scl_root}.commit", "${new_scl_root}.retain" );
+    my ( $commit_f, $retain_f ) = ( "${new_scl_root}.commit", "${new_scl_root}.retain" );
     open my $commit_h, ">", $commit_f
       or die "Cannot open $commit_f for write:$!\n";
     open my $retain_h, ">", $retain_f
@@ -347,22 +344,21 @@ sub create_commit_scl {
             'no entries' );
         if ( $opt{sclonly} ) {
             warn
-"${msg_prefix}; --sclonly was specified, so they will be skipped and the commit will continue.\n";
+              "${msg_prefix}; --sclonly was specified, so they will be skipped and the commit will continue.\n";
             delete @files_to_process{@no_scl_keys};
         } elsif ( $opt{sclpick} ) {
             warn
-"${msg_prefix}; --sclpick was specified, so they will be skipped and the commit will continue.\n";
+              "${msg_prefix}; --sclpick was specified, so they will be skipped and the commit will continue.\n";
             delete @files_to_process{@no_scl_keys};
         } elsif ( $opt{nosclonly} ) {
             warn
-"${msg_prefix}; --nosclonly was specified, so they will be the ones processed and the commit will continue.\n";
+              "${msg_prefix}; --nosclonly was specified, so they will be the ones processed and the commit will continue.\n";
             my %have_scl_keys = %files_to_process;
             delete @have_scl_keys{@no_scl_keys};
             delete @files_to_process{ keys %have_scl_keys };
         } else {
             die "Error: Files with no entries:\n    "
-              . join( qq(\n    ), map { file_abs_to_git_rel($_) } @no_scl_keys )
-              . qq(\n);
+              . join( qq(\n    ), map { file_abs_to_git_rel($_) } @no_scl_keys ) . qq(\n);
         }
     }
 
@@ -372,8 +368,7 @@ sub create_commit_scl {
       keys %files_to_process, $opt{scl};
     if (@open_in_emacs) {
         die "Error: The following files appear to be open in emacs:\n    "
-          . join( qq(\n    ), map { file_abs_to_git_rel($_) } @open_in_emacs )
-          . qq(\n);
+          . join( qq(\n    ), map { file_abs_to_git_rel($_) } @open_in_emacs ) . qq(\n);
     }
 
     if ($interactive) {
@@ -426,8 +421,7 @@ sub write_retained_log {
     for my $chunk (@chunks) {
         if (
             exists(
-                $entries{ $chunk->{filespec} }->{ $chunk->{function} }
-                  ->{ $chunk->{chunk_id} }
+                $entries{ $chunk->{filespec} }->{ $chunk->{function} }->{ $chunk->{chunk_id} }
             )
           )
         {
@@ -460,8 +454,7 @@ sub format_scl {
             push @diffargs, split( /,/, $opt{diff} );
         }
         @diff_text =
-          map { chomp; $_ }
-          qx(git -c color.diff=$opt{color} @diffargs $opt{cached});
+          map { chomp; $_ } qx(git -c color.diff=$opt{color} @diffargs $opt{cached});
         my $entry;
         for my $line (@diff_text) {
             if ( $line =~ m/^.{0,4}diff --git a/ ) {
@@ -491,9 +484,8 @@ sub format_scl {
         renamed_file => qr|(?<renamed_file>[\w\/.+:~_-]+)|,
     );
     $re{renamed} =
-qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_off}$|x;
-    $re{tracked} =
-      qr|^ $re{color_on} $re{status}: \s+ $re{file} $re{color_off}$|x;
+      qr|^ $re{color_on} $re{status}: \s+ $re{file} \s-> $re{renamed_file} $re{color_off}$|x;
+    $re{tracked}   = qr|^ $re{color_on} $re{status}: \s+ $re{file} $re{color_off}$|x;
     $re{untracked} = qr|^ $re{untracked_color_on} $re{file} $re{color_off}$|x;
 
     # At this point we want to get the current git status output and combine it
@@ -690,8 +682,7 @@ sub push_scl_to_output {
         and not $args{is_commit} )
     {
         if ( $args{status} ne 'untracked' ) {
-            $args{output}[-1] .=
-              ": ${ascii_bold_red}No SourceCtrlLog entry found.${ascii_normal}";
+            $args{output}[-1] .= ": ${ascii_bold_red}No SourceCtrlLog entry found.${ascii_normal}";
             $need_a_blank = 1;
         }
         $ok_to_edit = 1;
@@ -712,7 +703,7 @@ sub push_scl_to_output {
             my $ignored;
             if ( $gcs{$filespec}->{ignored} ) {
                 $ignored =
-" - GCS marker ignored because this file is marked as ':ignore' in $dotgcsfile";
+                  " - GCS marker ignored because this file is marked as ':ignore' in $dotgcsfile";
             }
             push @{ $args{output} },
               map { "$args{format_over}$_" } (
@@ -757,8 +748,7 @@ sub push_scl_to_output {
                 $lead = LEAD_CHAR . q ( );
             } else {
                 $lead = q(  ) . LEAD_CHAR . q ( );
-                push @{ $args{output} },
-                  join( '', $args{format_over}, $func, '():' );
+                push @{ $args{output} }, join( '', $args{format_over}, $func, '():' );
             }
             my $indent = set_indent_from_lead($lead);
 
@@ -768,7 +758,7 @@ sub push_scl_to_output {
             my @orders = sort { $b <=> $a } keys %{ $e->{$func} };
 
             for my $order (@orders) {
-                my @paras = split( /<PARA>\s*/, $e->{$func}->{$order}->{text} );
+                my @paras     = split( /<PARA>\s*/, $e->{$func}->{$order}->{text} );
                 my $para_lead = $lead;
                 for my $para (@paras) {
                     my @wrapped =
@@ -782,8 +772,7 @@ sub push_scl_to_output {
                     $line1 = join( '', $args{format_over}, $para_lead, $line1 );
                     push @{ $args{output} }, $line1,
                       ## Line 2+
-                      ( map { join( '', $args{format_over}, $indent, $_ ) }
-                          @wrapped ),
+                      ( map { join( '', $args{format_over}, $indent, $_ ) } @wrapped ),
                       ( $args{is_commit} ? () : '' );
                     if ( $para ne $paras[-1] ) {
                         if ( $args{output}->[-1] ne '' ) {
@@ -820,8 +809,7 @@ sub push_scl_to_output {
 
     ## Diffs here
     if ( $diffs{"$filespec"} ) {
-        push @{ $args{output} },
-          ( map { $args{format_over} . $_ } @{ $diffs{"$filespec"} } ), '';
+        push @{ $args{output} }, ( map { $args{format_over} . $_ } @{ $diffs{"$filespec"} } ), '';
         $ok_to_edit = 1;
     }
 
@@ -919,13 +907,7 @@ sub do_interactive {
         $init_scl = 0;
         print( join( "\n", "", @output ) );
         my $bool;
-        while (
-            defined(
-                $bool =
-                  substr( lc( $term->readline('Commit? (y/n/q) [n]:') ), 0, 1 )
-            )
-          )
-        {
+        while ( defined( $bool = substr( lc( $term->readline('Commit? (y/n/q) [n]:') ), 0, 1 ) ) ) {
             my $dummy = 6;
             die "Aborted\n" if $bool eq 'q';
             last            if $bool eq 'y';

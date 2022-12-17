@@ -646,10 +646,12 @@ _git-repo-pr-get-lookup-pr-state ()
     local remote_repo=$3
     local -n pr_state=$4
     local -n pr_timestamp=$5
+    local -n pr_title=$6
     local jsondata; jsondata=$(mktempfile git-repo-pr-get.jsondata)
     rm-on-exit "$jsondata"
     github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" > "$jsondata"
     pr_state=$(jq -r .state "$jsondata")
+    pr_title=$(jq -r .title "$jsondata")
     if [[ $pr_state == 'closed' ]]; then
         local merged; merged=$(jq -r .merged "$jsondata")
         if [[ $merged == 'true' ]]; then
@@ -664,7 +666,7 @@ _git-repo-pr-get-lookup-pr-state ()
     fi
 }
 
-declare PR_CACHE_VERSION='1'
+declare PR_CACHE_VERSION='2'
 
 git-repo-pr-get ()
 {
@@ -727,10 +729,12 @@ git-repo-pr-get ()
     local pr_url
     local pr_state
     local pr_date
+    local pr_title
 
     local pr_cache_url
     local pr_cache_state
     local pr_cache_date
+    local pr_cache_title
     local pr_cache_as_of
     local pr_cache_version
 
@@ -738,7 +742,7 @@ git-repo-pr-get ()
     local cb; cb=$(git-repo-current-branch)
 
     if ((opt_refresh==0)); then
-        _git-repo-pr-retrieve pr_cache_url pr_cache_state pr_cache_date pr_cache_as_of pr_cache_version
+        _git-repo-pr-retrieve pr_cache_url pr_cache_state pr_cache_date pr_cache_title pr_cache_as_of pr_cache_version
         # else we don't get any data, which causes cached to be set to no
     fi
 
@@ -746,6 +750,7 @@ git-repo-pr-get ()
     if [[ -z $pr_cache_as_of ]] || \
            [[ -z $pr_cache_state ]] || \
            [[ -z $pr_cache_date ]] || \
+           [[ -z $pr_cache_title ]] || \
            [[ -z $pr_cache_version ]] || \
            [[ ! $pr_cache_version == "$PR_CACHE_VERSION" ]]
     then
@@ -764,6 +769,7 @@ git-repo-pr-get ()
 
     if [[ $cached == 'yes' ]]; then
         pr_date=$pr_cache_date
+        pr_title=$pr_cache_title
         [[ $pr_cache_url == 'NOOPENPR' ]] && pr_date=$pr_cache_as_of
         pr_url=$pr_cache_url
         pr_state=$pr_cache_state
@@ -774,14 +780,15 @@ git-repo-pr-get ()
         else
             ## Let's try the inexpensive option of seeing if the state has
             ## changed.
-            _git-repo-pr-get-lookup-pr-state "$pr_cache_url" "$remote_svc" "$remote_repo" pr_now_state pr_now_date
+            _git-repo-pr-get-lookup-pr-state "$pr_cache_url" "$remote_svc" "$remote_repo" pr_now_state pr_now_date pr_now_title
             # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
             if [[ $pr_now_state == "$pr_cache_state" ]]; then
-                # updates the cache date, keeps url and state the same.
-                _git-repo-pr-store "$pr_cache_url" "$pr_now_state" "$pr_now_date"
+                # updates the cache date, keeps url, state and title the same.
+                _git-repo-pr-store "$pr_cache_url" "$pr_now_state" "$pr_now_date" "$pr_now_title"
                 pr_url="$pr_cache_url"
                 pr_state="$pr_now_state"
                 pr_date="$pr_now_date"
+                pr_title="$pr_now_title"
             elif [[ $pr_cache_state == 'open' ]]; then
                 # The pr is now is closed or merged. Still might be the latest
                 # one but we don't know, so we have to check.
@@ -793,11 +800,11 @@ git-repo-pr-get ()
     if [[ $cached == 'no' ]]; then
         local perldata; perldata=$(mktempfile -+perldata)
         rm-on-exit "$perldata"
-        github-api --page-limit 10 --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
+        github-api --page-limit 5 --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
         local corg; corg=$(git-repo-org)
         local -a pr_now
-        #read -r -a pr_now < <(perl -d:ptkdb -MData::Dumper -e ' ## no-ptkdb-issue
-        read -r -a pr_now < <(perl -e '
+        local -a debug=() ## (-d:ptkdb -MData::Dumper) ## no-ptkdb-issue
+        read -r -a pr_now < <(perl "${debug[@]}" -e '
 ## Gets the latest (because the data is sorted newest to oldest) pull request
 ## for this branch on this org.
 ## $ARGV[0] - file with perl data, sorted newest to oldest. No "merged" state flags
@@ -828,6 +835,7 @@ for $pull (@{$VAR1}) {
                       $pull->{html_url},
                       $pullinfo{state},
                       $pullinfo{date},
+                      $pull->{title},
                   ), qq(\n);
         exit UNIX_TRUE;
     }
@@ -843,6 +851,7 @@ exit UNIX_TRUE;' "$perldata" "$corg" "$cb")
             pr_url=${pr_now[0]}
             pr_state=${pr_now[1]}
             pr_date=${pr_now[2]}
+            pr_title="${pr_now[*]:3}"
         fi
     fi
 
@@ -859,13 +868,13 @@ exit UNIX_TRUE;' "$perldata" "$corg" "$cb")
         else
             cached=''
         fi
-        ((opt_print)) && echo "${pr_state^} $pr_date${cached} - ${pr_url}"
+        ((opt_print)) && echo "${pr_state^} $pr_date${cached} - [${pr_title}](${pr_url})"
     else
         if [[ $opt_match_state == "$pr_state" ]]; then
             # You asked for a particular state, and we matched it, but you
-            # specified the state, you probably don't want it coming back at
-            # you so that you have to get rid of it to use the url, so we just
-            # print the url.
+            # specified the state, you probably don't want it (and all the
+            # other info) coming back at you so that you have to get rid of it
+            # to use the url, so we just print the url.
             ((opt_print)) && echo "$pr_url"
         else
             # We didn't find a match
@@ -880,14 +889,17 @@ _git-repo-pr-store ()
     local pr_url
     local pr_state
     local pr_date
+    local pr_title
     if [[ $1 == '--noopenpr' ]]; then
         pr_url="NOOPENPR"
         pr_state="NOSTATE"
         pr_date="1970-01-01T00:00:01Z"
+        pr_title="NOTITLE"
     else
         pr_url=${1}
         pr_state=${2}
         pr_date=${3}
+        pr_title="${*:4}"
     fi
 
     local wt; wt=$(git worktree ina -v)
@@ -897,6 +909,7 @@ _git-repo-pr-store ()
         git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
         git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
         git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
+        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-title" "$pr_title"
         git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
         git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
     fi
@@ -904,6 +917,7 @@ _git-repo-pr-store ()
         git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
         git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
         git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
+        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-title" "$pr_title"
         git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
         git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
     fi
@@ -914,14 +928,16 @@ _git-repo-pr-retrieve ()
     local -n _pr_url=$1
     local -n _pr_state=$2
     local -n _pr_date=$3
-    local -n _pr_cache_as_of=$4
-    local -n _pr_cache_version=$5
+    local -n _pr_title=$4
+    local -n _pr_cache_as_of=$5
+    local -n _pr_cache_version=$6
     local wt; wt=$(git worktree ina -v)
     local cb; cb=$(git-repo-current-branch)
     _pr_url=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr")
     if [[ -n $_pr_url ]]; then
         _pr_state=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state")
         _pr_date=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date")
+        _pr_title=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-title")
         _pr_cache_as_of=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of")
         _pr_cache_version=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version")
     else
@@ -929,6 +945,7 @@ _git-repo-pr-retrieve ()
         if [[ -n $_pr_url ]]; then
             _pr_state=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state")
             _pr_date=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date")
+            _pr_title=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-title")
             _pr_cache_as_of=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of")
             _pr_cache_version=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version")
         fi
