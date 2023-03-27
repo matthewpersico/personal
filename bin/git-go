@@ -48,6 +48,8 @@ declare opt_repo_no
 opt_repo_no=0
 declare opt_comma
 opt_comma=0
+declare opt_top
+opt_top=0
 declare -a limited
 declare -a tgts
 declare doandcdfile
@@ -63,7 +65,7 @@ longopts="$longopts,wc,with-comments,wco,with-comments-only"
 longopts="$longopts,list,lf,listfull,size,update"
 longopts="$longopts,wt,nowt,wto"
 longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
-longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,set"
+longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,set,top:"
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$0" -- "$@") || exit
@@ -113,7 +115,8 @@ while true; do
         set ) cmd-echo --id git-go -- Working...
               git go-set; true; exit;;
         prune ) cmd-echo --id git-go -- Working...
-              git go-prune; true; exit;;
+                git go-prune; true; exit;;
+        top) opt_top=$1; shift ;;
         h | help ) git-usage "$0"; true; exit ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
@@ -177,6 +180,12 @@ if ((${#REPOS[@]}==0)); then
     fi
     false; exit
 else
+    if ((opt_top)); then
+        declare -a repostemp
+        repostemp=("${REPOS[@]:0:$opt_top}")
+        REPOS=("${repostemp[@]}")
+    fi
+
     if ((opt_mod)); then
         for r in "${REPOS[@]}"; do
             (
@@ -409,6 +418,10 @@ Usage: git go [options] [ filter [filter...] ]
        Visit each repo that would ordinarily end up in the selection list and
        try to remove it. The repo must have no open PRs and no uncommitted
        objects.
+
+   --top n
+       Return only the first 'n' items of a list. Useful to present the base
+       repo when there are a lot of worktrees.
 
    'filter' will filter the list using grep.
 
