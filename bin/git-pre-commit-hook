@@ -158,21 +158,20 @@ do_gcs_check ()
         ## <GCSLITERAL> on the same line.
         gcs_marker=$(grep -H -n -E '<GCS>' "$file" | grep -v '<GCSLITERAL>')
 
-        ## Next check the gcs file for matches. If in this file, we don't
-        ## commit. Period...
+        ## Next check the gcs file for matches. The file must have an action
+        ## attribute, either ':stop' or ':ignore'.
         declare gcsfile_match=''
-        [[ -r $gcsfile ]] && gcsfile_match=$(grep "$file" "$gcsfile")
-
-        ## ...unless the entry has an :ignore marker.
+        [[ -r $gcsfile ]] && gcsfile_match=$(grep "${file}:" "$gcsfile")
         declare gcsfile_ignore=''
         if [[ -n $gcsfile_match ]]; then
-            gcsfile_ignore=$(grep ':ignore' <<< "$gcsfile_match")
+            gcsfile_stop=$(grep ":stop" <<< "$gcsfile_match")
+            gcsfile_ignore=$(grep ":ignore" <<< "$gcsfile_match")
         fi
 
         ## Analysis.
         if [[ -n $gcsfile_ignore ]]; then
             gcs_files[2]="$file ${gcs_files[2]}"
-        elif [[ -n $gcsfile_match ]]; then
+        elif [[ -n $gcsfile_stop ]]; then
             gcs_files[1]="$file ${gcs_files[1]}"
         elif [[ -n $gcs_marker ]]; then
             gcs_files[0]="$file ${gcs_files[0]}"

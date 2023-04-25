@@ -1,12 +1,11 @@
 # -*- sh -*-
 # shellcheck shell=bash
 
-# git-push
+# git-pr
 
 use mktemp
 use on_exit
 
-# shellcheck disable=SC2034 # We'll use it eventually
 cmd_echo_id='git-pr'
 
 declare opt_force=0
@@ -22,108 +21,117 @@ while (( $# )); do
             opt_force=1
             ;;
         * )
-            cmd-echo --id git-pr --ec "'$arg' not a valid option for git-pr"
+            cmd-echo --id "$cmd_echo_id" --ec "'$arg' not a valid option for $cmd_echo_id"
             false; exit
             ;;
     esac
 done
 
-# Get info for our repo on disk.
-declare remote_url
-remote_url=$(git-get-default-remote)
-declare serverid
-declare noop
-declare org
-declare url_svc
-read -r serverid noop org noop < <(git utils decode-url "$remote_url")
-url_svc="$(git kv --get "browser-urls.$serverid")"
+# "current" is the on-disk clone of the working repo
+declare current_branch
+current_branch=$(git branch --current)
 
-# Get info for 'upstream', or 'origin'.
-declare remote_svcorgrepo
-declare remote_tag
-for remote_tag in upstream origin; do
-    remote_svcorgrepo=$(git config --get "remote.${remote_tag}.url")
-    [[ -n $remote_svcorgrepo ]] && break;
-done
+declare current_remote
+current_remote=$(git config --get "branch.${current_branch}.remote")
 
-declare remote_orgrepo
-declare remote_svc
-declare remote_org
-declare remote_repo
-if [[ $remote_svcorgrepo =~ ^http(s)? ]]; then
-    read -r remote_svc remote_org remote_repo < <(git utils decode-http "$remote_svcorgrepo")
-    remote_orgrepo="${remote_org}/${remote_repo}"
-    remote_svcorgrepo="${remote_svc}:${remote_org}/${remote_repo}"
-else
-    remote_svcorgrepo=${remote_svcorgrepo%.git}
-    remote_svc=${remote_svcorgrepo%:*}; remote_svc=${remote_svc##*@}; remote_svc=${remote_svc%.*}
-    remote_orgrepo=${remote_svcorgrepo#*:}
-    remote_org=${remote_orgrepo%/*}
-    remote_repo=${remote_orgrepo#*/}
+# "from" is the where the clone was cloned from (canonical OR fork)
+declare from_branch
+from_branch=$(git config --get "branch.${current_branch}.${GIT_EXT_META_PREFIX}-from-branch")
+## Fallback for a branch created before we started writing the
+## ${GIT_EXT_META_PREFIX}-from-branch. Going forward, we always write
+## ${GIT_EXT_META_PREFIX}-from-branch, even if it is the default.
+[[ -z $from_branch ]] && from_branch=$(git current_branch)
+
+declare from_remote=$current_remote
+if git repo is a fork; then
+    from_remote='upstream'
+fi
+
+if [[ $current_branch = "$from_branch" ]] && \
+       [[ $current_remote = "$from_remote" ]]; then
+    cmd-echo --id "$cmd_echo_id" -wc -- "Cannot generate a PR when the source and target org, repo and branch are the same."
+    false; exit
 fi
 
 # Make sure we realize we are not clean, in case that's unexpected.
 declare statusdata
 statusdata=$(mktempfile)
 rm-on-exit "$statusdata"
-git status --porcelain -b -uno > "$statusdata"
+git status --porcelain -uno > "$statusdata"
 declare linecount
 linecount=$(wc -l < "$statusdata")
 declare outofdate
 outofdate=$(grep '##' "$statusdata" | grep '\[')
 if ((linecount > 1)) || [[ -n "$outofdate" ]]; then
-    cmd-echo --id git-pr -wc -- "Current status not clean:"
+    cmd-echo --id "$cmd_echo_id" -wc -- "Current status not clean:"
     git status
 fi
 
-declare url
+declare pr_url
 declare do_pr=0
 if ((opt_force)); then
-    cmd-echo --id git-pr -- "Not looking for existing pr"
+    cmd-echo --id "$cmd_echo_id" -- "Not looking for existing PR."
     do_pr=1
-elif ! url=$(git repo pr-get --open --remote "$remote_tag" ); then
-    cmd-echo --id git-pr -- "No open existing PR found, popping up create URL..."
+elif ! pr_url=$(git repo pr-get --open --remote "$from_remote" ); then
+    cmd-echo --id "$cmd_echo_id" -- "No open existing PR found, popping up create URL..."
     do_pr=1
 fi
-if((do_pr)); then
-    declare current_branch
-    current_branch="$(git repo current-branch)"
 
-    declare default_branch
-    default_branch=$(git repo default-branch)
-    if [[ "$current_branch" = "$default_branch" ]]; then
-        cmd-echo --id git-pr -wc -- "Not generating a PR. Using the default branch '${default_branch}' branch on a clone won't work; you've already pushed to ${default_branch}."
-        false; exit
+if((do_pr)); then
+    declare current_url
+    current_url=$(git config --get "remote.${current_remote}.url")
+
+    declare current_svc
+    declare current_orgrepo
+    declare current_org
+    declare current_repo
+    if [[ $current_url =~ ^http(s)? ]]; then
+        read -r current_svc current_org current_repo < <(git utils decode-http "$current_url")
+        current_orgrepo="${current_org}/${current_repo}"
+    else
+        current_url=${current_url%.git}
+        current_svc=${current_url%:*}; current_svc=${current_svc##*@}; current_svc=${current_svc%.*}
+        current_orgrepo=${current_url#*:}
+        current_org=${current_orgrepo%/*}
+        current_repo=${current_orgrepo#*/}
     fi
 
-    ## This url does let us PR against an arbitrary branch. Use the
-    ## extra information we wrote at branch/worktree creation time.
-    declare from_branch
-    from_branch=$(git config --get "worktree.${current_branch}.${GIT_EXT_META_PREFIX}-from-branch")
+    declare from_url
+    from_url=$(git config --get "remote.${from_remote}.url")
 
-    ## Fallback for a worktree created before we started writing the
-    ## ${GIT_EXT_META_PREFIX}-from-branch. Going forward, we always write
-    ## ${GIT_EXT_META_PREFIX}-from-branch, even if it is the default.
-    [[ -z $from_branch ]] && from_branch=$(git repo default-branch)
-
-    if [[ "$remote_org" != "$org" ]]; then
-        url="$url_svc/$remote_orgrepo/compare/$from_branch...$org:$current_branch"
+    declare from_svc
+    declare from_orgrepo
+    declare from_org
+    declare from_repo
+    if [[ $from_url =~ ^http(s)? ]]; then
+        # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+        read -r from_svc from_org from_repo < <(git utils decode-http "$from_url")
     else
-        url="$url_svc/$remote_orgrepo/compare/$from_branch...$current_branch"
+        from_url=${from_url%.git}
+        from_svc=${from_url%:*}; from_svc=${from_svc##*@}; from_svc=${from_svc%.*}
+        if [[ ! $from_svc =~ ^http ]]; then
+            from_svc=$(git-kv --get browser-urls."${from_svc}")
+        fi
+        from_orgrepo=${from_url#*:}
+        from_org=${from_orgrepo%/*}
+    fi
+
+    if [[ "$current_org" != "$from_org" ]]; then
+        pr_url="$from_svc/$from_orgrepo/compare/$from_branch...$current_org:$current_branch"
+    else
+        pr_url="$from_svc/$from_orgrepo/compare/$from_branch...$current_branch"
     fi
 else
-    cmd-echo --id git-pr -- "Existing PR found, popping it up..."
+    cmd-echo --id "$cmd_echo_id" -- "Existing PR found, popping it up..."
 fi
 
-git web--browse "$url" &
+git web--browse "$pr_url" &
 
 true; exit
-echo "$noop" > /dev/null # in lieu of shellcheck 2034
 
 :<<'__PODUSAGE__'
 =head1 NAME
 
-WIP WIP WIP  WIP
 git-pr - make a pull request
 
 =head1 SYNOPSIS
@@ -138,23 +146,9 @@ Using the browser, makes a pull request using the remote of the current repo or 
 
 =over 4
 
-=item popup
+=item force
 
-Start a browser (via git web--browser) pointing to the URL of the origin for the current repo.
-
-=item pr
-
-=back
-
-=item pr-force
-
-Start a browser (via git web--browser) pointing to the URL to create a new pull request using the current repo as the source if there is no existing PR. If there is an existing PR, its URL is used.
-
-Note: This only really works with the triangle workflow of forked 'origin' and original 'upstream' or an original 'origin'. Those assumptions are baked into a lot of the logic. Any other push targets, go open a PR in the GUI.
-
-Same as --pr, but skip the lookup for an existing PR and assume there isn't one. Useful when you know there is no PR and the repo is old and the lookup would take minutes.
-
-Note: This only really works with the triangle workflow of forked 'origin' and original 'upstream' or an original 'origin'. Those assumptions are baked into a lot of the logic. Any other push targets, go open a PR in the GUI.
+Do not check for an existing PR; just start a browser (via git web--browser) pointing to the URL to create a new pull request using the current repo as the source.
 
 =back
 
