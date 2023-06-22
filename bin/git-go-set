@@ -24,16 +24,21 @@ for repo_path in "${repo_paths[@]}"; do
     # Ignore
     #    non-existent paths, they might show up later
     #    random files that are in what should be a list of directories only
-    { [[ ! -e $repo_path ]] || [[ -f $repo_path ]]; } && continue
+    if [[ ! -e $repo_path ]] || [[ -f $repo_path ]] ; then
+        continue
+    fi
 
     # Search the paths for repos and work trees by finding '.git' files and
     # directories. Strip the '.git', order asciibetically, leaving the repo and
-    # worktree root dirs. Filter out some known exceptions (local repos for
-    # testing for starters).
+    # worktree root dirs. Filter out some known exceptions:
+    # - Perl test scratch locations: /t/data/
+    # - Emacs stuff:                 /elpa/
+    # - JOB stuff:                   /parent-cluster-conversions/clone-workspace/
     mapfile -O "${#repos[@]}" -t repos \
             < <(find "$repo_path" -name .git \
                     | grep -v /t/data/ \
                     | grep -v /elpa/ \
+                    | grep -v /parent-cluster-conversions/ \
                     | sed 's/\/.git$//g'\
                     | sort -u \
                )
