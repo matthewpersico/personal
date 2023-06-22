@@ -8,28 +8,41 @@ use File::Basename;
 use lib $ENV{PERSONALLIB};
 use Misc qw(UNIX_TRUE UNIX_FALSE);
 
-our %opt = (
-    trunc    => 0,
-    wrap     => 0,
-    raw      => 0,
-    original => 0,
-    head     => 1,
-    help     => 0,
-    this     => 1,
-    expid    => [],
-    user     => '-e',
-    me       => 0,
-    short    => 0,
-    verbose  => 0,
+my %G = (
+    entries => 0,
+    match   => {
+        pid     => {},
+        cmdptrn => []
+    },
+    exclude => {
+        pid     => {},
+        cmdptrn => []
+    }
+);
+
+my %opt = (
     pid      => [],
     cmd      => [],
+    original => 0,
+    raw      => 0,
+    wrap     => 0,
+    trunc    => 0,
     color    => 1,
-    time     => 0,
-    rtime    => 0,
     filter   => 0,
     quiet    => 0,
+    forest   => 1,
+    head     => 1,
+    this     => 1,
+    user     => '-e',
+    short    => 0,
+    me       => 0,
+    time     => 0,
+    rtime    => 0,
     older    => 0,
-    forest   => 1
+    exclude  => [],
+    help     => 0,
+    verbose  => 0,
+    csv      => undef,
 );
 
 my %elapsed_fmt = (
@@ -61,7 +74,6 @@ GetOptions(
 
       head!
       this!
-      expid=i@
 
       user|U=s
       short
@@ -71,6 +83,10 @@ GetOptions(
       rtime
 
       older=f
+
+      exclude=s@
+
+      csv=s
 
       verbose
       help
@@ -90,8 +106,7 @@ my $ui  = '';
 if ( $uic == 0 ) {
     $ui = 'trunc';
 } elsif ( $uic == 1 ) {
-    $ui = ( grep { exists( $opt{$_} ) && $opt{$_} != 0 }
-          qw (raw wrap trunc original) )[0];
+    $ui = ( grep { exists( $opt{$_} ) && $opt{$_} != 0 } qw (raw wrap trunc original) )[0];
 } else {
     die "--trunc, --wrap, --raw, --original are mutex\n";
 }
@@ -116,13 +131,36 @@ if ( $opt{color} && $opt{filter} ) {
     $opt{color} = 0;
 }
 
-for my $search_arg (@ARGV) {
+## In addition to --pid and --cmd, we decode any @ARGV.
+for my $match_arg (@ARGV) {
     my $which = (
-        $search_arg =~ m/^\d+$/
+        $match_arg =~ m/^\d+$/
         ? 'pid'
         : 'cmd'
     );
-    push @{ $opt{$which} }, $search_arg;
+    if ( $which eq 'pid' ) {
+        $G{match}{pid}{$match_arg} = 1;
+        $G{entries}++;
+    } else {
+        push @{ $G{match}{cmdptrn} }, qr($match_arg);
+        $G{entries}++;
+    }
+}
+
+## We also decode exclusions.
+for my $exclusion ( @{ $opt{exclude} } ) {
+    my $which = (
+        $exclusion =~ m/^\d+$/
+        ? 'pid'
+        : 'cmd'
+    );
+    if ( $which eq 'pid' ) {
+        $G{exclude}{pid}{$exclusion} = 1;
+        $G{entries}++;
+    } else {
+        push @{ $G{exclude}{cmdptrn} }, qr($exclusion);
+        $G{entries}++;
+    }
 }
 
 ## 'idx' are all even because the "separator" columns are between them.  The
@@ -301,20 +339,11 @@ my @headcols = (
       keys %map
 );
 
-my $fmtcols = join(
-    ',',
+my $fmtcols = join( ',',
     map    { "$_->[1]$_->[2]" }
       sort { $a->[0] <=> $b->[0] }
-      map {
-        [
-            $map{$_}{idx}, $map{$_}{fmtcol},
-            exists( $map{$_}{wid} )
-            ? ":$map{$_}{wid}"
-            : ''
-        ]
-      }
-      keys %map
-);
+      map  { [ $map{$_}{idx}, $map{$_}{fmtcol}, exists( $map{$_}{wid} ) ? ":$map{$_}{wid}" : '' ] }
+      keys %map );
 my %std_head_map =
   map { $map{$_}{std}, $_ }
   keys %map;
@@ -353,6 +382,13 @@ my $pidcol     = $map{ $std_head_map{PID} }{idx};
 my $ppidcol    = $map{ $std_head_map{PPID} }{idx};
 my $ttcol      = $map{ $std_head_map{TT} }{idx};
 my $cmdcol     = $map{ $std_head_map{COMMAND} }{idx};
+my @colindexes;
+
+if ( $opt{csv} ) {
+    @colindexes = map { $map{ $std_head_map{$_} }{idx} } split( /,/, $opt{csv} );
+    $opt{head} = 0;
+}
+
 my $readpackfmt;
 my $ascii_bold_red   = '[1;31m';
 my $ascii_bold_green = '[1;32m';
@@ -435,18 +471,18 @@ while (<IH>) {
     $l =~ s/$f[$etimecol]/$etimereformat/;
     my $uncoloredl = $l;
 
-    if ( !@{ $opt{pid} } && !$opt{expid} && !@{ $opt{cmd} } && $opt{this} ) {
+    if ( !$G{entries} ) {
         ## No matching. Print every line.
         $print{$pid} = 1;
     } elsif ( ( !$opt{this} && $$ eq $pid )
-        or ( match_any( $pid, '' ) eq 'expid' )
-        or exists $noprint{$ppid} )
+        or exists $noprint{$ppid}
+        or exclusion_match( $pid, $cmd ) )
     {
         $noprint{$pid} = 1;
     } else {
         ## We are looking for a pid or a command
         my $match;
-        if ( match_any( $pid, $cmd ) ) {
+        if ( match( $pid, $cmd ) ) {
             ## We matched it. Figure out how far in we want to indent.
             my $cmd = substr( $l, $wrap_min );
             $cmd =~ m/^([|\s]+(?:\\_ )?)/;
@@ -460,8 +496,7 @@ while (<IH>) {
                     $l =~ s/$filt/${ascii_bold_red}${filt}${ascii_normal}/g;
                 }
                 $stripped = substr( $stripped, 0,
-                    ( length($stripped) - 1 ) -
-                      ( length($l) - length($uncoloredl) ) );
+                    ( length($stripped) - 1 ) - ( length($l) - length($uncoloredl) ) );
                 $striplead = length($stripped);
             }
 
@@ -493,7 +528,20 @@ while (<IH>) {
             }
         }
 
-        if ( $opt{trunc} ) {
+        if ( $opt{csv} ) {
+            push @{$current_proc_group}, {
+                sortval => $etimesec,
+                output  => join(
+                    ',',
+                    map {
+                        s/^\s+//;
+                        s/\s+$//;
+                        $_
+                    } @f[@colindexes]
+                  )
+                  . qq(\n)
+            };
+        } elsif ( $opt{trunc} ) {
             chomp $l;
             my $output = join(
                 '',
@@ -501,19 +549,16 @@ while (<IH>) {
                 substr(
                     $l,
                     $wrap_min + $striplead,
-                    $opt{trunc} -
-                      ( $wrap_min - ( length($l) - length($uncoloredl) ) )
+                    $opt{trunc} - ( $wrap_min - ( length($l) - length($uncoloredl) ) )
                 ),
                 "\n"
             );
             if ( $isthis and $opt{color} ) {
                 $output = "${ascii_bold_green}${output}${ascii_normal}";
             }
-            push @{$current_proc_group},
-              { sortval => $etimesec, output => $output };
+            push @{$current_proc_group}, { sortval => $etimesec, output => $output };
         } elsif ( $opt{wrap} ) {
-            my $ll =
-              substr( $l, 0, $wrap_min ) . substr( $l, $wrap_min + $striplead );
+            my $ll         = substr( $l, 0, $wrap_min ) . substr( $l, $wrap_min + $striplead );
             my $indent_idx = index( $ll, q(\\_) );
             if ( $indent_idx > -1 ) {
                 $indent_idx += 3;
@@ -523,18 +568,16 @@ while (<IH>) {
             my $output;
             if ($indent_idx) {
                 $Text::Wrap::columns = $opt{wrap};
-                $output = wrap( q(), ( q( ) x ( $indent_idx + 4 ) ), $ll );
+                $output              = wrap( q(), ( q( ) x ( $indent_idx + 4 ) ), $ll );
                 if ( $isthis and $opt{color} ) {
                     $output = "${ascii_bold_green}${output}${ascii_normal}";
                 }
-                push @{$current_proc_group},
-                  { sortval => $etimesec, output => $output };
+                push @{$current_proc_group}, { sortval => $etimesec, output => $output };
             } else {
                 if ( $isthis and $opt{color} ) {
                     $l = "${ascii_bold_green}${l}${ascii_normal}";
                 }
-                push @{$current_proc_group},
-                  { sortval => $etimesec, output => $l };
+                push @{$current_proc_group}, { sortval => $etimesec, output => $l };
             }
         } else {
             if ( $isthis and $opt{color} ) {
@@ -561,7 +604,7 @@ push @proc_groups,
         )
     }
   ]
-  if ( not $opt{filter} );
+  if ( not $opt{filter} and not $opt{csv} );
 
 if ( $opt{time} ) {
     ## Newest at the top. In any proc group, the oldest process will be the
@@ -578,7 +621,7 @@ if ( $opt{time} ) {
 
 if ( !@proc_groups ) {
     print "No process found for given filters\n"
-      if ( not $opt{quiet} );
+      if ( not $opt{quiet} and not $opt{csv} );
     exit UNIX_FALSE;
 } else {
     for my $proc_group (@proc_groups) {
@@ -589,18 +632,30 @@ if ( !@proc_groups ) {
 }
 exit UNIX_FALSE;
 
-sub match_any {
+sub match {
     my ( $pid, $cmd ) = @_;
-    for ( @{ $opt{pid} } ) {
-        return 'pid' if $pid eq $_;
+    if ( $G{match}{pid}{$pid} ) {
+        return 1;
     }
-    for ( @{ $opt{expid} } ) {
-        return 'expid' if $pid eq $_;
+    for my $ptrn ( @{ $G{match}{cmdptrn} } ) {
+        if ( $cmd =~ m/$ptrn/ ) {
+            return 1;
+        }
     }
-    for ( @{ $opt{cmd} } ) {
-        return 'cmd' if $cmd =~ m/$_/;
+    return 0;
+}
+
+sub exclusion_match {
+    my ( $pid, $cmd ) = @_;
+    if ( $G{exclude}{pid}{$pid} ) {
+        return 1;
     }
-    return '';
+    for my $ptrn ( @{ $G{exclude}{cmdptrn} } ) {
+        if ( $cmd =~ m/$ptrn/ ) {
+            return 1;
+        }
+    }
+    return 0;
 }
 
 sub calc_elapsed_seconds {
@@ -633,17 +688,18 @@ pssearch - ps with filtering
 =head1 SYNOPSIS
 
  pssearch [--pid=i...]
-          [--expid=i]
-          [--cmd="s"...]
+          [--cmdptrn='s'...]
           --[original|raw|wrap|trunc]
           [--[no]head]
           [--[no]this]
           [--[no]color]
+          [--csv='s']
           [ [--[user|U]=s] | --me ]
           [ --[r]time]
           [--verbose]
           [--older d]
-          [[pid|cmd]... ]
+          [--exclude pid|cmdptrn...]
+          [[pid|'cmdptrn']... ]
 
 =head1 DESCRIPTION
 
@@ -653,10 +709,10 @@ Run a 'ps' command and filter the output.
 
 =over 4
 
-=item pid or "cmd"
+=item pid or "cmdptrn"
 
 Numeric arguments are treated as if '--pid' was used. All other arguments are
-treated as if '--cmd' was used. The output will be filtered to include
+treated as if '--cmdptrn' was used. The output will be filtered to include
 processes whose pids and commands that match the arguments, plus their child
 processes. Multiple arguments are 'or'ed.
 
@@ -669,17 +725,24 @@ processes. Multiple arguments are 'or'ed.
 =item --pid
 
 Include the process that has this pid in the output. Also include its child
-processes. More than one instance can be specified.
+processes. Will not include the parent processes. More than one instance can be
+specified.
 
-=item --expid
-
-Do not include the process that has this pid in the output. Not sure if child
-processes would be included. More than one instance can be specified.
-
-=item --cmd
+=item --cmdptrn
 
 Include the process whose command matches this regular expression in the
-output. Also include its child processes. More than one instance can be
+output. Also include its child processes. Will not include the parent
+processes. More than one instance can be specified.
+
+=item --exclude='s'
+
+If 's' is a number, exclude the process that has this pid in the output. Also
+exclude its child processes. Will not exclude its parent processes. More than
+one instance can be specified.
+
+Otherwise 's' is considered to be a pattern; exclude the process whose command
+matches this regular expression in the output. Also exclude its child
+processes. Will not exclude the parent processes. More than one instance can be
 specified.
 
 =item --original|--raw|--wrap|--trunc
@@ -709,6 +772,21 @@ output. Default is to include it.
 
 Do or do not highlight any text that matches any pid or cmd argument used as a
 filter. Default is to color the matches.
+
+=item --csv
+
+'s' is a comma-separated list of the columns to print, comma-separated. The available columns are:
+
+ STARTED
+ ELAPSED
+ UID
+ PID
+ PPID
+ TT
+ COMMAND
+
+Headers, footers and the "No process found for given filters" message are
+suppressed.
 
 =item --user
 
