@@ -449,6 +449,17 @@ for (@ARGV){
         check "$G_tfile" \
               "Write your emacs buffers for these files:"
 
+        for i in "${files[@]}"; do
+            ##
+            ## check: First line should be shebang or package, or even data, but certainly not blank
+            ##
+            if [[ $(head -1 "$i" | wc -w) == '0' ]]; then
+                echo "$i"
+            fi
+        done 1>"$G_tfile" 2>&1
+        check "$G_tfile" \
+              "One or more files has blank first line. Check for misplaced shebang or packaging statements."
+
         ##
         ## check: constructs for bypassed or dead code
         ##
@@ -470,7 +481,8 @@ for (@ARGV){
                 ##
                 ## check: Perl debug statements
                 ##
-                # shellcheck disable=2016
+                # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                # We want to pass the $ into the grep.
                 grep -H -n -E '\$DB::s(ingle|tep)' "${perlfiles[@]}" 1>"$G_tfile" 2>&1
                 check "$G_tfile" \
                       "One or more files has Perl-debugger-related statements. Please remove instrumentation."
@@ -496,7 +508,7 @@ for (@ARGV){
                         cartonexec=''
                         if [[ -e "$G_gitroot/runtests.local" ]]; then
                             pre_commit_ok_echo "Sourcing $G_gitroot/runtests.local for perl compile tests."
-                            # shellcheck disable=SC1090
+                            # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
                             . "/$G_gitroot/runtests.local"
                             if [[ "$RUNTESTS_USE_CARTON" = '1' ]]; then
                                 cartonexec='carton exec'
