@@ -25,6 +25,7 @@ git-repo-check-with ()
     if [[ $arg1 =~ ^--def ]]; then
         shift
         local branch_name
+        # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
         branch_name=$(git-repo-default-branch)
         ## clone-and-fork repos need to check with the default branch in the
         ## canonical upstream branch.  If there is no 'upstream', then it's
@@ -395,10 +396,9 @@ git-repo-diff ()
             else
                 cmd-echo --id git-repo -- '-----'
                 local diffcmd
-                # shellcheck disable=SC2230
                 diffcmd=$(which colordiff 2>/dev/null)
-                # shellcheck disable=SC2209 # We don't want to run diff, just
-                # prepare the command
+                # shellcheck disable=SC2209 #https://github.com/koalaman/shellcheck/wiki/SC2209
+                # We don't want to run diff, just prepare the command
                 ( [[ -z "$diffcmd" ]] || ((nocolor)) ) && diffcmd=diff
                 $diffcmd "$side_by_side" "${leftf}" "${rightf}"
                 echo
@@ -543,7 +543,6 @@ git-repo-is_openpr ()
     local -a output
     for tgt_namespace in "${!namespaces[@]}"; do
         local tmpfile;
-        # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
         tmpfile=$(mktempfile)
         rm-on-exit "$tmpfile"
         github-api --server "$server" --perl-data pulls "$tgt_namespace/$repo" > "$tmpfile"
@@ -662,6 +661,7 @@ _git-repo-pr-get-lookup-pr-state ()
         fi
     else
         # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+        # https://github.com/koalaman/shellcheck/issues/817
         pr_timestamp=$(jq -r .updated_at "$jsondata")
     fi
 }
@@ -710,7 +710,9 @@ git-repo-pr-get ()
             if [[ "$remote_url" =~ ^http(s)? ]];
             then
                 # shellcheck disable=SC2183 #https://github.com/koalaman/shellcheck/wiki/SC2183
+                # The call returns enough strings to satisfy the printf
                 # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
+                # We need word slpitting from the call to get the three strings
                 remote_url=$(printf "%s:%s/%s" $(git utils decode-http "$remote_url"))
             fi
             break
@@ -743,7 +745,8 @@ git-repo-pr-get ()
 
     if ((opt_refresh==0)); then
         _git-repo-pr-retrieve pr_cache_url pr_cache_state pr_cache_date pr_cache_title pr_cache_as_of pr_cache_version
-        # else we don't get any data, which causes cached to be set to no
+        # else we don't get any data, which causes cached to be set to no later.
+        # _git-repo-pr-retrieve passes data back using args-by-ref
     fi
 
     local cached
@@ -782,6 +785,7 @@ git-repo-pr-get ()
             ## changed.
             _git-repo-pr-get-lookup-pr-state "$pr_cache_url" "$remote_svc" "$remote_repo" pr_now_state pr_now_date pr_now_title
             # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
+            # pr_now_* set via args-by-ref call above
             if [[ $pr_now_state == "$pr_cache_state" ]]; then
                 # updates the cache date, keeps url, state and title the same.
                 _git-repo-pr-store "$pr_cache_url" "$pr_now_state" "$pr_now_date" "$pr_now_title"
@@ -1070,7 +1074,6 @@ git-repo-tags ()
     git tag --list --sort=v:refname
 }
 
-# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-source-branch ()
 {
     local current_branch

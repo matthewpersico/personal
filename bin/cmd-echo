@@ -5,7 +5,6 @@
 
 ## ANSI_reset is in the env, variable is not all caps, so shellcheck
 ## complains.
-# shellcheck disable=SC2154
 declare reset_normal="${ANSI_RESET}"
 declare reset_title=''
 declare nonl=''
@@ -57,6 +56,8 @@ colors+=(
     [INFO]="${colors[INVGREEN]}"
 )
 
+declare holdstdout
+
 declare msg_status=''
 declare interactive=1
 [[ ! -t 1 ]] && interactive=0
@@ -86,8 +87,6 @@ while true; do
             reset_normal=''
             ;;
         id )
-            # shellcheck disable=SC2034 # id is referenced indirectly below:
-            ##                               for i in "id" "msg_status"
             id="$1"; shift ;;
         l | lineno )
             lineno=$1;shift
@@ -208,17 +207,14 @@ else
     fi
 fi
 if ((opt_stderr)); then
-    holdstdout=$(get-next-descriptor)
-    eval "exec $holdstdout>&1"  ## Link file descriptor with stdout, which saves stdout.
-    exec 1>&2  ## Re-point stdout to the log.
+        holdstdout=$(get-next-descriptor)
+        eval "exec $holdstdout>&1"  ## Link file descriptor with stdout, which saves stdout.
+        exec 1>&2  ## Re-point stdout to stderr. Now we don't need to
+                   ## conditionally redirect every echo call.
 
-    ## We set up a trap here to make sure that if the command dies so hard that
-    ## the rest of this script does not run, we get something from the shunted
-    ## output.
-    # shellcheck disable=SC1078
-    # shellcheck disable=SC1079
-    trap "eval ""exec 2>&$holdstderr $holdstderr>&-""      ## Restore stderr and close file descriptor.
-     " SIGTERM SIGINT SIGFPE SIGBUS
+        ## We set up a trap here to make sure we unwind the redirects on success or failure
+        trap "eval ""exec 1>&$holdstdout $holdstdout>&-""
+     " SIGTERM SIGINT SIGFPE SIGBUS EXIT
 fi
 ((head)) && echo
 declare argcnt="$#"
