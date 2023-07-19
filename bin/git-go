@@ -12,19 +12,49 @@ use on_exit
 
 tail-number-strip ()
 {
-    local a
+    local a notime
     for a in "$@"; do
-        echo "${a% (*}"
+        notime="${a##*:}"
+        echo "${notime% (*}"
     done
 }
 
 tail-number-add ()
 {
     local i=0
-    for a in "$@"; do
-        ((i+=1))
-        printf '%s (%d\n' "$a" "$i"
-    done
+    local addtime=0
+    if [[ $1 == '--time' ]] || [[ $1 == '--notime' ]]; then
+        [[ $1 == '--time' ]] && addtime=1;
+        shift;
+    fi
+    if (( ! addtime )) ; then
+        for a in "$@"; do
+            ((i+=1))
+            printf '%s (%d\n' "$a" "$i"
+        done
+    else
+        declare gitfuncs_git_went_file="${TILDAE:-$HOME}/gits/.git-went"
+        declare repo secs time line
+        declare -a lines
+        for a in "$@"; do
+            # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+            read -r repo secs < <(grep -E "^$a " "$gitfuncs_git_went_file")
+            if [[ -n $secs ]]; then
+                time="$(date -d @"$secs"):"
+            else
+                time=''
+            fi
+            line=$(printf '%d|%s%s' "$secs" "$time" "$a")
+            lines+=("$line")
+        done
+        declare sorted
+        readarray -t sorted < <(printf '%s\n' "${lines[@]}" | sort -n)
+        for a in "${sorted[@]}"; do
+            ((i+=1))
+            printf '%s (%d\n' "${a##*|}"  "$i"
+        done
+
+    fi
 }
 
 declare PS3
@@ -50,6 +80,8 @@ declare opt_comma
 opt_comma=0
 declare opt_top
 opt_top=0
+declare opt_time
+opt_time='--notime'
 declare -a limited
 declare -a tgts
 declare doandcdfile
@@ -65,7 +97,7 @@ longopts="$longopts,wc,with-comments,wco,with-comments-only"
 longopts="$longopts,list,lf,listfull,size,update"
 longopts="$longopts,wt,nowt,wto"
 longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
-longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,set,top:"
+longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,set,top:,time"
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$0" -- "$@") || exit
@@ -116,6 +148,7 @@ while true; do
         prune ) cmd-echo --id git-go -- Working...
                 git go-prune; true; exit;;
         top) opt_top=$1; shift ;;
+        time ) opt_time='--time';;
         h | help ) git-usage "$0"; true; exit ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
@@ -283,7 +316,7 @@ else
             cmd-echo --id git-go -- "Matches only ${REPOS[0]}. Going there."
             REPO=${REPOS[0]}
         else
-            readarray -t REPOS < <(tail-number-add "${REPOS[@]}")
+            readarray -t REPOS < <(tail-number-add $opt_time "${REPOS[@]}")
             COLUMNS=1 ## One character wide terminal, forces list to be one
                       ## column.
 
@@ -419,6 +452,12 @@ Usage: git go [options] [ filter [filter...] ]
    --top n
        Return only the first 'n' items of a list. Useful to present the base
        repo when there are a lot of worktrees.
+
+   --time
+      Sort the list by the last time the repo was entered using 'git-go', from
+      earliest to latest, showing the 'cd' time on the left. Repos not yet
+      entered after this functionality was added will show no time. and will
+      sort alphabetically.
 
    'filter' will filter the list using grep.
 
