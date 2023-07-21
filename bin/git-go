@@ -10,7 +10,7 @@ fi
 use mktemp
 use on_exit
 
-line-dehance ()
+_line-dehance ()
 {
     local a notime
     for a in "$@"; do
@@ -19,7 +19,7 @@ line-dehance ()
     done
 }
 
-line-enhance ()
+_line-enhance ()
 {
     local i=0
     local addtime=0
@@ -57,8 +57,27 @@ line-enhance ()
     fi
 }
 
+_set-and-go ()
+{
+    local repo=$1
+    local doandcdfile=$2
+
+    if [[ -n "$repo" ]]; then
+        declare full_repo="${TILDAE:-$HOME}/"${repo##"${TILDAE:-$HOME}/"}
+        if [[ ! -d "$full_repo" ]]; then
+            cmd-echo --id git-go --ec -- "'$repo' does not exist. It will be removed from consideration."
+            git go-set
+            false; exit
+        fi
+        ## dirlist, not builtin cd, to take advantage this cd enhancement
+        dirlist "$full_repo"
+    fi
+
+    [[ -n "$doandcdfile" ]] && echo "dirlist ${PWD}" > "$doandcdfile"
+}
+
 declare PS3
-PS3="Choose by number, /string to rematch, q to quit: "
+PS3="Choose by number, /string to rematch, --time to redisplay with times, q to quit: "
 declare -a git_get_opts
 declare opt_list
 opt_list=0
@@ -82,6 +101,8 @@ declare opt_top
 opt_top=0
 declare opt_time
 opt_time='--notime'
+declare opt_root
+opt_root='0'
 declare -a limited
 declare -a tgts
 declare doandcdfile
@@ -98,6 +119,7 @@ longopts="$longopts,list,lf,listfull,size,update"
 longopts="$longopts,wt,nowt,wto"
 longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
 longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,set,top:,time,notime"
+longopts="$longopts,root"
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$0" -- "$@") || exit
@@ -150,6 +172,7 @@ while true; do
         top) opt_top=$1; shift ;;
         time ) opt_time='--time';;
         notime ) opt_time='--notime';;
+        root ) opt_root=1;;
         h | help ) git-usage "$0"; true; exit ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
@@ -159,6 +182,12 @@ while true; do
             ;;
     esac
 done
+
+if ((opt_root)); then
+    _set-and-go "$(git root)" "$doandcdfile"
+    true; exit
+fi
+
 if ((opt_stat!=2)) && ((opt_brief)); then
     cmd-echo --id git-go -ec -- "Cannot specify --brief without --dirty"
     git-usage "$0"; false; exit
@@ -192,7 +221,7 @@ tgts=("${tgts[@]:1}")
 
 ## The rest need the REPOS feedback.
 for tgt in "${tgts[@]}"; do
-    readarray -t tns < <(line-dehance "${REPOS[@]}")
+    readarray -t tns < <(_line-dehance "${REPOS[@]}")
     declare alltgts
     ajoin alltgts -s ',' "${tns[@]}"
     readarray -t REPOS < <(git go-get --limited "$alltgts" "$tgt")
@@ -317,7 +346,7 @@ else
             cmd-echo --id git-go -- "Matches only ${REPOS[0]}. Going there."
             REPO=${REPOS[0]}
         else
-            readarray -t REPOS < <(line-enhance $opt_time "${REPOS[@]}")
+            readarray -t REPOS < <(_line-enhance $opt_time "${REPOS[@]}")
             COLUMNS=1 ## One character wide terminal, forces list to be one
                       ## column.
 
@@ -326,19 +355,23 @@ else
                     exit
                 fi
                 if [[ -n "$REPO" ]]; then
-                    REPO=$(line-dehance "$REPO")
+                    REPO=$(_line-dehance "$REPO")
                     break
                 elif [[ "${REPLY,,}" = 'q' ]]; then
                     exit
-                elif [[ "$REPLY" =~ ^/ ]]; then
+                elif [[ "$REPLY" =~ ^/ ]] || [[ "$REPLY" = '--time' ]]; then
+                    if [[ "$REPLY" = '--time' ]]; then
+                        opt_time="$REPLY"
+                        REPLY='/'
+                    fi
                     declare repolist
                     # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
-                    # Wants to quote "$(trail_number_strip...), but we need the
+                    # Wants to quote "$(_line__number_strip...), but we need the
                     # output to be individual items so that ajoin works. Will
                     # be an issue if a path has a space in it.
-                    ## TODO - line-dehance should take an array as a target and not
+                    ## TODO - _line-dehance should take an array as a target and not
                     ## use 'echo' to return its output.
-                    ajoin repolist -s ',' $(line-dehance "${REPOS[@]}")
+                    ajoin repolist -s ',' $(_line-dehance "${REPOS[@]}")
                     git go "$opt_time" --limited "$repolist" "${REPLY#/}"
                     break
                 else
@@ -349,17 +382,7 @@ else
     fi
 fi
 
-if [[ -n "$REPO" ]]; then
-    if [[ ! -d "${TILDAE:-$HOME}/$REPO" ]]; then
-        cmd-echo --id git-go --ec -- "'$REPO' does not exist. It will be removed from consideration."
-        git go-set
-        false; exit
-    fi
-    ## dirlist, not builtin cd, to take advantage this cd enhancement
-    dirlist "${TILDAE:-$HOME}/${REPO}"
-fi
-
-[[ -n "$doandcdfile" ]] && echo "dirlist ${PWD}" > "$doandcdfile"
+_set-and-go "$REPO" "$doandcdfile"
 
 true
 
@@ -459,6 +482,10 @@ Usage: git go [options] [ filter [filter...] ]
       earliest to latest, showing the 'cd' time on the left. Repos not yet
       entered after this functionality was added will show no time. and will
       sort alphabetically.
+
+   --root
+      Go directly to the root level of the current repo, ostensibly from some
+      subdir of the repo, no menu presented.
 
    'filter' will filter the list using grep.
 
