@@ -3,6 +3,39 @@
 
 # git-status
 
+process_group ()
+{
+    local whereweare
+    whereweare="$(realpath "${PWD}")"
+
+    local shouldbein
+    shouldbein="$GITENV_REPO_ROOT"
+    if [[ -z $shouldbein ]]; then
+        shouldbein="$(git config --get --expand ext.git-repo-root.root)"
+    fi
+
+    if [[ $whereweare =~ $shouldbein ]] ; then
+        cmd-echo --infoc --title --id "git status --group" "$whereweare"
+        git stx "$@"
+
+        local -a wts
+        readarray -t wts < <(git go --listfull "$(basename "$whereweare")")
+        local sibling
+        for sibling in "${wts[@]}";
+        do
+            if [[ "$sibling" != "$whereweare" ]]; then
+                cmd-echo --infoc --title --id "git status --group" "$sibling"
+                (if cd "$sibling"; then
+                     git stx "$@"
+                 else
+                     cmd-echo -w "Cannot find '$sibling'"
+                 fi
+                )
+            fi
+        done
+    fi
+}
+
 main ()
 {
     if [[ $1 =~ -ext$ ]];
@@ -15,6 +48,12 @@ main ()
 
     if [[ "$1" =~ ^-+h ]]; then
         git-usage "$0"
+        return
+    fi
+
+    if [[ "$1" =~ ^-+group ]]; then
+        shift
+        process_group "$@"
         return
     fi
 
