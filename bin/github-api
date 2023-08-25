@@ -19,6 +19,18 @@ curl-cat ()
     cat -v "${curldata}"*
 }
 
+decode-html-status ()
+{
+    # $1 is the file of curl headers
+    local status
+    status=$(grep -i "status:" "$1" | sed -e 's/status: //i' -e 's/ .*//')
+    if [[ -z $status ]]; then
+        # github has no Status: field in the headers. Bummner.head -1 "$1" | perl -ane 'print $F[-1]'
+        status=$(head -1 "$1" | perl -ane 'print $F[-1]')
+    fi
+    echo "$status"
+}
+
 main ()
 {
     ## If there's any chance that this will be in a script that will be dotted in,
@@ -353,7 +365,7 @@ main ()
 
         local -a pagenums
         local page_links
-        page_links=$(grep -E '^Link: ' "$curlheaders" )
+        page_links=$(grep -i -E '^Link: ' "$curlheaders" )
         if [[ -n $page_links ]]; then
             # shellcheck disable=SC2207 #https://github.com/koalaman/shellcheck/wiki/SC2207
             pagenums=($(perl -e '$ARGV[0] =~ m/.*?page=(\d+).*?page=(\d+)/;print "$1 $2\n";' "$page_links"))
@@ -378,7 +390,6 @@ main ()
                     "${curlopts[@]}" \
                     "${server_url}${url}${otherparams[*]}&page=$pagenum" -s > "${curldata}.${pageprint}" 2>&1
                 local status=$?
-
                 if ((status)); then
                     github-api-echo -- "curl returned with error :$status"
                     curl-cat
@@ -386,7 +397,7 @@ main ()
                 fi
 
                 local htmlstatus
-                htmlstatus=$(head -1 "$curlheaders" | sed -e 's/HTTP.1.1 //' -e 's/ .*//')
+                htmlstatus=$(decode-html-status "$curlheaders")
                 case $htmlstatus in
                     200 )
                         ## Consolidate paged data.
@@ -433,11 +444,7 @@ END { print(qq(]\n)); }
             mv "$curldata_relist" "$curldata"
         fi
         local htmlstatus
-        htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
-        if [[ -z $htmlstatus ]]; then
-            # github has no Status: field in the headers. Bummner.
-            htmlstatus=$(grep -E '^HTTP/[0-9.]+' "$curlheaders" | tail -1 | sed -E -e 's/^HTTP\/[0-9.]+\s*//' -e 's/ .*//')
-        fi
+        htmlstatus=$(decode-html-status "$curlheaders")
         case $action in
             repos )
                 if [[ -n $repo ]]; then
