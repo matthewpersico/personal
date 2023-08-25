@@ -14,6 +14,27 @@ _git-repo-date-to-epoch ()
     date -d "${1/./ }" +%s
 }
 
+_git-repo-get-wt-or-br-create-date ()
+{
+    local -a lines
+    local cb; cb="$(git-repo-current-branch)"
+    local wt; wt="$(git worktree ina -v)"
+
+    local key
+    local value
+    local crdate
+    # current branch create date
+    local cbcd; cbcd=$(git config --get-regexp "branch.${cb}\.extmeta-created")
+    read -r key crdate <<< "$cbcd"
+
+    local wtcd; wtcd=$(git config --get-regexp "worktree.${wt}\.extmeta-created")
+    read -r key value <<< "$wtcd"
+    if [[ "$value" < "$crdate" ]]; then
+        crdate=$value
+    fi
+    echo "${crdate/./T}"
+}
+
 git-repo-check ()
 {
     git-repo-check-with "$@"
@@ -804,10 +825,14 @@ git-repo-pr-get ()
     if [[ $cached == 'no' ]]; then
         local perldata; perldata=$(mktempfile -+perldata)
         rm-on-exit "$perldata"
+        ## TODO: Update github-api to take --date-limit instead of --page-limit
+        ## local max_back_date; max_back_date=$(_git-repo-get-wt-or-br-create-date)
+        ## --date-limit body->created_at YYYY-MM-DDTHH:MM:SS
         github-api --page-limit 5 --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
         local corg; corg=$(git-repo-org)
         local -a pr_now
-        local -a debug=() ## (-d:ptkdb -MData::Dumper) ## no-ptkdb-issue
+        local -a debug=()
+        ## debug=(-d:ptkdb -MData::Dumper) ## no-ptkdb-issue
         read -r -a pr_now < <(perl "${debug[@]}" -e '
 ## Gets the latest (because the data is sorted newest to oldest) pull request
 ## for this branch on this org.
