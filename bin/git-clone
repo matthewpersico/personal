@@ -259,10 +259,18 @@ main ()
         cmd-echo -- "You must be in a directory path ending in"\
                  "   $githost" \
                  "You are in $cwpath"
-        local shouldbein="$GITENV_REPO_ROOT"
+        local shouldbein
+        for shouldbein in "$GITENV_REPO_ROOT" \
+                              "$(git config --get --expand ext.git-repo-root.root)"; do
+            if [[ -n $shouldbein ]] && [[ -d $shouldbein ]]; then
+                break
+            fi
+        done
         if [[ -z $shouldbein ]]; then
-            shouldbein="$(git config --get --expand ext.git-repo-root.root)/$githost"
+            cmd-echo -ec -- "Cannot find any git root." "Correct and re-execute."
+            false; return;
         fi
+        shouldbein="$shouldbein/$githost"
         if [[ ! -d "$shouldbein" ]]; then
             cmd-echo -ec -- "Cannot find '$shouldbein'." "Correct and re-execute."
             false; return
