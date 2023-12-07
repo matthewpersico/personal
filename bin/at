@@ -3,6 +3,7 @@
 
 # at
 
+[[ $1 =~ -h ]] && bash-usage "$0" man at && { true; exit; }
 if (($#==0)); then
     cmd-echo --id at 'Enhanced atq...'
     declare -a atqs
@@ -21,21 +22,67 @@ if (($#==0)); then
     true; exit
 fi
 
+cmd-echo --id at 'Enhanced at...'
+if [[ -z $1 ]]; then
+    echo "$0 when -f commandfile"
+fi
+
+export AT_RUN=1 # So code can figure out if it is running under 'at'
+
+declare -a argv
+declare arg
+for arg in "$@"; do
+    if [[ -f $arg ]] || [[ -d $arg ]]; then
+        argv+=("$(realpath "$arg")")
+    else
+        argv+=("$arg")
+    fi
+done
+
 declare system_at
 system_at=$(which -a at | tail -1)
-declare -a jobinfo
-export AT_RUN=1
-$system_at "$@" > /tmp/at.$$ 2>&1
+
+$system_at "${argv[@]}" > /tmp/at.$$ 2>&1
 status=$?
 cat /tmp/at.$$
+
+declare -a jobinfo
 read -r -a jobinfo < <(cat /tmp/at.$$)
 if ((status == 0)); then
     # Unset does not REMOVE, but for the purposes of string printing setting to
     # 'undef' works just fine.
     unset "jobinfo[0]"
     unset "jobinfo[2]"
-    declare -a args=("$@")
     ( flock -w 5 9 || exit
-      echo "${jobinfo[*]} ? $USER ${args[*]}" >> ~/.atqlist
+      echo "${jobinfo[*]} ? $USER ${argv[*]}" >> ~/.atqlist
     ) 9>~/.atqlock
 fi
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+at - a wrapper around the 'at' and 'atq' commands.
+
+=head1 SYNOPSIS
+
+ at TIME -f command_script
+ at
+ at -h
+
+=head1 DESCRIPTION
+
+Wraps the two most obvious calls - start a command file now and show me what's running.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item TIME
+
+See 'man at' for the details. "now" works. So do "now + X hours", "5pm", etc.
+
+=back
+
+=cut
+
+__PODUSAGE__

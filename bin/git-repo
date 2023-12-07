@@ -24,10 +24,10 @@ _git-repo-get-wt-or-br-create-date ()
     local value
     local crdate
     # current branch create date
-    local cbcd; cbcd=$(git config --get-regexp "branch.${cb}\.extmeta-created")
+    local cbcd; cbcd=$(git config --get-regexp "branch.${cb}\.${GIT_EXT_META_PREFIX}-created")
     read -r key crdate <<< "$cbcd"
 
-    local wtcd; wtcd=$(git config --get-regexp "worktree.${wt}\.extmeta-created")
+    local wtcd; wtcd=$(git config --get-regexp "worktree.${wt}\.${GIT_EXT_META_PREFIX}-created")
     read -r key value <<< "$wtcd"
     if [[ "$value" < "$crdate" ]]; then
         crdate=$value
@@ -599,7 +599,7 @@ git-repo-info ()
     local cb; cb="$(git-repo-current-branch)"
     local wt; wt="$(git worktree ina -v)"
 
-    mapfile                 -t                 lines < <(git config --get-regexp "extmeta\." | sort)
+    mapfile                 -t                 lines < <(git config --get-regexp "${GIT_EXT_META_PREFIX}\." | sort)
     [[ -n $cb ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "branch.${cb}\." | sort)
     [[ -n $wt ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "worktree.${wt}\." | sort)
     mapfile                 -t -O ${#lines[@]} lines < <(git config --get-regexp "remote\.*\.url" | sort)
@@ -687,7 +687,7 @@ _git-repo-pr-get-lookup-pr-state ()
     fi
 }
 
-declare PR_CACHE_VERSION='2'
+declare PR_CACHE_VERSION='2' # also in git-repo-pr-store
 
 git-repo-pr-get ()
 {
@@ -776,7 +776,8 @@ git-repo-pr-get ()
            [[ -z $pr_cache_date ]] || \
            [[ -z $pr_cache_title ]] || \
            [[ -z $pr_cache_version ]] || \
-           [[ ! $pr_cache_version == "$PR_CACHE_VERSION" ]]
+           [[ ! $pr_cache_version == "$PR_CACHE_VERSION" ]] || \
+           [[ $pr_cache_state == 'CREATING' ]]
     then
         cached='no'
     else
@@ -809,7 +810,7 @@ git-repo-pr-get ()
             # pr_now_* set via args-by-ref call above
             if [[ $pr_now_state == "$pr_cache_state" ]]; then
                 # updates the cache date, keeps url, state and title the same.
-                _git-repo-pr-store "$pr_cache_url" "$pr_now_state" "$pr_now_date" "$pr_now_title"
+                git-repo-pr-store "$pr_cache_url" "$pr_now_state" "$pr_now_date" "$pr_now_title"
                 pr_url="$pr_cache_url"
                 pr_state="$pr_now_state"
                 pr_date="$pr_now_date"
@@ -871,12 +872,17 @@ for $pull (@{$VAR1}) {
 }
 exit UNIX_TRUE;' "$perldata" "$corg" "$cb")
         if [[ -z ${pr_now[0]} ]]; then
+            if [[ $pr_cache_state == 'CREATING' ]]; then
+                # Bail. Don't write anything. Keep looking every time we are
+                # called until a PR is created.
+                false; return
+            fi
             # Cache the no
-            _git-repo-pr-store --noopenpr
+            git-repo-pr-store --noopenpr
             false; return
         else
             ## Cache the PR and its state
-            _git-repo-pr-store "${pr_now[@]}"
+            git-repo-pr-store "${pr_now[@]}"
             pr_url=${pr_now[0]}
             pr_state=${pr_now[1]}
             pr_date=${pr_now[2]}
@@ -911,45 +917,6 @@ exit UNIX_TRUE;' "$perldata" "$corg" "$cb")
         fi
     fi
     true
-}
-
-_git-repo-pr-store ()
-{
-    local pr_url
-    local pr_state
-    local pr_date
-    local pr_title
-    if [[ $1 == '--noopenpr' ]]; then
-        pr_url="NOOPENPR"
-        pr_state="NOSTATE"
-        pr_date="1970-01-01T00:00:01Z"
-        pr_title="NOTITLE"
-    else
-        pr_url=${1}
-        pr_state=${2}
-        pr_date=${3}
-        pr_title="${*:4}"
-    fi
-
-    local wt; wt=$(git worktree ina -v)
-    local cb; cb=$(git-repo-current-branch)
-    local asof; asof="$(date "$GIT_EXT_META_DATE_FMT")"
-    if [[ -n $wt ]]; then
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-title" "$pr_title"
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
-    fi
-    if [[ -n $cb ]]; then
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-title" "$pr_title"
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
-    fi
 }
 
 _git-repo-pr-retrieve ()
@@ -1169,6 +1136,7 @@ main()
 
     case $action in
         status | st ) action=info;;
+        del ) action=delete;;
     esac
 
     action_func_name="git-repo-${action}"
@@ -1204,7 +1172,7 @@ git-repo - act on or interrogate the current repo
  n git-repo check
  n git-repo current-branch
  n git-repo default-branch
-   git-repo delete
+   git-repo del[ete]
  o git-repo diff
    git-repo is
    git-repo ina

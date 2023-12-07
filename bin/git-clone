@@ -283,6 +283,7 @@ main ()
     fi
     local tgt="$namespace/$tgtdir"
     local forked_repo
+    local forked_from
     if ((opt_make_fork)); then
         ## Then try to make a fork of the repo from the upstream org
         ## supplied. If the fork exists on the server, no harm no foul; we just
@@ -301,6 +302,7 @@ main ()
                 cmd-echo -wc -- "Forked repo of $repo is named $forked_repo. Will reference $forked_repo going forward, but still use $tgtdir as the local repo directory, as requested."
             fi
         fi
+        forked_from="$(git kv --get browser-urls."$githost")/$opt_triangle_namespace/$repo"
     fi
     if [[ -e "$tgt" ]]; then
         local resp
@@ -328,8 +330,9 @@ main ()
     fi
 
     ## Do the clone
-    cmd-echo -- "$REALGIT clone ${pass_on[*]} ${githost_url}$namespace/${forked_repo:-$repo} $tgt ..."
-    if ! $REALGIT clone "${pass_on[@]}" "${githost_url}$namespace/${forked_repo:-$repo}" "$tgt"; then
+    local cloned_from="${githost_url}$namespace/${forked_repo:-$repo}"
+    cmd-echo -- "$REALGIT clone ${pass_on[*]} $cloned_from $tgt ..."
+    if ! $REALGIT clone "${pass_on[@]}" "$cloned_from" "$tgt"; then
         return
     fi
 
@@ -338,6 +341,19 @@ main ()
         builtin cd "$tgt" || exit
         _git_clone_record_created_date
         ((opt_use_named_branches)) && _git_clone_record_named_branches
+        if [[ -e "${BLOOMBERGBIN}/get-source-package-info" ]]; then
+            declare -a package_info
+            mapfile -t package_info < <(get-source-package-info "$repo" pwhoId group)
+            if ((  ${#package_info[@]} > 0 )); then
+                git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.pwho-id "${package_info[0]}"
+                git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.drqs-group "${package_info[1]}"
+            fi
+            if [[ -n $forked_from ]]; then
+                git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.forked-from "$forked_from"
+            else
+                git config --replace-all "${GIT_EXT_META_PREFIX}".git-clone.cloned-from "$forked_from"
+            fi
+        fi
     )
 
     if ((opt_t)); then

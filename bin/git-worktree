@@ -81,6 +81,31 @@ _git_worktree_info_add_fetched_date ()
     git config --replace-all "worktree.$1.${GIT_EXT_META_PREFIX}-fetched" "$(date "$GIT_EXT_META_DATE_FMT")"
 }
 
+_git_worktree_set_triangle ()
+{
+    declare branch_from=$1
+    declare branch_from_ref=$2
+    local -a branch_parts
+    asplit "$branch_from_ref" -s '/' -a branch_parts
+    # branch parts will contain
+    # remote [origin|upstream] one-or-more-entries (depending on if slashes were used in the branch name)
+    if [[ ${branch_parts[0]} == 'remotes' ]]; then
+        ashift branch_parts
+    fi
+    local remote
+    ashift branch_parts remote
+    local full_branch_name
+    ajoin full_branch_name -s '/' "${branch_parts[@]}"
+
+    local -A triangle_workflow
+    triangle_workflow[branch.${branch_from}.merge]="refs/heads/${full_branch_name}"
+    triangle_workflow[branch.${branch_from}.mergeoptions]="--ff-only"
+    triangle_workflow[branch.${branch_from}.remote]=$remote
+    for key in "${!triangle_workflow[@]}"; do
+        git config --replace-all "$key" "${triangle_workflow[$key]}" || return
+    done
+}
+
 git-worktree-set ()
 {
     local key=$1;shift
@@ -383,23 +408,40 @@ git-worktree-create ()
             if [[ -n $branch_from ]]; then
                 ## $branch_from is the branch name. We need the full branch ref
                 ## here. Get it and check it.
-                local -a all_refs=("${REALGIT}" branch -a)
-                readarray -t branch_from_ref < <("${REALGIT}" branch -a | grep -e "upstream/${branch_from}$" | sed -E 's/^\s+//')
+                if [[ $branch_from =~ master|main ]]; then
+                    # Typical default
+                    branch_from="upstream/$branch_from"
+                fi
+                local -a all_refs
+                all_refs=$("${REALGIT}" branch -a)
+                readarray -t branch_from_ref < <("${REALGIT}" branch -a | grep -e "${branch_from}$" | sed -E 's/^\+{0,1}\s+//')
                 case ${#branch_from_ref[@]} in
                     0 ) cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch '$branch_from' not found in refs list:" "${all_refs[@]}" "Aborting"
                         false; return;;
-                    1 ) # Set up "triangle workflow'.Only need the branch
+                    1 ) # Set up "triangle workflow'. Only need the branch
                         # specific pieces. The rest of it was set up when the
                         # fork was cloned.
+                        local -a branch_parts
+                        asplit "${branch_from_ref[0]}" -s '/' -a branch_parts
+                        # branch parts will contain
+                        # remote [origin|upstream] one-or-more-entries (depending on if slashes were used in the branch name)
+                        if [[ ${branch_parts[0]} == 'remotes' ]]; then
+                            ashift branch_parts
+                        fi
+                        local remote
+                        ashift branch_parts remote
+                        local full_branch_name
+                        ajoin full_branch_name -s '/' "${branch_parts[@]}"
+
                         local -A triangle_workflow
-                        triangle_workflow[branch.${branch_from}.merge]="refs/heads/${branch_from}"
+                        triangle_workflow[branch.${branch_from}.merge]="refs/heads/${full_branch_name}"
                         triangle_workflow[branch.${branch_from}.mergeoptions]="--ff-only"
-                        triangle_workflow[branch.${branch_from}.remote]="upstream"
+                        triangle_workflow[branch.${branch_from}.remote]=$remote
                         for key in "${!triangle_workflow[@]}"; do
                             git config --replace-all "$key" "${triangle_workflow[$key]}" || return
                         done
                         ;;
-                    * ) cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch '$branch_from' found more than once in refs list:" "${all_refs[@]}" \
+                    * ) cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch '$branch_from' found more than once in refs list:" "${branch_from_ref[@]}" \
                                  "Re-run and specify full reference for --$branch_from_arg"
                         false; return;;
                 esac
