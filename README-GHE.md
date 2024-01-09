@@ -113,7 +113,7 @@ $ cd $HOME/personal/dotfiles
 $ . ./dotfilesbootstrap
 $ cd ..
 $ bin/makesymlinks -i dotfiles
-$ bin/github.env.init
+$ bin/github.mopenv.init
 ```
 
 ## Test

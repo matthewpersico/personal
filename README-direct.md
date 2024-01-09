@@ -82,7 +82,7 @@ cd $HOME/personal/dotfiles
 cd ..
 bin/makesymlinks -i dotfiles 2>&1 | tee bin/makesymlinks.log
 export REALGIT=$(which git)
-bin/github.env.init
+bin/github.mopenv.init
 git-kv --cat
 ```
 
