@@ -33,12 +33,13 @@ if [[ "$1" = '--tildae' ]]; then
 else
     export TILDAE=$HOME
 fi
-
-## How to plug in (monkeypatch) set -x, VERBOSE_PROFILE, etc, if needed
+declare this_profile="${TILDAE}/.profile.${USER}"
+## How to plug in (monkeypatch) set -x, VERBOSE_PROFILE, etc, if needed. Use
+## the "monkeypatch" program to manage this file.
 [[ -x "${TILDAE}/profile.${USER}.monkeypatch" ]] && . "${TILDAE}/profile.${USER}.monkeypatch"
 
 "$HOME/personal/bin/monkeytell" \
-    "$VERBOSE_PROFILE" "${TILDAE}/profile.${USER}" 'start'
+    "$VERBOSE_PROFILE" "$this_profile" 'start'
 
 ## OS_O(riginal) is the 'proclaimed' operating system name. Use this where a system may
 ## be lying, but fakes it pretty well. Do **NOT** use OS for this variable;
@@ -72,7 +73,7 @@ export PERSONALDATA=$PERSONALROOT/data
 export LOCALROOT=${TILDAE}/local
 export LOCALBIN=$LOCALROOT/bin
 export LOCALDATA=$LOCALROOT/data
-## Python creates this, but our python.env is a bit of a mess right now, so we
+## Python creates this, but our python.mopenv is a bit of a mess right now, so we
 ## stick this definition here.
 export DOTLOCALROOT=${TILDAE}/.local
 export DOTLOCALBIN=$DOTLOCALROOT/bin
@@ -153,19 +154,19 @@ uniqpath -dx PATH
 ## cannot break out into their own files for autoload since xterminit is run
 ## under ksh before bash is invoked on chimera machines at Bloomberg.
 declare -a _profile_env_list
-if [[ -f ${TILDAE}/empenv/bin/early.env ]]; then
-    _profile_env_list+=("${TILDAE}/empenv/bin/early.env")
+if [[ -f ${TILDAE}/empenv/bin/early.mopenv ]]; then
+    _profile_env_list+=("${TILDAE}/empenv/bin/early.mopenv")
 fi
 
 declare -a _profile_env_init_list
-_profile_env_init_list+=('util.env' 'cd.env' 'perl.env' 'git.env')
-_profile_env_init_list+=('ansi-colors.env' 'xtermfuncs')
-_profile_env_init_list+=('nfssnapshot.env' 'rsync.env' 'bash_history.env')
+_profile_env_init_list+=('util.mopenv' 'cd.mopenv' 'perl.mopenv' 'git.mopenv')
+_profile_env_init_list+=('ansi-colors.mopenv' 'xtermfuncs')
+_profile_env_init_list+=('nfssnapshot.mopenv' 'rsync.mopenv' 'bash-history.mopenv')
 if iswsl; then
-    _profile_env_init_list+=('wsl.env')
+    _profile_env_init_list+=('wsl.mopenv')
 fi
 if [[ ! -d ${TILDAE}/empenv ]]; then
-    _profile_env_init_list+=('python.env')
+    _profile_env_init_list+=('python.mopenv')
 fi
 declare _profile_env_init
 for _profile_env_init in "${_profile_env_init_list[@]}"; do
@@ -180,11 +181,11 @@ for _profile_env_full in "${_profile_env_list[@]}"; do
     _profile_envvar_val="$(eval echo "\$$_profile_envvar")"
     if [[ -z "$_profile_envvar_val" ]]; then
         "$HOME/personal/bin/monkeytell" \
-            "$VERBOSE_PROFILE" "${TILDAE}/profile.${USER}" "Loading $_profile_env"
+            "$VERBOSE_PROFILE" "$this_profile" "Loading $_profile_env"
         . "$_profile_env_full"
     else
         "$HOME/personal/bin/monkeytell" \
-            "$VERBOSE_PROFILE" "${TILDAE}/profile.${USER}" \
+            "$VERBOSE_PROFILE" "$this_profile" \
             "Skipped loading $_profile_env, $_profile_envvar=$_profile_envvar_val"
     fi
 done
@@ -240,7 +241,7 @@ if ! $CRON; then
 fi
 
 "$HOME/personal/bin/monkeytell" \
-    "$VERBOSE_PROFILE" "${TILDAE}/profile.${USER}" 'end'
+    "$VERBOSE_PROFILE" "$this_profile" 'end'
 
 RAN_PROFILE="PID:$$ at $(date)"
 export RAN_PROFILE
