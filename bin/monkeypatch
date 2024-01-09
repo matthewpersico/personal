@@ -27,12 +27,13 @@ _envvar_check ()
 
 main()
 {
+    declare action=$1;shift;
     declare mp
     for mp in "${!mps[@]}"; do
-        if [[ $1 == 'whack' ]]; then
+        if [[ $action == 'whack' ]]; then
             rm -rfv "$mp"
             _envvar_check "${mps[$mp]}"
-        elif [[ $1 == 'off' ]]; then
+        elif [[ $action == 'off' ]]; then
             if [[ -f $mp ]]; then
                 echo "chmod a-x $mp"
                 chmod a-x "$mp"
@@ -40,12 +41,16 @@ main()
                 echo "No file $mp to chmod a-x"
             fi
             _envvar_check "${mps[$mp]}"
-        elif [[ $1 == 'on' ]]; then
+        elif [[ $action == 'on' ]]; then
             if [[ ! -f $mp ]]; then
                 echo "Creating $mp"
-                # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
-                # Using single, non-expanding quotes on purpose
-                echo 'if ! $CRON; then export' " ${mps[$mp]}=true; fi" > "$mp"
+                if (($#)); then
+                    echo "$*" > "$mp"
+                else
+                    # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                    # Using single, non-expanding quotes on purpose
+                    echo 'if ! $CRON; then export' " ${mps[$mp]}=true; fi" > "$mp"
+                fi
             else
                 echo "$mp already exists"
             fi
