@@ -7,14 +7,27 @@ if [[ -d "${TILDAE:-$HOME}/.plenv" ]]; then
     eval "$(plenv init -)"
     :
 else
-    export PERL5LIB_BASE="${TILDAE:-$HOME}/perl"
+    declare -a roots
+    declare location
 
-    declare default_perl_mm
-    default_perl_mm=$(perl -e '@p=split(/\./,substr($^V,1));print(join(q(.),@p[0,1]))')
+    for location in remote local; do
+        declare perl5lib_base="${TILDAE:-$HOME}/perl/$location"
+        roots+=("$perl5lib_base")
 
-    # Sets PERL5LIB_ROOT to PERL5LIB_BASE/$default_perl_mm and PERL5LIB based on
-    # PERL5LIB_ROOT.
-    perl-add-root "$default_perl_mm"
+        declare default_perl_mmv
+        default_perl_mmv=$(perl -e 'print substr($^V,1)')
+        roots+=("$default_perl_mmv")
+
+        declare default_perl_mm
+        default_perl_mm=$(perl -e '@p=split(/\./,substr($^V,1));print(join(q(.),@p[0,1]))')
+        roots+=("$default_perl_mm")
+    done
+
+    declare perldir
+    for perldir in "${roots[@]}"; do
+        perl-add-root "$perldir"
+    done
+
 fi
 
 PERLENV_LOADED=1

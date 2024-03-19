@@ -9,25 +9,24 @@
 perl-add-root ()
 {
     local roottoadd
-    if [[ $1 =~ -r ]]; then
-        roottoadd=$2
-        shift;shift
+    if [[ -n $1 ]]; then
+        roottoadd=$1
+        shift
     else
-        roottoadd=$PERL5LIB_BASE
-        [[ -z "$roottoadd" ]] && roottoadd=${TILDAE:-$HOME}/perl
+        cmd_echo --id 'perl-add-root' -e "No longer assuming PERL5LIB_BASE is set. Must pass an arg."
+        return 1
     fi
-    export PERL5LIB_BASE=$roottoadd
 
-    local version=$1
-    local fullversion=$2
-    [[ -z $fullversion ]] && fullversion=$version
-    roottoadd="$roottoadd/$version"
-    mkdir -p "$roottoadd"
+    if [[ -n $1 ]]; then
+        cmd_echo --id 'perl-add-root' -e "No longer taking a version argument. Explicitly add all roots."
+        return 1
+        fi
+
     roottoadd="$(realpath "$roottoadd")"
-    export PERL5LIB_ROOT=$roottoadd
+    mkdir -p "$roottoadd"
 
-    ## Clean first in case they already exist.
-    perl-del-root "$PERL5LIB_BASE"
+    ## Clean first in case entries already exist in PERL5LIB.
+    perl-del-root "$roottoadd"
 
     ## Remember, the PERL5LIB mappings are listed in reverse order of how they
     ## need to appear. We are using an array and not a hash of the inverse
@@ -60,37 +59,19 @@ perl-add-root - Update PERL5LIB's definition based on Perl version.
 
 =head1 SYNOPSIS
 
- perl-add-root [-r localrootdir] ma.mi [ma.mi.pa]
+ perl-add-root localrootdir
 
 =head1 DESCRIPTION
 
-We keep local Perl dirs in distinct versioned directories off of the top local
-location. This function sets PERL5LIB_BASE and adds to PERL5LIB as needed to
-reflect the Perl version we want to run.
+Add this root to the PERL5LIB list.
 
 =head1 ARGUMENTS
 
 =over 4
 
-=item ma.mi
+=item localrootdir
 
-The dotted version number of the version of Perl we want to run.
-
-=item ma.mi.pa
-
-Some modules use the full version number sp specify it here (instead of tyring to divine it from ma.mi).
-
-=back
-
-=head1 OPTIONS
-
-=over 4
-
-=item -r
-
-Change the root from what it is to this new value. Usually, you just leave it
-alone and let the directory UNDER it be changed. The default is set by the
-envvar PERL5LIB_BASE. If not set, it will be set to using ~/perl'.
+Top level onto which we append subdir structure.
 
 =back
 
