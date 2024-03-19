@@ -3,43 +3,88 @@
 
 # git-go-prune
 
+declare -A ggp_skip
+
+_ggp-mark-the-wt-parent ()
+{
+     if git wt ina; then
+         # If this is a worktree, we cannot delete the parent dir it lives in,
+         # so mark in order to skip it later.
+         declare isawto
+         isawto=$(git repo is a worktree of)
+         if [[ -n $isawto ]]; then
+             ggp_skip[$isawto]=1
+             cmd-echo --dc "ggp_skip[$isawto]=${ggp_skip[$isawto]}"
+             set | grep ggp_skip
+         fi
+     fi
+}
+
 cmd-echo --id git-go-prune "Processing clean, non-open-pr repos"
 
-declare -A skip
 declare -A never_prune
 declare np
 for np in $(listpath GIT_IMPORTANT_REPO_LIST); do
     never_prune[$np]=1
 done
 
+declare pause_between_repos=0
+if [[ $1 == '--page' ]]; then
+    pause_between_repos=1
+fi
+
 # | reverse is so that we do worktrees before their parent directories
 declare _ggp_i
-for _ggp_i in $(git go --listfull | reverse ); do
+for _ggp_i in $(git go --listfull | sort -r ); do
+    set +x
+    if [[ "$_ggp_i" =~ '/home/mpersico5/gits/bbgithub/mpersico5/testing' ]]; then echo "_ggp_i=$_ggp_i"; echo -n "ggp_skip = "; set | grep ggp_skip; fi
     if [[ -n ${never_prune[$_ggp_i]} ]]; then
         cmd-echo --id git-go-prune --head --wc "Skipping $_ggp_i, important repo"
-        continue
-    if [[ -n ${skip[$_ggp_i]} ]]; then
+    elif [[ -n ${ggp_skip[$_ggp_i]} ]]; then
         cmd-echo --id git-go-prune --head --wc "Skipping $_ggp_i, worktrees still exist"
-        continue
-    fi
-    (
+    elif ! (
         if builtin cd "$_ggp_i"; then
-            if git repo is pristine -v \
-                    && ! git repo pr --get \
-                    && cmd-echo --id git-go-prune --head "$(pwd)"; then
-                if cmd-yesno  --id git-go-prune "Delete" "n"; then
-                    git wt del --current
-                else
-                    # If this is a worktree, we cannot delete the parent
-                    # dir it lives in, so mark in order to skip it later.
-                    declare isawto
-                    isawto=$(git repo is a worktree of)
-                    if [[ -n $isawto ]]; then
-                        skip[$isawto]=1
-                    fi
+            cmd-echo --color BLUE --id git-go-prune --head "$(pwd)"
+            git pull
+            if git repo is pristine -v; then
+                declare pr_get_output
+                declare pr_get_status
+                pr_get_output=$(git repo pr-get)
+                declare pr_get_status=$?
+                if [[ -n $pr_get_output ]]; then echo "$pr_get_output"; fi
+                if ((pr_get_status == 0)) || [[ $pr_get_output =~ ^(Merged:|None) ]] ; then
+                    declare resp
+                    resp=$(cmd-yesno -q --id git-go-prune "Delete" "n")
+                    case $resp in
+                        y)
+                            if git wt ina; then
+                                git wt del --current
+                            else
+                                git repo del --current
+                            fi
+                            exit $?
+                            ;;
+                        n)
+                            _ggp-mark-the-wt-parent
+                            exit 0
+                            ;;
+                        q)
+                            exit 1
+                            ;;
+                    esac
                 fi
+            else
+                _ggp-mark-the-wt-parent
             fi
         fi
-    )
+        ); then exit $?;
+    fi
+    if ((pause_between_repos==1)); then
+        echo
+        resp=$(cmd-yesno -q --id git-go-prune "continue" "Y")
+        case $resp in
+            y) continue;;
+            *) exit 0 ;;
+        esac
     fi
 done

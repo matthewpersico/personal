@@ -42,14 +42,23 @@ declare -a G_skip_messages=(
     "because of missing program"
 )
 
+declare -A skips
+
+declare -a G_perlfiles
+declare -a shellfiles
+declare -a pythonfiles
+declare -a jsonfiles
+declare -a files
+declare -a nonfiles
+declare -a delgitobjs
+
+
 ##
 ## Functions
 ##
 finish ()
 {
-    if [[ -e "$G_tfile" ]]; then
-        rm -rf "$G_tfile"
-    fi
+    rm -f "$G_tfile" "${G_tfile}.jqerr"
 }
 
 get_status ()
@@ -81,6 +90,64 @@ check ()
     else
         true; return
     fi
+}
+
+check_for_installations ()
+{
+    ## Make sure the check programs are installed if we are not already
+    ## skipping that particular check and skip if not installed.
+    [[ -z ${skips[perl]} ]] \
+        && ! perl -V 1>/dev/null 2>&1 \
+        && skips[perl]=$G_skip_by_missing
+
+    [[ -z ${skips[perl]} ]] \
+        && [[ -z ${skips[perltidy]} ]] \
+        && ! perltidy -v 1>/dev/null 2>&1 \
+        && skips[perltidy]=$G_skip_by_missing
+
+    [[ -z ${skips[shell]} ]] \
+           && [[ -z ${skips[shellcheck]} ]] \
+           && ! shellcheck -V 1>/dev/null 2>&1 \
+           && skips[shellcheck]=$G_skip_by_missing
+
+    if [[ -z ${skips[python]} ]]; then
+        if ! python -V 1>/dev/null 2>&1; then
+            skips[python]=$G_skip_by_missing
+        else
+            black --version 1>/dev/null 2>&1 || skips[black]=$G_skip_by_missing
+            isort --version 1>/dev/null 2>&1 || skips[isort]=$G_skip_by_missing
+            pylint --version 1>/dev/null 2>&1 || skips[pylint]=$G_skip_by_missing
+        fi
+    fi
+
+    [[ -z ${skips[json]} ]] \
+        && ! jq --version 1>/dev/null 2>&1 \
+        && skips[json]=$G_skip_by_missing
+}
+
+get_file_types ()
+{
+    ##
+    ## Isolate specific groups of files.
+    ##
+    declare file
+
+    ## Now group them.
+    for file in "${files[@]}"; do
+        if head -1 "$file" | grep perl | grep -E '^#!' > /dev/null \
+                ||
+                echo "$file" | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null; then
+            G_perlfiles+=("$file")
+        elif head -1 "$file" | grep -E -- '(-\*- |#!.*/|#!.*env )(sh|ksh|bash)' 1>/dev/null 2>&1; then
+            shellfiles+=("$file")
+        elif head -1 "$file" | grep python | grep -E '^#!' > /dev/null \
+                ||
+                echo "$file" | grep -iE '\.py$' > /dev/null; then
+            pythonfiles+=("$file")
+        elif [[ $file =~ \.json$ ]]; then
+            jsonfiles+=("$file")
+        fi
+    done
 }
 
 notify ()
@@ -205,7 +272,6 @@ main ()
     ##
     ## args and opts
     ##
-    declare -A skips
     declare opt_verbose=1
     declare opt_nocommit=0
     declare helpnotallowed=0
@@ -298,10 +364,6 @@ for (@ARGV){
     ##
     ## Split the list into files, nonfiles and deletes.
     ##
-    declare -a files
-    declare -a nonfiles
-    declare -a delgitobjs
-
     ((opt_verbose)) && pre_commit_ok_echo Current status:
     for obj in "${gitobjs[@]}"; do
         declare file=${obj%%=>*}
@@ -365,104 +427,71 @@ for (@ARGV){
         files=("${filtered_files[@]}")
     fi
 
-    ##
-    ## Isolate specific groups of files.
-    ##
-    declare -a perlfiles
-    declare -a shellfiles
-    declare -a pythonfiles
-    declare file
+    check_for_installations
 
-    ## Make sure the check programs are installed if we are not skipping that
-    ## particular check.
-    if [[ -z ${skips[perl]} ]] \
-           && perl -V 1>/dev/null 2>&1; then
-        :
-    else
-        skips[perl]=$G_skip_by_missing
-    fi
-
-    if [[ -z ${skips[perl]} ]] \
-           && [[ -z ${skips[perltidy]} ]] \
-           && perltidy -v 1>/dev/null 2>&1; then
-        :
-    else
-        skips[perltidy]=$G_skip_by_missing
-    fi
-
-    if [[ -z ${skips[shell]} ]] \
-           && [[ -z ${skips[shellcheck]} ]] \
-           && shellcheck -V 1>/dev/null 2>&1; then
-        :
-    else
-        skips[shellcheck]=$G_skip_by_missing
-    fi
-
-    if [[ -z ${skips[python]} ]]; then
-        if ! python -V 1>/dev/null 2>&1; then
-            skips[python]=$G_skip_by_missing
-        else
-            black --version 1>/dev/null 2>&1 || skips[black]=$G_skip_by_missing
-            isort --version 1>/dev/null 2>&1 || skips[isort]=$G_skip_by_missing
-            pylint --version 1>/dev/null 2>&1 || skips[pylint]=$G_skip_by_missing
-        fi
-    fi
-
-    ## Now group them.
-    for file in "${files[@]}"; do
-        if head -1 "$file" | grep perl | grep -E '^#!' > /dev/null \
-                ||
-                echo "$file" | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null; then
-            perlfiles+=("$file")
-        elif head -1 "$file" | grep -E -- '(-\*- |#!.*/|#!.*env )(sh|ksh|bash)' 1>/dev/null 2>&1; then
-            shellfiles+=("$file")
-        elif head -1 "$file" | grep python | grep -E '^#!' > /dev/null \
-                ||
-                echo "$file" | grep -iE '\.py$' > /dev/null; then
-            pythonfiles+=("$file")
-        fi
-    done
+    get_file_types
 
     ##
     ## The tests...
     ##
 
     if ((${#files[@]})); then
-        touch "$G_tfile"
+        touch "$G_tfile" # Each file type block will rewrite $G_file
 
-        for i in "${files[@]}"; do
+        declare gpch_file
+
+        ## ####################### ##
+        ## All: Open emacs buffers ##
+        ## ####################### ##
+        for gpch_file in "${files[@]}"; do
             ##
             ## check: files being edited, not saved
             ##
-            emacsfile="$(dirname "$(realpath "$i")")/.#$(basename "$i")"
-            if [[ -h "$emacsfile" ]]; then
-                echo "$i" >> "$G_tfile"
-            fi
-            ##
-            ## check: chmod - warning only
-            ##
-            if ( git diff "$i" | grep -q -E '^old mode' ); then
-                pre_commit_warning_echo "$i has changed permissions"
-                git diff "$i" | grep --color=never -E '^(old|new) mode'
-            fi
-        done
+            emacsfile="$(dirname "$(realpath "$gpch_file")")/.#$(basename "$gpch_file")"
+            [[ -h "$emacsfile" ]] && echo "$gpch_file"
+        done > "$G_tfile"
         check "$G_tfile" \
               "Write your emacs buffers for these files:"
 
-        for i in "${files[@]}"; do
+        ## ############################### ##
+        ## All: chmod change, warning only ##
+        ## ############################### ##
+        for gpch_file in "${files[@]}"; do
+            if ( git diff "$gpch_file" | grep -q -E '^old mode' ); then
+                pre_commit_warning_echo "$gpch_file has changed permissions"
+                git diff "$gpch_file" | grep --color=never -E '^(old|new) mode'
+            fi
+        done
+
+        ## ######################### ##
+        ## All: git conflict markers ##
+        ## ######################### ##
+        grep -H -n -E '^<<<<<<<|>>>>>>>$' "${files[@]}" 1>"$G_tfile" 2>&1
+        check "$G_tfile" \
+              "One or more files contains a git conflict marker. Please address."
+
+        ## ############################ ##
+        ## All: git commit stop markers ##
+        ## ############################ ##
+        do_gcs_check
+
+        ## ######################################## ##
+        ## Interpreted Languages: First line sanity ##
+        ## ######################################## ##
+        for gpch_file in "${G_perlfiles[@]}" "${shellfiles[@]}" "${pythonfiles[@]}"; do
             ##
-            ## check: First line should be shebang or package, or even data, but certainly not blank
+            ## First line should be shebang or package, or even data, but certainly not blank.
             ##
-            if [[ $(head -1 "$i" | wc -w) == '0' ]]; then
-                echo "$i"
+            if [[ $(head -1 "$gpch_file" | wc -w) == '0' ]]; then
+                echo "$gpch_file"
             fi
         done 1>"$G_tfile" 2>&1
         check "$G_tfile" \
-              "One or more files has blank first line. Check for misplaced shebang or packaging statements."
+              "One or more interpreted language files has blank first line. Check for misplaced shebang or packaging statements."
 
-        ##
-        ## check: constructs for bypassed or dead code
-        ##
+        ## ######################################### ##
+        ## All: Constructs for bypassed or dead code ##
+        ## ######################################### ##
 
         ## These two are Perl constructs, but we could use them temporarily in any
         ## file type, if commented out in the non-Perl language.
@@ -474,7 +503,10 @@ for (@ARGV){
         check "$G_tfile" \
               "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes."
 
-        if ((${#perlfiles[@]})); then
+        ## #### ##
+        ## Perl ##
+        ## #### ##
+        if ((${#G_perlfiles[@]})); then
             if [[ -n ${skips[perl]} ]]; then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl checks, ${G_skip_messages[${skips[perl]}]}."
             else
@@ -483,7 +515,7 @@ for (@ARGV){
                 ##
                 # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
                 # We want to pass the $ into the grep.
-                grep -H -n -E '\$DB::s(ingle|tep)' "${perlfiles[@]}" 1>"$G_tfile" 2>&1
+                grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
                 check "$G_tfile" \
                       "One or more files has Perl-debugger-related statements. Please remove instrumentation."
 
@@ -491,7 +523,7 @@ for (@ARGV){
                 ## check: testing utilities left in the code
                 ## BB SPECIFIC
                 ##
-                grep -H -n -E 'TestingUtils' "${perlfiles[@]}" | grep -v TestingUtils.pm  1>"$G_tfile" 2>&1
+                grep -H -n -E 'TestingUtils' "${G_perlfiles[@]}" | grep -v TestingUtils.pm  1>"$G_tfile" 2>&1
                 check "$G_tfile" \
                       "One or more files is using the TestingUtils module. Please remove it."
 
@@ -515,17 +547,17 @@ for (@ARGV){
                             fi
                         fi
                         checkcmd="$cartonexec $G_gitroot/t/bin/apply-compile-check-everywhere"
-                        $checkcmd "${perlfiles[@]}" 1>"$G_tfile" 2>&1
+                        $checkcmd "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
                         runcheck=1
-                        remediation="To review, run: (cd $(pwd); $checkcmd ${perlfiles[*]})"
+                        remediation="To review, run: (cd $(pwd); $checkcmd ${G_perlfiles[*]})"
                     elif [[ -e "${TILDAE:-$HOME}/personal/bin/perlcheck-bulk" ]]; then
                         declare -a libs
                         readarray                -t libs < <(find "$G_gitroot" -type d -name lib  -printf '-I\n%p\n')
                         readarray -O ${#libs[@]} -t libs < <(find "$G_gitroot" -type d -name perl -printf '-I\n%p\n')
                         checkcmd="${TILDAE:-$HOME}/personal/bin/perlcheck-bulk --no-progress ${libs[*]}"
-                        $checkcmd "${perlfiles[@]}" 1>"$G_tfile" 2>&1
+                        $checkcmd "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
                         runcheck=1
-                        remediation="To review, run: (cd $(pwd); $checkcmd ${perlfiles[*]})"
+                        remediation="To review, run: (cd $(pwd); $checkcmd ${G_perlfiles[*]})"
                     else
                         ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, no perl compile check helpers found."
                     fi
@@ -547,10 +579,10 @@ for (@ARGV){
                         "$G_gitroot/t/bin/apply-perltidy-everywhere" \
                             "${TILDAE:-$HOME}/personal/bin/perltidy-bulk"; do
                         if [[ -e "$tidycmd" ]]; then
-                            "$tidycmd" "${perlfiles[@]}" 1>"$G_tfile" 2>&1
+                            "$tidycmd" "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
                             tidyrc=$?
                             runcheck=1
-                            remediation="To correct, run: (cd $(pwd); $tidycmd --update ${perlfiles[*]})"
+                            remediation="To correct, run: (cd $(pwd); $tidycmd --update ${G_perlfiles[*]})"
                             break
                         fi
                     done
@@ -566,6 +598,9 @@ for (@ARGV){
             fi
         fi
 
+        ## ##### ##
+        ## Shell ##
+        ## ##### ##
         if ((${#shellfiles[@]})); then
             if [[ -n ${skips[shell]} ]]; then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping shell checks, ${G_skip_messages[${skips[shell]}]}."
@@ -609,6 +644,9 @@ for (@ARGV){
             fi
         fi
 
+        ## ###### ##
+        ## Python ##
+        ## ###### ##
         if ((${#pythonfiles[@]})); then
             if [[ -n ${skips[python]} ]]; then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping python checks, ${G_skip_messages[${skips[python]}]}."
@@ -642,21 +680,26 @@ for (@ARGV){
                           "One of more files has failed python pylint checks. Please review." \
                           "$pyrc"
                 fi
-
             fi
         fi
 
-        ##
-        ## check: git conflict markers
-        ##
-        grep -H -n -E '^<<<<<<<|>>>>>>>$' "${files[@]}" 1>"$G_tfile" 2>&1
-        check "$G_tfile" \
-              "One or more files contains a git conflict marker. Please address."
-
-        ##
-        ## check: git commit stop check
-        ##
-        do_gcs_check
+        ## #### ##
+        ## JSON ##
+        ## #### ##
+        if ((${#jsonfiles[@]})); then
+            if [[ -n ${skips[json]} ]]; then
+                ((opt_verbose)) && pre_commit_ok_echo "Skipping json checks, ${G_skip_messages[${skips[json]}]}."
+            else
+                for gpch_file in "${jsonfiles[@]}"; do
+                    if ! jq < "$gpch_file" 1>/dev/null 2>"${G_tfile}.jqerr"; then
+                        echo -n "$gpch_file - ";
+                        cat "${G_tfile}.jqerr"
+                    fi
+                done 1>"$G_tfile" 2>&1
+                check "$G_tfile" \
+                      "One of more files has failed json jq checks. Please review."
+            fi
+        fi
     fi
 
     ##

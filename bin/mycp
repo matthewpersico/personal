@@ -1,0 +1,124 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# mycp - Some additions to the traditional cp
+
+# Stash the real one, which we will need to execute at some point.
+REALCP=$(find-real cp)
+export REALCP
+
+## DO NOT attempt to convert this to a 'getopt' implementation; it would
+## require specifying and handling every existing option in 'cp'
+## and it is just not necessary.
+declare opt_reverse=0
+declare opt_tar=0
+
+declare -a pass_on
+declare -a our_opts
+while (( $# )); do
+    declare arg=$1
+    shift
+    case $arg in
+        --reverse )
+            opt_reverse=1
+            ## Eventually we'll remove these safety options.
+            our_opts+=('-vi')
+            ;;
+        --tar )
+            opt_tar=1
+            ;;
+        --help | -h )
+            bash-usage "$0" man "$REALCP"
+            true; exit
+            ;;
+        * )
+            pass_on+=("$arg")
+            ;;
+    esac
+done
+
+if ((opt_tar)); then
+    ## ... there should be no other options passed into 'cp'. The only args
+    ## should be one or more sources and a target directory for the copy. If we
+    ## eventually do not force -vi, we'll have to account for those above.
+    declare -a sources
+    sources=("${pass_on[@]}")
+    declare target
+    target="${sources[-1]}"
+    if [[ ! -d $target ]] || [[ ! -w $target ]]; then
+        cmd-echo --id cp -ec -- "Last argument ($target) must be an existing, writable directory"
+        false; exit
+    fi
+    unset 'sources[-1]'
+    tar cf - "${sources[@]}" | (builtin cd "$target" || exit; cmd-echo --id cp -- "$PWD" ; tar xvf - )
+    true; exit
+fi
+
+if ((opt_reverse)); then
+    ## ... there should be no other options passed into 'cp'. The only args
+    ## should be source and target for the copy. If we eventually do not force
+    ## -vi, we'll have to account for those above.
+    if ((${#pass_on[@]} != 2)) || \
+           [[ ! -f "${pass_on[1]}" ]] || \
+           { [[ ! -f "${pass_on[0]}" ]] && [[ ! -d "${pass_on[0]}" ]] && [[ ! -d "$(dirname "${pass_on[0]}")" ]] ;}; then
+        cmd-echo --id cp -ec -- "--reverse requires no options, two (and only two) args." \
+                 "The first (tgt) must be a file in an existing directory or just an existing directory," \
+                 "The second (src) must be a existing file."
+        false; exit
+    else
+        tmp=${pass_on[0]}
+        pass_on[0]=${pass_on[1]}
+        pass_on[1]=$tmp
+    fi
+
+    ## Here, we fall though to the default copy.
+fi
+
+"$REALCP" "${our_opts[@]}" "${pass_on[@]}"
+exit
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+mycp - extensions to the cp command
+
+=head1 SYNOPSIS
+
+ mycp --reverse DEST SOURCE
+ mycp --tar path/to/a/file [another/path/to/a/file...] a/target/directory
+
+=head1 DESCRIPTION
+
+Additions to the 'cp' command. Used to be named 'cp' but interfered too much woth other software.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --reverse
+
+For command 'cp DEST SOURCE', do not copy 'DEST' to 'SOURCE', which is the
+normal order of operations, but rather, copy 'SOURCE' to 'DEST'. 'DEST' is
+either a directory in which to place the source file or a file to overwrite
+with the source file. 'SOURCE' is a source file location. Use this if you are
+doing diffs and you are using the headers to construct copy commands to pick
+the righthand side of the diff as the desired file.
+
+=item --tar
+
+Implements the classic
+
+  tar cf - . | (cd DIR; tar xf - )
+
+to copy one or more files, with their paths, to a target location. Useful to
+copy pieces of a git tree out of the way before doing some operation and then
+copying them back.
+
+*Note*: When you copy files from location 'a' to location 'b', when you want to
+copy them back, it is easiest best to 'cd b' and then 'cp -tar * a'.
+
+=back
+
+=cut
+
+__PODUSAGE__

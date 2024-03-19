@@ -28,6 +28,8 @@ declare new_frame=0
 declare more_opts=1
 declare nobg=0
 declare use_rc=1
+declare xo_verbose=0
+declare files_only=0
 declare -a emacs_opts
 while ((more_opts)) && [[ "$1" =~ ^- ]]; do
     original="$1"
@@ -103,6 +105,12 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             ;;
         norc )
             use_rc=0
+            ;;
+        xov )
+            xo_verbose=1
+            ;;
+        fo | files-only )
+            files_only=1
             ;;
         help )
             bash-usage "$0"; { true; exit; } ;;
@@ -208,21 +216,34 @@ fi
 
 declare -a allfiles
 allfiles=("$@" "${org[@]}" "${git_is_mod[@]}" "${which[@]}" "${xorc[@]}")
+if ((files_only)); then
+    declare tmpf
+    for tmpf in "${allfiles[@]}"; do
+        [[ -f $tmpf ]] && tmpa+=("$tmpf");
+    done
+    allfiles=("${tmpa[@]}")
+fi
 if ((serverup==0)); then
     if ((as_visual==0)) && ((new_frame==0)); then
         if (( hasX )); then
             declare rootx=$XTERMGEO_X
             declare rooty=$XTERMGEO_Y
             if ((nobg)); then
+                ((xo_verbose)) && set -x
                 $emacs_exe -g "+${rootx}+${rooty}" \
                            "${emacs_opts[@]}" "${allfiles[@]}"
+                ((xo_verbose)) && set +x
             else
+                ((xo_verbose)) && set -x
                 $emacs_exe -g "+${rootx}+${rooty}" \
                            "${emacs_opts[@]}" "${allfiles[@]}" &
+                ((xo_verbose)) && set +x
             fi
         else
+            ((xo_verbose)) && set -x
             $emacs_exe -nw \
                        "${emacs_opts[@]}" "${allfiles[@]}" < /dev/tty
+            ((xo_verbose)) && set +x
         fi
     else
         cmd-echo --id xo "No emacs server found. Start one and try again or use -m."
@@ -231,14 +252,22 @@ elif ((serverup==1)); then
     if ((${#allfiles[@]})); then
         if ((new_frame)); then
             if ((nobg)); then
+                ((xo_verbose)) && set -x
                 $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs'
+                ((xo_verbose)) && set +x
             else
+                ((xo_verbose)) && set -x
                 $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs' &
+                ((xo_verbose)) && set +x
             fi
         elif ((as_visual==1)); then
+            ((xo_verbose)) && set -x
             $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}"
+            ((xo_verbose)) && set +x
         else
+            ((xo_verbose)) && set -x
             $emacsclient_exe -n -a "$emacs_exe" "${emacs_opts[@]}" "${allfiles[@]}"
+            ((xo_verbose)) && set +x
         fi
     else
         cmd-echo --id xo "Server already up. Specify a file to edit."
@@ -262,7 +291,7 @@ xo - Start up emacs, using X and client mode where possible.
   xo [--debug] [--forceX] [--root /path/to/emacs-root-dir] \\
      [--exe /path/to/emacs ] \\
      [--org|--todo] [--gim] [--which file[,file...]] \\
-     [--norc] \\
+     [--norc] [--nf] [--xov] [--fo|files-only] \\
      [-- any-emacs-opts] [file [file...]]
 
   xo [--nobg] --geo-only <emacs opts and args>
@@ -335,6 +364,14 @@ paths or relative the direcdtory in which the xo.rc file is found.
 =item --nf
 
 New frame. Open this file in a new frame.
+
+=item --xov
+
+Print the emacs command that is run.
+
+=item --fo|--files-only
+
+Files only. If you do 'xo *', skip the directories.
 
 =item -- any-emacs-opts
 

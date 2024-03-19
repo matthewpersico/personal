@@ -5,6 +5,21 @@
 
 declare scope='git-utils'
 
+git-utils-decode-http ()
+{
+    local server=$1
+
+    local repo
+    repo=${server##*/}
+    server=${server/\/$repo/}
+
+    local org
+    org=${server##*/}
+    server=${server/\/$org/}
+
+    echo "$server" "$org" "$repo"
+}
+
 git-utils-decode-url ()
 {
     local scheme=$1
@@ -36,6 +51,7 @@ git-utils-decode-url ()
 git-utils-main()
 {
     local action=$1
+    shift
 
     if [[ "$action" =~ ^-+h ]]; then
         git-usage "$0"
@@ -45,12 +61,11 @@ git-utils-main()
     local action_handler="$scope-$action"
     if declare -F "$action_handler" >/dev/null 2>&1 \
            || which "$action_handler" >/dev/null 2>&1 ; then
-        shift ## the $action
         "$action_handler" "$@"
     else
         case $action in
             * )
-                cmd-echo --id git-utils --ec --id $scope -- "unknown action '$action'"
+                cmd-echo --id git-utils --ec --id $scope -- "unknown action '$action', with arguments $*"
                 false
                 ;;
         esac

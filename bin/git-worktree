@@ -605,8 +605,7 @@ $(ls -la)"
     fi
 
     ## Check for cleanliness.
-    if [[ "$(git status --porcelain | wc -l)" != '0' ]] || \
-           [[ "$(git status | grep 'Your branch is' | grep -c -v 'up.to.date')" != '0' ]]; then
+    if ! git repo is clean; then
         if((!opt_force)); then
             git status
             echo
@@ -1077,27 +1076,32 @@ main ()
         fi
     done
 
+    declare retval
     action_func_name="git-worktree-${action}"
     if local -F "$action_func_name" >/dev/null; then
         shift ## the $action
         "$action_func_name" "$@"
+        retval=$?
     else
         case $action in
             add | list | lock | move | prune | remove | unlock )
                 ## Dispatch to real git worktree
                 "${REALGIT}" worktree "$@"
+                retval=$?
                 ;;
             * )
                 cmd-echo ${celn} $LINENO --id git-worktree --wc -- "unknown git worktree action '$action'."
                 if [[ $(yesno "Do you want to create a worktree with that name?" "n") == 'y' ]]; then
                     git-worktree-create "$action" "$@"
+                    retval=$?
                 else
                     false
+                    retval=$?
                 fi
                 ;;
         esac
     fi
-    return
+    return $retval
 }
 
 main "$@"

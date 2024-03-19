@@ -147,6 +147,7 @@ git-repo-delete ()
 {
     local current=0
     local dirmode=''
+    local opt_force=0
     if [[ -z $1 ]]; then
         git-usage "$0" "missing options or repo to work on"
         false; return;
@@ -160,6 +161,9 @@ git-repo-delete ()
     elif [[ $1 = '--dirmode' ]]; then
         dirmode=$2
         shift
+        shift
+    elif [[ $1 = '--force' ]]; then
+        opt_force=1
         shift
     elif [[ -n $1 ]]; then
         dirmode=$1
@@ -231,12 +235,13 @@ git-repo-delete ()
             false; return
         fi
 
-        dirty=$(git status --porcelain)
-        if [[ -n "$dirty" ]]; then
-            git status
-            cmd-echo --id git-repo
-            cmd-echo --id git-repo "Will not delete current repo"
-            false; return
+        if ! git repo is clean; then
+            if((!opt_force)); then
+                git status
+                cmd-echo --id git-repo
+                cmd-echo --id git-repo "Will not delete current repo"
+                false; return
+            fi
         fi
 
         builtin cd .. || { cmd-echo --id git-repo "Cannot cd .."; false; return; }
@@ -463,7 +468,8 @@ git-repo-ina () { git-repo-is; }
 
 git-repo-is_clean ()
 {
-    (( $(git st --porcelain | grep -cv '??') == 0 ))
+    (( $(git st --porcelain | grep -cv '??') == 0 )) &&
+        (( $(git status | grep 'Your branch is' | grep -c -v 'up.to.date') == 0 ));
 }
 
 git-repo-is_spotless ()
@@ -473,11 +479,11 @@ git-repo-is_spotless ()
 
 git-repo-is_pristine ()
 {
-    (( $(git st --porcelain | wc -l) == 0 )) \
+    git-repo-is_clean \
         && ( git worktree ina || (( $(git worktree list | wc -l) == 1 )) ) \
         && { true; return; }
     if [[ $1 == '-v' ]]; then
-        (( $(git st --porcelain | wc -l) != 0 )) && git status
+        git status
         if ! git worktree ina && (( $(git worktree list | wc -l) != 1 )); then
             echo Found worktrees:
             git worktree list | tail -n +2 # Do not print the root repo for the
