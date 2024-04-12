@@ -36,7 +36,7 @@ declare wanted_python_version=0.0
 ## to, after which it's back to the version on disk. If we can update the file,
 ## the update will run on the next login. Or we can run by hand with a --init
 ## X.Y option.
-declare wanted_python_version_file="${pypath}/.python_version"
+declare wanted_python_version_file="${TILDAE:-$HOME}/personal/data/.python_version"
 
 if [[ -n $init ]]; then
     wanted_python_version_max=$init
@@ -108,7 +108,7 @@ else
     declare -a candidates
     mapfile -t candidates < <(ls "$(dirname "$latest_available_exe")"/*"$latest_available_version")
     for exe in "${candidates[@]}"; do
-        ## Execption - there are three forms of this one. Why? WTFK.
+        ## Exception - there are three forms of this one. Why?
         if [[ $exe =~ coverage ]] && [[ ! $exe =~ coverage${latest_available_version} ]]
         then
             continue
@@ -122,6 +122,14 @@ else
             ## There's a higher version of python out there. Grab it.
             rm -fv "$link"
             ln -sv "$exe" "$link"
+
+            # This looks for the python link and adds the python3 link
+            if [[ $exe =~ python${latest_available_version} ]]; then
+                declare la_major_version=${latest_available_version%.*}
+                link="$link${la_major_version}"
+                rm -fv "$link"
+                ln -sv "$exe" "$link"
+            fi
         fi
     done
 

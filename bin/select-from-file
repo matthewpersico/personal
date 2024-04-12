@@ -1,0 +1,84 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+declare infile # datafile of prompts and commands
+
+declare noexec=0
+declare datadir
+datadir=$(dirname "$(realpath "$0")")/../data
+
+declare OPTSARGS
+declare shortopts='cd:h'
+declare longopts='noexec,datadir:,help'
+
+if ! OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@"); then
+    bash-usage "$0"
+    false; exit
+fi
+eval set -- "$OPTSARGS"
+while true; do
+    declare option=$1
+    shift
+    [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
+    case "$option" in
+        h|help)
+            bash-usage "$0"; true; exit ;;
+        c|noexec)
+            noexec=1 ;;
+        d|datadir)
+            datadir=$(realpath "$1"); shift ;;
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo --id select-from-file -ec -- "$option is an invalid option"
+            false; exit ;;
+    esac
+done
+
+COLUMNS=1 # force one column in select call
+
+# Choose a config file if we do not provide one.
+if [[ $# == 0 ]]; then
+    declare datadir
+    select file in $(ls "$datadir"/*.sff) quit; do
+        if [[ $file == 'quit' ]] \
+               || [[ $REPLAY =~ ^q ]]; then
+            false
+            exit;
+        fi
+        [[ -n $file ]] && break
+    done
+    infile=$file
+else
+    infile=$1
+fi
+
+declare tag action bg
+declare -a tags
+declare -A actions
+declare -A bgs
+
+while IFS='|' read -r tag action bg; do
+    [[ $tag =~ ^# ]] && continue
+    tags+=("$tag")
+    actions["$tag"]="$action"
+    bgs["$tag"]="$bg"
+done < "$infile"
+
+declare tag
+select tag in "${tags[@]}" quit ; do
+    if [[ $tag == 'quit' ]] \
+           || [[ $REPLY =~ ^q ]]; then
+        false;
+        exit;
+    fi
+    [[ -n $tag ]] && break
+done
+if ((noexec)); then
+    # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
+    echo ${actions["$tag"]}
+elif [[ -n ${bgs["$tag"]} ]]; then
+    ${actions["$tag"]} &
+else
+    ${actions["$tag"]}
+fi
