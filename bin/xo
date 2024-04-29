@@ -22,7 +22,6 @@ emacsclient_exe="${emacs_exe}client"
 declare -a git_is_mod ## These are modified files in a git repo
 declare -a which      ## We used to use the 'which' utility to find these
 declare -a org        ## The org file
-declare -a xorc       ## If we find ./xo.rc, we read it for files to load
 declare as_visual=0
 declare new_frame=0
 declare more_opts=1
@@ -204,18 +203,20 @@ elif [[ "$1" = '--nf' ]] || [[ "$1" = '-nf' ]]; then
     shift
 fi
 
-if ((use_rc)) && [[ -r ./xo.rc ]]; then
+declare -a allfiles
+allfiles=("$@" "${org[@]}" "${git_is_mod[@]}" "${which[@]}")
+if ((use_rc)) && [[ -r ./xo.rc ]] && [[ ${#allfiles[@]} == '0' ]]; then
     declare xorcline
     while read -r xorcline; do
         declare -a xorcline_a
         read -a xorcline_a -r <<< "$xorcline"
-        xorc+=("${xorcline_a[@]}")
+        allfiles+=("${xorcline_a[@]}")
     done < ./xo.rc
-    [[ -n ${xorc[0]} ]] && cmd-echo --id xo -- "Loading these files from ./xo.rc:" "${xorc[@]}"
+    if (( ${#allfiles[@]} )); then
+        cmd-echo --id xo -- "Loading these files from ./xo.rc:" "${allfiles[@]}"
+    fi
 fi
 
-declare -a allfiles
-allfiles=("$@" "${org[@]}" "${git_is_mod[@]}" "${which[@]}" "${xorc[@]}")
 if ((files_only)); then
     declare tmpf
     for tmpf in "${allfiles[@]}"; do

@@ -13,27 +13,33 @@ git ()
         false; return
     fi
 
-    if [[ -z $1 ]]; then
-        git-usage git
-        true; return
-    elif [[ $1 =~ --(real|bypass) ]]; then
-        shift
-        $REALGIT "$@"
-        return
-    elif [[ $1 == --help ]] || [[ $1 = -h ]]; then
-        if [[ -n $2 ]]; then
-            git "$2" --help
-            return
-        else
+    local moreopts=1
+    while (( moreopts)); do
+        if [[ -z $1 ]]; then
             git-usage git
             true; return
+        elif [[ $1 =~ --(real|bypass) ]]; then
+            shift
+            $REALGIT "$@"
+            return
+        elif [[ $1 == --help ]] || [[ $1 = -h ]]; then
+            if [[ -n $2 ]]; then
+                git "$2" --help
+                return
+            else
+                git-usage git
+                true; return
+            fi
+        elif [[ $1 == '--nocolor' ]]; then
+            echo "--nocolor not supported. Use 2>&1 | tee"
+            false; return
+        elif [[ $1 == '-x' ]]; then
+            shift
+            set -x
+        else
+            moreopts=0
         fi
-    fi
-
-    if [[ $1 == '-x' ]]; then
-        shift
-        set -x
-    fi
+    done
 
     # Apparently, you can't create a git alias for an extended or expanded git
     # script or function. So we alias them here and handle any arguments in the
@@ -87,17 +93,24 @@ git ()
     local ex_ten_pan_d_command="git-${commands[0]}"
     local is_func
     local is_script
-    is_func=$(declare -F "$ex_ten_pan_d_command" 2>/dev/null)
-    [[ -z $is_func ]] && is_script=$(which "$ex_ten_pan_d_command" 2>/dev/null)
-    if [[ -n $is_func ]] || [[ -n $is_script ]]; then
+    local utrue;true;utrue=$?
+    is-a-function "$ex_ten_pan_d_command"
+    is_func=$?
+    if [[ ! $is_func = "$utrue" ]]; then
+        # Only ask if it's a command if it's not a function. Functions
+        # overriding commands (like git) will be true for both.
+        is-a-command "$ex_ten_pan_d_command"
+        is_script=$?
+    fi
+    if [[ $is_func = "$utrue" ]] || [[ $is_script = "$utrue" ]]; then
         if [[ ",${GIT_DISPATCHER_VERBOSE}," =~ ,${commands[0]},|,${alias},|all ]]; then
-            local t
-            [[ -n $is_func ]] && t='function'
-            [[ -z $t ]] && t='script'
+            local t='script'
+            [[ $is_func = "$utrue" ]] && t='function'
             cmd-echo --id 'GIT WRAPPER' --dc -- "Calling $t $ex_ten_pan_d_command ${args[*]}"
         fi
         commands[0]="${ex_ten_pan_d_command}"
         export GIT_DISPATCHER=inprogress
+
         "${commands[@]}" "${args[@]}"
         cmd_status=$?
         unset GIT_DISPATCHER
