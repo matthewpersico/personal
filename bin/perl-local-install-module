@@ -1,0 +1,31 @@
+#-*- sh -*-
+# shellcheck shell=bash
+
+# shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
+declare prefix
+if [[ $1 == --prefix ]]; then
+    prefix=$2
+    shift;shift
+else
+    cmd-echo --ec --id perl-local-install-modules "No prefix option specified."
+    false; exit
+fi
+
+cd "$(dirname "$1")"
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+declare target="$(basename "$1" .tar.gz)"
+if [[ ! -d $target ]]; then
+    gtar zxvf "$1"
+fi
+# shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
+cd "$target"
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+# shellcheck disable=SC2001 #https://github.com/koalaman/shellcheck/wiki/SC2001
+declare module=$(echo "$target" | sed -E -e 's/-[0-9.]+//' -e 's/-/::/g')
+if [[ -r Makefile.PL ]]; then
+    perl ./Makefile.PL PREFIX="$prefix"
+    make install
+    cmd-echo --color BLUE -id perl-local-install-module "Installed at $( perldoc -l "$module" )"
+else
+    echo No Makefile.PL found
+fi
