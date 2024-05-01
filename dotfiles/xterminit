@@ -116,6 +116,24 @@ export XTERMFONT_SIZE
 ## and make git be a function such that it calls '/the/real/git
 ## $GIT_COLORS "$@"'.
 
+declare -A RGB
+RGB=( ["GREY"]='169:169:169'
+      ["RED"]='255:00:00'
+      ["DARKRED"]='139:00:00'
+      ["WHITE"]='255:255:255'
+      ["BLACK"]='00:00:00'
+      ["BLUE"]='00:00:255'
+      ["STEELBLUE"]='70:130:180'
+      ["GREEN"]='00:255:00'
+      ["SEAGREEN"]='46:139:87'
+      ["WHEAT"]='245:222:179'
+      ["ORANGE"]='255:165:00'
+      ["CHOCOLATE"]='210:105:30'
+      ["LIGHTSTEELBLUE"]='176:196:222'
+      ["PINK"]='255:192:203'
+      ["BROWN"]='165:42:42'
+    )
+
 ## Settings for xterm, distinct from the ANSI printable sequences above.
 export FOREBACKMAP_GREY='BLACK,GREY'
 export FOREBACKMAP_RED='WHEAT,RED'
@@ -125,45 +143,37 @@ export FOREBACKMAP_BLACK='WHITE,BLACK'
 export FOREBACKMAP_BLUE='WHITE,BLUE'
 export FOREBACKMAP_STEELBLUE='WHITE,STEELBLUE'
 export FOREBACKMAP_GREEN='BLACK,GREEN'
-export FOREBACKMAP_SEAGREEN='BLACK,SEAGREEN'
+export FOREBACKMAP_SEAGREEN='WHITE,SEAGREEN'
 export FOREBACKMAP_WHEAT='BLACK,WHEAT'
 export FOREBACKMAP_ORANGE='BLACK,ORANGE'
 export FOREBACKMAP_CHOCOLATE='WHITE,CHOCOLATE'
+export FOREBACKMAP_LIGHTSTEELBLUE='WHITE,LIGHTSTEELBLUE'
 
-export FOREBACKMAP_GREY_RGB='00:00:00,169:169:169'
-export FOREBACKMAP_RED_RGB='246:222:179,256:00:00'
-export FOREBACKMAP_DARKRED_RGB='256:256:256,139:00:00'
-export FOREBACKMAP_WHITE_RGB='00:00:00,256:256:256'
-export FOREBACKMAP_BLACK_RGB='256:256:256,00:00:00'
-export FOREBACKMAP_BLUE_RGB='256:256:256,00:00:256'
-export FOREBACKMAP_STEELBLUE_RGB='256:256:256,70:130:180'
-export FOREBACKMAP_GREEN_RGB='0:0:0,00:256:00'
-export FOREBACKMAP_SEAGREEN_RGB='0:0:0,46:139:87'
-export FOREBACKMAP_WHEAT_RGB='00:00:00,245:222:179'
-export FOREBACKMAP_ORANGE_RGB='00:00:00,256:165:00'
-export FOREBACKMAP_CHOCOLATE_RGB='256:256:256,210:105:30'
-export FOREBACKMAP_LIGHT_STEEL_BLUE_RGB='256:256:256,176:196:222'
+## This creates envvars
+##  FOREBACKMAP_<scheme>_RGB
+## from envvars
+##  FOREBACKMAP_<scheme> and RGB
+for key in $(env | grep FOREBACKMAP | grep -v RGB | sed 's/=.*//'); do
+    # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+    stmt='export '${key}'_RGB=${RGB[${'${key}'%%,*}]},${RGB[${'${key}'##*,}]}'
+    # debug echo $val
+    eval "$stmt"
+done
 
-## Make sure that the value of each entry below matches a color in one of the
-## 'FOREBACKMAP_' variables above. The names and RGB values of the colors are
-## taken from
-## 'https://en.wikipedia.org/wiki/X11_color_names#Color_name_chart'. The
-## pattern is the three hex numbers for the color, each doubled up. So 'BLUE'
-## is 4682B4 but comes up 46468282B4B4. Why? Who knows.
-export XTERM_XGROUND_MAP_RGB46468282B4B4='BLUE'
-export XTERM_XGROUND_MAP_RGBC0C0C0C0C0C0='GREY'
-export XTERM_XGROUND_MAP_RGB8B8B00000000='DARKRED'
-export XTERM_XGROUND_MAP_RGBFFFFFFFFFFFF='WHITE'
-export XTERM_XGROUND_MAP_RGB000000000000='BLACK'
-export XTERM_XGROUND_MAP_RGB46468282B4B4='BLUE'
-export XTERM_XGROUND_MAP_RGB2E2E8B8B5757='GREEN'
-export XTERM_XGROUND_MAP_RGBF5F5DEDEB3B3='WHEAT'
-export XTERM_XGROUND_MAP_RGBFFFFA5A50000='ORANGE'
-export XTERM_XGROUND_MAP_RGBFFFFFFFF0000='YELLOW'
-export XTERM_XGROUND_MAP_RGBFFFFC0C0CBCB='PINK'
-export XTERM_XGROUND_MAP_RGBA5A52A2A2A2A='BROWN'
-export XTERM_XGROUND_MAP_RGBD2D269691E1E='CHOC'
-export XTERM_XGROUND_MAP_RGBB0B0C4C4DEDE='LIGHT_STEEL_BLUE'
+## This creates envvars
+##  XTERM_XGROUND_MAP_RBG<hex color>
+## from
+##  RGB
+## The names and RGB values of the colors are taken from
+## 'https://en.wikipedia.org/wiki/X11_color_names#Color_name_chart'.
+## The pattern is the three hex numbers for the color, each doubled up.
+## For example. 'BLUE' is 4682B4 but comes up 46468282B4B4. Why? Who knows?
+for key in "${!RGB[@]}"; do
+    IFS=':' read -ra foo <<< "${RGB[$key]}"
+    stmt=$(printf "export XTERM_XGROUND_MAP_RGB%02X%02X%02X%02X%02X%02X='$key'" "${foo[0]}" "${foo[0]}" "${foo[1]}" "${foo[1]}" "${foo[2]}" "${foo[2]}")
+    # debug echo $stmt
+    eval "$stmt"
+done
 
 export ESC="\\033"
 export CSI="${ESC}["
