@@ -1,0 +1,144 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# git-linear
+
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+declare ceid=$(basename "$0")
+
+main ()
+{
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    local OPTSARGS
+    local shortopts='aih'
+    local longopts='auto,invert,help'
+    local opt_auto=0
+    local opt_invert=0
+
+    # Process the command line.
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
+
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    while true; do
+        local option=$1
+        shift
+        [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
+        case "$option" in
+            a | auto )
+                opt_auto=1
+                ;;
+            i | invert )
+                opt_invert=1
+                ;;
+            h | help )
+                git-usage "$0"
+                true; return
+                ;;
+            --)  break ;; ## VITAL!!! Exits the while loop, no more options,
+                          ## remaining $*, if any, are args
+            *)
+                cmd-echo --id "$ceid" -ec -- "$option is an invalid option. See $0 --help."
+                false; return
+                ;;
+        esac
+    done
+
+    declare -a cmd
+    cmd=("$@")
+    cmd-echo --id "$ceid" -- "Running '${cmd[*]}':"
+
+    declare resp=y
+    declare prevcommitid
+    declare commitid
+    declare status
+    while [[ $resp == 'y' ]]; do
+        commitid=$(git log -1 --IDs)
+        if [[ $prevcommitid == "$commitid" ]]; then
+            cmd-echo --id "$ceid" -ec -- "Reached end of commits."
+            resp=n
+            continue
+        else
+            prevcommitid="$commitid"
+        fi
+
+        cmd-echo --id "$ceid" -- "Start output for $commitid:"
+        "${cmd[@]}"
+        status=$?
+        cmd-echo --id "$ceid" -- "End   output for $commitid. Status $status."
+
+        if [[ $opt_auto == 1 ]]; then
+            if [[ $status == "$opt_invert" ]]; then
+                cmd-echo --id "$ceid" --color BLUE -- "Search $( ((opt_invert)) && echo "failed." || echo "successful." )"
+                resp=n
+            fi
+        else
+            resp=$(cmd-yesno -q --id "$ceid" "Continue" y)
+        fi
+
+        if [[ $resp == 'y' ]]; then
+            if ! git checkout -q HEAD~1; then
+                cmd-echo --id "$ceid" -ec -- "Checkout error. Exiting."
+                resp=n
+            fi
+        fi
+    done
+
+    cmd-echo --id "$ceid" --color BLUE -- "Current commit:"
+    git log -1
+    cmd-echo --id "$ceid" --color BLUE -- "git pull <remote> <branchname> && git chechout <branchname> to restore."
+
+}
+
+main "$@"
+exit
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-linear - git bisect but linearly
+
+=head1 SYNOPSIS
+
+ git-linear [-a|--auto] [-i|--invert] command and args to perform on each commit.
+
+=head1 DESCRIPTION
+
+Starting with the current commit, the command given by the arguments is run and
+then you are asked whether or not you want to continue to the prior SHA or not.
+
+ $ git linear git grep UC
+
+Without options you are prompted to examine the command output and decide
+whether or not to continue.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --auto
+
+Instead of prompting after each command execution, the status of the command is
+examined and if successful (0), processing stops. Otherwise, the next commit is
+checked out and the process repeated. The process will stop if you reach the
+first SHA.
+
+=item --invert
+
+Instead of stopping when the command succeeds, processing halts when the
+command fails. This would allow you for example, to stop when git grep fails to
+find what you are looking for.
+
+=item --help
+
+This help text.
+
+=back
+
+=cut
+
+__PODUSAGE__
