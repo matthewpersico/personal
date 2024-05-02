@@ -8,8 +8,10 @@
 # We'll check for virtualenv in PS1 ourselves.
 export VIRTUAL_ENV_DISABLE_PROMPT=1
 
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+declare cmd_echo_id='python.mopenv'
 if [[ -e "${TILDAE:-$HOME}/.config/skip_python" ]]; then
-    echo "Skipping local python by request (${TILDAE:-$HOME}/.config/skip_python exists)"
+    cmd-echo --id "$cmd_echo_id" --info -- "Skipping local python by request (${TILDAE:-$HOME}/.config/skip_python exists)"
     return ## This file gets dotted in
 fi
 
@@ -28,7 +30,7 @@ while (($#)); do
         continue
     fi
     ## No other arguments are valid
-    echo "$1 is an invalid argument"
+    cmd-echo --id "$cmd_echo_id" --error -- "$1 is an invalid argument"
     return ## This file gets dotted in
 done
 
@@ -79,20 +81,20 @@ sub vcomp { (\$lmaj, \$lmin, \$rmaj, \$rmin) = map{split(/\./,\$_)}(@_); return 
 #    if on disk is equal to     max available, then we are good
 
 if ( vcomp( q($local_python_version), q($wanted_python_version) ) == -1 ) {
-    warn qq(Have Python $local_python_version, want Python $wanted_python_version. Upgrading...\n);
+    warn qq(>>> [python.mopenv] WARNING: Have Python $local_python_version, want Python $wanted_python_version. Upgrading...\n);
     print(q(1)); exit 0;
 }
 if ( vcomp( q($local_python_version), q($wanted_python_version) ) == 1 ) {
-    warn qq(Have Python $local_python_version, want Python $wanted_python_version. That should not be. Please review.\n);
+    warn qq(>>> [python.mopenv] WARNING: Have Python $local_python_version, want Python $wanted_python_version. That should not be. Please review.\n);
     print(q(0)); exit 1;
 }
 #if on disk is equal to     what we want...
 if ( vcomp(q($local_python_version),q($latest_available_version)) == -1) {
-    warn qq(Have Python $local_python_version, but $latest_available_version is available. We do not do automatic upgrades. Run $0 --init to upgrade.\n);
+    warn qq(>>> [python.mopenv] WARNING: Have Python $local_python_version, but $latest_available_version is available. We do not do automatic upgrades. Run $0 --init to upgrade.\n);
     print(q(0)); exit 1;
 }
 if ( vcomp(q($local_python_version),q($latest_available_version)) == 1) {
-    warn qq(Have Python $local_python_version, but $latest_available_version is available. That should not be. Please review.\n);
+    warn qq(>>> [python.mopenv] WARNING: Have Python $local_python_version, but $latest_available_version is available. That should not be. Please review.\n);
     print(q(0)); exit 1;
 }
 # If we are here, we want and have the latest
@@ -101,7 +103,7 @@ print(q(0)); exit 0;
 fi
 
 if ((upgrade == 0)); then
-    ((verbose)) && echo "Our python is up to date."
+    ((verbose)) && cmd-echo --id "$cmd_echo_id" --info "Our python is up to date."
 else
     ## Bury all the python links in a python subdir
     mkdir -p "$pypath"

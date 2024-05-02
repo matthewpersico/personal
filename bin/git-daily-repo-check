@@ -2,19 +2,22 @@
 # shellcheck shell=bash
 
 # git-daily-repo-check
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+declare cmd_echo_id=$(basename "$0")
 
 if [[ -r ~/.git-daily-repo-check.hosts ]]; then
     declare x
     x=$(grep "$(hostname)" ~/.git-daily-repo-check.hosts)
     if [[ -z "$x" ]]; then
         ## Host name not found in the file
-        echo "Skipping git-daily-repo-check on $(hostname)"
+        cmd-echo -id "$cmd_echo_id" --info -- "Skipping git-daily-repo-check on $(hostname)"
         true; exit
     fi
 fi
 
 declare repo=$1; shift;
-[[ -z "$repo" ]] && echo "Missing repo location arg. Exiting." && { false; exit; }
+[[ -z "$repo" ]] && \
+    cmd-echo -id "$cmd_echo_id" -e -- "Missing repo location arg. Exiting." && { false; exit; }
 ( ## to isolate 'cd' effects
     # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
     builtin cd "$repo"
@@ -26,9 +29,9 @@ declare repo=$1; shift;
     declare repo_key_last
     [[ -r $repo_key_cache ]] && repo_key_last=$(cat $repo_key_cache 2>/dev/null)
     if [[ ! "$repo_key_last" = "$repo_key" ]]; then
-        echo "** Check ${PWD} against default branch ***"
+        cmd-echo -id "$cmd_echo_id" --info -- "Check ${PWD} against default branch"
         git-check-with-default-branch --bail-on-dirty
-        echo "** Check ${PWD} against itself ***"
+        cmd-echo -id "$cmd_echo_id" --info -- "Check ${PWD} against itself"
         git status
         echo "$repo_key" > $repo_key_cache
     fi

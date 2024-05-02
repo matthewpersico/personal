@@ -63,7 +63,7 @@ _aload()
                 # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
                 # We want the splitting on _autoload_split_fpath
                 mapfile -t loadthese < <(find $(_autoload_split_fpath) -maxdepth 1 -type f | sort );;
-            *) echo "_aload: usage: _aload [-xrvlyf] [-a dir] [function ...]" >&2; return;;
+            *) _autoload_say ERROR "_aload: usage: _aload [-xrvlyf] [-a dir] [function ...]"; return;;
         esac
     done
 
@@ -87,7 +87,7 @@ _aload()
         exists_fn=$(declare -F "$func")
         if [[ -n "$exists_fn" ]] && ((doreload==0)) && ((doevalshim==0)); then
             if ((doverbose)); then
-                echo "autoload: function '$func' already exists"
+                _autoload_say INFO "autoload: function '$func' already exists"
             fi
         else
             local andevaled=''
@@ -197,7 +197,7 @@ _aload()
                         ((exported+=1))
                     fi
 
-                    ((doverbose)) && echo "$func autoloaded${andexported}${andevaled}"
+                    ((doverbose)) && _autoload_say INFO "$func autoloaded${andexported}${andevaled}"
                     if [[ -z $AUTOLOAD_SHIM_OVERHEAD ]] && ((doshim)); then
                         ## ...we have just loaded the first function shim into
                         ## memory. Let's calc the AUTOLOAD_SHIM_OVERHEAD size
@@ -217,18 +217,18 @@ _aload()
                         export AUTOLOAD_SHIM_OVERHEAD
                     fi
                 else
-                    echo "$func failed to load" >&2
+                    _autoload_say ERROR "$func failed to load"
                 fi
             fi
         fi
     done
     if ((summary)); then
-        echo -n "autoload:"
+        declare -a msg
         if [[ -n $loaded_from ]]; then
-            echo " source:$loaded_from"
-            echo -n "         "
+            msg+=("source:$loaded_from")
         fi
-        echo " loaded:$loaded exported:$exported optimized:$optimized overhead:$AUTOLOAD_SHIM_OVERHEAD bytes"
+        msg+=("loaded:$loaded exported:$exported optimized:$optimized overhead:$AUTOLOAD_SHIM_OVERHEAD bytes")
+        _autoload_say INFO "${msg[@]}"
     fi
 }
 
@@ -335,6 +335,12 @@ _autoload_page()
 _autoload_remove()
 {
     unset -f "$@"
+}
+
+_autoload_say()
+{
+    declare status=$1;shift
+    "${HOME}/personal/bin/cmd-echo" --id autoload "--$status" "$@"
 }
 
 _autoload_help()
