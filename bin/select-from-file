@@ -4,12 +4,13 @@
 declare infile # datafile of prompts and commands
 
 declare noexec=0
+declare verbose=0
 declare datadir
 datadir=$(dirname "$(realpath "$0")")/../data
 
 declare OPTSARGS
-declare shortopts='cd:h'
-declare longopts='noexec,datadir:,help'
+declare shortopts='nd:hv'
+declare longopts='noexec,verbose,datadir:,help'
 
 if ! OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@"); then
     bash-usage "$0"
@@ -23,8 +24,10 @@ while true; do
     case "$option" in
         h|help)
             bash-usage "$0"; true; exit ;;
-        c|noexec)
+        n|noexec)
             noexec=1 ;;
+        v|verbose)
+            verbose=1 ;;
         d|datadir)
             datadir=$(realpath "$1"); shift ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
@@ -74,11 +77,124 @@ select tag in "${tags[@]}" quit ; do
     fi
     [[ -n $tag ]] && break
 done
-if ((noexec)); then
+evaled=$(eval echo "${actions["$tag"]}")
+if ((noexec || verbose)); then
     # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
-    echo ${actions["$tag"]}
+    echo ${evaled}
 elif [[ -n ${bgs["$tag"]} ]]; then
-    ${actions["$tag"]} &
+    ${evaled} &
 else
-    ${actions["$tag"]}
+    ${evaled}
 fi
+exit $?
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+select-from-file - menu command system
+
+=head1 SYNOPSIS
+
+ select-from-file [-v|-verbose] [-n|--noexec] sff-file
+ select-from-file [-v|-verbose] [-n|--noexec] --datadir|-d /directory/with/sff-files
+ select-from-file --help
+
+
+=head1 DESCRIPTION
+
+Create a menu for common commands that differ in a small set, most likely one option.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item sff-file
+
+A file with the following format:
+
+ # comments start with a '#' on their own line
+ menu option1|command1 and its arguments that can include $EXPORTED $VARIABLES
+ menu option2|command2 and its arguments that can include $EXPORTED $VARIABLES|&
+
+If the line ends with '|&' it will be backgrounded and 'select-from-file' will
+exit. Use this format to start programs with a gui. The following is a
+practical example:
+
+* This is my tshxterms.sff
+
+ # xterms via teleport
+ mpersico5-2023-03-28|tsh ssh -Y dev-10-34-21-111.pw1.bcc.bloomberg.com /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DFLT_FG -bg $NEWXCOLOR_DFLT_BG|&
+ depopp-pw-359       |tsh ssh -Y depopp-pw-359 /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DEPOPP_FG -bg $NEWXCOLOR_DEPOPP_BG|&
+ depopp-pw-276       |tsh ssh -Y depopp-pw-276 /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DEPOPP_FG -bg $NEWXCOLOR_DEPOPP_BG|&
+ depopp-ob-428       |tsh ssh -Y depopp-ob-428 /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DEPOPP_FG -bg $NEWXCOLOR_DEPOPP_BG|&
+ depopp-ob-020       |tsh ssh -Y depopp-ob-020 /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DEPOPP_FG -bg $NEWXCOLOR_DEPOPP_BG|&
+ dprx-pw-584         |tsh ssh -Y dprx-pw-584 /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DEPOPP_FG -bg $NEWXCOLOR_DEPOPP_BG|&
+
+* This is running the program:
+
+ $ select-from-file /home/mpersico5/.config/tshxterms.sff
+ 1) mpersico5-2023-03-28
+ 2) depopp-pw-359
+ 3) depopp-pw-276
+ 4) depopp-ob-428
+ 5) depopp-ob-020
+ 6) dprx-pw-584
+ 7) quit
+ #?
+
+Choose one of the numbers and the command is executed. Yes, I precalc all those
+environment variables on login.
+
+=back
+
+=head OPTIONS
+
+=over 4
+
+=item --verbose|-v
+
+Print the command that is about to be run.
+
+=item --noexec|-n
+
+Print the command, but do not run it.
+
+=item --datadir|-d <directory>
+
+All *.sff files in the specified directory are themselves loaded up into a menu
+and the chosen one is then processed. This was useful for me when testing
+teleport. I had the following files:
+
+ /home/mpersico5/.config/sshs.sff
+ /home/mpersico5/.config/tshsshs.sff
+ /home/mpersico5/.config/tshxterms.sff
+ /home/mpersico5/.config/xterms.sff
+
+Here is a sample run:
+
+ $ select-from-file -v -d ../.config/
+ 1) /home/mpersico5/.config/sshs.sff
+ 2) /home/mpersico5/.config/tshsshs.sff
+ 3) /home/mpersico5/.config/tshxterms.sff
+ 4) /home/mpersico5/.config/xterms.sff
+ 5) quit
+ #? 1
+ 1) mpersico5-2023-03-28
+ 2) depopp-pw-359
+ 3) depopp-pw-276
+ 4) depopp-ob-428
+ 5) depopp-ob-020
+ 6) quit
+ #?
+
+With this, I could test all four connection methods to any machine.
+
+=item --help|-h
+
+This help text.
+
+=back
+
+=cut
+
+__PODUSAGE__

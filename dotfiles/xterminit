@@ -82,72 +82,69 @@ XTERMGEO_Y=$(( $(x-current-root -h)/6 ))
 export XTERMGEO_Y
 XTERMGEO="${XTERMGEO_W}x${XTERMGEO_H}+${XTERMGEO_X}+${XTERMGEO_Y}"
 export XTERMGEO
-case ${HOSTNAME_FQDN} in
-    *depop* )
-        NEWXCOLOR=DARKRED
-        XTERMFONT_SIZE='12'
-        ;;
-
-    monolith* | MONOLITH* )
-        NEWXCOLOR=BLACK
-            XTERMFONT_NAME='lucidasanstypewriter'
-            XTERMFONT_SIZE='12'
-        ;;
-
-    * )
-        if iswsl; then
-            NEWXCOLOR=BLACK
-            XTERMFONT_NAME='lucidasanstypewriter'
-            XTERMFONT_SIZE='12'
-        else
-            NEWXCOLOR=GREY
-            XTERMFONT_NAME=''
-            XTERMFONT_SIZE=''
-        fi
-        ;;
-esac
-
-export NEWXCOLOR
-export XTERMFONT_NAME
-export XTERMFONT_SIZE
 
 ## If we want to change git colors, then define the color assignments
 ## with a series of -c name=value assignments in an ennvar GIT_COLORS
 ## and make git be a function such that it calls '/the/real/git
 ## $GIT_COLORS "$@"'.
 
+## The names and RGB values of the colors are taken from
+## 'https://en.wikipedia.org/wiki/X11_color_names#Color_name_chart'. and are
+## stored in xcolordefs.
+declare -A RGBhex
+RGBhex=(
+    ["BLACK"]='00:00:00'
+    ["BLUE"]='00:00:FF'
+    ["BROWN"]="A5:2A:2A"
+    ["CHOCOLATE"]="D2:69:1E"
+    ["DARKRED"]="8B:00:00"
+    ["GREY"]="BE:BE:BE"
+    ["GREEN"]="00:FF:00"
+    ["LIGHTSTEELBLUE"]="B0:C4:DE"
+    ["ORANGE"]="FF:A5:00"
+    ["PINK"]="FF:C0:CB"
+    ["RED"]="FF:00:00"
+    ["SEAGREEN"]="2E:8B:57"
+    ["STEELBLUE"]="46:82:B4"
+    ["WHEAT"]="F5:DE:B3"
+    ["WHITE"]="FF:FF:FF"
+    ["YELLOW"]="FF:FF:00"
+)
+
 declare -A RGB
-RGB=( ["GREY"]='169:169:169'
-      ["RED"]='255:00:00'
-      ["DARKRED"]='139:00:00'
-      ["WHITE"]='255:255:255'
-      ["BLACK"]='00:00:00'
-      ["BLUE"]='00:00:255'
-      ["STEELBLUE"]='70:130:180'
-      ["GREEN"]='00:255:00'
-      ["SEAGREEN"]='46:139:87'
-      ["WHEAT"]='245:222:179'
-      ["ORANGE"]='255:165:00'
-      ["CHOCOLATE"]='210:105:30'
-      ["LIGHTSTEELBLUE"]='176:196:222'
-      ["PINK"]='255:192:203'
-      ["BROWN"]='165:42:42'
-    )
+RGB=(
+    ["BLACK"]='00:00:00' #(000000)
+    ["BLUE"]='00:00:256' #(0000FF)
+    ["BROWN"]='165:42:42' #(A52A2A)
+    ["CHOCOLATE"]='210:105:30' #(D2691E)
+    ["DARKRED"]='139:00:00' #(8B0000)
+    ["GREEN"]='00:255:00' #(00FF00)
+    ["GREY"]='190:190:190' #(BEBEBE)
+    ["LIGHTSTEELBLUE"]='176:196:222' #(B0C4DE)
+    ["ORANGE"]='255:165:00' #(FFA500)
+    ["PINK"]='255:192:203' #(FFC0CB)
+    ["RED"]='255:00:00' #(FF0000)
+    ["SEAGREEN"]='46:139:87' #(2E8B57)
+    ["STEELBLUE"]='70:130:180' #(4682B4)
+    ["WHEAT"]='245:222:179' #(F5DEB3)
+    ["WHITE"]='255:255:255' #(FFFFFF)
+    ["YELLOW"]='255:255:00' #(FFFF00)
+)
 
 ## Settings for xterm, distinct from the ANSI printable sequences above.
-export FOREBACKMAP_GREY='BLACK,GREY'
-export FOREBACKMAP_RED='WHEAT,RED'
-export FOREBACKMAP_DARKRED='WHEAT,DARKRED'
-export FOREBACKMAP_WHITE='BLACK,WHITE'
 export FOREBACKMAP_BLACK='WHITE,BLACK'
 export FOREBACKMAP_BLUE='WHITE,BLUE'
-export FOREBACKMAP_STEELBLUE='WHITE,STEELBLUE'
-export FOREBACKMAP_GREEN='BLACK,GREEN'
-export FOREBACKMAP_SEAGREEN='WHITE,SEAGREEN'
-export FOREBACKMAP_WHEAT='BLACK,WHEAT'
-export FOREBACKMAP_ORANGE='BLACK,ORANGE'
 export FOREBACKMAP_CHOCOLATE='WHITE,CHOCOLATE'
+export FOREBACKMAP_DARKRED='WHEAT,DARKRED'
+export FOREBACKMAP_GREEN='BLACK,GREEN'
+export FOREBACKMAP_GREY='BLACK,GREY'
 export FOREBACKMAP_LIGHTSTEELBLUE='WHITE,LIGHTSTEELBLUE'
+export FOREBACKMAP_ORANGE='BLACK,ORANGE'
+export FOREBACKMAP_RED='WHEAT,RED'
+export FOREBACKMAP_SEAGREEN='WHITE,SEAGREEN'
+export FOREBACKMAP_STEELBLUE='WHITE,STEELBLUE'
+export FOREBACKMAP_WHEAT='BLACK,WHEAT'
+export FOREBACKMAP_WHITE='BLACK,WHITE'
 
 ## This creates envvars
 ##  FOREBACKMAP_<scheme>_RGB
@@ -156,24 +153,65 @@ export FOREBACKMAP_LIGHTSTEELBLUE='WHITE,LIGHTSTEELBLUE'
 for key in $(env | grep FOREBACKMAP | grep -v RGB | sed 's/=.*//'); do
     # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
     stmt='export '${key}'_RGB=${RGB[${'${key}'%%,*}]},${RGB[${'${key}'##*,}]}'
-    # debug echo $val
+    # debug echo $stmt
     eval "$stmt"
 done
 
 ## This creates envvars
 ##  XTERM_XGROUND_MAP_RBG<hex color>
 ## from
-##  RGB
-## The names and RGB values of the colors are taken from
-## 'https://en.wikipedia.org/wiki/X11_color_names#Color_name_chart'.
+##  RGBhex
 ## The pattern is the three hex numbers for the color, each doubled up.
 ## For example. 'BLUE' is 4682B4 but comes up 46468282B4B4. Why? Who knows?
 for key in "${!RGB[@]}"; do
-    IFS=':' read -ra foo <<< "${RGB[$key]}"
-    stmt=$(printf "export XTERM_XGROUND_MAP_RGB%02X%02X%02X%02X%02X%02X='$key'" "${foo[0]}" "${foo[0]}" "${foo[1]}" "${foo[1]}" "${foo[2]}" "${foo[2]}")
+    IFS=':' read -ra tmp <<< "${RGBhex[$key]}"
+    stmt=$(printf "export XTERM_XGROUND_MAP_RGB%s%s%s%s%s%s='$key'" "${tmp[0]}" "${tmp[0]}" "${tmp[1]}" "${tmp[1]}" "${tmp[2]}" "${tmp[2]}")
     # debug echo $stmt
     eval "$stmt"
 done
+
+export NEWXCOLOR_DEPOPP=DARKRED
+newx_var=FOREBACKMAP_${NEWXCOLOR_DEPOPP}
+export NEWXCOLOR_FG_DEPOPP=${!newx_var%%,*}
+export NEWXCOLOR_BG_DEPOPP=${!newx_var##*,}
+export XTERMFONT_NAME_DEPOPP=''
+export XTERMFONT_SIZE_DEPOPP='12'
+
+export NEWXCOLOR_MONOLITH=BLACK
+newx_var=FOREBACKMAP_${NEWXCOLOR_MONOLITH}
+export NEWXCOLOR_FG_MONOLITH=${!newx_var%%,*}
+export NEWXCOLOR_BG_MONOLITH=${!newx_var##*,}
+export XTERMFONT_NAME_MONOLITH='lucidasanstypewriter'
+export XTERMFONT_SIZE_MONOLITH='12'
+
+export NEWXCOLOR_DFLT=GREY
+newx_var=FOREBACKMAP_${NEWXCOLOR_DFLT}
+export NEWXCOLOR_FG_DFLT=${!newx_var%%,*}
+export NEWXCOLOR_BG_DFLT=${!newx_var##*,}
+export XTERMFONT_NAME_DFLT=''
+export XTERMFONT_SIZE_DFLT='12'
+
+HOSTNAME_FQDN_ROOT=${HOSTNAME_FQDN%%-*}
+HOSTNAME_FQDN_ROOT=${HOSTNAME_FQDN_ROOT%%.*}
+newx_var=NEWXCOLOR_${HOSTNAME_FQDN_ROOT}
+if [[ -z ${!newx_var} ]]; then
+    HOSTNAME_FQDN_ROOT=DFLT
+fi
+
+newx_var=NEWXCOLOR_${HOSTNAME_FQDN_ROOT}
+export NEWXCOLOR=${!newx_var}
+
+newx_var=NEWXCOLOR_FG_${HOSTNAME_FQDN_ROOT}
+export NEWXCOLOR_FG=${!newx_var}
+
+newx_var=NEWXCOLOR_BG_${HOSTNAME_FQDN_ROOT}
+export NEWXCOLOR_BG=${!newx_var}
+
+newx_var=XTERMFONT_NAME_${HOSTNAME_FQDN_ROOT}
+export XTERMFONT_NAME=${!newx_var}
+
+newx_var=XTERMFONT_SIZE_${HOSTNAME_FQDN_ROOT}
+export XTERMFONT_SIZE=${!newx_var}
 
 export ESC="\\033"
 export CSI="${ESC}["
