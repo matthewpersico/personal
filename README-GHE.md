@@ -113,6 +113,7 @@ $ cd $HOME/personal/dotfiles
 $ . ./dotfilesbootstrap
 $ cd ..
 $ bin/makesymlinks -i dotfiles
+$ export REALGIT=$(which git)
 $ bin/github.mopenv.init
 ```
 
