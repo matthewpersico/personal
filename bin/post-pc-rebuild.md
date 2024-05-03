@@ -2,18 +2,6 @@
 
 * Install a distro.
 * Start up a session.
-* Pin the icon to the taskbar.
-* Check WSLg integration:
-```
-$ echo $DISPLAY
-:0
-$ ls -la /tmp/.X11-unix
-total 4
-drwxrwxrwx 2 root    root      60 Oct  8 17:15 .
-drwxrwxrwt 3 root    root    4096 Oct  8 17:15 ..
-srwxrwxrwx 1 matthew matthew    0 Oct  8 17:15 X0
-```
-If the two numbers match, you're good. If not, change the `DISPLAY` variable to match.
 * Open up sudo
 ```
 sudo vi sudoers.$USER
