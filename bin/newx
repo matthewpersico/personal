@@ -10,6 +10,7 @@ count=1
 declare lxtermgeo_w
 lxtermgeo_w="$XTERMGEO_W"
 declare -a schemes
+declare scheme
 declare -a geo
 declare proc_handling=''
 declare wh
@@ -46,14 +47,17 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             ## number of xterms to spawn
             ((count=$1*-1)) ;;
         scheme )
-            tmpfile=/tmp/newx.$$
-            echo 'The list of avaliable color schemes is (scheme=foreground,background)'
-            env | grep FOREBACKMAP | perl -pe 's/FOREBACKMAP_(.*)=(.*)/\1=\2/;$_=lc()' | sort > $tmpfile
-    	    cat $tmpfile
-            example_scheme=$(head -$((RANDOM % $(wc -l < $tmpfile) )) $tmpfile | tail -1 | sed 's/=.*//')
-            echo "Re-run using -oneofthoseschemes, i.e.; -$example_scheme"
-            command rm -f $tmpfile
-	        true; exit ;;
+            echo '    scheme=font,background'
+            echo '    ------ ---- ----------'
+            select scheme in $(env | grep FOREBACKMAP | grep -v _RGB | perl -pe 's/FOREBACKMAP_(.*)=(.*)/\1=\2/;;$_=lc()' | sort ) '(q)uit'; do
+                if [[ $REPLY = 'q' ]] || [[ $scheme = '(q)uit' ]]; then
+                    false;exit
+                fi
+                if [[ -n $scheme ]]; then
+                    break
+                fi
+            done
+            ;;
         * )
             echo "Invalid option: $original"
             bash-usage "$0"
@@ -62,17 +66,23 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
 done
 
 ## Any args are color schemes.
-for scheme in "$@"; do
+declare -a args
+if [[ -n $scheme ]]; then
+    args+=("$scheme")
+else
+    args+=("$@")
+fi
+for scheme in "${args[@]}"; do
     var="FOREBACKMAP_${scheme^^}"
     [[ -n "${!var}" ]] && schemes+=("${!var}") && shift
 done
 
 if [[ -z "${schemes[0]}" ]]; then
     if [[ -z $NEWXINITED ]]; then
-	export NEWXINITED=1
-	var="FOREBACKMAP_${NEWXCOLOR}" && schemes=("${!var}")
+	    export NEWXINITED=1
+	    var="FOREBACKMAP_${NEWXCOLOR}" && schemes=("${!var}")
     else
-	var="FOREBACKMAP_$(xterm-cli background)" && schemes=("${!var}")
+	    var="FOREBACKMAP_$(xterm-cli background)" && schemes=("${!var}")
     fi
 fi
 
