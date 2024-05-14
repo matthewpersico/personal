@@ -99,47 +99,49 @@ main ()
     ## require specifying and handling every existing option in 'git clone' and
     ## it is just not necessary. Also, this handles non-option arguments, even
     ## if mixed in with options
-    local -a pass_on
+    local -a pass_on_args
 
     while (( $# )); do
-        local option=$1
+        local arg=$1
         shift ## That way you avoid endless loops on invalid options.
 
-        ## This bit deals with --foo=bar instead of --foo bar...
-        local okey
+        local option=''
         local ovalue=''
-        ## but only deal with it if we really have an option. Otherwise you
-        ## misinterpret items like this argument to git clone --config:
-        ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
-        if [[ $option =~ ^- ]]; then
+        ## This bit deals with --foo=bar instead of --foo bar...
+        if [[ $arg =~ ^- ]]; then
+            option=$(dashstripper "$arg")
             if [[ "$option" =~ = ]]; then
-                okey=${option%%=*}
+                ## but only deal with it if we really have an option. Otherwise
+                ## you misinterpret items like this argument to git clone
+                ## --config:
+                ## "remote.origin.fetch=+refs/pull/*/head:refs/remotes/origin/pr/*'
+                ## And yes, the one # and the two % Do The Right Thing here.
                 ovalue=${option#*=}
-                option="$okey"
+                option=${option%%=*}
             fi
         fi
         case $option in
             ##
             ## Our options
             ##
-            --doandcd )
+            doandcd )
                 doandcdfile=${ovalue:-$1}
                 [[ -z "$ovalue" ]] && shift ## If ovalue is blank, we used $1
                 ;;
-            --tree )
+            tree )
                 dispatch_to_real_git=0
                 opt_use_githost_dir=1;;
-            --named-branches | --named | --nb)
+            named-branches | named | nb)
                 dispatch_to_real_git=0
                 opt_use_named_branches=1;;
-            -y | --yes )
+            y | yes )
                 dispatch_to_real_git=0; opt_y=1;;
-            -t | --timestamp )
+            t | timestamp )
                 dispatch_to_real_git=0; opt_t=1;;
-            --triangle )
+            triangle )
                 dispatch_to_real_git=0
                 opt_make_triangle=1;;
-            --fo | --forkof | --fork-of )
+            fo | forkof | fork-of )
                 opt_make_fork=1
                 dispatch_to_real_git=0
                 local tmp_otn=${ovalue:-$1}
@@ -160,7 +162,7 @@ main ()
                              "    $tmp_otn"
                 fi
                 ;;
-            --wt | --worktree | --wtf | --worktree-fetch )
+            wt | worktree | wtf | worktree-fetch )
                 dispatch_to_real_git=0
                 opt_worktree=1
                 opt_worktree_name="${ovalue:-$1}"
@@ -174,16 +176,15 @@ main ()
                     opt_worktree_fetch='--fetch'
                 fi
                 ;;
-            --help | -h )
+            help |h )
                 git-usage "$0"; true; return ;;
-            --debug | -x )
+            debug |x )
                 dispatch_to_real_git=0; set -x; do-on-exit set +x;; # OK if you're grepping
             * )
                 ## If we are here, it is an option we are not processing, an
                 ## arg to such an option or a straight-up arg.  Eventually, you
-                ## call the real command with "${pass_on[@]}"
-                pass_on+=("$option");
-                [[ -n "$ovalue" ]] && pass_on+=("$ovalue")
+                ## call the real command with "${pass_on_args[@]}"
+                pass_on_args+=("$arg");
                 ;;
         esac
     done
@@ -191,11 +192,11 @@ main ()
     if ((dispatch_to_real_git)); then
         ## There are no options specified that make us think we want to run our
         ## clone code; go run system git clone.
-        "$REALGIT" clone "${pass_on[@]}"
+        "$REALGIT" clone "${pass_on_args[@]}"
         return
     fi
 
-    ## WARNING: At this point, 'pass_on' should contain only the repo to clone
+    ## WARNING: At this point, 'pass_on_args' should contain only the repo to clone
     ## and maybe a different directory to clone into. If there are real
     ## options, then this logic won't work and we'll have to strip off any real
     ## options above.
@@ -205,20 +206,20 @@ main ()
         opt_make_triangle=0
     fi
 
-    [[ -z "${pass_on[0]}" ]] && git-usage "$0" "Missing arguments" && { false; return; }
+    [[ -z "${pass_on_args[0]}" ]] && git-usage "$0" "Missing arguments" && { false; return; }
     if [[ -z "${githost}" ]]; then
         local -a tmpa
-        asplit "${pass_on[0]}" -s : -a tmpa
-        if [[ "${tmpa[0]}" = "${pass_on[0]}" ]]; then
-            cmd-echo -id "$cmd_echo_id" --ec -- "githost not specified and no 'githost:' found in '${pass_on[0]}'"
+        asplit "${pass_on_args[0]}" -s : -a tmpa
+        if [[ "${tmpa[0]}" = "${pass_on_args[0]}" ]]; then
+            cmd-echo -id "$cmd_echo_id" --ec -- "githost not specified and no 'githost:' found in '${pass_on_args[0]}'"
             false; return
         fi
         githost="${tmpa[0]}"
         namespace="${tmpa[1]}"
     else
-        namespace=${pass_on[0]}
+        namespace=${pass_on_args[0]}
     fi
-    ashift pass_on
+    ashift pass_on_args
 
     declare noop
     # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
@@ -235,7 +236,7 @@ main ()
         namespace=${tmpa[0]}
         repo=${tmpa[1]}
     else
-        ashift pass_on repo
+        ashift pass_on_args repo
     fi
 
     if [[ -z $namespace ]] || [[ -z $repo ]]; then
@@ -247,9 +248,9 @@ main ()
     tgtdir="$repo"
     local tgt_override=0
 
-    if [[ -n ${pass_on[0]} ]]; then
+    if [[ -n ${pass_on_args[0]} ]]; then
         # This is the target dir we want to clone into
-        ashift pass_on tgtdir
+        ashift pass_on_args tgtdir
         tgt_override=1
     fi
     local cwpath
@@ -332,8 +333,8 @@ main ()
 
     ## Do the clone
     local cloned_from="${githost_url}$namespace/${forked_repo:-$repo}"
-    cmd-echo -- "$REALGIT clone ${pass_on[*]} $cloned_from $tgt ..."
-    if ! $REALGIT clone "${pass_on[@]}" "$cloned_from" "$tgt"; then
+    cmd-echo -- "$REALGIT clone ${pass_on_args[*]} $cloned_from $tgt ..."
+    if ! $REALGIT clone "${pass_on_args[@]}" "$cloned_from" "$tgt"; then
         return
     fi
 

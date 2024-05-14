@@ -10,18 +10,20 @@ main ()
     local opt_edit=0
     local opt_find=0
     local -a pass_on_args
+    local -a git_pass_on_args
     local -a found
 
     for i in $(git config --get "$(basename "$0").opts"); do
         pass_on_args+=("$i")
     done
 
-    while [[ -n "$1" ]]; do
-        local original="$1"
-        shift
-        if [[ "$original" =~ ^- ]]; then
-            local option
-            option=$(dashstripper "$original")
+    while (( $# )); do
+        local arg=$1
+        shift ## That way you avoid endless loops on invalid options.
+
+        local option=''
+        if [[ "$arg" =~ ^- ]]; then
+            option=$(dashstripper "$arg")
 
             ## All of the --foo=bar processing is stripped away because we
             ## don't need it for the limited set of options we are processing.
@@ -44,12 +46,25 @@ main ()
                     mapfile -t found < <(git-find "${findargs[@]}")
                     continue
                     ;;
+                no-n | no-ln | no-linen| no-linenumber | no-linenumbes )
+                    git_pass_on_args+=('-c' 'grep.lineNumber=false')
+                    continue
+                    ;;
+                no-f | no-file | no-filename | no-filenames )
+                    pass_on_args+=('-h')
+                    continue
+                    ;;
+                no-anything | nothing | nutin )
+                    pass_on_args+=('-h' '--no-color')
+                    git_pass_on_args+=('-c' 'grep.lineNumber=false')
+                    continue
+                    ;;
                 ## No '*)' case needed; anything else just gets passed on
             esac
         fi
 
         ## If we are here, pass it on
-        pass_on_args+=("$original")
+        pass_on_args+=("$arg")
     done
 
     ## If we did a find to limit the search scope, add those files here, if any
@@ -73,7 +88,7 @@ main ()
             false
         fi
     else
-        $REALGIT grep "${pass_on_args[@]}"
+        $REALGIT "${git_pass_on_args[@]}" grep "${pass_on_args[@]}"
     fi
     return
 }
@@ -89,6 +104,10 @@ git-grep - git extention of git grep
 =head1 SYNOPSIS
 
  git grep --edit
+ git grep --find "args"
+ git grep --no-linenumber
+ git grep --no-filenamer
+ git grep --no-anything
 
 =head1 DESCRIPTION
 
@@ -112,6 +131,18 @@ Run git-find with any args all concatinated into one string:
 
 greps for a single bracket on shell files only. If no files are "found", no
 grep is run.
+
+=item --no-linenumber
+
+Do not print the line numbers. Also --no-n, --no-l, --no-linen, and --no-linenumbers.
+
+=item --no-filename
+
+Do not print the filename. Same as -h. Also --no-f, --no-file, and no-filenames.
+
+=item --no-anything
+
+Do not print file numbers, filenames, or colors. Also --nothing and --nutin.
 
 =back
 

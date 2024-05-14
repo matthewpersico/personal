@@ -2,19 +2,18 @@
 # shellcheck shell=bash
 
 # newx
+
+declare more_opts=1
+declare opt_proc_handling=''
+declare lxtermgeo_w="$XTERMGEO_W"
+declare opt_nogeo=0
+declare opt_wh
+
 declare var
-declare more_opts
-more_opts=1
-declare count
-count=1
-declare lxtermgeo_w
-lxtermgeo_w="$XTERMGEO_W"
-declare -a schemes
 declare scheme
+declare colors
 declare -a geo
-declare proc_handling=''
-declare wh
-declare nogeo=0
+
 while ((more_opts)) && [[ "$1" =~ ^- ]]; do
     declare original="$1"
     declare option
@@ -26,9 +25,9 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             bash-usage "$0"
             true; exit ;;
         procbg )
-            proc_handling='bg' ;;
+            opt_proc_handling='bg' ;;
         procda )
-            proc_handling='da' ;;
+            opt_proc_handling='da' ;;
         w )
             ## wide
             ((lxtermgeo_w*=2)) ;;
@@ -39,14 +38,11 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             ## std
             ((lxtermgeo_w+-0)) ;;
         nogeo | ng )
-            nogeo=1
+            opt_nogeo=1
             ;;
         wh )
-            wh=$1; shift ;;
-        [0-9]* )
-            ## number of xterms to spawn
-            ((count=$1*-1)) ;;
-        scheme )
+            opt_wh=$1; shift ;;
+        sc* )
             echo '    scheme=font,background'
             echo '    ------ ---- ----------'
             select scheme in $(env | grep FOREBACKMAP | grep -v _RGB | perl -pe 's/FOREBACKMAP_(.*)=(.*)/\1=\2/;;$_=lc()' | sort ) '(q)uit'; do
@@ -54,6 +50,7 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
                     false;exit
                 fi
                 if [[ -n $scheme ]]; then
+                    scheme=${scheme%%=*}
                     break
                 fi
             done
@@ -65,25 +62,25 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
     esac
 done
 
-## Any args are color schemes.
-declare -a args
-if [[ -n $scheme ]]; then
-    args+=("$scheme")
-else
-    args+=("$@")
+if [[ $# == '1' ]]; then
+    scheme=$1; shift;
 fi
-for scheme in "${args[@]}"; do
-    var="FOREBACKMAP_${scheme^^}"
-    [[ -n "${!var}" ]] && schemes+=("${!var}") && shift
-done
 
-if [[ -z "${schemes[0]}" ]]; then
+if [[ -n $scheme ]]; then
+    var="FOREBACKMAP_${scheme^^}"
+    if [[ -n "${!var}" ]]; then
+        colors="${!var}"
+    fi
+fi
+
+if [[ -z "$colors" ]]; then
     if [[ -z $NEWXINITED ]]; then
 	    export NEWXINITED=1
-	    var="FOREBACKMAP_${NEWXCOLOR}" && schemes=("${!var}")
+	    var="FOREBACKMAP_${NEWXCOLOR}"
     else
-	    var="FOREBACKMAP_$(xterm-cli background)" && schemes=("${!var}")
+	    var="FOREBACKMAP_$(xterm-cli background)"
     fi
+    colors=("${!var}")
 fi
 
 ## Yeah this is a little funky - you could end up creating "count"
@@ -94,10 +91,10 @@ declare delta_x=36
 declare delta_y=36
 set_geo ()
 {
-    if (( nogeo )); then
+    if (( opt_nogeo )); then
         geo=()
     else
-        if [[ -n $wh ]]; then
+        if [[ -n $opt_wh ]]; then
             geo=('-geometry' "${wh}+$((XTERMGEO_X+(j*delta_x)))+$((XTERMGEO_Y+(j*delta_y)))")
         else
             geo=('-geometry' "${lxtermgeo_w}x${XTERMGEO_H}+$((XTERMGEO_X+(j*delta_x)))+$((XTERMGEO_Y+(j*delta_y)))")
@@ -105,29 +102,23 @@ set_geo ()
     fi
 }
 
-while ((i<count)); do
-    for scheme in "${schemes[@]}"; do
-        set_geo
-        declare -a cmd=(RXCmd "$HOSTNAME" "${geo[@]}" "$@" -fg "${scheme%%,*}" -bg "${scheme##*,}")
-        if [[ -n $XTERMFONT_NAME ]]; then
-            cmd+=('-fa' "$XTERMFONT_NAME")
-        fi
-        if [[ -n $XTERMFONT_SIZE ]]; then
-            cmd+=('-fs' "$XTERMFONT_SIZE")
-        fi
-        case $proc_handling in
-            da ) exec "${cmd[@]}" ;;
-            bg ) "${cmd[@]}" &
-                 sleep .05 ## Just enough to space out the &-ed invocations so
-                           ## that they do not randomly appear, but rather
-                           ## appear in a nice cascade.
-                 ;;
-            * ) "${cmd[@]}" ;;
-            esac
-        ((j+=1))
-    done
-    ((i+=1))
-done
+set_geo
+declare -a cmd=(RXCmd "$HOSTNAME" "${geo[@]}" "$@" -fg "${colors%%,*}" -bg "${colors##*,}")
+if [[ -n $XTERMFONT_NAME ]]; then
+    cmd+=('-fa' "$XTERMFONT_NAME")
+fi
+if [[ -n $XTERMFONT_SIZE ]]; then
+    cmd+=('-fs' "$XTERMFONT_SIZE")
+fi
+case $opt_proc_handling in
+    da ) exec "${cmd[@]}" ;;
+    bg ) "${cmd[@]}" &
+         sleep .05 ## Just enough to space out the &-ed invocations so
+         ## that they do not randomly appear, but rather
+         ## appear in a nice cascade.
+         ;;
+    * ) "${cmd[@]}" ;;
+esac
 
 true; exit
 
@@ -138,7 +129,7 @@ newx - create a new xterm
 
 =head1 SYNOPSIS
 
- newx [-w|-n|-s|--wh WxH] [-n_terms] [scheme [scheme ...]]
+  newx [-w|-n|-s|--wh WxH] [-n_terms] [ [--sc[chemes] | scheme-name ]
 
 =head1 DESCRIPTION
 
@@ -148,9 +139,9 @@ Creates a new xterm.
 
 =over 4
 
-=item scheme
+=item scheme-name
 
-Create a new xterm in the color scheme specified. Schemes can be determined by
+Create a new xterm in the color scheme specified. Schemes can be picked by
 running this command with the --schemes option. Without a scheme argument, the
 new xterm is the same as the xterm from which the command was executed or, if
 that cannot be determined, the default scheme 'grey'.
@@ -170,13 +161,9 @@ and narrow are twice and half that, respectively.
 
 Specify the exact width and height.
 
-=item -n_terms
+=item --sc[hemes]
 
-Opens 'n_terms' number of terms, where 'n_terms' > 0. Default is 1.
-
-=item -scheme
-
-List the available color schemes.
+List the available color schemes in order to pick one.
 
 =back
 
