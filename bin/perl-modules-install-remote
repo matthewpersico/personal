@@ -1,23 +1,26 @@
 # -*- sh -*-
 # shellcheck shell=bash
 
+declare ceid
+ceid=$(basename "$0")
+
 # Read the list
 declare list=$1
 if [[ -z $list ]]; then
     list="${TILDAE:-$HOME}/perl/remote/src/modules"
-    cmd-echo --wc --id perl-install-modules-remote "No list argument specified. Using default of '$list'."
+    cmd-echo --wc --id "$ceid" "No list argument specified. Using default of '$list'."
 else
     shift;
 fi
 if [[ ! -r $list ]]; then
-    cmd-echo --ec --id perl-install-modules-remote "Module list $list not readable."
+    cmd-echo --ec --id "$ceid" "Module list $list not readable."
     false; exit
 fi
 
 declare prefix=$1
 if [[ -z $prefix ]]; then
-    prefix="${TILDAE:-$HOME}/perl/local"
-    cmd-echo --wc --id perl-install-modules-remote "No prefix argument specified. Using default of '$prefix'."
+    prefix="${TILDAE:-$HOME}/perl/remote"
+    cmd-echo --wc --id "$ceid" "No prefix argument specified. Using default of '$prefix'."
     if [[ ! -d $prefix ]]; then
         mkdir -p "$prefix"
     fi
@@ -25,13 +28,15 @@ else
     shift;
 fi
 if [[ ! -d $prefix ]]; then
-    cmd-echo --ec -id perl-install-modules-remote "Directory $prefix not found."
+    cmd-echo --ec --id  "$ceid" "Directory $prefix not found."
     false; exit
 fi
 
 declare module
 while read -r module; do
-    perl-remote-install-module \
-        --prefix "$prefix" \
-        "$module"
+    if [[ ! $module =~ ^# ]]; then
+        perl-module-install-remote \
+            --prefix "$prefix" \
+            "$module"
+    fi
 done < <(cat "$list")
