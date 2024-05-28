@@ -100,11 +100,20 @@ else
 fi
 
 if [[ -n "$filter" ]]; then
+    declare -a grepargs
+    if [[ $filter =~ ^! ]]; then
+        filter=${filter/\!/}
+        filter=${filter//\//\\\/}
+        grepargs+=('-v')
+    else
+        grepargs+=('--') # you need the -- just in case your filter has a dash
+                         # in it, but not if you are using the filter with -v
+    fi
     case $exact in
-        headtail ) grep -E -- "^$filter\$" "$tmpfile" > "${tmpfile}.001" ;;
-        head     ) grep -E -- "^$filter"   "$tmpfile" > "${tmpfile}.001" ;;
-        tail     ) grep -E -- "$filter\$"  "$tmpfile" > "${tmpfile}.001" ;;
-        *        ) grep -i -- "$filter"    "$tmpfile" > "${tmpfile}.001" ;;
+        headtail ) grep -E "${grepargs[@]}" "^$filter\$" "$tmpfile" > "${tmpfile}.001" ;;
+        head     ) grep -E "${grepargs[@]}" "^$filter"   "$tmpfile" > "${tmpfile}.001" ;;
+        tail     ) grep -E "${grepargs[@]}" "$filter\$"  "$tmpfile" > "${tmpfile}.001" ;;
+        *        ) grep -i "${grepargs[@]}" "$filter"    "$tmpfile" > "${tmpfile}.001" ;;
     esac
     mv "${tmpfile}.001" "$tmpfile"
 fi
