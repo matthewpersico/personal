@@ -3,6 +3,36 @@
 
 # git-status
 
+process_group ()
+{
+    declare group_ref
+    group_ref=$(git wt get-name)
+    if [[ -z $group_ref ]]; then
+        group_ref=$(git branch --show-current)
+        if [[ -z $group_ref ]]; then
+            cmd-echo --wc --title --id "git status --group" "No worktree or branch reference to group"
+            return
+        fi
+    fi
+
+    local -a wts
+    readarray -t wts < <(git go --listfull "$group_ref")
+    local sibling
+    for sibling in "${wts[@]}";
+    do
+        (
+        if [[ "${PWD}" =~ $sibling ]]; then
+            cmd-echo --infoc --title --id "git status --group" "(current) $sibling"
+        else
+            cmd-echo --infoc --title --id "git status --group" "$sibling"
+            # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
+            cd "$sibling"
+        fi
+        git stx "$@"
+        )
+    done
+}
+
 main ()
 {
     if [[ $1 =~ -ext$ ]];
@@ -10,12 +40,18 @@ main ()
         shift
     else
         "$REALGIT" status "$@"
-        return $?
+        return
     fi
 
     if [[ "$1" =~ ^-+h ]]; then
         git-usage "$0"
-        return $?
+        return
+    fi
+
+    if [[ "$1" =~ ^-+group ]]; then
+        shift
+        process_group "$@"
+        return
     fi
 
     declare -a git_repo_args=('status')
@@ -52,16 +88,27 @@ main ()
     fi
     echo
     echo "=== Status:"
-    local outcmd=${PAGER:-less}
-    [[ $outcmd =~ 'less' ]] && outcmd="$outcmd -RE"
-
+    local outcmd='cat'
+    if is-interactive; then
+        outcmd=${PAGER:-less}
+        [[ $outcmd =~ 'less' ]] && outcmd="$outcmd -RE"
+    fi
+    local -a args
+    local arg
+    for arg in "${@}"; do
+        if [[ $arg == -uno ]]; then
+            args+=('--uno')
+        else
+            args+=("$arg")
+        fi
+    done
     git-status-with-source-ctrl-log $color "$@" | grep -v "No files specified" | $outcmd
 
     git repo "${git_repo_args[@]}"
 }
 
 main "$@"
-exit $?
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME

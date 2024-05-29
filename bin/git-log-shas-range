@@ -13,9 +13,7 @@ declare OPTSARGS
 declare shortopts='f:ienh'
 declare longopts='highlightfirst:,inclusive,exclusive,name-only,names-only,names,with-names,help'
 
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-declare status=$?
-((status != 0)) && git-usage "$0" && exit $status
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || exit
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -38,22 +36,19 @@ while true; do
                      ## remaining $*, if any, are args
         *)
             cmd-echo --id git-log-shas-range -ec -- "$option is an invalid option. See $0 --help"
-            false; exitexit 1 ## return 1 in functions
+            false; exit
             ;;
     esac
 done
 
-[[ -z "$2" ]] && echo "Usage: git-log-sha-range oldersha newersha" && exit 1;
+[[ -z "$2" ]] && echo "Usage: git-log-sha-range oldersha newersha" && { false; exit; }
 git --no-pager log $opt_add_names "${1}..${2}" ## Does not print the first one
 if((opt_inclusive)); then
     [[ ! "$1" = "$2" ]] && echo "$opt_hf"
     git --no-pager log $opt_add_names -1 "${1}"    ## Always prints the first one
 fi
-## POD guard
-true; exit
 
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/.
+true; exit
 
 :<<'__PODUSAGE__'
 =head1 NAME

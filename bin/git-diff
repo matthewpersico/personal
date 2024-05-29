@@ -1,0 +1,77 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# git-diff
+
+use on_exit
+
+declare -a pass_on
+declare opt_edit=0
+
+## DO NOT attempt to convert this to a 'getopt' implementation; it would
+## require specifying and handling every existing option in 'git diff',
+## and it is just not necessary.
+while (( $# )); do
+    declare arg=$1
+    shift
+    case "$arg" in
+        ##
+        ## Our options
+        ##
+        --edit )
+            opt_edit=1
+            ;& ## Unconditional fallthrough sets names only,which makes sense for --edit.
+        --name* )
+            pass_on+=('--name-only')
+            ;;
+        --help | -h )
+            git-usage "$0"
+            true; exit
+            ;;
+        * )
+            pass_on+=("$arg")
+            ;;
+    esac
+done
+
+if ((opt_edit)) ; then
+    # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
+    $EDITOR $("$REALGIT" diff "${pass_on[@]}")
+else
+    "$REALGIT" diff "${pass_on[@]}"
+fi
+
+true; exit
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-diff - extension to git diff
+
+=head1 SYNOPSIS
+
+ git-diff [--edit | --name | --help ]
+
+=head1 DESCRIPTION
+
+git diff with enhancements.
+
+=head1 OPTIONS
+
+=over 4
+
+=item edit
+
+Run in --names-only mode and start $EDITOR for all files found.
+
+=item --name
+
+Shortcut for --names-only.
+
+=item --help
+
+This text.
+
+=back
+
+__PODUSAGE__

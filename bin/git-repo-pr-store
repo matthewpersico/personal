@@ -1,0 +1,103 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# git-repo-pr-store
+
+declare PR_CACHE_VERSION='2' # also in git-repo
+
+declare pr_url
+declare pr_state
+declare pr_date
+declare pr_title
+if [[ $1 == '--noopenpr' ]]; then
+    pr_url="NOOPENPR"
+    pr_state="NOSTATE"
+    pr_date="1970-01-01T00:00:01Z"
+    pr_title="NOTITLE"
+else
+    pr_url=${1}
+    pr_state=${2}
+    pr_date=${3}
+    pr_title="${*:4}"
+fi
+declare wt; wt=$(git worktree ina -v)
+declare cb; cb=$(git repo current-branch)
+declare asof; asof="$(date "$GIT_EXT_META_DATE_FMT")"
+if [[ -n $wt ]]; then
+    git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
+    git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
+    git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
+    git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-title" "$pr_title"
+    git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
+    git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
+fi
+if [[ -n $cb ]]; then
+    git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
+    git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
+    git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
+    git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-title" "$pr_title"
+    git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
+    git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
+fi
+exit
+
+echo "" > /dev/null # in lieu of shellcheck 2034
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+git-repo-pr-store - store info about a pull request
+
+=head1 SYNOPSIS
+
+ git-repo-pr-store --noopenpr
+ git-repo-pr-store pr_url pr_state pr_date "pr_title"
+
+=head1 OPTIONS
+
+=over 4
+
+=item --noopenpr
+
+Initializes the fields:
+
+ 	extmeta-pr = NOOPENPR
+	extmeta-pr-state = NOSTATE
+	extmeta-pr-date = 1970-01-01T00:00:01Z
+	extmeta-pr-title = NOTITLE
+	extmeta-pr-cache-as-of = 2023-10-26.13:10:52-0400
+	extmeta-pr-cache-version = 2
+
+=back
+
+=head ARGUMENTS
+
+=over 4
+
+=item pr_url
+
+The url you would use to get to a PR from the front end OR the PR used to
+ create a PR in the front end.
+
+=item pr-state
+
+ NOSTATE - our label used for initing the data
+ CREATING - our label when we have just sent the create URL to a browser.
+
+Otherwise, whatever comes back from a github api query on a PR
+
+=item pr-date
+
+Date on the PR.
+
+=item pr-title
+
+Title of the PR.
+
+=back
+
+=cut
+
+__PODUSAGE__
+
+#  LocalWords:  fi
