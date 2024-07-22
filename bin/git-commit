@@ -70,12 +70,11 @@ git-commit-with-source-ctrl-log ()
     ## Process any exclusions
     if (( ${#opt_exclude[@]} > 0 )); then
         local -a included
-        local i
-        for i in $(seq 0 $((${#filenames[@]}-1))); do
+        for filename in "${filenames[@]}"; do
             local filepath
-            filepath="$(realpath "${filenames[$i]}")"
+            filepath="$(realpath "$filename")"
             if [[ "${opt_exclude[$filepath]}" = '' ]]; then
-                included+=("$filepath")
+                included+=("$filename")
             fi
         done
         filenames=("${included[@]}")
@@ -254,6 +253,11 @@ ${message:$limidx} - $(git worktree get-name)"
                     do_interactive=1
                     ## pass this on
                     ;;
+                exclude | ex | skip-file | skip )
+                    pass_on_args+=('--exclude' "$1")
+                    [[ -z "$ovalue" ]] && shift
+                    continue
+                    ;;
                 ## No '*)' case needed; anything else just gets passed on
             esac
         fi
@@ -312,7 +316,8 @@ git-commit - git extention of git commit
 
 =head1 SYNOPSIS
 
- git commit --scl | --[no]sclonly | --scl[pick|match] "text"
+ git commit [--scl | --[no]sclonly | --scl[pick|match] "text"]
+ git commit [--[skip|exclude|ex] file [--[skip|exclude|ex] file]...]
  git commit --m[emojid] "message" [-eref reference |-dref]
  git commit --no[[-]hook[s]|verify]
  git commit --push|--pr
@@ -346,6 +351,10 @@ modifed but not yet added to the index.
 =item --sclpick
 
 Only commit files whose comment exactly matches the supplied text.
+
+=item --skip|exclude|ex
+
+After all other filters and options are provided, do not process this file.
 
 =item --m[emjoid]
 

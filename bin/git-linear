@@ -9,6 +9,9 @@ do-on-exit END
 # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
 declare ceid=$(basename "$0")
 
+declare starting_remote
+declare starting_branch
+
 main ()
 {
     # Read the options and args from command line. Note that the long and short
@@ -55,6 +58,11 @@ main ()
     cmd=("$@")
     cmd-echo --id "$ceid" -- "Running '${cmd[*]}':"
 
+    declare -a parts
+    IFS='/' read -r -a parts < <(git rev-parse --abbrev-ref --symbolic-full-name '@{u}')
+    starting_remote=${parts[0]}
+    starting_branch=$(IFS='/'; echo "${parts[*]:1}")
+
     declare resp=y
     declare prevcommitid
     declare commitid
@@ -63,8 +71,7 @@ main ()
         commitid=$(git log -1 --IDs)
         if [[ $prevcommitid == "$commitid" ]]; then
             cmd-echo --id "$ceid" -ec -- "Reached end of commits."
-            resp=n
-            continue
+            break
         else
             prevcommitid="$commitid"
         fi
@@ -74,29 +81,38 @@ main ()
         status=$?
         cmd-echo --id "$ceid" -- "End   output for $commitid. Status $status."
 
-        if [[ $opt_auto == 1 ]]; then
-            if [[ $status == "$opt_invert" ]]; then
-                cmd-echo --id "$ceid" --color BLUE -- "Search $( ((opt_invert)) && echo "failed." || echo "successful." )"
-                resp=n
-            fi
-        else
+        if { [[ $opt_invert == 0 ]] && [[ $status == 0 ]]; }  \
+               ||
+               { [[ $opt_invert == 1 ]] && [[ $status != 0 ]]; }; then
+            cmd-echo --id "$ceid" -- "Search successful."
+            break;
+        fi
+
+        if [[ $opt_auto == 0 ]]; then
             resp=$(cmd-yesno -q --id "$ceid" "Continue" y)
         fi
 
         if [[ $resp == 'y' ]]; then
             if ! git checkout -q HEAD~1; then
                 cmd-echo --id "$ceid" -ec -- "Checkout error. Exiting."
-                resp=n
+                break;
             fi
+        elif [[ $resp == 'n' ]]; then
+            cmd-echo --id "$ceid" -- "Stopping at current commit. Exiting."
+            break;
+        elif [[ $resp == 'q' ]]; then
+            cmd-echo --id "$ceid" -- "Quiting, restoring repo."
+            git pull "$starting_remote" "$starting_branch" && git checkout "$starting_branch"
+            break;
         fi
     done
 }
 
 END ()
 {
-    cmd-echo --id "$ceid" --color BLUE -- "Current commit:"
+    cmd-echo --id "$ceid" -- "Current commit:"
     git log -1
-    cmd-echo --id "$ceid" --color BLUE -- "git pull <remote> <branchname> && git chechout <branchname> to restore."
+    cmd-echo --id "$ceid" -- "Restore with: git pull $starting_remote $starting_branch && git checkout $starting_branch"
 }
 
 main "$@"
@@ -119,7 +135,24 @@ then you are asked whether or not you want to continue to the prior SHA or not.
  $ git linear git grep UC
 
 Without options you are prompted to examine the command output and decide
-whether or not to continue.
+whether or not to continue. You have three options:
+
+=over 4
+
+=item y
+
+Checkout the next commit and execute the command.
+
+=item n
+
+Stop checking out and executing, leaving the repo at the last commit checked out.
+
+=item q
+
+Stop checking out and executing, and quit the session, returning the repo to
+the commit it was at when you started.
+
+=back
 
 =head1 OPTIONS
 

@@ -600,10 +600,26 @@ sub push_scl_to_output {
         return;
     }
 
-    if ( defined $entries{$filespec}
-        and $opt{nosclonly} )
-    {
-        return;
+    if ( defined $entries{$filespec} ) {
+        if ( $opt{nosclonly} ) {
+            delete $files_to_process{$filespec};
+            return;
+        }
+
+        # Short for the file's entry
+        my $e = $entries{$filespec};
+
+        # Check for matching comment.
+        if ( $opt{sclpick} ) {
+            my @match_comment =
+              grep { /$opt{sclpick}/ }
+              map  { $_->{text} }
+              map  { values( %{ $e->{$_} } ) } keys %{$e};
+            if ( !@match_comment ) {
+                delete $files_to_process{$filespec};
+                return;
+            }
+        }
     }
 
     $gcs{$filespec} = { count => 0, data => [], ignored => 0 };
@@ -723,21 +739,6 @@ sub push_scl_to_output {
 
         # Short for the file's entry
         my $e = $entries{$filespec};
-
-        # Check for matching comment.
-        if ( $opt{sclpick} ) {
-            my @match_comment =
-              grep { /$opt{sclpick}/ }
-              map  { $_->{text} }
-              map  { values( %{ $e->{$_} } ) } keys %{$e};
-            if ( !@match_comment ) {
-                while ( @{ $args{output} } != $pop_to_length ) {
-                    pop @{ $args{output} };
-                }
-                delete $files_to_process{$filespec};
-                return;
-            }
-        }
 
         # The functions, (including NOFUNC) for the entry.
         my @funcs = sort( keys(%$e) );
