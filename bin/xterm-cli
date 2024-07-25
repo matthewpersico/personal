@@ -19,6 +19,7 @@ xterm-cli-id ()
     if [[ -n $1 ]]; then
         local -n ret=$1
         # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+        # https://github.com/koalaman/shellcheck/issues/817
         ret=$idd
     else
         echo "$id"
@@ -49,7 +50,7 @@ _xterm-cli-xground ()
             stty raw -echo min 0
             #          OSC    Ps  ;Pt ST
             echo -en "${OSC}${col};?${ESC}\\" >/dev/tty  # echo opts differ w/ OSes
-            result=
+            local result
             if IFS=';' read -r -d \\ color ; then
                 result=$(echo "$color" | sed 's/^.*\;//;s/[^rgb:0-9a-f/]//g')
                 idxresult=$(echo "$result" | sed 's/[:/]//g')
@@ -61,18 +62,18 @@ _xterm-cli-xground ()
             color=$(eval echo "\$$var")
             if [[ -n "${color}" ]]; then
                 echo "${color}"
-                exit
+                true; return
             else
                 echo "## WARNING: - no mapped color found for $result" >&2
             fi
-        elif [[ ! "$TERM" = 'rxvt' ]]; then
+        elif [[ ! $TERM =~ rxvt ]]; then
             # We don't need the warning when we expect it not to be defined.
             echo "## WARNING: - XTERM_SHELL not defined, probably not an xterm" >&2
         fi
 
         if [[ -n "$NEWXCOLOR" ]]; then
             echo "$NEWXCOLOR"
-            exit
+            true; return
         else
             echo "## WARNING: - NEWXCOLOR not defined" >&2
         fi
@@ -114,6 +115,7 @@ xterm-use-coords ()
         get | '' )
             if [[ -z $1 ]]; then
                 # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                # We want non-expanding single quotes
                 tgt='$x:$y'
             else
                 tgt='$'$1; shift
@@ -276,19 +278,23 @@ xterm-cli-ticker ()
 main ()
 {
     local action
-    action=$1
-    shift
+    local action_pid
 
-    if [[ "$action" =~ ^-+h ]]; then
+    if [[ "$1" =~ ^-+h ]]; then
         bash-usage "$0"
         true; return
     fi
-    if [[ "$action" = '--pid' ]]; then
-        action_pid=$1;
+    if [[ "$1" = '-x' ]]; then
+        set -x # OK if you are grepping
         shift
-        action=$1;
-        shift;
     fi
+    if [[ "$1" = '--pid' ]]; then
+        action_pid=$2
+        shift;shift
+    fi
+
+    action=$1
+    shift
 
     if x-is-available; then
         # xterm-cli-* are functions defined in this script. The rest are functions
@@ -299,7 +305,7 @@ main ()
             type=$(type -t "$name")
             if [[ -n $type ]]; then
                 "$name" "$@"
-                return $?
+                return
             fi
         done
         cmd-echo --id xterm-cli --ec "'$action' is not an xterm-cli action"
@@ -311,7 +317,7 @@ main ()
 }
 
 main "$@"
-exit $?
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME

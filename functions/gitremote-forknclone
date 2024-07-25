@@ -11,12 +11,12 @@ gitremote-forknclone ()
     local remote=$1; shift
     local clone_org
     clone_org=$(git-kv --get remote-users."$remote")
-    if [[ -z $1 ]] || [[ "$1" =~ -h ]]
+    if [[ -z $1 ]] || [[ "$1" =~ ^-+h ]]
     then
         echo "usage: ${FUNCNAME[2]} [options] org/repo [tgtdir]"
         echo "       Creates a fork of $remote:org/repo as $remote:$clone_org/repo"
         echo "       and then clones the fork into the GITENV_REPO_ROOT ($GITENV_REPO_ROOT) tree at '$remote/repo' or '$remote/tgtdir'."
-        return 1
+        false; return
     fi
 
     local -a args=("$@")
@@ -35,7 +35,7 @@ gitremote-forknclone ()
         unset 'args[-1]'
     else
         cmd-echo --id gitremote-forknclone --ec -- "$orgrepo not in org/repo format. See '${FUNCNAME[2]} -h'."
-        return 1
+        false; return
     fi
 
     local org
@@ -59,10 +59,10 @@ gitremote-forknclone ()
             case "$response" in
                 y ) clone_org="$org"; forkargs=() ;;
                 n ) : ;;
-                q ) false; return $? ;;
+                q ) false; return ;;
             esac
         fi
     fi
     git clone "${args[@]}" --tree "${forkargs[@]}" "$remote:$clone_org/$repo" "${tgtdir[@]}"
 }
-autotrack gitremote_forknclone "$0"
+autotrack gitremote-forknclone "$0"

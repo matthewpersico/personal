@@ -34,16 +34,14 @@ main ()
             h|help) git-usage "$0"; true; return ;;
             nopush) do_push=0 ;;
             --) break ;; ## end of opts, remaining $*, if any, are args
-            *) cmd-echo --id git-sync-with-remote --ec -- "'$option' is an invalid option."
-               git-usage "$0"
+            *) git-usage "$0" "'$option' is an invalid option."
                false; return
                ;;
         esac
     done
 
     if [[ -z "$opt_branch" ]]; then
-        cmd-echo --id git-sync-with-remote --ec "--branch required"
-        git-usage "$0"
+        git-usage "$0" "--branch required"
         false; return
     fi
 
@@ -54,7 +52,7 @@ main ()
 
     if [[ "$cb" == '' ]]; then
         cmd-echo --id git-sync-with-remote --ec ""
-        # shellcheck disable=SC2154
+        # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
         cat <<EOF
 
 git-sync-with-remote is used to keep your current git repo DEVELOPMENT branch
@@ -118,9 +116,7 @@ EOF
         fi
     fi
     if ((do_stash)); then
-        if ! git stash; then
-            return $?
-        fi
+        git stash || return
     fi
 
     ## Refresh
@@ -157,7 +153,7 @@ EOF
             else
                 true;
             fi
-            return $?
+            return
         fi
     fi
 
@@ -170,7 +166,7 @@ EOF
     if ((diffc)) && ((opt_confirm)); then
         cmd-echo --id git-sync-with-remote --head "===== diffs ====="
         cat "$diffoutput"
-        \rm "$diffoutput"
+        command rm "$diffoutput"
     fi
 
     local logoutput
@@ -178,14 +174,13 @@ EOF
     rm-on-exit "$logoutput"
     git log ..."${opt_remote}" > "$logoutput" 2>&1
     local logc
-    # shellcheck disable=SC2002
     logc=$(wc -l < "$logoutput")
 
     if ((logc)) && ((opt_confirm)); then
         ((diffc)) && cmd-echo --id git-sync-with-remote ""
         cmd-echo --id git-sync-with-remote "=====  log  ====="
         cat "$logoutput"
-        \rm "$logoutput"
+        command rm "$logoutput"
     fi
 
     if ((diffc)) || ((logc)); then
@@ -198,7 +193,7 @@ EOF
                 else
                     true
                 fi
-                return $?
+                return
             fi
         fi
     else
@@ -209,7 +204,7 @@ EOF
         else
             true
         fi
-        return $?
+        return
     fi
 
     cmd-echo --id git-sync-with-remote 'Pulling to sync...'
@@ -308,7 +303,7 @@ EOF
 }
 
 main "$@"
-exit $?
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME
