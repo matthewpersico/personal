@@ -3,9 +3,14 @@
 
 # git-go-prune
 
-declare -A ggp_skip
+declare -A git_go_prune_skip
 
-_ggp-mark-the-wt-parent ()
+_git-go-prune-ce ()
+{
+    cmd-echo --id git-go-prune "$@"
+}
+
+_git-go-prune-mark-the-wt-parent ()
 {
      if git wt ina; then
          # If this is a worktree, we cannot delete the parent dir it lives in,
@@ -13,14 +18,14 @@ _ggp-mark-the-wt-parent ()
          declare isawto
          isawto=$(git repo is a worktree of)
          if [[ -n $isawto ]]; then
-             ggp_skip[$isawto]=1
-             cmd-echo --dc "ggp_skip[$isawto]=${ggp_skip[$isawto]}"
-             set | grep ggp_skip
+             git_go_prune_skip[$isawto]=1
+             _git-go-prune-ce --dc "git_go_prune_skip[$isawto]=${git_go_prune_skip[$isawto]}"
+             set | grep git_go_prune_skip
          fi
      fi
 }
 
-cmd-echo --id git-go-prune "Processing clean, non-open-pr repos"
+_git-go-prune-ce "Processing clean, non-open-pr repos"
 
 declare -A never_prune
 declare np
@@ -34,16 +39,16 @@ if [[ $1 == '--page' ]]; then
 fi
 
 # | reverse is so that we do worktrees before their parent directories
-declare _ggp_i
-for _ggp_i in $(git go --listfull | sort -r ); do
-    if [[ "$_ggp_i" =~ '/home/mpersico5/gits/bbgithub/mpersico5/testing' ]]; then echo "_ggp_i=$_ggp_i"; echo -n "ggp_skip = "; set | grep ggp_skip; fi
-    if [[ -n ${never_prune[$_ggp_i]} ]]; then
-        cmd-echo --id git-go-prune --head --wc "Skipping $_ggp_i, important repo"
-    elif [[ -n ${ggp_skip[$_ggp_i]} ]]; then
-        cmd-echo --id git-go-prune --head --wc "Skipping $_ggp_i, worktrees still exist"
+declare _git_go_prune_i
+for _git_go_prune_i in $(git go --listfull | sort -r ); do
+    if [[ "$_git_go_prune_i" =~ '/home/mpersico5/gits/bbgithub/mpersico5/testing' ]]; then echo "_git_go_prune_i=$_git_go_prune_i"; echo -n "git_go_prune_skip = "; set | grep git_go_prune_skip; fi
+    if [[ -n ${never_prune[$_git_go_prune_i]} ]]; then
+        _git-go-prune-ce --head --wc "Skipping $_git_go_prune_i, important repo"
+    elif [[ -n ${git_go_prune_skip[$_git_go_prune_i]} ]]; then
+        _git-go-prune-ce --head --wc "Skipping $_git_go_prune_i, worktrees still exist"
     elif ! (
-        if builtin cd "$_ggp_i"; then
-            cmd-echo --color BLUE --id git-go-prune --head "$(pwd)"
+        if builtin cd "$_git_go_prune_i"; then
+            _git-go-prune-cecmd-echo --color BLUE --id git-go-prune --head "$(pwd)"
             git pull
             if git repo is pristine -v; then
                 declare pr_get_output
@@ -64,7 +69,7 @@ for _ggp_i in $(git go --listfull | sort -r ); do
                             exit $?
                             ;;
                         n)
-                            _ggp-mark-the-wt-parent
+                            _git-go-prune-mark-the-wt-parent
                             exit 0
                             ;;
                         q)
@@ -73,7 +78,7 @@ for _ggp_i in $(git go --listfull | sort -r ); do
                     esac
                 fi
             else
-                _ggp-mark-the-wt-parent
+                _git-go-prune-mark-the-wt-parent
             fi
         fi
         ); then exit $?;

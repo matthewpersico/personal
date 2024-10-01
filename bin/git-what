@@ -8,6 +8,7 @@
 
 main ()
 {
+    local ceid='git-what'
     local action=$1
     shift
 
@@ -21,13 +22,23 @@ main ()
     local -a actions
     local modified_only=0
     case $action in
-        mod-only | modified-only )
-            modified_only=1
-            ;;
         committable | staged )
             actions+=('--staged') ;;
+        mod-only | modified-only )
+            local deleted
+            ajoin deleted -s '|' "$(git what is deleted)"
+            if [[ -z "$deleted" ]]; then
+                action=${action%%-only}
+                cmd-echo --id "$ceid" -- "No deleted files. Falling back to '$action'"
+            else
+                modified_only=1
+            fi
+            ;&
         mod| modified )
-            actions+=('--staged' '--unstaged') ;;
+            if ((modified_only==0)); then
+                actions+=('--staged' '--unstaged')
+            fi
+            ;;
         edited )
             actions+=('--all-mod') ;;
         del )
@@ -86,8 +97,6 @@ main ()
 
     local -a output
     if ((modified_only)); then
-        local deleted
-        ajoin deleted -s '|' "$(git what is deleted "${fmt_options[@]}" )"
         local mod
         for mod in $(git what is modified "${fmt_options[@]}"); do
             output+=("$(echo "$mod" | grep -v -E "$deleted")")

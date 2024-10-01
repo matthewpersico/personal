@@ -77,15 +77,23 @@ select tag in "${tags[@]}" quit ; do
     fi
     [[ -n $tag ]] && break
 done
-evaled=$(eval echo "${actions["$tag"]}")
-if ((noexec || verbose)); then
-    # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
-    echo ${evaled}
-elif [[ -n ${bgs["$tag"]} ]]; then
-    ${evaled} &
-else
-    ${evaled}
-fi
+
+declare -a commands
+IFS=';' read -r -a commands <<< "${actions["$tag"]}"
+declare last_command_idx=$((${#commands[@]} -1 ))
+declare command_idx=0
+for command in "${commands[@]}"; do
+    evaled=$(eval echo "$command")
+    if ((noexec || verbose)); then
+        # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
+        echo ${evaled}
+    elif ((command_idx == last_command_idx)) && [[ -n ${bgs["$tag"]} ]]; then
+        ${evaled} &
+    else
+        ${evaled}
+    fi
+    ((command_idx+=1))
+done
 exit $?
 
 :<<'__PODUSAGE__'
@@ -117,33 +125,32 @@ A file with the following format:
  menu option2|command2 and its arguments that can include $EXPORTED $VARIABLES|&
 
 If the line ends with '|&' it will be backgrounded and 'select-from-file' will
-exit. Use this format to start programs with a gui. The following is a
-practical example:
+exit. Use this format to start programs with a gui. You can akso have a chain
+of commands separated by semicolons. The following is a practical example:
 
 * This is my tshxterms.sff
 
  # xterms via teleport
- mpersico5-2023-03-28|tsh ssh -Y dev-10-34-21-111.pw1.bcc.bloomberg.com /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DFLT_FG -bg $NEWXCOLOR_DFLT_BG|&
- depopp-pw-359       |tsh ssh -Y depopp-pw-359 /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DEPOPP_FG -bg $NEWXCOLOR_DEPOPP_BG|&
- depopp-pw-276       |tsh ssh -Y depopp-pw-276 /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DEPOPP_FG -bg $NEWXCOLOR_DEPOPP_BG|&
- depopp-ob-428       |tsh ssh -Y depopp-ob-428 /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DEPOPP_FG -bg $NEWXCOLOR_DEPOPP_BG|&
- depopp-ob-020       |tsh ssh -Y depopp-ob-020 /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DEPOPP_FG -bg $NEWXCOLOR_DEPOPP_BG|&
- dprx-pw-584         |tsh ssh -Y dprx-pw-584 /opt/bb/bin/xterm -geometry $XTERMGEO -fg $NEWXCOLOR_DEPOPP_FG -bg $NEWXCOLOR_DEPOPP_BG|&
+|unset BROWSER; tsh ssh -Y REDACTED_FQDN1 xterm -geometry 132x40|&
+|unset BROWSER; tsh ssh -Y REDACTED_FQDN2 xterm -geometry 132x40|&
+|unset BROWSER; tsh ssh -Y REDACTED_FQDN3 xterm -geometry 132x40|&
+|unset BROWSER; tsh ssh -Y REDACTED_FQDN4 xterm -geometry 132x40|&
+|unset BROWSER; tsh ssh -Y REDACTED_FQDN5 xterm -geometry 132x40|&
+|unset BROWSER; tsh ssh -Y REDACTED_FQDN6 xterm -geometry 132x40|&
 
 * This is running the program:
 
  $ select-from-file /home/mpersico5/.config/tshxterms.sff
- 1) mpersico5-2023-03-28
- 2) depopp-pw-359
- 3) depopp-pw-276
- 4) depopp-ob-428
- 5) depopp-ob-020
- 6) dprx-pw-584
+ 1) SHORTNAME1
+ 2) SHORTNAME2
+ 3) SHORTNAME3
+ 4) SHORTNAME4
+ 5) SHORTNAME5
+ 6) SHORTNAME6
  7) quit
  #?
 
-Choose one of the numbers and the command is executed. Yes, I precalc all those
-environment variables on login.
+Choose one of the numbers and the command is executed.
 
 =back
 

@@ -11,14 +11,31 @@ declare ceid=$(basename "$0")
 
 declare starting_remote
 declare starting_branch
-
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+declare restore_file="$(pwd)/git-linear-restore"
+declare write_restore_file=0
+declare resp
 main ()
 {
+    if [[ -e $restore_file ]]; then
+        write_restore_file=0
+        cmd-echo --id "$ceid" -- "Restore file $restore_file found."
+        resp=$(pick "Choose an action: (r)estore and exit, (d)elete, (s)kip and continue, (q)uit" "r/d/s/q" q)
+        case $resp in
+            q) echo noop > /dev/null ;;
+            d) rm "$restore_file" ;;
+            r) $restore_file ;;
+            # s) we just move on
+        esac
+        if [[ $resp != 's' ]]; then
+            return 1
+        fi
+    fi
     # Read the options and args from command line. Note that the long and short
     # don't have to match up.
     local OPTSARGS
     local shortopts='aih'
-    local longopts='auto,invert,help'
+    local longopts='auto,yes,invert,inverse,help'
     local opt_auto=0
     local opt_invert=0
 
@@ -35,10 +52,10 @@ main ()
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
         case "$option" in
-            a | auto )
+            a | auto | yes )
                 opt_auto=1
                 ;;
-            i | invert )
+            i | invert | inverse)
                 opt_invert=1
                 ;;
             h | help )
@@ -63,10 +80,14 @@ main ()
     starting_remote=${parts[0]}
     starting_branch=$(IFS='/'; echo "${parts[*]:1}")
 
-    declare resp=y
+    write_restore_file=1
+    resp=y
     declare prevcommitid
     declare commitid
     declare status
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+    declare current_commit=$(git log --IDs | wc -l)
+    declare total_commits=$current_commit
     while [[ $resp == 'y' ]]; do
         commitid=$(git log -1 --IDs)
         if [[ $prevcommitid == "$commitid" ]]; then
@@ -76,10 +97,11 @@ main ()
             prevcommitid="$commitid"
         fi
 
-        cmd-echo --id "$ceid" -- "Start output for $commitid:"
+        cmd-echo --id "$ceid" -- "Start output for $commitid  (commit #$current_commit/${total_commits}):"
         "${cmd[@]}"
         status=$?
-        cmd-echo --id "$ceid" -- "End   output for $commitid. Status $status."
+        cmd-echo --id "$ceid" -- "End   output for $commitid. Status $status. Invert $opt_invert."
+        ((current_commit -= 1))
 
         if { [[ $opt_invert == 0 ]] && [[ $status == 0 ]]; }  \
                ||
@@ -102,7 +124,9 @@ main ()
             break;
         elif [[ $resp == 'q' ]]; then
             cmd-echo --id "$ceid" -- "Quiting, restoring repo."
-            git pull "$starting_remote" "$starting_branch" && git checkout "$starting_branch"
+            if git pull "$starting_remote" "$starting_branch" && git checkout "$starting_branch"; then
+                write_restore_file=0
+            fi
             break;
         fi
     done
@@ -112,7 +136,20 @@ END ()
 {
     cmd-echo --id "$ceid" -- "Current commit:"
     git log -1
-    cmd-echo --id "$ceid" -- "Restore with: git pull $starting_remote $starting_branch && git checkout $starting_branch"
+    if ((write_restore_file)); then
+        if [[ -n  $starting_remote ]] && [[ -n $starting_branch ]] ; then
+            echo "git pull $starting_remote $starting_branch && git checkout $starting_branch" > "$restore_file"
+            chmod +x "$restore_file"
+            cmd-echo --id "$ceid" -- "Restore with: $restore_file"
+        else
+            cmd-echo --id "$ceid" --error -- "Cannot write restore file $restore_file: starting_remote='$starting_remote' starting_branch='$starting_branch'"
+        fi
+    fi
+}
+
+NOTHING ()
+{
+    echo > /dev/null
 }
 
 main "$@"
@@ -153,6 +190,8 @@ Stop checking out and executing, and quit the session, returning the repo to
 the commit it was at when you started.
 
 =back
+
+DESCRIBE RECOVERY ACTIONS HERE
 
 =head1 OPTIONS
 

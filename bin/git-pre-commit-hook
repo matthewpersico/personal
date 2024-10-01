@@ -301,10 +301,10 @@ that you can skip with:
 
 * a --skip option to a direct invocation of this hook
 
-* a -[-skip option set in either of the
+* a --skip option set in either of the
   GIT_PRE_COMMIT_HOOK_ARGS or GPCHA envvars
 
-* a--skip-hook option to 'git-commit'
+* a --skip-hook option to 'git-commit'
 
 Skips: $GIT_HOOK_SKIP_TAGS
 EOF
@@ -513,11 +513,15 @@ for (@ARGV){
                 ##
                 ## check: Perl debug statements
                 ##
-                # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
-                # We want to pass the $ into the grep.
-                grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
-                check "$G_tfile" \
-                      "One or more files has Perl-debugger-related statements. Please remove instrumentation."
+                if [[ -e "${G_gitroot}/.hookcfg/skip.DBcheck" ]]; then
+                    echo "Skipping '$DB::s(ingle|tep) check as per .hookcfg"
+                else
+                    # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                    # We want to pass the $ into the grep.
+                    grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
+                    check "$G_tfile" \
+                          "One or more files has Perl-debugger-related statements. Please remove instrumentation."
+                fi
 
                 ##
                 ## check: testing utilities left in the code
@@ -554,8 +558,13 @@ for (@ARGV){
                         declare -a libs
                         readarray                -t libs < <(find "$G_gitroot" -type d -name lib  -printf '-I\n%p\n')
                         readarray -O ${#libs[@]} -t libs < <(find "$G_gitroot" -type d -name perl -printf '-I\n%p\n')
-                        checkcmd="${TILDAE:-$HOME}/personal/bin/perlcheck-bulk --no-progress ${libs[*]}"
-                        $checkcmd "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
+                        declare -a perlcheck_args=(--no-progress)
+                        if [[ -n "${skips[perlcompilenoprogress]}" ]]; then
+                            perlcheck_args=()
+                            ((opt_verbose)) && pre_commit_ok_echo "Perl compile check will show progress, as ${G_skip_messages[${skips[perlcompilenoprogress]}]}."
+                        fi
+                        checkcmd="${TILDAE:-$HOME}/personal/bin/perlcheck-bulk ${perlcheck_args[*]} ${libs[*]}"
+                        $checkcmd "${G_perlfiles[@]}" | tee "$G_tfile"
                         runcheck=1
                         remediation="To review, run: (cd $(pwd); $checkcmd ${G_perlfiles[*]})"
                     else

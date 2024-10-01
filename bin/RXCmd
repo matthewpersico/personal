@@ -5,89 +5,26 @@
 
 declare host
 host="${1}"
-if [[ -z "${host}" ]]; then    echo "Error: hostname not specified."
+if [[ -z "${host}" ]]; then
+    echo "Error: hostname not specified."
+    false; exit
+fi
+
+shift 1
+declare -a XARGS
+XARGS=(-title "${host}") # [0] and [1]
+XARGS+=("${@}")
+if [[ -z "${XARGS[2]}" ]] && [[ -n "$XTERMGEO" ]]; then
+    # No other args, set a default geometry, hopefully equal to spawning
+    # window.
+    XARGS+=('-geometry' "$XTERMGEO")
+fi
+if [[ "${host}" = "${HOSTNAME}" ]]; then
+    ${XTERM} "${XARGS[@]}" &
 else
-    shift 1
-    declare XARGS
-    XARGS="${*}"
-    if [[ -z "${XARGS}" ]] && [[ -n "$XTERMGEO" ]]; then
-        XARGS="--geometry $XTERMGEO"
-    fi
-    if [[ "${host}" = "${HOSTNAME}" ]]; then
-        # shellcheck disable=SC2086 # XARGS needs splitting
-        ${XTERM} -display "${DISPLAY}" -title "${host}" ${XARGS} &
-    else
-        declare XCOOKIE
-        XCOOKIE=$(/usr/bin/X11/xauth list "${DISPLAY}")
-        #                    ${XARGS} >/dev/null 2>&1 &
-        # shellcheck disable=SC2029
-        ssh "${host}" "(
-                              PATH=$PATH:/usr/bin/X11
-                              DISPLAY=$DISPLAY
-                              export PATH DISPLAY
-                              xauth add ${XCOOKIE} >> ~/inlog 2>&1
-                              /usr/bin/nohup ${XTERM} -title ${host} \
-                                             ${XARGS} >> ~/inlog 2>&1 &
-                             )" &
-    fi
+    # $XTERM NEEDS splitting here
+    # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
+    ssh -Y "${host}" ${XTERM} "${XARGS[@]}" &
 fi
 
 exit
-
-## You can add sections with =head1, but stick to =item for section breakdowns,
-## not =head2/3/etc/.
-
-# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
-:<<'__PODUSAGE__'
-=head1 NAME
-
-RXCmd - script that does something
-
-=head1 SYNOPSIS
-
- foo [--option1] [ --option2 optionarg ] arg1 [arg2 ...]
-     [fee] [dfsdfs] [sfsdfsf]
-
-=head1 DESCRIPTION
-
-Describe in general terms what foo does.
-
-=head1 ARGUMENTS
-
-=over 4
-
-=item arg
-
-Describe what arg does, should be, etc. Add a new =item for each distinct arg.
-
-=back
-
-=head1 OPTIONS
-
-=over 4
-
-=item --option1
-
-Describe what --option1 does.
-
-=item --option2
-
-Describe what --option2 does. Describe what optionarg does.
-
-=over 2
-
-=item *
-
-A choice for optionarg
-
-=item *
-
-Another choice for optionarg
-
-=back
-
-=back
-
-=cut
-
-__PODUSAGE__
