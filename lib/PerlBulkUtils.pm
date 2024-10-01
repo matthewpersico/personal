@@ -20,6 +20,12 @@ use File::Spec::Functions qw(
 use List::MoreUtils qw(uniq);
 use Test::More;
 
+## initialization
+my $gitcmd = 'git';
+if ( $ENV{REALGIT} ) {
+    $gitcmd = $ENV{REALGIT};
+}
+
 sub code_has_taint_flag {
     open( OH, '<', $_[0] )
       or die "Cannot read $_[0]";
@@ -86,8 +92,7 @@ sub get_files {
         }
     } else {
         if ( !is_git_repo() ) {
-            push @msg,
-              "No arguments given and current directory is not a git repo.\n";
+            push @msg, "No arguments given and current directory is not a git repo.\n";
         } else {
             @files = git_find_perl_code(
                 all       => $opt{all},
@@ -122,17 +127,17 @@ sub git_find_perl_code {
 
     if ( $args{mod} ) {
         ## Tracked files that are modified.
-        push @files, qx(git status --porcelain | grep -v '?' | sed 's/.* //');
+        push @files, qx($gitcmd status --porcelain | grep -v '?' | sed 's/.* //');
         $opts_set++;
     }
     if ( $args{untracked} or $args{all} ) {
         ## Untracked files.
-        push @files, qx(git status --porcelain | grep '?' | sed 's/.* //');
+        push @files, qx($gitcmd status --porcelain | grep '?' | sed 's/.* //');
         $opts_set++;
     }
     if ( $args{all} or not $opts_set ) {
         ## Tracked files, modified or not.
-        push @files, qx(git ls-files);
+        push @files, qx($gitcmd ls-files);
     }
     return @files ? filter(@files) : ();
 }
@@ -142,7 +147,7 @@ sub is_git_repo {
     if ( $_[0] ) {
         $location = "-C $_[0]";
     }
-    qx(git $location rev-parse --show-toplevel 2>/dev/null 1>&2);
+    qx($gitcmd $location rev-parse --show-toplevel 2>/dev/null 1>&2);
     return $? ? 0 : 1;
 }
 
@@ -221,8 +226,7 @@ sub process_exclusions {
         }
 
         if (@excludes) {
-            warn "$file is excluded from tidying for the following reasons:\n",
-              @excludes;
+            warn "$file is excluded from tidying for the following reasons:\n", @excludes;
         } else {
             push @includes, $file;
         }

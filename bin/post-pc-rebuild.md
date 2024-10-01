@@ -2,18 +2,6 @@
 
 * Install a distro.
 * Start up a session.
-* Pin the icon to the taskbar.
-* Check WSLg integration:
-```
-$ echo $DISPLAY
-:0
-$ ls -la /tmp/.X11-unix
-total 4
-drwxrwxrwx 2 root    root      60 Oct  8 17:15 .
-drwxrwxrwt 3 root    root    4096 Oct  8 17:15 ..
-srwxrwxrwx 1 matthew matthew    0 Oct  8 17:15 X0
-``` 
-If the two numbers match, you're good. If not, change the `DISPLAY` variable to match.
 * Open up sudo
 ```
 sudo vi sudoers.$USER
@@ -73,6 +61,21 @@ Line 2
 Line 3
 EOD
 ```
+**Note:** If you don't have smtp for some reason, try:
+```
+cat <<EOCRONCONF > /tmp/crond
+# Settings for the CRON daemon.
+# CRONDARGS= :  any extra command-line startup arguments for crond
+CRONDARGS='-m /home/<USER>/personal/bin/local-mailme-cron'
+EOCRONCONF
+
+sudo mv /tmp/crond /etc/sysconfig/crond
+sudo chmod 600 /etc/sysconfig/crond
+sudo service crond status
+sudo service crond restart
+sudo service crond status
+```
+
 * Set up cron
 ```
 sudo vi /etc/sudoers.d/cron
@@ -86,7 +89,7 @@ MAILTO=matthew.persico@gmail.com
 <esc:wq>
 ```
 * Copy shortcuts in C:\Users\matth\Documents\WSL Stuff to shell:startup (Windows+r shell:startup). If they already exist, then reboot windows to restart them.
-* Follow https://github.com/matthewpersico/personal/blob/main/README.md.
+* Follow https://github.com/matthewpersico/personal/blob/main/README.md .
 
 WIP:
 

@@ -47,9 +47,7 @@ ajoin longopts -s , \
       reinvoke: notimestamp ts env:
 
 # Process the command line, first time around.
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
-declare status=$?
-if ((status != 0)); then
+if ! OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@"); then
     declare d0
     d0=$(basename "$0")
     cmd-echo --id logit --ec -- \
@@ -59,7 +57,7 @@ if ((status != 0)); then
              "Add -- as the last ${d0} option right before your command."\
              "Otherwise, did you type a wrong option, like maybe"\
              "--tail instead of --tee?"
-    exit $status
+    false; exit
 fi
 
 # Reset the command line ($@).
@@ -74,14 +72,14 @@ while true; do
     [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
     case "$option" in
         h|help)
-            bash-usage "$0"; exit 0 ;;
+            bash-usage "$0"; true; exit ;;
         aa )
             opt_add_args_to_logfile=1
             ;;
         at )
             if ((opts_count)); then
                 echo "--at must be first option"
-                exit 1
+                false; exit
             fi
             attime="$1"
             shift
@@ -90,8 +88,8 @@ while true; do
             chmod +x "$atfile"
             at -m -f "$atfile" "$attime"
             sleep 5
-            cmd-echo ' '
-            exit 0
+            echo
+            true; exit
             ;;
         isat)
             isat=1
@@ -190,7 +188,7 @@ while true; do
             declare log=$1; shift
             if [[ ! -r "$log" ]]; then
                 cmd-echo --id logit --ec -- "'$log' does not exist"
-                exit 1
+                false; exit
             fi
             declare -a cmd
             read -r -a cmd < <(head -4 "$log" | tail -1)
@@ -210,7 +208,7 @@ while true; do
                      ## remaining $*, if any, are args
         *)
             cmd-echo --id logit -ec -- "$option is an invalid option; you probably forgot to add a -- option between the logit options and the command to run. See $0 --help"
-            exit 1 ;;
+            false; exit ;;
     esac
 done
 
@@ -219,13 +217,13 @@ if ((isat)) \
                 || \
                 [[ -n "${edit}${edit_on_fail}" ]]; }; then
     echo "Cannot use --at with any of of the --tee, --gui, --browser, --edit, or --edit_on_fail options."
-    bash-usage "$0"; exit 1
+    bash-usage "$0"; false; exit
 fi
 
 # Arg checking
 if [[ -z "$1" ]]; then
     echo "Command required."
-    bash-usage "$0"; exit 1
+    bash-usage "$0"; false; exit
 fi
 
 declare command
@@ -246,7 +244,7 @@ if [[ ! -x "$command" ]]; then
         if [[ $isafunc != "function" ]] \
         && [[ $isafunc != "alias" ]]; then
             echo "'$command' is not a function or alias and it either cannot not be found on PATH or is not executable."
-            exit 1
+            false; exit
         fi
     fi
 fi
@@ -326,10 +324,9 @@ fi
 
 if ((opt_logonly)); then
     echo '--logonly specified. Run these commands:'
-    # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
     (( ${#envs[@]} )) && echo -n "${envs[*]} "
     echo "$command ${cmdargs[*]}" '2>&1 | tee ' "$logspec"
-    exit 0
+    true; exit
 fi
 
 if ((teeit || guiit || browserit)); then
@@ -369,10 +366,10 @@ if ((teeit || guiit || browserit)); then
     else
         # Locate the popup tailing xterm close to the invoking xterm window for
         # convenience.
-        # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-        declare xtermxy=$(xterm-cli --pid ${PPID} location get)
-        declare xtermx=$((${xtermxy%%:*}+20))
-        declare xtermy=$((${xtermxy##*:}+20))
+        declare xtermxy xtermx xtermy
+        xtermxy=$(xterm-cli --pid ${PPID} location get)
+        xtermx=$((${xtermxy%%:*}+20))
+        xtermy=$((${xtermxy##*:}+20))
 
         # Size the popup tailing xterm with respect to screen real estate.
         termheight=$(x-current-root --height)
@@ -481,7 +478,7 @@ fi
     else
         $command "${cmdargs[@]}"
     fi
-    status=${PIPESTATUS[0]}
+    declare status=${PIPESTATUS[0]}
 
     echo "********************"
     echo "$logmsg"
@@ -493,7 +490,7 @@ fi
     echo "********************"
     exit "$status"
 ) >> "$logspec" 2>&1
-status=$?
+declare status=$?
 if (( !isat)); then
     echo "$logmsg"
     echo "Exit status: $status"
@@ -516,10 +513,10 @@ if [[ "${editcmd[0]}" =~ emacs\  ]]; then
     else
         height=$logheight
     fi
-    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-    declare xtermxy=$(xterm-cli --pid ${PPID} location get)
-    declare xtermx=$((${xtermxy%%:*}+20))
-    declare xtermy=$((${xtermxy##*:}+20))
+    declare xtermxy xtermx xtermy
+    xtermxy=$(xterm-cli --pid ${PPID} location get)
+    xtermx=$((${xtermxy%%:*}+20))
+    xtermy=$((${xtermxy##*:}+20))
     editcmd+=('-g' "${width}x${height}+${xtermx}+${xtermy}")
 fi
 if [[ -n "${editcmd[0]}" ]]; then
@@ -600,17 +597,17 @@ OPTIONS:
 
       --browser
                - Start a browser and show the log output in it as it is
-                 generated. If $BROWSER is not set or the specified browser
-                 is not available, we fall back to --tee.
+                 generated. If \$BROWSER (currently $BROWSER) is not set or the
+                 specified browser is not available, we fall back to --tee.
 
       --browser-only
                - Start a browser and show the log output in it as it is
                  generated. Delete the underlying log file when done. If
-                 $BROWSER is not set or the specified browser is not available,
-                 we fall back to --tee and retain the log.
+                 \$BROWSER (currently $BROWSER) is not set or the specified
+                 browser is not available, we fall back to --tee and retain the
+                 log.
 
-      --log    - Provide a root name for the log if
-                 the command is generic.
+      --log    - Provide a root name for the log if the command is generic.
 
       --dir    - Put the logs in specifed directory. If not
                  specfied, logs will be placed in the './logit' subdir,
@@ -628,19 +625,19 @@ OPTIONS:
                  log name.  Use if the log name provided by --log is unique or
                  you don't care about overwriting logs.
 
-      --edit   - Look for \$LOGIT_EDITOR ($LOGIT_EDITOR), then
-                 \$EDITOR ($EDITOR). Run the first one found in order
+      --edit   - Look for \$LOGIT_EDITOR (currently: $LOGIT_EDITOR), then
+                 \$EDITOR (currently: $EDITOR). Run the first one found in order
                  to edit log file when the command exits.
 
       --edit-echo
-               - Look for \$LOGIT_EDITOR ($LOGIT_EDITOR), then \$EDITOR
-                 ($EDITOR). Echo the command that would have been generated for
+               - Look for \$LOGIT_EDITOR (currently: $LOGIT_EDITOR), then \$EDITOR
+                 (currently: $EDITOR). Echo the command that would have been generated for
                  --edit. This allows you to decide whether or not to edit the
                  log.
 
       --edit-on-fail
-               - Look for \$LOGIT_EDITOR ($LOGIT_EDITOR), then \$EDITOR
-                 ($EDITOR). Run the first one found in order to edit the log
+               - Look for \$LOGIT_EDITOR (currently: $LOGIT_EDITOR), then \$EDITOR
+                 (currently: $EDITOR). Run the first one found in order to edit the log
                  file if the command fails.
 
       --purge  - Remove all similarly named log files before
