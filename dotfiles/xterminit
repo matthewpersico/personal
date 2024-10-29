@@ -1,13 +1,13 @@
 # -*- sh -*-
 # shellcheck shell=ksh
-# shellcheck disable=SC1090 # Sourcing files without a fixed path.
 
 # xterminit
 
-## WARNING: This script is run in the (WORKPLACE REDACTED) environment on dev
-## machines under ksh before Chimera switches over to bash. This script MUST be
-## valid KORN SHELL for as long as it is run in a (WORKPLACE REDACTED)
-## environment, meaning, among other things:
+## WARNING: This script is sourced (which is why it has "return"s outside of a
+## function) in the (WORKPLACE REDACTED) environment on dev machines under ksh
+## before Chimera switches over to bash. This script MUST be valid KORN SHELL
+## for as long as it is run in a (WORKPLACE REDACTED) environment, meaning,
+## among other things:
 ## - No associative arrays.
 ## - No variables with - in them. Use _ instead.
 
@@ -27,14 +27,14 @@ fi
 ## Is X installed?
 if ! type -P xmodmap 1>/dev/null; then
     echo 'No X installed. xterm setup skipped.'
-    return 0
+    true; return
 fi
 
 ## Is X running?
 if ! perl -e 'alarm shift @ARGV; exec @ARGV' 5 xmodmap 1>/dev/null 2>/dev/null; then
     if ! ~/personal/bin/launchxserver --silent; then
         echo "XServer not running, can't be launched. xterm setup skipped."
-        return 0
+        true; return
     fi
 fi
 
@@ -48,7 +48,7 @@ if [[ -z "$XTERM" ]]; then
     done
     if [[ -z "$XTERM" ]]; then
         echo "$(date) - $(hostname) - Cannot find an xterm to use. xterm setup stops." >> ~/xterminit.stop
-        return 0
+        true; return
     fi
 fi
 
@@ -82,44 +82,27 @@ XTERMGEO_Y=$(( $(x-current-root -h)/6 ))
 export XTERMGEO_Y
 XTERMGEO="${XTERMGEO_W}x${XTERMGEO_H}+${XTERMGEO_X}+${XTERMGEO_Y}"
 export XTERMGEO
+
 case ${HOSTNAME_FQDN} in
-    *bldo* )
-        NEWXCOLOR=RED
-        XTERMFONT_NAME='Monospace'
-        XTERMFONT_SIZE='10'
-        ;;
-
-    *bcpc* | *bcc*)
-        NEWXCOLOR=GREY
-        XTERMFONT_NAME='Monospace'
-        XTERMFONT_SIZE='10'
-        ;;
-
-    nylxdev* )
-        NEWXCOLOR=STEELBLUE
+    depop* )
+        NEWXCOLOR=DARKRED
         XTERMFONT_NAME=''
-        XTERMFONT_SIZE=''
+        XTERMFONT_SIZE='12'
         ;;
 
     monolith* | MONOLITH* )
         NEWXCOLOR=BLACK
-        if [[ "$XSERVER" = 'XWin' ]]; then
-            XTERMFONT_NAME='Monospace'
-            XTERMFONT_SIZE='10'
-        else
-            ## Xming
-            XTERMFONT_NAME='lucidasanstypewriter-14'
-            XTERMFONT_SIZE='14'
-        fi
+        XTERMFONT_NAME='lucidasanstypewriter'
+        XTERMFONT_SIZE='12'
         ;;
 
     * )
         if iswsl; then
             NEWXCOLOR=BLACK
             XTERMFONT_NAME='lucidasanstypewriter'
-            XTERMFONT_SIZE='10'
+            XTERMFONT_SIZE='12'
         else
-            NEWXCOLOR=RED
+            NEWXCOLOR=GREY
             XTERMFONT_NAME=''
             XTERMFONT_SIZE=''
         fi
@@ -135,46 +118,95 @@ export XTERMFONT_SIZE
 ## and make git be a function such that it calls '/the/real/git
 ## $GIT_COLORS "$@"'.
 
+## The names and RGB values of the colors are taken from
+## 'https://en.wikipedia.org/wiki/X11_color_names#Color_name_chart'. and are
+## stored in xcolordefs.
+declare -A RGBhex
+RGBhex=(
+    ["BLACK"]='00:00:00'
+    ["BLUE"]='00:00:FF'
+    ["BROWN"]="A5:2A:2A"
+    ["CHOCOLATE"]="D2:69:1E"
+    ["DARKRED"]="8B:00:00"
+    ["GRAY"]="BE:BE:BE"
+    ["GREY"]="BE:BE:BE"
+    ["GREEN"]="00:FF:00"
+    ["LIGHTSTEELBLUE"]="B0:C4:DE"
+    ["ORANGE"]="FF:A5:00"
+    ["PINK"]="FF:C0:CB"
+    ["RED"]="FF:00:00"
+    ["SEAGREEN"]="2E:8B:57"
+    ["SILVER"]="C0:C0:C0"
+    ["STEELBLUE"]="46:82:B4"
+    ["WHEAT"]="F5:DE:B3"
+    ["WHITE"]="FF:FF:FF"
+    ["YELLOW"]="FF:FF:00"
+)
+
+declare -A RGB
+RGB=(
+    ["BLACK"]='00:00:00' #(000000)
+    ["BLUE"]='00:00:256' #(0000FF)
+    ["BROWN"]='165:42:42' #(A52A2A)
+    ["CHOCOLATE"]='210:105:30' #(D2691E)
+    ["DARKRED"]='139:00:00' #(8B0000)
+    ["GREEN"]='00:255:00' #(00FF00)
+    ["GRAY"]='190:190:190' #(BEBEBE)
+    ["GREY"]='190:190:190' #(BEBEBE)
+    ["LIGHTSTEELBLUE"]='176:196:222' #(B0C4DE)
+    ["ORANGE"]='255:165:00' #(FFA500)
+    ["PINK"]='255:192:203' #(FFC0CB)
+    ["RED"]='255:00:00' #(FF0000)
+    ["SEAGREEN"]='46:139:87' #(2E8B57)
+    ["SILVER"]='192:192:192' #(C0:C0:C0)
+    ["STEELBLUE"]='70:130:180' #(4682B4)
+    ["WHEAT"]='245:222:179' #(F5DEB3)
+    ["WHITE"]='255:255:255' #(FFFFFF)
+    ["YELLOW"]='255:255:00' #(FFFF00)
+)
+
 ## Settings for xterm, distinct from the ANSI printable sequences above.
-export FOREBACKMAP_GREY='BLACK,GREY'
-export FOREBACKMAP_RED='WHEAT,DARKRED'
-export FOREBACKMAP_WHITE='BLACK,WHITE'
 export FOREBACKMAP_BLACK='WHITE,BLACK'
-export FOREBACKMAP_BLUE='WHITE,STEELBLUE'
-export FOREBACKMAP_GREEN='WHITE,SEAGREEN'
-export FOREBACKMAP_WHEAT='BLACK,WHEAT'
+export FOREBACKMAP_BLUE='WHITE,BLUE'
+export FOREBACKMAP_CHOCOLATE='WHITE,CHOCOLATE'
+export FOREBACKMAP_DARKRED='WHEAT,DARKRED'
+export FOREBACKMAP_GREEN='BLACK,GREEN'
+export FOREBACKMAP_GREY='BLACK,GREY'
+export FOREBACKMAP_GRAY='BLACK,GRAY'
+export FOREBACKMAP_LIGHTSTEELBLUE='WHITE,LIGHTSTEELBLUE'
 export FOREBACKMAP_ORANGE='BLACK,ORANGE'
-export FOREBACKMAP_CHOC='WHITE,CHOCOLATE'
+export FOREBACKMAP_RED='WHEAT,RED'
+export FOREBACKMAP_SEAGREEN='WHITE,SEAGREEN'
+export FOREBACKMAP_SILVER='BLACK,GREY' # For some reason background GREY/GRAY
+                                       # comes back as SILVER when queried by
+                                       # xterm-cli
+export FOREBACKMAP_STEELBLUE='WHITE,STEELBLUE'
+export FOREBACKMAP_WHEAT='BLACK,WHEAT'
+export FOREBACKMAP_WHITE='BLACK,WHITE'
 
-export FOREBACKMAP_GREY_RGB='00:00:00,169:169:169'
-export FOREBACKMAP_RED_RGB='245:222:179,139:00:00'
-export FOREBACKMAP_WHITE_RGB='00:00:00,255:255:255'
-export FOREBACKMAP_BLACK_RGB='255:255:255,00:00:00'
-export FOREBACKMAP_BLUE_RGB='255:255:255,70:130:180'
-export FOREBACKMAP_GREEN_RGB='255:255:255,46:139:87'
-export FOREBACKMAP_WHEAT_RGB='00:00:00,245:222:179'
-export FOREBACKMAP_ORANGE_RGB='00:00:00,255:165:00'
-export FOREBACKMAP_CHOC_RGB='255:255:255,210:105:30'
+## This creates envvars
+##  FOREBACKMAP_<scheme>_RGB
+## from envvars
+##  FOREBACKMAP_<scheme> and RGB
+for key in $(env | grep FOREBACKMAP | grep -v RGB | sed 's/=.*//'); do
+    # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+    stmt='export '${key}'_RGB=${RGB[${'${key}'%%,*}]},${RGB[${'${key}'##*,}]}'
+    # debug echo $stmt
+    eval "$stmt"
+done
 
-## Make sure that the value of each entry below matches a color in one of the
-## 'FOREBACKMAP_' variables above. The names and RGB values of the colors are
-## taken from
-## 'https://en.wikipedia.org/wiki/X11_color_names#Color_name_chart'. The
-## pattern is the three hex numbers for the color, each doubled up. So 'BLUE'
-## is 4682B4 but comes up 46468282B4B4. Why? Who knows.
-export XTERM_XGROUND_MAP_RGB46468282B4B4='BLUE'
-export XTERM_XGROUND_MAP_RGBC0C0C0C0C0C0='GREY'
-export XTERM_XGROUND_MAP_RGB8B8B00000000='DARKRED'
-export XTERM_XGROUND_MAP_RGBFFFFFFFFFFFF='WHITE'
-export XTERM_XGROUND_MAP_RGB000000000000='BLACK'
-export XTERM_XGROUND_MAP_RGB46468282B4B4='BLUE'
-export XTERM_XGROUND_MAP_RGB2E2E8B8B5757='GREEN'
-export XTERM_XGROUND_MAP_RGBF5F5DEDEB3B3='WHEAT'
-export XTERM_XGROUND_MAP_RGBFFFFA5A50000='ORANGE'
-export XTERM_XGROUND_MAP_RGBFFFFFFFF0000='YELLOW'
-export XTERM_XGROUND_MAP_RGBFFFFC0C0CBCB='PINK'
-export XTERM_XGROUND_MAP_RGBA5A52A2A2A2A='BROWN'
-export XTERM_XGROUND_MAP_RGBD2D269691E1E='CHOC'
+## This creates envvars
+##  XTERM_XGROUND_MAP_RBG<hex color>
+## from
+##  RGBhex
+## The pattern is the three hex numbers for the color, each doubled up.
+## For example. 'BLUE' is 4682B4 but comes up 46468282B4B4. Why? Who knows?
+for key in "${!RGB[@]}"; do
+    IFS=':' read -ra tmp <<< "${RGBhex[$key]}"
+    stmt=$(printf "export XTERM_XGROUND_MAP_RGB%s%s%s%s%s%s='$key'" "${tmp[0]}" "${tmp[0]}" "${tmp[1]}" "${tmp[1]}" "${tmp[2]}" "${tmp[2]}")
+    # debug echo $stmt
+    eval "$stmt"
+done
 
 export ESC="\\033"
 export CSI="${ESC}["

@@ -10,11 +10,11 @@
 ## Don't do my checks if I say not to.
 if [[ "$GIT_COMMIT_NO_VERIFY" = '1' ]]; then
     echo "****** GIT_COMMIT_NO_VERIFY='1'. Skipping hook. ******" >&2
-    exit 0
+    true; exit
 fi
 
 ## Don't do my checks if Perl testing involves git commands.
-[ "$HARNESS_ACTIVE" = '1' ] && exit 0
+[ "$HARNESS_ACTIVE" = '1' ] && { true; exit; }
 
 ##
 ## Globals and inits
@@ -28,7 +28,7 @@ G_tfile=$(mktemp)
 ## ...and we set up a trap for cleanup.
 trap finish EXIT SIGINT
 
-declare G_exitval=0 ## Assume correctness.
+true; declare G_exitval=$? ## Assume correctness.
 
 declare G_gitroot
 G_gitroot=$(git rev-parse --show-toplevel)
@@ -42,14 +42,23 @@ declare -a G_skip_messages=(
     "because of missing program"
 )
 
+declare -A skips
+
+declare -a G_perlfiles
+declare -a shellfiles
+declare -a pythonfiles
+declare -a jsonfiles
+declare -a files
+declare -a nonfiles
+declare -a delgitobjs
+
+
 ##
 ## Functions
 ##
 finish ()
 {
-    if [[ -e "$G_tfile" ]]; then
-        rm -rf "$G_tfile"
-    fi
+    rm -f "$G_tfile" "${G_tfile}.jqerr"
 }
 
 get_status ()
@@ -72,15 +81,73 @@ check ()
         echo
         pre_commit_error_echo "$errmsg"
         cat "$G_tfile"
-        G_exitval=1
+        false; G_exitval=$?
         if [[ -n $postmsg ]]; then
             echo
             echo "$postmsg"
         fi
-        return 1
+        false; return
     else
-        return 0
+        true; return
     fi
+}
+
+check_for_installations ()
+{
+    ## Make sure the check programs are installed if we are not already
+    ## skipping that particular check and skip if not installed.
+    [[ -z ${skips[perl]} ]] \
+        && ! perl -V 1>/dev/null 2>&1 \
+        && skips[perl]=$G_skip_by_missing
+
+    [[ -z ${skips[perl]} ]] \
+        && [[ -z ${skips[perltidy]} ]] \
+        && ! perltidy -v 1>/dev/null 2>&1 \
+        && skips[perltidy]=$G_skip_by_missing
+
+    [[ -z ${skips[shell]} ]] \
+           && [[ -z ${skips[shellcheck]} ]] \
+           && ! shellcheck -V 1>/dev/null 2>&1 \
+           && skips[shellcheck]=$G_skip_by_missing
+
+    if [[ -z ${skips[python]} ]]; then
+        if ! python -V 1>/dev/null 2>&1; then
+            skips[python]=$G_skip_by_missing
+        else
+            black --version 1>/dev/null 2>&1 || skips[black]=$G_skip_by_missing
+            isort --version 1>/dev/null 2>&1 || skips[isort]=$G_skip_by_missing
+            pylint --version 1>/dev/null 2>&1 || skips[pylint]=$G_skip_by_missing
+        fi
+    fi
+
+    [[ -z ${skips[json]} ]] \
+        && ! jq --version 1>/dev/null 2>&1 \
+        && skips[json]=$G_skip_by_missing
+}
+
+get_file_types ()
+{
+    ##
+    ## Isolate specific groups of files.
+    ##
+    declare file
+
+    ## Now group them.
+    for file in "${files[@]}"; do
+        if head -1 "$file" | grep perl | grep -E '^#!' > /dev/null \
+                ||
+                echo "$file" | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null; then
+            G_perlfiles+=("$file")
+        elif head -1 "$file" | grep -E -- '(-\*- |#!.*/|#!.*env )(sh|ksh|bash)' 1>/dev/null 2>&1; then
+            shellfiles+=("$file")
+        elif head -1 "$file" | grep python | grep -E '^#!' > /dev/null \
+                ||
+                echo "$file" | grep -iE '\.py$' > /dev/null; then
+            pythonfiles+=("$file")
+        elif [[ $file =~ \.json$ ]]; then
+            jsonfiles+=("$file")
+        fi
+    done
 }
 
 notify ()
@@ -158,21 +225,20 @@ do_gcs_check ()
         ## <GCSLITERAL> on the same line.
         gcs_marker=$(grep -H -n -E '<GCS>' "$file" | grep -v '<GCSLITERAL>')
 
-        ## Next check the gcs file for matches. If in this file, we don't
-        ## commit. Period...
+        ## Next check the gcs file for matches. The file must have an action
+        ## attribute, either ':stop' or ':ignore'.
         declare gcsfile_match=''
-        [[ -r $gcsfile ]] && gcsfile_match=$(grep "$file" "$gcsfile")
-
-        ## ...unless the entry has an :ignore marker.
+        [[ -r $gcsfile ]] && gcsfile_match=$(grep "${file}:" "$gcsfile")
         declare gcsfile_ignore=''
         if [[ -n $gcsfile_match ]]; then
-            gcsfile_ignore=$(grep ':ignore' <<< "$gcsfile_match")
+            gcsfile_stop=$(grep ":stop" <<< "$gcsfile_match")
+            gcsfile_ignore=$(grep ":ignore" <<< "$gcsfile_match")
         fi
 
         ## Analysis.
         if [[ -n $gcsfile_ignore ]]; then
             gcs_files[2]="$file ${gcs_files[2]}"
-        elif [[ -n $gcsfile_match ]]; then
+        elif [[ -n $gcsfile_stop ]]; then
             gcs_files[1]="$file ${gcs_files[1]}"
         elif [[ -n $gcs_marker ]]; then
             gcs_files[0]="$file ${gcs_files[0]}"
@@ -184,13 +250,13 @@ do_gcs_check ()
         echo
         pre_commit_error_echo "${gcs_messages[0]}"
         pre_commit_error_echo -c "${gcs_files[0]}"
-        G_exitval=1
+        false; G_exitval=$?
     fi
     if [[ -n ${gcs_files[1]} ]]; then
         echo
         pre_commit_error_echo "${gcs_messages[1]}"
         pre_commit_error_echo -c "${gcs_files[1]}"
-        G_exitval=1
+        false; G_exitval=$?
     fi
     if [[ -n ${gcs_files[2]} ]]; then
         echo
@@ -198,7 +264,7 @@ do_gcs_check ()
         pre_commit_info_echo -c "${gcs_files[2]}"
     fi
 
-    return 0
+    true; return
 }
 
 main ()
@@ -206,7 +272,6 @@ main ()
     ##
     ## args and opts
     ##
-    declare -A skips
     declare opt_verbose=1
     declare opt_nocommit=0
     declare helpnotallowed=0
@@ -236,14 +301,14 @@ that you can skip with:
 
 * a --skip option to a direct invocation of this hook
 
-* a -[-skip option set in either of the
+* a --skip option set in either of the
   GIT_PRE_COMMIT_HOOK_ARGS or GPCHA envvars
 
-* a--skip-hook option to 'git-commit'
+* a --skip-hook option to 'git-commit'
 
 Skips: $GIT_HOOK_SKIP_TAGS
 EOF
-                exit 0;
+                true; exit 0
                 ;;
             s|skip)
                 if [[ "$GIT_HOOK_SKIP_TAGS" == *" $1 "* ]]; then
@@ -259,19 +324,19 @@ EOF
             nocommit)
                 opt_nocommit=1 ;;
             x)
-                set -x
-                trap "set +x" EXIT
+                set -x # OK if you are grepping
+                trap "set +x" EXIT # OK if you are grepping
                 ;;
             h|help)
                 if((helpnotallowed)); then
                     pre_commit_ok_echo "--help not allowed in GIT_PRE_COMMIT_HOOK_ARGS. Ignoring."
                 else
                     pod2text "$0" | ${PAGER:cat}
-                    exit 0
+                    true; exit
                 fi
                 ;;
             --) shift; break ;; ## end of opts, remaining $*, if any, are args.
-            *) echo "Internal error!"; pod2text "$0" | ${PAGER:cat}; exit 1 ;;
+            *) echo "Internal error!"; pod2text "$0" | ${PAGER:cat}; false; exit ;;
         esac
     done
 
@@ -299,10 +364,6 @@ for (@ARGV){
     ##
     ## Split the list into files, nonfiles and deletes.
     ##
-    declare -a files
-    declare -a nonfiles
-    declare -a delgitobjs
-
     ((opt_verbose)) && pre_commit_ok_echo Current status:
     for obj in "${gitobjs[@]}"; do
         declare file=${obj%%=>*}
@@ -366,93 +427,71 @@ for (@ARGV){
         files=("${filtered_files[@]}")
     fi
 
-    ##
-    ## Isolate specific groups of files.
-    ##
-    declare -a perlfiles
-    declare -a shellfiles
-    declare -a pythonfiles
-    declare file
+    check_for_installations
 
-    ## Make sure the check programs are installed if we are not skipping that
-    ## particular check.
-    if [[ -z ${skips[perl]} ]] \
-           && perl -V 1>/dev/null 2>&1; then
-        :
-    else
-        skips[perl]=$G_skip_by_missing
-    fi
-
-    if [[ -z ${skips[perl]} ]] \
-           && [[ -z ${skips[perltidy]} ]] \
-           && perltidy -v 1>/dev/null 2>&1; then
-        :
-    else
-        skips[perltidy]=$G_skip_by_missing
-    fi
-
-    if [[ -z ${skips[shell]} ]] \
-           && [[ -z ${skips[shellcheck]} ]] \
-           && shellcheck -V 1>/dev/null 2>&1; then
-        :
-    else
-        skips[shellcheck]=$G_skip_by_missing
-    fi
-
-    if [[ -z ${skips[python]} ]]; then
-        if ! python -V 1>/dev/null 2>&1; then
-            skips[python]=$G_skip_by_missing
-        else
-            black --version 1>/dev/null 2>&1 || skips[black]=$G_skip_by_missing
-            isort --version 1>/dev/null 2>&1 || skips[isort]=$G_skip_by_missing
-            pylint --version 1>/dev/null 2>&1 || skips[pylint]=$G_skip_by_missing
-        fi
-    fi
-
-    ## Now group them.
-    for file in "${files[@]}"; do
-        if head -1 "$file" | grep perl | grep -E '^#!' > /dev/null \
-                ||
-                echo "$file" | grep -iE '\.(p[ml]|t|sgi)$' > /dev/null; then
-            perlfiles+=("$file")
-        elif head -1 "$file" | grep -E -- '(-\*- |#!.*/|#!.*env )(sh|ksh|bash)' 1>/dev/null 2>&1; then
-            shellfiles+=("$file")
-        elif head -1 "$file" | grep python | grep -E '^#!' > /dev/null \
-                ||
-                echo "$file" | grep -iE '\.py$' > /dev/null; then
-            pythonfiles+=("$file")
-        fi
-    done
+    get_file_types
 
     ##
     ## The tests...
     ##
 
     if ((${#files[@]})); then
-        touch "$G_tfile"
+        touch "$G_tfile" # Each file type block will rewrite $G_file
 
-        for i in "${files[@]}"; do
+        declare gpch_file
+
+        ## ####################### ##
+        ## All: Open emacs buffers ##
+        ## ####################### ##
+        for gpch_file in "${files[@]}"; do
             ##
             ## check: files being edited, not saved
             ##
-            emacsfile="$(dirname "$(realpath "$i")")/.#$(basename "$i")"
-            if [[ -h "$emacsfile" ]]; then
-                echo "$i" >> "$G_tfile"
-            fi
-            ##
-            ## check: chmod - warning only
-            ##
-            if ( git diff "$i" | grep -q -E '^old mode' ); then
-                pre_commit_warning_echo "$i has changed permissions"
-                git diff "$i" | grep --color=never -E '^(old|new) mode'
-            fi
-        done
+            emacsfile="$(dirname "$(realpath "$gpch_file")")/.#$(basename "$gpch_file")"
+            [[ -h "$emacsfile" ]] && echo "$gpch_file"
+        done > "$G_tfile"
         check "$G_tfile" \
               "Write your emacs buffers for these files:"
 
-        ##
-        ## check: constructs for bypassed or dead code
-        ##
+        ## ############################### ##
+        ## All: chmod change, warning only ##
+        ## ############################### ##
+        for gpch_file in "${files[@]}"; do
+            if ( git diff "$gpch_file" | grep -q -E '^old mode' ); then
+                pre_commit_warning_echo "$gpch_file has changed permissions"
+                git diff "$gpch_file" | grep --color=never -E '^(old|new) mode'
+            fi
+        done
+
+        ## ######################### ##
+        ## All: git conflict markers ##
+        ## ######################### ##
+        grep -H -n -E '^<<<<<<<|>>>>>>>$' "${files[@]}" 1>"$G_tfile" 2>&1
+        check "$G_tfile" \
+              "One or more files contains a git conflict marker. Please address."
+
+        ## ############################ ##
+        ## All: git commit stop markers ##
+        ## ############################ ##
+        do_gcs_check
+
+        ## ######################################## ##
+        ## Interpreted Languages: First line sanity ##
+        ## ######################################## ##
+        for gpch_file in "${G_perlfiles[@]}" "${shellfiles[@]}" "${pythonfiles[@]}"; do
+            ##
+            ## First line should be shebang or package, or even data, but certainly not blank.
+            ##
+            if [[ $(head -1 "$gpch_file" | wc -w) == '0' ]]; then
+                echo "$gpch_file"
+            fi
+        done 1>"$G_tfile" 2>&1
+        check "$G_tfile" \
+              "One or more interpreted language files has blank first line. Check for misplaced shebang or packaging statements."
+
+        ## ######################################### ##
+        ## All: Constructs for bypassed or dead code ##
+        ## ######################################### ##
 
         ## These two are Perl constructs, but we could use them temporarily in any
         ## file type, if commented out in the non-Perl language.
@@ -464,23 +503,31 @@ for (@ARGV){
         check "$G_tfile" \
               "One or more files contain suspicious Perl commenting. Put back original code; remove your short term test changes."
 
-        if ((${#perlfiles[@]})); then
+        ## #### ##
+        ## Perl ##
+        ## #### ##
+        if ((${#G_perlfiles[@]})); then
             if [[ -n ${skips[perl]} ]]; then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl checks, ${G_skip_messages[${skips[perl]}]}."
             else
                 ##
                 ## check: Perl debug statements
                 ##
-                # shellcheck disable=2016
-                grep -H -n -E '\$DB::s(ingle|tep)' "${perlfiles[@]}" 1>"$G_tfile" 2>&1
-                check "$G_tfile" \
-                      "One or more files has Perl-debugger-related statements. Please remove instrumentation."
+                if [[ -e "${G_gitroot}/.hookcfg/skip.DBcheck" ]]; then
+                    echo "Skipping '$DB::s(ingle|tep) check as per .hookcfg"
+                else
+                    # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                    # We want to pass the $ into the grep.
+                    grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
+                    check "$G_tfile" \
+                          "One or more files has Perl-debugger-related statements. Please remove instrumentation."
+                fi
 
                 ##
                 ## check: testing utilities left in the code
                 ## BB SPECIFIC
                 ##
-                grep -H -n -E 'TestingUtils' "${perlfiles[@]}" | grep -v TestingUtils.pm  1>"$G_tfile" 2>&1
+                grep -H -n -E 'TestingUtils' "${G_perlfiles[@]}" | grep -v TestingUtils.pm  1>"$G_tfile" 2>&1
                 check "$G_tfile" \
                       "One or more files is using the TestingUtils module. Please remove it."
 
@@ -497,24 +544,29 @@ for (@ARGV){
                         cartonexec=''
                         if [[ -e "$G_gitroot/runtests.local" ]]; then
                             pre_commit_ok_echo "Sourcing $G_gitroot/runtests.local for perl compile tests."
-                            # shellcheck disable=SC1090
+                            # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
                             . "/$G_gitroot/runtests.local"
                             if [[ "$RUNTESTS_USE_CARTON" = '1' ]]; then
                                 cartonexec='carton exec'
                             fi
                         fi
                         checkcmd="$cartonexec $G_gitroot/t/bin/apply-compile-check-everywhere"
-                        $checkcmd "${perlfiles[@]}" 1>"$G_tfile" 2>&1
+                        $checkcmd "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
                         runcheck=1
-                        remediation="To review, run: (cd $(pwd); $checkcmd ${perlfiles[*]})"
+                        remediation="To review, run: (cd $(pwd); $checkcmd ${G_perlfiles[*]})"
                     elif [[ -e "${TILDAE:-$HOME}/personal/bin/perlcheck-bulk" ]]; then
                         declare -a libs
                         readarray                -t libs < <(find "$G_gitroot" -type d -name lib  -printf '-I\n%p\n')
                         readarray -O ${#libs[@]} -t libs < <(find "$G_gitroot" -type d -name perl -printf '-I\n%p\n')
-                        checkcmd="${TILDAE:-$HOME}/personal/bin/perlcheck-bulk --no-progress ${libs[*]}"
-                        $checkcmd "${perlfiles[@]}" 1>"$G_tfile" 2>&1
+                        declare -a perlcheck_args=(--no-progress)
+                        if [[ -n "${skips[perlcompilenoprogress]}" ]]; then
+                            perlcheck_args=()
+                            ((opt_verbose)) && pre_commit_ok_echo "Perl compile check will show progress, as ${G_skip_messages[${skips[perlcompilenoprogress]}]}."
+                        fi
+                        checkcmd="${TILDAE:-$HOME}/personal/bin/perlcheck-bulk ${perlcheck_args[*]} ${libs[*]}"
+                        $checkcmd "${G_perlfiles[@]}" | tee "$G_tfile"
                         runcheck=1
-                        remediation="To review, run: (cd $(pwd); $checkcmd ${perlfiles[*]})"
+                        remediation="To review, run: (cd $(pwd); $checkcmd ${G_perlfiles[*]})"
                     else
                         ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, no perl compile check helpers found."
                     fi
@@ -536,10 +588,10 @@ for (@ARGV){
                         "$G_gitroot/t/bin/apply-perltidy-everywhere" \
                             "${TILDAE:-$HOME}/personal/bin/perltidy-bulk"; do
                         if [[ -e "$tidycmd" ]]; then
-                            "$tidycmd" "${perlfiles[@]}" 1>"$G_tfile" 2>&1
+                            "$tidycmd" "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
                             tidyrc=$?
                             runcheck=1
-                            remediation="To correct, run: (cd $(pwd); $tidycmd --update ${perlfiles[*]})"
+                            remediation="To correct, run: (cd $(pwd); $tidycmd --update ${G_perlfiles[*]})"
                             break
                         fi
                     done
@@ -555,6 +607,9 @@ for (@ARGV){
             fi
         fi
 
+        ## ##### ##
+        ## Shell ##
+        ## ##### ##
         if ((${#shellfiles[@]})); then
             if [[ -n ${skips[shell]} ]]; then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping shell checks, ${G_skip_messages[${skips[shell]}]}."
@@ -570,11 +625,19 @@ for (@ARGV){
                     for shellfile in "${shellfiles[@]}"; do
                         shebang_text=$(head -1 "$shellfile" | grep '^#!')
                         if [[ -n $shebang_text ]]; then
-                            echo "$shellfile has a shebang line ($shebang_text)" >> "$G_tfile"
+                            if grep '<<<git-commit' "$shellfile" | grep -q ALLOW_SHEBANG; then
+                                : # shebang was locally allowed.
+                            else
+                                echo "$shellfile has a shebang line ($shebang_text)" >> "$G_tfile"
+                            fi
                         fi
-                        shellcheck_shell_text=$(head -2 "$shellfile" | tail  -1 | grep '^# shellcheck shell=')
+                        shellcheck_shell_text=$(head -2 "$shellfile" | tail -1 | grep '^# shellcheck shell=')
                         if [[ -z $shellcheck_shell_text ]]; then
-                            echo "$shellfile is missing a 'shellcheck shell=' definition line" >> "$G_tfile"
+                            if grep '<<<git-commit' "$shellfile" | grep -q ALLOW_MISSING_SHELLCHECK_SHELL; then
+                                : # missing shellcheck shell directive was locally allowed.
+                            else
+                                echo "$shellfile is missing a 'shellcheck shell=' definition line" >> "$G_tfile"
+                            fi
                         fi
                     done
                     check "$G_tfile" \
@@ -590,6 +653,9 @@ for (@ARGV){
             fi
         fi
 
+        ## ###### ##
+        ## Python ##
+        ## ###### ##
         if ((${#pythonfiles[@]})); then
             if [[ -n ${skips[python]} ]]; then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping python checks, ${G_skip_messages[${skips[python]}]}."
@@ -623,31 +689,35 @@ for (@ARGV){
                           "One of more files has failed python pylint checks. Please review." \
                           "$pyrc"
                 fi
-
             fi
         fi
 
-        ##
-        ## check: git conflict markers
-        ##
-        grep -H -n -E '^<<<<<<<|>>>>>>>$' "${files[@]}" 1>"$G_tfile" 2>&1
-        check "$G_tfile" \
-              "One or more files contains a git conflict marker. Please address."
-
-        ##
-        ## check: git commit stop check
-        ##
-        do_gcs_check
+        ## #### ##
+        ## JSON ##
+        ## #### ##
+        if ((${#jsonfiles[@]})); then
+            if [[ -n ${skips[json]} ]]; then
+                ((opt_verbose)) && pre_commit_ok_echo "Skipping json checks, ${G_skip_messages[${skips[json]}]}."
+            else
+                for gpch_file in "${jsonfiles[@]}"; do
+                    if ! jq < "$gpch_file" 1>/dev/null 2>"${G_tfile}.jqerr"; then
+                        echo -n "$gpch_file - ";
+                        cat "${G_tfile}.jqerr"
+                    fi
+                done 1>"$G_tfile" 2>&1
+                check "$G_tfile" \
+                      "One of more files has failed json jq checks. Please review."
+            fi
+        fi
     fi
 
     ##
     ## Done.
     ##
-
-    if ((G_exitval==0)); then
+    true; if ((G_exitval==$?)); then
         if((opt_nocommit)); then
             pre_commit_ok_echo 'No errors, but --nocommit specified. Commit will be aborted.'
-            G_exitval=1
+            false; G_exitval=$?
         else
             pre_commit_ok_echo 'Commit will proceed.'
         fi

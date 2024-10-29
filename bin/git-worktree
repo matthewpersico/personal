@@ -3,7 +3,8 @@
 
 # git-worktree
 
-if [[ -z $GIT_DISPATCHER ]]; then
+if [[ -z $GIT_DISPATCHER ]]\
+       && [[ ! $1 =~ ^-+h ]]; then
     git-dispatch-warning git-worktree
 fi
 
@@ -63,7 +64,7 @@ _git_worktree_info_remove ()
     ## There is no git-sanctioned worktree section. It's all us, so we have to
     ## manage it. The 'branch' stuff we add will be taken care of when the
     ## branch is deleted.
-    git config --remove-section "worktree.$1" || return $?
+    git config --remove-section "worktree.$1"
 }
 
 _git_worktree_info_add_created_date ()
@@ -72,13 +73,38 @@ _git_worktree_info_add_created_date ()
     cr="$(date "$GIT_EXT_META_DATE_FMT")"
     local key
     for key in 'worktree' 'branch'; do
-        git config --replace-all "$key.$1.${GIT_EXT_META_PREFIX}-created" "$cr" || return $?
+        git config --replace-all "$key.$1.${GIT_EXT_META_PREFIX}-created" "$cr" || return
     done
 }
 
 _git_worktree_info_add_fetched_date ()
 {
-    git config --replace-all "worktree.$1.${GIT_EXT_META_PREFIX}-fetched" "$(date "$GIT_EXT_META_DATE_FMT")" || return $?
+    git config --replace-all "worktree.$1.${GIT_EXT_META_PREFIX}-fetched" "$(date "$GIT_EXT_META_DATE_FMT")"
+}
+
+_git_worktree_set_triangle ()
+{
+    declare branch_from=$1
+    declare branch_from_ref=$2
+    local -a branch_parts
+    asplit "$branch_from_ref" -s '/' -a branch_parts
+    # branch parts will contain
+    # remote [origin|upstream] one-or-more-entries (depending on if slashes were used in the branch name)
+    if [[ ${branch_parts[0]} == 'remotes' ]]; then
+        ashift branch_parts
+    fi
+    local remote
+    ashift branch_parts remote
+    local full_branch_name
+    ajoin full_branch_name -s '/' "${branch_parts[@]}"
+
+    local -A triangle_workflow
+    triangle_workflow[branch.${branch_from}.merge]="refs/heads/${full_branch_name}"
+    triangle_workflow[branch.${branch_from}.mergeoptions]="--ff-only"
+    triangle_workflow[branch.${branch_from}.remote]=$remote
+    for key in "${!triangle_workflow[@]}"; do
+        git config --replace-all "$key" "${triangle_workflow[$key]}" || return
+    done
 }
 
 git-worktree-set ()
@@ -87,9 +113,11 @@ git-worktree-set ()
     case $key in
         spec-ref | spec_ref)
             local value="$*"
-            # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+            if [[ -n $value ]]; then
+                cmd-echo ${celn} $LINENO --id git-worktree-set -- "key/value to set is [$key]/[$value]"
+            fi
             if [[ -z $value ]]; then
-                value=$(prompt "Specification reference (issue, JIRA, etc). Hit <return> for none:")
+                value=$(cmd-prompt "Description, issue url, DRQS, JIRA, etc. Hit <return> for none:")
             fi
             if [[ -n $value ]]; then
                 local wtname; wtname=$(git-worktree-get-name)
@@ -132,7 +160,6 @@ _git_worktree_name_from_path ()
     echo "$path"
 }
 
-# shellcheck disable=SC2120
 git-worktree-ina ()
 {
     local status=1 ## Not in a worktree
@@ -143,7 +170,7 @@ git-worktree-ina ()
         if [[ -f "$git_meta" ]] && grep -q '/worktrees/' "$git_meta"; then
             ## Then the repo root has a .git file with a worktree statement in
             ## it. Therefore we are in a worktree.
-            status=0
+            true; status=$?
             if [[ "$1" = '-v' ]]; then
                 grep  '/worktrees/' "$git_meta" | sed 's|.*worktrees/||'
             fi
@@ -155,14 +182,12 @@ git-worktree-ina ()
 git-worktree-get-name ()
 {
     git-worktree-ina -v
-    return $?
 }
 git-worktree-get-source-branch ()
 {
     local current_branch
     current_branch=$(git repo current-branch)
     git config --get "worktree.${current_branch}.${GIT_EXT_META_PREFIX}-from-branch"
-    return $?
 }
 
 git-worktree-create ()
@@ -197,7 +222,7 @@ git-worktree-create ()
                 ## Rather create, force a fetch.
                 fetch_existing=1
                 ;;
-            no-reset | skip-reset) opt_reset=0 ;;
+            noreset | no-reset | skip-reset) opt_reset=0 ;;
             f|fetch) fetch_existing=1 ;;
             c|comment) comment="$1"; shift ;;
             from | from-branch | branch-from)
@@ -231,7 +256,17 @@ git-worktree-create ()
     local repo
     repo="$(basename "$(dirname "${PWD}")")" ## We are in /wt when we do this.
     local wtname="$1"
-    shift
+    local wtcomment
+    if [[ $wtname =~ '{DRQS' ]]; then
+        wtname=${wtname//{}
+        wtcomment=$wtname
+
+        wtname=${wtname// <GO>\}*/}
+        wtname=${wtname// /-};
+
+        wtcomment=${wtname// <GO>\}/}
+        cmd-echo ${celn} $LINENO --id git-worktree -- "wtname=[$wtname] wtcomment=[$wtcomment]"
+    fi
     local add_name_to_wt=0
     if git repo named-branches && \
             [[ ! $(dirname "$wtname") == "$USER" ]] ; then
@@ -243,8 +278,9 @@ git-worktree-create ()
     fi
     if ((add_name_to_wt)); then
         local resp
-        resp=$(yesno "Use $USER/$wtname as the branch name and worktree directory" y)
+        resp=$(yesno -q "Use $USER/$wtname as the branch name and worktree directory" y)
         [[ $resp == 'y' ]] && wtname="$USER/$wtname"
+        [[ $resp == 'q' ]] && { false; return; }
     fi
     echo "$wtname"
     local pull_ref
@@ -312,7 +348,7 @@ git-worktree-create ()
                 wtfullpath=${PWD}
                 cmd-echo ${celn} $LINENO --id git-worktree -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
             else
-                return $?
+                return
             fi
         else
             cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch $localbranchname already exists locally. Cannot create it."
@@ -386,23 +422,40 @@ git-worktree-create ()
             if [[ -n $branch_from ]]; then
                 ## $branch_from is the branch name. We need the full branch ref
                 ## here. Get it and check it.
-                local -a all_refs=("${REALGIT}" branch -a)
-                readarray -t branch_from_ref < <("${REALGIT}" branch -a | grep -e "upstream/${branch_from}$" | sed -E 's/^\s+//')
+                if [[ $branch_from =~ master|main ]]; then
+                    # Typical default
+                    branch_from="upstream/$branch_from"
+                fi
+                local -a all_refs
+                all_refs=$("${REALGIT}" branch -a)
+                readarray -t branch_from_ref < <("${REALGIT}" branch -a | grep -e "${branch_from}$" | sed -E 's/^\+{0,1}\s+//')
                 case ${#branch_from_ref[@]} in
                     0 ) cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch '$branch_from' not found in refs list:" "${all_refs[@]}" "Aborting"
                         false; return;;
-                    1 ) # Set up "triangle workflow'.Only need the branch
+                    1 ) # Set up "triangle workflow'. Only need the branch
                         # specific pieces. The rest of it was set up when the
                         # fork was cloned.
+                        local -a branch_parts
+                        asplit "${branch_from_ref[0]}" -s '/' -a branch_parts
+                        # branch parts will contain
+                        # remote [origin|upstream] one-or-more-entries (depending on if slashes were used in the branch name)
+                        if [[ ${branch_parts[0]} == 'remotes' ]]; then
+                            ashift branch_parts
+                        fi
+                        local remote
+                        ashift branch_parts remote
+                        local full_branch_name
+                        ajoin full_branch_name -s '/' "${branch_parts[@]}"
+
                         local -A triangle_workflow
-                        triangle_workflow[branch.${branch_from}.merge]="refs/heads/${branch_from}"
+                        triangle_workflow[branch.${branch_from}.merge]="refs/heads/${full_branch_name}"
                         triangle_workflow[branch.${branch_from}.mergeoptions]="--ff-only"
-                        triangle_workflow[branch.${branch_from}.remote]="upstream"
+                        triangle_workflow[branch.${branch_from}.remote]=$remote
                         for key in "${!triangle_workflow[@]}"; do
-                            git config --replace-all "$key" "${triangle_workflow[$key]}" || return $?
+                            git config --replace-all "$key" "${triangle_workflow[$key]}" || return
                         done
                         ;;
-                    * ) cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch '$branch_from' found more than once in refs list:" "${all_refs[@]}" \
+                    * ) cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch '$branch_from' found more than once in refs list:" "${branch_from_ref[@]}" \
                                  "Re-run and specify full reference for --$branch_from_arg"
                         false; return;;
                 esac
@@ -427,7 +480,7 @@ git-worktree-create ()
 
             _git_worktree_info_add_created_date "${wtbranch}"
             _git_worktree_info_add_from_branch_and_ref "${wtbranch}" "${branch_from_ref[0]}"
-            git-worktree-set 'spec_ref'
+            git-worktree-set 'spec_ref' "$wtcomment"
             ## Finally push the branch up as a tracking branch
             ((verbose)) && cmd-echo ${celn} $LINENO --id git-worktree -- "git push --set-upstream $remote ${wtbranch}"
             git push --set-upstream "$remote" "${wtbranch}"
@@ -479,10 +532,15 @@ git-worktree-create ()
                  "to use."
     else
         ## cmd-echo ${celn} $LINENO --id git-worktree -dc -- "writting wtfullpath '$wtfullpath' into '$doandcdfile' at line $((LINENO+1)) in $0, func ${FUNCNAME[0]}"
-        echo "ecd $wtfullpath" > "$doandcdfile"
+        echo "dirlist $wtfullpath" > "$doandcdfile"
         cmd-echo ${celn} $LINENO --id git-worktree -n -- "Done. "
     fi
     true
+}
+
+git-worktree-fetch ()
+{
+    git-worktree-create --fetch "$@"
 }
 
 git-worktree-delete ()
@@ -499,12 +557,10 @@ git-worktree-delete ()
     # don't have to match up.
     local OPTSARGS
     local shortopts='yfhkc'
-    local longopts='no-reset,skip-reset,yes,force,help,keep-branch,current'
+    local longopts='noreset,no-reset,skip-reset,yes,force,help,keep-branch,current'
 
     # Process the command line.
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-    local status=$?
-    ((status != 0)) && return $status
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || return
 
     # Reset the command line ($@).
     eval set -- "$OPTSARGS"
@@ -517,7 +573,7 @@ git-worktree-delete ()
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
         case "$option" in
             c | current) opt_current=1; wtname="$(_git_worktree_name_from_path "${PWD}")" ;;
-            no-reset | skip-reset) opt_reset=0; ;;
+            noreset | no-reset | skip-reset) opt_reset=0; ;;
             y|yes) opt_yes=1; opt_yes_string='--yes'; ;;
             f|force) opt_force=1; ;;
             h|help) git-usage "$0"; true; return ;;
@@ -568,8 +624,7 @@ $(ls -la)"
     fi
 
     ## Check for cleanliness.
-    if [[ "$(git status --porcelain | wc -l)" != '0' ]] || \
-           [[ "$(git status | grep 'Your branch is' | grep -c -v 'up.to.date')" != '0' ]]; then
+    if ! git repo is clean; then
         if((!opt_force)); then
             git status
             echo
@@ -616,7 +671,7 @@ $(ls -la)"
             #it's empty
             delit=$(basename "${PWD}")
             builtin cd .. || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd .."; false; return; }
-            \rm -rf "$delit" || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Bad rm of ./$delit (from ${PWD}). Aborting."; false; return; }
+            command rm -rf "$delit" || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Bad rm of ./$delit (from ${PWD}). Aborting."; false; return; }
         else
             builtin cd .. || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd .."; false; return; }
         fi
@@ -647,7 +702,7 @@ $(ls -la)"
         true; if [[ $was_fetched == "?" ]]; then
             cmd-echo ${celn} $LINENO --id git-worktree -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
         fi
-        resp=$(cmd-yesno --id git-worktree "Delete associated branch '$current_branch'" 'n')
+        resp=$(cmd-yesno --id git-worktree "Delete associated local branch '$current_branch'" 'n')
     fi
     if [[ "$resp" = 'n' ]]; then
         cmd-echo ${celn} $LINENO --id git-worktree -- "If you change your mind: git-branch --delete $current_branch"
@@ -673,7 +728,7 @@ $(ls -la)"
         cmd-echo ${celn} $LINENO --id git-worktree -- "--skip-reset. Run 'git go-set' at some point."
     fi
 
-    [[ -n "$doandcdfile" ]] && echo "ecd $wtroot" > "$doandcdfile"
+    [[ -n "$doandcdfile" ]] && echo "dirlist $wtroot" > "$doandcdfile"
 
     cmd-echo ${celn} $LINENO --id git-worktree -- "Done."
 
@@ -690,12 +745,10 @@ git-worktree-rename ()
     # don't have to match up.
     local OPTSARGS
     local shortopts='h'
-    local longopts='no-reset,skip-reset,help,current'
+    local longopts='noreset,no-reset,skip-reset,help,current'
 
     # Process the command line.
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-    local status=$?
-    ((status != 0)) && return $status
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || return
 
     # Reset the command line ($@).
     eval set -- "$OPTSARGS"
@@ -708,7 +761,7 @@ git-worktree-rename ()
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
         case "$option" in
             current) opt_current=1; old_wtname="$(_git_worktree_name_from_path "${PWD}")" ;;
-            no-reset | skip-reset) opt_reset=0;;
+            noreset | no-reset | skip-reset) opt_reset=0;;
             h|help) git-usage "$0"; true; return ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
@@ -719,7 +772,6 @@ git-worktree-rename ()
         esac
     done
 
-    # shellcheck disable=SC2030 #https://github.com/koalaman/shellcheck/wiki/SC2030
     if (( $# == 0 )) || ( (( $# == 1 )) && [[ -z "$old_wtname" ]] ); then
         git-usage "$0" "Missing arguments"
         false; return
@@ -736,7 +788,6 @@ git-worktree-rename ()
     local wtroot
     wtroot="${PWD}"
 
-    # shellcheck disable=SC2031 #https://github.com/koalaman/shellcheck/wiki/SC2031
     if [[ -z "$old_wtname" ]]; then
         old_wtname="$1"
         shift
@@ -780,18 +831,17 @@ $(ls -la)"
     theregit=${metadatadir}/gitdir
 
     ## Change the metadata files
-    perl -pi -e "s/$old_wtname/$new_wtname/g" "$heregit" "$theregit" \
-        || { false; return; }
+    perl -pi -e "s/$old_wtname/$new_wtname/g" "$heregit" "$theregit" || return
 
     ## Move the metadata dir
     local newmetadatadir
     newmetadatadir="$(dirname "$metadatadir")/$new_wtname"
-    mv "$metadatadir" "$newmetadatadir" || { false; return; }
+    mv "$metadatadir" "$newmetadatadir" || return
 
     cmd-echo ${celn} $LINENO --id git-worktree -- "Moving the local files..."
     ## Move us
     builtin cd .. || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd .." ; false; return; }
-    mv "$old_wtpath" "$new_wtpath" || { false; return; }
+    mv "$old_wtpath" "$new_wtpath" || return
 
     ## Register the rename
     local -a paths
@@ -816,7 +866,7 @@ $(ls -la)"
                      "    git go $gitgoto" \
                      "to use."
         else
-            echo "ecd $new_wtpath" > "$doandcdfile"
+            echo "dirlist $new_wtpath" > "$doandcdfile"
             cmd-echo ${celn} $LINENO --id git-worktree -n -- "Done. "
         fi
     else
@@ -828,7 +878,6 @@ $(ls -la)"
 
 git-worktree-diff-to-root ()
 {
-    # shellcheck disable=SC2119
     if ! git-worktree-ina; then
         cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Must be in a worktree"
         false; return;
@@ -855,7 +904,7 @@ git-worktree-diff-to-root ()
             w|name-only ) diff_opts+=("$option") ;;
             l           ) diff_opts+=('--name-only') ;;
             help        ) echo "No documentation yet. Sorry."; true; return ;;
-            debug | x   ) set -x ;;
+            debug | x   ) set -x ;; # OK if you are grepping
             --          ) moreopts=0 ;;
             *           ) echo "$original is an invalid option. See $0 --help"; false; return;;
         esac
@@ -887,7 +936,6 @@ git-worktree-diff-to-root ()
 git-worktree-diff-from-root ()
 {
     git-worktree-diff-to-root --reverse "$@"
-    return $?
 }
 
 git-worktree-show-merged ()
@@ -910,9 +958,7 @@ git-worktree-mark-merged ()
     local longopts='current'
 
     # Process the command line.
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-    local status=$?
-    ((status != 0)) && return $status
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || return
 
     # Reset the command line ($@).
     eval set -- "$OPTSARGS"
@@ -959,7 +1005,6 @@ $(ls -la)"
 
     builtin cd "$wtpath" || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd $wtpath" ; false; return; }
 
-    # shellcheck disable=SC2119
     if ! git-worktree-ina; then
         cmd-echo ${celn} $LINENO --id git-worktree --ec -- "$wtname is not a proper worktree for marking merged"
         false; return;
@@ -976,8 +1021,8 @@ $(ls -la)"
     local markdate
     markdate="$(date "$GIT_EXT_META_DATE_FMT")"
 
-    git config --replace-all "$worktreekey" "$markdate" || return $?
-    git config --replace-all "$branchkey" "$markdate" || return $?
+    git config --replace-all "$worktreekey" "$markdate" || return
+    git config --replace-all "$branchkey" "$markdate" || return
 
     cmd-echo ${celn} $LINENO --id git-worktree "Worktree $worktreename, branch $branchname marked merged at $markdate"
 }
@@ -990,7 +1035,7 @@ git-worktree-purge()
     local wt
     for wt in "${wts[@]}"; do
         (
-            cd "$wt" || exit 0;
+            builtin cd "$wt" || exit
             echo
             cmd-echo ${celn} $LINENO --id git-worktree --title --color BLUE -- "$wt"
             local ok_to_purge=1
@@ -1016,13 +1061,12 @@ git-worktree-purge()
 
 git-worktree-comment ()
 {
-    # shellcheck disable=SC2119
     if ! git-worktree-ina; then
         cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Must be in a worktree"
         false; return;
     fi
     if [[ $1 =~ -(show|get) ]]; then
-        git comment --get --worktree
+        git comment --get --worktree "$@"
     else
         git comment --branch --worktree "$@"
     fi
@@ -1051,31 +1095,36 @@ main ()
         fi
     done
 
+    declare retval
     action_func_name="git-worktree-${action}"
     if local -F "$action_func_name" >/dev/null; then
         shift ## the $action
         "$action_func_name" "$@"
+        retval=$?
     else
         case $action in
             add | list | lock | move | prune | remove | unlock )
                 ## Dispatch to real git worktree
                 "${REALGIT}" worktree "$@"
+                retval=$?
                 ;;
             * )
                 cmd-echo ${celn} $LINENO --id git-worktree --wc -- "unknown git worktree action '$action'."
                 if [[ $(yesno "Do you want to create a worktree with that name?" "n") == 'y' ]]; then
                     git-worktree-create "$action" "$@"
+                    retval=$?
                 else
                     false
+                    retval=$?
                 fi
                 ;;
         esac
     fi
-    return $?
+    return $retval
 }
 
 main "$@"
-exit $?
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -1241,8 +1290,15 @@ Show the '${GIT_EXT_META_PREFIX}-markmerged' entries for the current repo.
 
 Add a comment that can be retrieved later.
 
- git worktree comment "some text explaining where you left off, maybe?"
- git worktree comment -[get|show]
+ git worktree --comment "some text explaining where you left off, maybe?"
+
+The current time is added to the end of the comment when retrieved if [--date] is used.
+
+ git worktree --comment --get
+ worktree: some text explaining where you left off, maybe?
+
+ git worktree --comment --get --date
+ worktree: some text explaining where you left off, maybe? (2022-11-29.21:49:27-0500)
 
 =item purge
 
