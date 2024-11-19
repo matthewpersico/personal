@@ -17,20 +17,27 @@ declare write_restore_file=0
 declare resp
 main ()
 {
+
+    # Deal with a found restart file
     if [[ -e $restore_file ]]; then
         write_restore_file=0
         cmd-echo --id "$ceid" -- "Restore file $restore_file found."
-        resp=$(pick "Choose an action: (r)estore and exit, (d)elete, (s)kip and continue, (q)uit" "r/d/s/q" q)
-        case $resp in
-            q) echo noop > /dev/null ;;
-            d) rm "$restore_file" ;;
-            r) $restore_file ;;
-            # s) we just move on
-        esac
-        if [[ $resp != 's' ]]; then
-            return 1
-        fi
+        select resp in \
+            "restore and continue" \
+                "restore and exit" \
+                "delete and exit" \
+                "ignore and continue" \
+                "quit" ; do
+            case $REPLY in
+                1) $restore_file && rm "$restore_file" && break;;
+                2) $restore_file && rm "$restore_file" && return 0 ;;
+                3) rm "$restore_file" && return 0;;
+                4) break ;;
+                5) return 0 ;;
+            esac
+        done
     fi
+
     # Read the options and args from command line. Note that the long and short
     # don't have to match up.
     local OPTSARGS
@@ -137,7 +144,7 @@ END ()
     cmd-echo --id "$ceid" -- "Current commit:"
     git log -1
     if ((write_restore_file)); then
-        if [[ -n  $starting_remote ]] && [[ -n $starting_branch ]] ; then
+        if [[ -n $starting_remote ]] && [[ -n $starting_branch ]] ; then
             echo "git pull $starting_remote $starting_branch && git checkout $starting_branch" > "$restore_file"
             chmod +x "$restore_file"
             cmd-echo --id "$ceid" -- "Restore with: $restore_file"

@@ -224,6 +224,24 @@ if ((files_only)); then
     done
     allfiles=("${tmpa[@]}")
 fi
+
+declare -a allfilesparsed
+declare file
+for file in "${allfiles[@]}"; do
+    declare -a parsed
+    read -r -a parsed < <(perl -e '
+$ARGV[0] =~ s/:$//;
+@s = split(/:/, $ARGV[0]);
+if($s[-1] =~ m/^[0-9]+$/) {
+    $n=pop @s;
+    print "+$n " . join(q(:),@s);
+} else {
+    print $ARGV[0];
+}
+' "$file")
+    allfilesparsed+=("${parsed[@]}");
+done
+
 if ((serverup==0)); then
     if ((as_visual==0)) && ((new_frame==0)); then
         if (( hasX )); then
@@ -232,42 +250,42 @@ if ((serverup==0)); then
             if ((nobg)); then
                 ((xo_verbose)) && set -x # OK if you are grepping
                 $emacs_exe -g "+${rootx}+${rooty}" \
-                           "${emacs_opts[@]}" "${allfiles[@]}"
+                           "${emacs_opts[@]}" "${allfilesparsed[@]}"
                 ((xo_verbose)) && set +x # OK if you are grepping
             else
                 ((xo_verbose)) && set -x # OK if you are grepping
                 $emacs_exe -g "+${rootx}+${rooty}" \
-                           "${emacs_opts[@]}" "${allfiles[@]}" &
+                           "${emacs_opts[@]}" "${allfilesparsed[@]}" &
                 ((xo_verbose)) && set +x # OK if you are grepping
             fi
         else
             ((xo_verbose)) && set -x # OK if you are grepping
             $emacs_exe -nw \
-                       "${emacs_opts[@]}" "${allfiles[@]}" < /dev/tty
+                       "${emacs_opts[@]}" "${allfilesparsed[@]}" < /dev/tty
             ((xo_verbose)) && set +x # OK if you are grepping
         fi
     else
         cmd-echo --id xo "No emacs server found. Start one and try again or use -m."
     fi
 elif ((serverup==1)); then
-    if ((${#allfiles[@]})); then
+    if ((${#allfilesparsed[@]})); then
         if ((new_frame)); then
             if ((nobg)); then
                 ((xo_verbose)) && set -x # OK if you are grepping
-                $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs'
+                $emacsclient_exe -c "${emacs_opts[@]}" "${allfilesparsed[@]}" | grep -v 'Waiting for Emacs'
                 ((xo_verbose)) && set +x # OK if you are grepping
             else
                 ((xo_verbose)) && set -x # OK if you are grepping
-                $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs' &
+                $emacsclient_exe -c "${emacs_opts[@]}" "${allfilesparsed[@]}" | grep -v 'Waiting for Emacs' &
                 ((xo_verbose)) && set +x # OK if you are grepping
             fi
         elif ((as_visual==1)); then
             ((xo_verbose)) && set -x # OK if you are grepping
-            $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}"
+            $emacsclient_exe -c "${emacs_opts[@]}" "${allfilesparsed[@]}"
             ((xo_verbose)) && set +x # OK if you are grepping
         else
             ((xo_verbose)) && set -x # OK if you are grepping
-            $emacsclient_exe -n -a "$emacs_exe" "${emacs_opts[@]}" "${allfiles[@]}"
+            $emacsclient_exe -n -a "$emacs_exe" "${emacs_opts[@]}" "${allfilesparsed[@]}"
             ((xo_verbose)) && set +x # OK if you are grepping
         fi
     else
@@ -315,6 +333,30 @@ droop".
 =item file
 
 Files to edit. But see options below for other items to filter or substitute for a file list.
+
+Note: We have plugged in some parsing of filename arguments such that if you
+are highlighting the filename from a 'grep -n' listing and instead of getting
+just the filename (the/filename) you highlight
+
+=over 4
+
+=item the/filename:
+
+we drop the last colon.
+
+=item the/filename:456
+
+we assume that the number is a line number from the grep -n and translate that into
+
+  +456 the/filename
+
+so that emacs will open the file and place the cursor on that number line.
+
+=item the/filename:456:
+
+drop the last colon, open the file and place the cursor on that line.
+
+=back
 
 =back
 

@@ -113,14 +113,16 @@ git-worktree-set ()
     case $key in
         spec-ref | spec_ref)
             local value="$*"
-            if [[ -n $value ]]; then
-                cmd-echo ${celn} $LINENO --id git-worktree-set -- "key/value to set is [$key]/[$value]"
-            fi
             if [[ -z $value ]]; then
                 value=$(cmd-prompt "Description, issue url, DRQS, JIRA, etc. Hit <return> for none:")
             fi
             if [[ -n $value ]]; then
                 local wtname; wtname=$(git-worktree-get-name)
+                if [[ $value =~ '{DRQS' ]]; then
+                    value=${value//{}
+                    value=${value// <GO>\}/}
+                    cmd-echo ${celn} $LINENO --id git-worktree -- "$key value=[$value]"
+                fi
                 git config --replace-all "worktree.${wtname}.${GIT_EXT_META_PREFIX}-spec-ref" "$value"
             fi
             ;;
@@ -256,17 +258,7 @@ git-worktree-create ()
     local repo
     repo="$(basename "$(dirname "${PWD}")")" ## We are in /wt when we do this.
     local wtname="$1"
-    local wtcomment
-    if [[ $wtname =~ '{DRQS' ]]; then
-        wtname=${wtname//{}
-        wtcomment=$wtname
-
-        wtname=${wtname// <GO>\}*/}
-        wtname=${wtname// /-};
-
-        wtcomment=${wtname// <GO>\}/}
-        cmd-echo ${celn} $LINENO --id git-worktree -- "wtname=[$wtname] wtcomment=[$wtcomment]"
-    fi
+    shift
     local add_name_to_wt=0
     if git repo named-branches && \
             [[ ! $(dirname "$wtname") == "$USER" ]] ; then
@@ -480,7 +472,7 @@ git-worktree-create ()
 
             _git_worktree_info_add_created_date "${wtbranch}"
             _git_worktree_info_add_from_branch_and_ref "${wtbranch}" "${branch_from_ref[0]}"
-            git-worktree-set 'spec_ref' "$wtcomment"
+            git-worktree-set 'spec_ref'
             ## Finally push the branch up as a tracking branch
             ((verbose)) && cmd-echo ${celn} $LINENO --id git-worktree -- "git push --set-upstream $remote ${wtbranch}"
             git push --set-upstream "$remote" "${wtbranch}"

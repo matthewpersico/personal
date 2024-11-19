@@ -14,7 +14,6 @@ use PerlBulkUtils qw(
 use Misc qw(UNIX_TRUE UNIX_FALSE);
 
 use File::Basename;
-use File::Spec::Functions qw(splitdir);
 use File::Temp;
 use Getopt::Long;
 use Test::More;    ## because we call 'fail' when processing diffs so that we can
@@ -70,7 +69,7 @@ sub check_options {
             'use_tdy|use-tdy:s',
             'names_only|names-only',
             'use_fail|use-fail|testing',
-'stop_on_first|stop-on-first|stop_on_first_error|stop-on-first-error',
+            'stop_on_first|stop-on-first|stop_on_first_error|stop-on-first-error',
 
             'update',
             'keep',
@@ -128,11 +127,8 @@ sub check_options {
     die "Cannot set --all and --untracked"
       if $opt{all} and $opt{untracked};
 
-    @mua{qw(mod all untracked)} = (
-        $opt{mod}       // $mua{mod},
-        $opt{all}       // $mua{all},
-        $opt{untracked} // $mua{untracked},
-    );
+    @mua{qw(mod all untracked)} =
+      ( $opt{mod} // $mua{mod}, $opt{all} // $mua{all}, $opt{untracked} // $mua{untracked}, );
 
     my $ummy = 6;
 }
@@ -296,7 +292,7 @@ sub main {
     system(qw(perltidy @{$opt{ptopts}} $opt{profile} -dop))
       if ( $chattiness >= VLEVEL2 );
 
- #$perltidycmdbase = "$^X -d:ptkdb -S perltidy $opt{profile}"; ## no-ptkdb-issue
+    #$perltidycmdbase = "$^X -d:ptkdb -S perltidy $opt{profile}"; ## no-ptkdb-issue
     $perltidycmdbase = "perltidy @{$opt{ptopts}} $opt{profile}";
 
     @files = process_exclusions( '.perltiduy.exclusions', @files );
@@ -305,6 +301,17 @@ sub main {
     }
 
     my $rc = 0;
+    my @inemacs;
+    for (@files) {
+        my ( $d, $f ) = ( dirname($_), basename($_) );
+        my $emacsfile = "$d/.#$f";
+        push @inemacs, $_ if ( -l $emacsfile );
+    }
+    if (@inemacs) {
+        die join( "\n",
+            "These files are open in emacs. Close them and re-run:",
+            ( sort @inemacs ), '' );
+    }
     if ( $opt{update} ) {
         $rc = process_updates(@files);
     } else {
