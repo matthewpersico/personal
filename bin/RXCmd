@@ -3,6 +3,12 @@
 
 # RXCmd
 
+declare opt_verbose=0
+if [[ $1 = '-v' ]]; then
+    shift
+    opt_verbose=1
+fi
+
 declare host
 host="${1}"
 if [[ -z "${host}" ]]; then
@@ -19,12 +25,31 @@ if [[ -z "${XARGS[2]}" ]] && [[ -n "$XTERMGEO" ]]; then
     # window.
     XARGS+=('-geometry' "$XTERMGEO")
 fi
+
+if [[ -z $XTERM ]]; then
+    XTERM=$(which xterm)
+    if [[ -z $XTERM ]]; then
+        echo ">>> [RXCmd] ERROR: \$XTERM not defined and no 'xterm' found on PATH" >&2
+        false; exit
+    fi
+fi
+
+declare -a CMD
+declare -a cmd_parts
+IFS=' ' read -r -a cmd_parts <<< "$XTERM"
+
 if [[ "${host}" = "${HOSTNAME}" ]]; then
-    ${XTERM} "${XARGS[@]}" &
+    CMD=("${cmd_parts[@]}" "${XARGS[@]}")
 else
     # $XTERM NEEDS splitting here
     # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
-    ssh -Y "${host}" ${XTERM} "${XARGS[@]}" &
+    CMD=(ssh -Y "${host}" "${cmd_parts[@]}" "${XARGS[@]}")
 fi
+
+if((opt_verbose)); then
+    echo "${CMD[@]}"
+fi
+
+"${CMD[@]}" &
 
 exit
