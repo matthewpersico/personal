@@ -3,7 +3,7 @@
 
 # git-find
 
-# shellcheck disable=SC2034
+# shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
 declare DEBUG__this_script=$0
 
 declare opt_untracked_only=0
@@ -117,7 +117,6 @@ if ((opt_conflicts)); then
             echo "$cf"
         else
             cmd-echo --id git-find -head -- "Conflicts in $cf"
-            # shellcheck disable=SC2086 # we want $opt_grep_opts_verbose to "disappear" if empty.
             perl -ne '
 BEGIN{
 $n=0;
@@ -153,7 +152,7 @@ fi
 
 if ((opt_deleted)); then
     git rev-list -n 1 HEAD -- "$1"
-    exit $?
+    exit
 fi
 
 if ((opt_last_existed)); then
@@ -167,14 +166,14 @@ if ((opt_last_existed)); then
     le_sha=$(git rev-list -n 1 "$(git rev-list -n 1 HEAD -- "$file")"^ -- "$file")
     [[ -z $le_sha ]] && cmd-echo --id git-find -- "'$file' not located history" && { false; exit; }
     if (( opt_le_show )); then
-        git show "${le_sha}:${file}" || { false; exit; }
+        git show "${le_sha}:${file}" || exit
         true; exit
     fi
     if (( opt_le_get )); then
         declare resp
         resp=$(cmd-yesno --id git-find 'Do you want to restore the file directly with --checkout instead of --get' 'n')
         if [[ $resp == 'n' ]]; then
-            git show "${le_sha}:${file}" > "$(git root)/${file}.${le_sha}" || exit $?
+            git show "${le_sha}:${file}" > "$(git root)/${file}.${le_sha}" || exit
             cmd-echo --id git-find "Contents in ${file}.${le_sha}"
             true; exit
         else
@@ -182,7 +181,7 @@ if ((opt_last_existed)); then
         fi
     fi
     if (( opt_le_checkout )); then
-        git checkout "${le_sha}" "${file}" || exit $?
+        git checkout "${le_sha}" "${file}" || exit
         true; exit
     fi
 
@@ -207,8 +206,7 @@ if ((opt_git_dir)); then
 fi
 
 if [[ "$opt_untracked_only" = 1 ]] && [[ "$opt_all" = 1 ]]; then
-    echo "--untracked_only and --all are mutually exclusive"
-    git-usage "$0"
+    git-usage "$0" "--untracked_only and --all are mutually exclusive"
     false; exit
 fi
 
@@ -291,8 +289,8 @@ if (( opt_edit )); then
     $EDITOR "${output[@]}"
 else
     if ((opt_ls)); then
-        # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
         # we want an ls here, not a find
+        # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
         ls -la "${output[@]}" | uniq
     else
         declare i
@@ -308,7 +306,6 @@ else
     false; exit
 fi
 
-
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -318,7 +315,7 @@ git-find - run a 'find'-like command on the current repo
 
  git-find [-ls] [-i] [-x exclude_pattern[,exclude_pattern...] \
           [--untracked_only|-u] [--all|-a] [--edit|-e] [--files-only] \
-          [--exact] pattern [pattern...] \
+          [--exact] pattern [pattern...]
 
  git-find --conflicts [-n|-l] [--edit|-e]
  git-find [--deleted] file
@@ -380,7 +377,7 @@ Consider only those files that are NOT objects in the repo.
 
 =item --all
 
-Look at all files; those that are repo objects and those that are not (untracked).
+Look at all files, both tracked and untracked.
 
 =item --edit|-e
 
@@ -441,7 +438,7 @@ Run the files found through the 'file' command and filter out those whose descri
 
  git-find --type "shell script"
 
-Run C<file $(git ls-files) to see what kind of strings you can match for certain file types.
+You can run C<file $(git ls-files)> to see what kind of strings you can match for certain file types.
 
 We also provide the following standard types that are translated into the more complex regular expressions needed for these types:
 

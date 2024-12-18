@@ -19,6 +19,7 @@ xterm-cli-id ()
     if [[ -n $1 ]]; then
         local -n ret=$1
         # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+        # https://github.com/koalaman/shellcheck/issues/817
         ret=$idd
     else
         echo "$id"
@@ -49,7 +50,7 @@ _xterm-cli-xground ()
             stty raw -echo min 0
             #          OSC    Ps  ;Pt ST
             echo -en "${OSC}${col};?${ESC}\\" >/dev/tty  # echo opts differ w/ OSes
-            result=
+            local result
             if IFS=';' read -r -d \\ color ; then
                 result=$(echo "$color" | sed 's/^.*\;//;s/[^rgb:0-9a-f/]//g')
                 idxresult=$(echo "$result" | sed 's/[:/]//g')
@@ -61,28 +62,28 @@ _xterm-cli-xground ()
             color=$(eval echo "\$$var")
             if [[ -n "${color}" ]]; then
                 echo "${color}"
-                exit
+                true; return
             else
-                echo "## WARNING: - no mapped color found for $result" >&2
+                cmd-echo --id "xterm-cli($FUNCTION)" --wc "No mapped color found for $result"
             fi
-        elif [[ ! "$TERM" = 'rxvt' ]]; then
+        else
             # We don't need the warning when we expect it not to be defined.
-            echo "## WARNING: - XTERM_SHELL not defined, probably not an xterm" >&2
+            cmd-echo --id "xterm-cli($FUNCTION)" --wc "\$TERM ($TERM) does not contain 'xterm'; probably not an xterm"
         fi
 
         if [[ -n "$NEWXCOLOR" ]]; then
             echo "$NEWXCOLOR"
-            exit
+            true; return
         else
-            echo "## WARNING: - NEWXCOLOR not defined" >&2
+            cmd-echo --id "xterm-cli($FUNCTION)" --wc "NEWXCOLOR not defined"
         fi
 
-        echo "## WARNING: - default color is GREY" >&2
+        cmd-echo --id "xterm-cli($FUNCTION)" --wc "Default color is GREY"
         echo GREY
     else
         local color=$1
         local var="FOREBACKMAP_${color^^}_RGB"
-        [[ -z "${!var}" ]] && echo "'$color' not a defined color scheme" && { false; return; }
+        [[ -z "${!var}" ]] && cmd-echo --id "xterm-cli($FUNCTION)"  --wc "'$color' not a defined color scheme" && { false; return; }
         local rgb="${!var}"
         echo -ne "${CSI}38:2:${rgb%%,*}m" "${CSI}48:2:${rgb##*,}m"
     fi
@@ -98,7 +99,7 @@ xterm-cli-background ()
     _xterm-cli-xground 11 "$@"
 }
 
-xterm-use-coords ()
+xterm-cli-use-coords ()
 {
     local func=$1;shift
     local x=$1;shift
@@ -114,6 +115,7 @@ xterm-use-coords ()
         get | '' )
             if [[ -z $1 ]]; then
                 # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                # We want non-expanding single quotes
                 tgt='$x:$y'
             else
                 tgt='$'$1; shift
@@ -141,7 +143,7 @@ xterm-use-coords ()
                     newy=$1
                 fi
                 if [[ -z $newx ]] || [[ -z $newy ]]; then
-                    cmd-echo --id xterm-cli --ec 'Must specify x and y if you do not specify which one'
+                    cmd-echo --id "xterm-cli($FUNCTION)" --ec 'Must specify x and y if you do not specify which one'
                     false; return
                 fi
             fi
@@ -167,7 +169,7 @@ xterm-use-coords ()
             ;;
 
         * )
-            cmd-echo --id xterm-cli --ec "'$action' is an invalid action'"
+            cmd-echo --id "xterm-cli($FUNCTION)" --ec "'$action' is an invalid action'"
             false; return
             ;;
     esac
@@ -192,11 +194,17 @@ xterm-location ()
     done
 
     local action=$1; shift
-    xterm-use-coords location "$x" "$y" "$action" "$@"
+    xterm-cli-use-coords location "$x" "$y" "$action" "$@"
 
 }
 
-xterm-size ()
+xterm-cli-set-title ()
+{
+    echo -e "\\033]0;$*\\007\\c"
+}
+
+
+xterm-cli-size ()
 {
     local winid
     xterm-cli-id winid
@@ -218,7 +226,7 @@ xterm-size ()
     done
 
     local action=$1; shift
-    xterm-use-coords size "$x" "$y" "$action" "$@"
+    xterm-cli-use-coords size "$x" "$y" "$action" "$@"
 }
 
 _xterm-cli-ticker-cfg ()
@@ -263,11 +271,14 @@ xterm-cli-ticker ()
     fi
 
     if [[ -r "$ticker_tmp" ]]; then
-        echo "Found $f"
-        echo Looks like there is already a ticker running
-        echo with the banner:
-        echo
-        cat "$ticker_tmp"
+        declare -a msg
+        msg=( "Found $f"
+              "Looks like there is already a ticker running"
+              "with the banner:"
+              " "
+              )
+        mapfile -O "${#msg[@]}" -t < <(cat "$ticker_tmp")
+        cmd-echo --id "xterm-cli($FUNCTION)" --wc "${msg[@]}"
     else
         _xterm-cli-ticker-cfg "$@" &
     fi
@@ -276,19 +287,23 @@ xterm-cli-ticker ()
 main ()
 {
     local action
-    action=$1
-    shift
+    local action_pid
 
-    if [[ "$action" =~ ^-+h ]]; then
+    if [[ "$1" =~ ^-+h ]]; then
         bash-usage "$0"
         true; return
     fi
-    if [[ "$action" = '--pid' ]]; then
-        action_pid=$1;
+    if [[ "$1" = '-x' ]]; then
+        set -x # OK if you are grepping
         shift
-        action=$1;
-        shift;
     fi
+    if [[ "$1" = '--pid' ]]; then
+        action_pid=$2
+        shift;shift
+    fi
+
+    action=$1
+    shift
 
     if x-is-available; then
         # xterm-cli-* are functions defined in this script. The rest are functions
@@ -299,7 +314,7 @@ main ()
             type=$(type -t "$name")
             if [[ -n $type ]]; then
                 "$name" "$@"
-                return $?
+                return
             fi
         done
         cmd-echo --id xterm-cli --ec "'$action' is not an xterm-cli action"
@@ -311,7 +326,7 @@ main ()
 }
 
 main "$@"
-exit $?
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME

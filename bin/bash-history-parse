@@ -1,13 +1,17 @@
 #!/usr/bin/env perl
+#!/opt/bb/bin/perl -d:ptkdb
 
-use strict;
+use 5.16.3;
 use warnings;
 
 use Getopt::Long;
 use POSIX qw(strftime);
 use File::Basename;
 
-my %opt;
+my %opt = (
+    A => 0,
+    B => 0
+);
 our %index;
 GetOptions(
     \%opt, qw(i
@@ -17,8 +21,17 @@ GetOptions(
       match-dir=s
       hostname=s
       epoch-ago=i
+      A=i
+      B=i
+      C=i
     )
 );
+if ( $opt{C} ) {
+    $opt{A} = $opt{B} = $opt{C};
+}
+$opt{A} *= 2;
+$opt{B} *= 2;
+
 my $pattern = shift;
 $pattern = "(?i)$pattern" if $opt{i};
 $pattern = qr/$pattern/;
@@ -43,8 +56,7 @@ if ( $opt{'epoch-ago'} ) {
         {
             $_;
         } else {
-            print STDERR
-              "$_ has bad start and/or end indexing in $index_file\n";
+            print STDERR "$_ has bad start and/or end indexing in $index_file\n";
             ();
         }
       }
@@ -64,12 +76,15 @@ FILE: for my $file (@files) {
     my $ih = IO::File->new("< $file")
       or die "Cannot open $file:$!";
 
-  LINE: while (<$ih>) {
+    my @lines = map { chomp; $_ } <$ih>;
+    my $lines = scalar(@lines);
+    my $index = -1;
+  LINE: for (@lines) {
+        $index++;
         if ( $_ =~ m/^##/ ) {
             $entry = {};
             next;
         }
-        chomp;
 
         if ( $_ =~ m/^#(\d+)/ ) {
             ## Parsing line 1
@@ -93,14 +108,53 @@ FILE: for my $file (@files) {
             }
 
             ## Now that it is parsed, do we want it?
-            if ( $opt{'match-dir'} ) {
-                if (    $entry->{dir}
-                    and $entry->{dir} =~ m/$opt{'match-dir'}/ )
-                {
-                    push @entries, $entry;
-                }
-            } elsif ( $_ =~ m/$pattern/ ) {
+            if (   ( $opt{'match-dir'} and $entry->{dir} and $entry->{dir} =~ m/$opt{'match-dir'}/ )
+                or ( $_ =~ m/$pattern/ ) )
+            {
                 push @entries, $entry;
+                $entry->{mark_entry} = 0;
+                if ( $opt{B} && $index > 0 ) {
+                    my $before_start = $index - $opt{B};
+                    my $before_end   = $before_start + $opt{B} - 1;
+                    if ( $before_start < 0 ) {
+                        $before_start = 0;
+                    }
+                    if ( $before_end < 0 ) {
+                        $before_end = 0;
+                    }
+                    my @B;
+                    my $i = $before_start;
+                    while ( $i <= $before_end ) {
+                        push @B, $lines[$i]
+                          if $lines[$i] !~ m/#\d+ ## pwd =>/;
+                        $i++;
+                    }
+                    $entry->{B} = \@B;
+                    if (@B) {
+                        $entry->{mark_entry}++;
+                    }
+                }
+                if ( $opt{A} && $index < $lines - 1 ) {
+                    my $after_start = $index + 1;
+                    my $after_end   = $after_start + $opt{B} - 1;
+                    if ( $after_start > $lines - 1 ) {
+                        $after_start = $lines - 1;
+                    }
+                    if ( $after_end > $lines - 1 ) {
+                        $after_end = $lines - 1;
+                    }
+                    my @A;
+                    my $i = $after_start;
+                    while ( $i <= $after_end ) {
+                        push @A, $lines[$i]
+                          if $lines[$i] !~ m/#\d+ ## pwd =>/;
+                        $i++;
+                    }
+                    $entry->{A} = \@A;
+                    if (@A) {
+                        $entry->{mark_entry}++;
+                    }
+                }
             }
         }
     }
@@ -110,36 +164,46 @@ if (@entries) {
     @entries = sort { $a->{time} <=> $b->{time} } @entries;
     if ( !$ENV{HISTTIMEFORMAT} ) {
         $ENV{HISTTIMEFORMAT} = '%m/%d - %H:%M:%S';
-        if ( $entries[-1]->{time} - $entries[0]->{time} >= 60 * 60 * 24 * 365 )
-        {
+        if ( $entries[-1]->{time} - $entries[0]->{time} >= 60 * 60 * 24 * 365 ) {
             $ENV{HISTTIMEFORMAT} = '%Y/%m/%d - %H:%M:%S';
         }
     }
     my $datelen = 0;
     my @output;
     my %unique;
-    for (@entries) {
+    for my $entry (@entries) {
         if ( $opt{l} ) {
-            $unique{ $_->{file} }++;
+            $unique{ $entry->{file} }++;
         } else {
             $datelen = length( strftime( $ENV{HISTTIMEFORMAT}, localtime(1) ) )
               if not $datelen;
+            my $dateout = strftime( $ENV{HISTTIMEFORMAT}, localtime( $entry->{time} ) );
+            if ( $entry->{mark_entry} ) {
+                $entry->{cmd} = '=> ' . $entry->{cmd};
+            }
+            my @cmdout = (
+                ( $entry->{B} ? @{ $entry->{B} } : () ),
+                $entry->{cmd}, ( $entry->{A} ? @{ $entry->{A} } : () )
+            );
+            $cmdout[0] = "$dateout $cmdout[0]";
+            if ( @cmdout > 1 ) {
+                for my $ci ( 1 .. scalar(@cmdout) - 1 ) {
+                    if ( $cmdout[$ci] =~ m/^=> / ) {
+                        $cmdout[$ci] = ' ' x ( $datelen - 2 ) . $cmdout[$ci];
+                    } else {
+                        $cmdout[$ci] = ' ' x ( $datelen + 1 ) . $cmdout[$ci];
+                    }
+                }
+            }
             push @output,
-              sprintf(
-                "%s %s%s%s\n",
-                strftime( $ENV{HISTTIMEFORMAT}, localtime( $_->{time} ) ),
-                $_->{cmd},
-                (
-                    $_->{dir} ? "\n" . ' ' x ( $datelen + 5 ) . "($_->{dir})"
-                    : ''
-                ),
-                (
-                    $_->{file} ? "\n" . ' ' x ( $datelen + 5 ) . "($_->{file})"
-                    : ''
-                )
-              );
+              @cmdout,
+              ( $entry->{dir}  ? ' ' x ( $datelen + 5 ) . "($entry->{dir})"         : () ),
+              ( $entry->{file} ? "\n" . ' ' x ( $datelen + 5 ) . "($entry->{file})" : () );
         }
     }
-    @output = map { "$_\n" } sort keys %unique if $opt{l};
-    print @output                              if (@output);
+    if ( $opt{l} ) {
+        @output = sort keys %unique if $opt{l};
+    }
+    say( map { "$_\n" } @output )
+      if (@output);
 }

@@ -8,6 +8,7 @@
 
 main ()
 {
+    local ceid='git-what'
     local action=$1
     shift
 
@@ -21,24 +22,40 @@ main ()
     local -a actions
     local modified_only=0
     case $action in
-        mod-only | modified-only )
-            modified_only=1
-            ;;
         committable | staged )
             actions+=('--staged') ;;
+        mod-only | modified-only )
+            local deleted
+            ajoin deleted -s '|' "$(git what is deleted)"
+            if [[ -z "$deleted" ]]; then
+                action=${action%%-only}
+                cmd-echo --id "$ceid" -- "No deleted files. Falling back to '$action'"
+            else
+                modified_only=1
+            fi
+            ;&
         mod| modified )
-            actions+=('--staged' '--unstaged') ;;
+            if ((modified_only==0)); then
+                actions+=('--staged' '--unstaged')
+            fi
+            ;;
         edited )
             actions+=('--all-mod') ;;
+        del )
+            actions+=("--deleted") ;;
+        unt )
+            actions+=("--untracked");;
+        uns )
+            actions+=("--unstaged") ;;
+        unm )
+            actions+=("--unmodified");;
         untracked | unstaged | \
             unmodified | deleted | \
             new | ignored | renamed )
             actions+=("--$action") ;;
         * )
-            cmd-echo --id git-what -- "'$action' is an invalid request"
-            git-usage "$0"
-            false
-            return
+            git-usage "$0" "'$action' is an invalid request"
+            false; return
             ;;
     esac
 
@@ -62,8 +79,7 @@ main ()
                      ;;
             edit ) opt_edit=1 ;;
             * )
-                cmd-echo --id git-what -- "--$action is an invalid option"
-                git-usage "$0"
+                git-usage "$0" "--$action is an invalid option"
                 false; return
                 ;;
         esac
@@ -71,20 +87,16 @@ main ()
 
     if ((opt_rooted)); then
         if ((opt_absolute)); then
-            cmd-echo --id git-what -- 'Cannot specify --rooted and --absolute'
-            git-usage "$0"
+            git-usage "$0" 'Cannot specify --rooted and --absolute'
             false; return
         elif ((opt_edit)); then
-            cmd-echo --id git-what -- 'Cannot specify --rooted and --edit'
-            git-usage "$0"
+            git-usage "$0" 'Cannot specify --rooted and --edit'
             false; return
         fi
     fi
 
     local -a output
     if ((modified_only)); then
-        local deleted
-        ajoin deleted -s '|' "$(git what is deleted "${fmt_options[@]}" )"
         local mod
         for mod in $(git what is modified "${fmt_options[@]}"); do
             output+=("$(echo "$mod" | grep -v -E "$deleted")")
@@ -98,11 +110,11 @@ main ()
     else
         for mod in "${output[@]}"; do echo "$mod"; done
     fi
-    return $?
+    return
 }
 
 main "$@"
-exit $?
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -111,7 +123,7 @@ git-what
 
 =head1 SYNOPSIS
 
- git what [is] [committable | untracked | unstaged | unmodified |
+ git what [is] [committable | unt[racked] | uns[taged] | un[modified] |
                 staged | renamed | deleted | mod[ified]-only | mod[ified] |
                 ignored | edited ] [--rooted| [--absolute] [--edit] ]
 
@@ -139,6 +151,8 @@ The word "is" is syntactic sugar and is ignored.
 
 'mod[ified]-only' is modified, excluding 'deleted', whereas git reports deleted
 files as 'modified'.
+
+'edited' is modified and untracked.
 
 =back
 

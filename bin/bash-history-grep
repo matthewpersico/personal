@@ -4,13 +4,11 @@
 # bash-history-grep
 
 declare OPTSARGS
-declare shortopts='ilm:fhd:'
+declare shortopts='ilm:fhd:A:B:C:'
 declare longopts='host:,local,localhost,dirs,days:,matchdir:,match-dir:file,help'
 
 # Process the command line.
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
-declare status=$?
-((status != 0)) && exit $status
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -30,7 +28,6 @@ do
     [ "$option" != '--' ] && option=${option##-} && option=${option##-}
     case "$option" in
         host )
-            # shellcheck disable=SC2034 # remove when implemented
             if [[ $1 = 'all' ]]; then
                 hostfilt=('--hostname' '.*')
             else
@@ -64,15 +61,19 @@ do
         f | file )
             dofile=--include-file
             ;;
+        A|B|C )
+            grepopts+=("-$option" "$1")
+            shift
+            ;;
         h | help )
             bash-usage bash-history-grep
-            exit 0
+            true; exit
             ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
             cmd-echo --id bash-history-grep -e -- "$option is an invalid option. See $0 --help"
-            exit 1 ## return 1 in functions
+            false; exit
             ;;
     esac
 done
@@ -184,6 +185,11 @@ Print only the name of the history file in which the commands are located.
 =item -i
 
 Make the command search is case insensitive.
+
+=item A|B|C n
+
+Show 'n' number of lines before (B), after (A), or on each side (C) of each
+matching line.
 
 =item -h|--help
 
