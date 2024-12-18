@@ -226,21 +226,18 @@ if ((files_only)); then
 fi
 
 declare -a allfilesparsed
-declare file
-for file in "${allfiles[@]}"; do
-    declare -a parsed
-    read -r -a parsed < <(perl -e '
-$ARGV[0] =~ s/:$//;
-@s = split(/:/, $ARGV[0]);
-if($s[-1] =~ m/^[0-9]+$/) {
+read -r -a allfilesparsed < <(perl -d:ptkdb -e '
+for (@ARGV) {
+  @s = split(/:/, $_);
+  if($s[-1] =~ m/^[0-9]+$/) {
+    # print("+$s[1] $s[[0] ") does not account for files with : in their
+    # names.
     $n=pop @s;
-    print "+$n " . join(q(:),@s);
-} else {
-    print $ARGV[0];
-}
-' "$file")
-    allfilesparsed+=("${parsed[@]}");
-done
+    print qq(+$n ) . join(q(:),@s) . q( );
+  } else {
+      print qq($_ );
+  }
+} ' "${allfiles[@]}")
 
 if ((serverup==0)); then
     if ((as_visual==0)) && ((new_frame==0)); then
