@@ -29,16 +29,18 @@ die "Need at least one of " . join( ' ', map { "--$_" } @options )
 if ( $opt{'all-modified'} || $opt{unmodified} || $opt{deleted} ) {
     $flags{$_} = 1 for (qw (staged unstaged untracked));
 }
-$flags{$_} //= 0
-  for (
-    qw (new staged unstaged renamed deleted untracked all unmodified ignored));
+$flags{$_} //= 0 for (qw (new staged unstaged renamed deleted untracked all unmodified ignored));
 
 %count = map { $_ => 0 } keys %flags;
 
 my @status_flags;
 push @status_flags, '--ignored'
   if ( $opt{ignored} );
-my @input = qx(git status @status_flags; echo GSE);
+my @input;
+{
+    local $ENV{PERL5SHELL} = 'bash';
+    @input = qx(git status @status_flags);
+}
 my %files;
 my $gitroot = qx(git root);
 chomp $gitroot;
@@ -64,32 +66,28 @@ INPUT: for (@input) {
         /^Changes to be committed/                   && next INPUT;
         /use "git reset HEAD <file>..." to unstage/  && next INPUT;
         /use "git rm --cached <file>..." to unstage/ && next INPUT;
-        if (/^GSE/) {
-            last INPUT;
-        } else {
-            ## If we specify new, we print new.
-            ## If we specify staged, we print staged and new.
-            ## If we specify staged-only, we print only staged, not new.
-            ## If we specify staged and new, we print staged and new.
-            if ( $flags{new} && $_ =~ m/new file:/ ) {
-                $count{'new'}++;
-                store_filename( 'new', $_ );
-                next INPUT;
-            }
-            if ( $flags{renamed} && $_ =~ m/renamed:/ ) {
-                $count{'renamed'}++;
-                store_filename( 'renamed', $_ );
-                next INPUT;
-            }
-            if ( $flags{'staged-only'} ) {
-                next INPUT if $_ =~ m/new file:/;
-            }
-            if (   $flags{staged}
-                or $flags{'staged-only'} )
-            {
-                $count{'staged'}++;
-                store_filename( 'staged', $_ );
-            }
+        ## If we specify new, we print new.
+        ## If we specify staged, we print staged and new.
+        ## If we specify staged-only, we print only staged, not new.
+        ## If we specify staged and new, we print staged and new.
+        if ( $flags{new} && $_ =~ m/new file:/ ) {
+            $count{'new'}++;
+            store_filename( 'new', $_ );
+            next INPUT;
+        }
+        if ( $flags{renamed} && $_ =~ m/renamed:/ ) {
+            $count{'renamed'}++;
+            store_filename( 'renamed', $_ );
+            next INPUT;
+        }
+        if ( $flags{'staged-only'} ) {
+            next INPUT if $_ =~ m/new file:/;
+        }
+        if (   $flags{staged}
+            or $flags{'staged-only'} )
+        {
+            $count{'staged'}++;
+            store_filename( 'staged', $_ );
         }
     }
 
@@ -101,7 +99,7 @@ INPUT: for (@input) {
         /^Changes not staged for commit/ && next INPUT;
         /use "git add <file>..." to update what will be committed/
           && next INPUT;
-/use "git checkout -- <file>..." to discard changes in working directory/
+        /use "git checkout -- <file>..." to discard changes in working directory/
           && next INPUT;
         if (/^GSE/) {
             last INPUT;

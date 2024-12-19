@@ -5,9 +5,6 @@
 
 use on_exit
 
-# shellcheck disable=SC2034 # We'll use it eventually
-cmd_echo_id='git-log'
-
 declare dispatch_to_real_git=1
 
 declare -a pass_on
@@ -20,9 +17,8 @@ while (( $# )); do
     shift
     case "$arg" in
         --h | --help )
-            # shellcheck disable=SC2119
             git-usage "$0"
-            exit 0
+            true; exit
             ;;
         --names-only | --names | --with-names | \
             --files | --with-files | --show-files )
@@ -37,6 +33,12 @@ while (( $# )); do
         --short)
             pass_on+=("--pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset'" '--abbrev-commit')
             ;;
+        --id*)
+            pass_on+=("--pretty=format:%h")
+            ;;
+        --ID*)
+            pass_on+=("--pretty=format:%H")
+            ;;
         * )
             pass_on+=("$arg")
             ;;
@@ -46,10 +48,10 @@ done
 if ((dispatch_to_real_git)); then
     ## Currently, we ALWAYS run the real git log, unless we exec-out or exit
     ## above.
-    "$REALGIT" log "${pass_on[@]}" || exit $?
+    "$REALGIT" log "${pass_on[@]}" || exit
 fi
 
-exit 0
+true; exit
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -80,6 +82,32 @@ AND see the renames in the log. Only works for one file at a time.
 =item --diff
 
 Synonym for -p.
+
+=item --ids
+
+List just the commit ids in short format:
+
+  f4328da
+  99b0288
+  cd7681c
+  6965d9b
+  82817e6
+  33583f0
+  d2984e8
+  ...
+
+=item --IDs
+
+List just the commit ids in long format:
+
+  f4328dada1e636d2f0b045222d2f16d6f2fb121b
+  99b028819cc618967e0f362af45119d4af7b76b6
+  cd7681ccf840b7dd4885ed4811f500dc31173e9a
+  6965d9b40c865275edb1cc67b115898a86ebcf6e
+  82817e638883d1d9aa9efec2771cf45e2de2c6aa
+  33583f0c19f54f1756d8f9860725f3be354a74b2
+  d2984e84a43b7b00cfb788ba6043444a47e33a3b
+  ...
 
 =back
 

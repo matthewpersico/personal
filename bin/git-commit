@@ -36,14 +36,15 @@ git-commit-with-source-ctrl-log ()
             inter* ) opt_interactive='--interactive';;
             h | help )
                 git-usage "$0"
-                exit 0 ;;
-            debug | x ) set -x; opt_debug='-x'; trap 'set +x' EXIT ;;
+                true; exit
+                ;;
+            debug | x ) set -x; opt_debug='-x'; trap 'set +x' EXIT ;; # OK if you are grepping
             --)
                 moreopts=0
                 ;;
             * )
                 cmd-echo --id 'git-commit' -- "$original is an invalid option. See $0 --help"
-                exit 1
+                false; exit
                 ;;
         esac
     done
@@ -69,12 +70,11 @@ git-commit-with-source-ctrl-log ()
     ## Process any exclusions
     if (( ${#opt_exclude[@]} > 0 )); then
         local -a included
-        local i
-        for i in $(seq 0 $((${#filenames[@]}-1))); do
+        for filename in "${filenames[@]}"; do
             local filepath
-            filepath="$(realpath "${filenames[$i]}")"
+            filepath="$(realpath "$filename")"
             if [[ "${opt_exclude[$filepath]}" = '' ]]; then
-                included+=("$filepath")
+                included+=("$filename")
             fi
         done
         filenames=("${included[@]}")
@@ -83,8 +83,7 @@ git-commit-with-source-ctrl-log ()
                                 $opt_interactive \
                                 $opt_confirm $opt_v $opt_debug "${opt_edit[@]}" \
                                 $opt_skip "${opt_scl_pick[@]}" "${filenames[@]}"
-    status=$?
-    return $status
+    return
 }
 
 main ()
@@ -128,7 +127,7 @@ main ()
             case $option in
                 h | help )
                     git-usage "$0"
-                    exit 0
+                    true; exit
                     ;;
                 wc | wscl )
                     cmd-echo --id 'git-commit' -- "--$option is deprecated. Use --scl in the future."
@@ -221,7 +220,7 @@ ${message:$limidx} - $(git worktree get-name)"
                             opt_skip_hook+=(--skip "$skip_hook_tag")
                         else
                             cmd-echo --id 'git-commit' --ec -- "'$skip_hook_tag' is not a valid skip hook tag. Valid skip hook tags are $GIT_HOOK_SKIP_TAGS"
-                            exit 1
+                            false; exit
                         fi
                     done
                     ## no pass_on_args here, processed before commit
@@ -253,6 +252,11 @@ ${message:$limidx} - $(git worktree get-name)"
                 inter* )
                     do_interactive=1
                     ## pass this on
+                    ;;
+                exclude | ex | skip-file | skip )
+                    pass_on_args+=('--exclude' "$1")
+                    [[ -z "$ovalue" ]] && shift
+                    continue
                     ;;
                 ## No '*)' case needed; anything else just gets passed on
             esac
@@ -303,8 +307,7 @@ ${message:$limidx} - $(git worktree get-name)"
 }
 
 main "$@"
-
-exit $?
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -313,7 +316,8 @@ git-commit - git extention of git commit
 
 =head1 SYNOPSIS
 
- git commit --scl | --[no]sclonly | --scl[pick|match] "text"
+ git commit [--scl | --[no]sclonly | --scl[pick|match] "text"]
+ git commit [--[skip|exclude|ex] file [--[skip|exclude|ex] file]...]
  git commit --m[emojid] "message" [-eref reference |-dref]
  git commit --no[[-]hook[s]|verify]
  git commit --push|--pr
@@ -347,6 +351,10 @@ modifed but not yet added to the index.
 =item --sclpick
 
 Only commit files whose comment exactly matches the supplied text.
+
+=item --skip|exclude|ex
+
+After all other filters and options are provided, do not process this file.
 
 =item --m[emjoid]
 
