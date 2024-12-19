@@ -635,10 +635,16 @@ print qq($url);' "${curldata}" "${server_url}")
 
     if ((stream_data)); then
         if((perl_data)); then
-            # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
             # Yes, we know the variable will not expand.
-            echo '$VAR1='
-            json_xs -t dumper < "${curldata}"
+            echo ''
+            # We have to work around Data::Dumper printing a bless statement for JSON::PP::Boolean
+            perl -MFile::Slurp -MJSON::XS -MData::Dumper -e'
+my $lines=read_file($ARGV[0]);
+my $perl = decode_json($lines);
+$Data::Dumper::Deepcopy=$Data::Dumper::Terse=1;
+my $out = sprintf(q(%s), Data::Dumper->Dump([$perl]));
+$out =~ s/bless. do...my .o = (0|1)..,.*JSON::PP::Boolean.../$1/g;
+print "\$VAR1=$out"' "${curldata}"
         else
             cat -v "${curldata}"
         fi
