@@ -3,7 +3,7 @@
 
 # git-repo-pr-store
 
-declare PR_CACHE_VERSION='2' # also in git-repo
+declare PR_CACHE_VERSION='3' # also in git-repo
 
 declare pr_url
 declare pr_state
@@ -13,29 +13,33 @@ if [[ $1 == '--noopenpr' ]]; then
     pr_url="NOOPENPR"
     pr_state="NOSTATE"
     pr_date="1970-01-01T00:00:01Z"
+    pr_draft="NODRAFT"
     pr_title="NOTITLE"
 else
     pr_url=${1}
     pr_state=${2}
     pr_date=${3}
-    pr_title="${*:4}"
+    pr_draft=${4}
+    pr_title="${*:5}"
 fi
-declare wt; wt=$(git worktree ina -v)
-declare cb; cb=$(git repo current-branch)
 declare asof; asof="$(date "$GIT_EXT_META_DATE_FMT")"
+declare wt; wt=$(git worktree ina -v)
 if [[ -n $wt ]]; then
     git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
     git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
     git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
     git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-title" "$pr_title"
+    git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-draft" "$pr_draft"
     git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
     git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
 fi
+declare cb; cb=$(git repo current-branch)
 if [[ -n $cb ]]; then
     git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
     git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
     git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
     git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-title" "$pr_title"
+    git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-draft" "$pr_draft"
     git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
     git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
 fi
@@ -51,7 +55,7 @@ git-repo-pr-store - store info about a pull request
 =head1 SYNOPSIS
 
  git-repo-pr-store --noopenpr
- git-repo-pr-store pr_url pr_state pr_date "pr_title"
+ git-repo-pr-store pr_url pr_state pr_date pr_draft "pr_title"
 
 =head1 OPTIONS
 
@@ -65,6 +69,7 @@ Initializes the fields:
 	extmeta-pr-state = NOSTATE
 	extmeta-pr-date = 1970-01-01T00:00:01Z
 	extmeta-pr-title = NOTITLE
+	extmeta-pr-draft = NODRAFT
 	extmeta-pr-cache-as-of = 2023-10-26.13:10:52-0400
 	extmeta-pr-cache-version = 2
 
@@ -89,6 +94,10 @@ Otherwise, whatever comes back from a github api query on a PR
 =item pr-date
 
 Date on the PR.
+
+=item pr-draft
+
+Is the PR a daft? true or false.
 
 =item pr-title
 
