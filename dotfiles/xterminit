@@ -11,34 +11,12 @@
 ## - No associative arrays.
 ## - No variables with - in them. Use _ instead.
 
-if echo "$TERM" | grep -q xterm; then
-    echo "$(date) - $(hostname) - TERM is $TERM - assume some sort of X server is running"
-else
-    if [[ -z "$DISPLAY" ]]; then
-        if iswsl && gwsl-ctrl running; then
-            gwsl-ctrl set-envvars
-        else
-            # Maybe this is a putty - see if there's another process with DISPLAY
-            # defined:
-            # ps -U $USER -expandedcomamndsincludingenvvars \
-                #   | sed -E -e 's/.*DISPLAY/DISPLAY/' -e 's/ .*//' \
-                #   | sort -u | grep -v '=:0.0'
-            export DISPLAY=:0.0
-        fi
-    fi
-
-    ## Is X installed?
-    if ! type -P xmodmap 1>/dev/null; then
-        echo "$(date) - $(hostname) - X does not appear to be installed. xterm setup skipped."
+if [[ -z "$DISPLAY" ]]; then
+    if iswsl && gwsl-ctrl running; then
+        gwsl-ctrl set-envvars
+    else
+        "$PERSONALBIN/cmd-echo" --id xterminit --info "No display found. Start an X server of some sort if you need one"
         true; return
-    fi
-
-    ## Is X running?
-    if ! perl -e 'alarm shift @ARGV; exec @ARGV' 5 xmodmap 1>/dev/null 2>/dev/null; then
-        if ! ~/personal/bin/launchxserver --silent; then
-            echo "XServer not running, can't be launched. xterm setup skipped."
-            true; return
-        fi
     fi
 fi
 
@@ -51,7 +29,7 @@ if [[ -z "$XTERM" ]]; then
         fi
     done
     if [[ -z "$XTERM" ]]; then
-        echo "$(date) - $(hostname) - Cannot find an xterm to use. xterm setup stops." >> ~/xterminit.stop
+        "$PERSONALBIN/cmd-echo" --id xterminit --info "$(date) - $(hostname) - Cannot find an xterm to use. xterm setup stops." >> ~/xterminit.stop
         true; return
     fi
 fi
