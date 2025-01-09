@@ -19,6 +19,18 @@ curl-cat ()
     cat -v "${curldata}"*
 }
 
+decode-html-status ()
+{
+    # $1 is the file of curl headers
+    local status
+    status=$(grep -i "status:" "$1" | sed -e 's/status: //i' -e 's/ .*//')
+    if [[ -z $status ]]; then
+        # github has no Status: field in the headers. Bummner.head -1 "$1" | perl -ane 'print $F[-1]'
+        status=$(head -1 "$1" | perl -ane 'print $F[-1]')
+    fi
+    echo "$status"
+}
+
 main ()
 {
     ## If there's any chance that this will be in a script that will be dotted in,
@@ -238,7 +250,7 @@ main ()
     esac
 
     if [[ -n "$org" ]]; then
-        # shellcheck disable=SC2034
+        # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
         local dummy
         ## todo make sure org exists
     fi
@@ -353,17 +365,16 @@ main ()
 
         local -a pagenums
         local page_links
-        page_links=$(grep -E '^Link: ' "$curlheaders" )
+        page_links=$(grep -i -E '^Link: ' "$curlheaders" )
         if [[ -n $page_links ]]; then
-            # shellcheck disable=SC2207
+            # shellcheck disable=SC2207 #https://github.com/koalaman/shellcheck/wiki/SC2207
             pagenums=($(perl -e '$ARGV[0] =~ m/.*?page=(\d+).*?page=(\d+)/;print "$1 $2\n";' "$page_links"))
             local pagenum=1
             local pagenumfmt
             pagenumfmt="%0${#pagenums[1]}d"
             local pageprint
-            # shellcheck disable=SC2059
+            # shellcheck disable=SC2059 #https://github.com/koalaman/shellcheck/wiki/SC2059
             pageprint="$(printf "$pagenumfmt" $pagenum)"
-            # shellcheck disable=SC2004
             if ((opt_page_limit)) && ((pagenums[1] > opt_page_limit)); then
                 github-api-echo "${pagenums[1]} pages of data available, limiting to the first ${opt_page_limit}..."
                 pagenums[1]=${opt_page_limit}
@@ -372,14 +383,13 @@ main ()
             ((pagenum+=1))
             while (( pagenum <= "${pagenums[1]}" )); do
                 ((!silent)) && github-api-echo "Page ${pagenum}..."
-                # shellcheck disable=SC2059
+                # shellcheck disable=SC2059 #https://github.com/koalaman/shellcheck/wiki/SC2059
                 pageprint="$(printf "$pagenumfmt" "$pagenum")"
                 curl \
                     --header "Authorization: token$(grep token "$token_file" | cut -d= -f2)" \
                     "${curlopts[@]}" \
                     "${server_url}${url}${otherparams[*]}&page=$pagenum" -s > "${curldata}.${pageprint}" 2>&1
                 local status=$?
-
                 if ((status)); then
                     github-api-echo -- "curl returned with error :$status"
                     curl-cat
@@ -387,7 +397,7 @@ main ()
                 fi
 
                 local htmlstatus
-                htmlstatus=$(head -1 "$curlheaders" | sed -e 's/HTTP.1.1 //' -e 's/ .*//')
+                htmlstatus=$(decode-html-status "$curlheaders")
                 case $htmlstatus in
                     200 )
                         ## Consolidate paged data.
@@ -434,11 +444,7 @@ END { print(qq(]\n)); }
             mv "$curldata_relist" "$curldata"
         fi
         local htmlstatus
-        htmlstatus=$(grep "Status:" "$curlheaders" | sed -e 's/Status: //' -e 's/ .*//')
-        if [[ -z $htmlstatus ]]; then
-            # github has no Status: field in the headers. Bummner.
-            htmlstatus=$(grep -E '^HTTP/[0-9.]+' "$curlheaders" | tail -1 | sed -E -e 's/^HTTP\/[0-9.]+\s*//' -e 's/ .*//')
-        fi
+        htmlstatus=$(decode-html-status "$curlheaders")
         case $action in
             repos )
                 if [[ -n $repo ]]; then
@@ -457,7 +463,7 @@ for my $j (@{$json}) {
   }
 }
 print(JSON::XS->new->pretty(1)->encode(\@js));
-' "${curldata}" "$repo" > "$curldata_filter" || exit $?
+' "${curldata}" "$repo" > "$curldata_filter" || exit
                     mv "$curldata_filter" "$curldata"
                 fi
                 ;;
@@ -468,7 +474,8 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
                                                  ## probably don't want the
                                                  ## JSON, headers, etc. Unless
                                                  ## you do. :-)
-                        # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
+                        # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                        # Yes, I know I have a '$' in single quotes.
                         echo '$VAR1=' > "$perldata"
                         json_xs -t dumper < "$curldata" >> "$perldata"
                         echo ';' >> "$perldata"
@@ -477,11 +484,9 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
                     * )
                         github-api-echo -e -- "HTML status $(grep "Status:" "$curlheaders")"
                         curl-cat
-                        set +x
                         false; return
                         ;;
                 esac
-                set +x
                 ;;
 
             exists )
@@ -504,7 +509,8 @@ print(JSON::XS->new->pretty(1)->encode(\@js));
             list-forks )
                 case $htmlstatus in
                     200 )
-                        # shellcheck disable=SC2016 # Yes, I know I have a '$' in single quotes.
+                        # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                        # Yes, I know I have a '$' in single quotes.
                         echo '$VAR1=' > "$perldata"
                         json_xs -t dumper < "$curldata" >> "$perldata"
                         perl -e 'do $ARGV[0]; print join(qq(\n), sort map {$_->{full_name}} @$VAR1)' "$perldata"
@@ -629,9 +635,16 @@ print qq($url);' "${curldata}" "${server_url}")
 
     if ((stream_data)); then
         if((perl_data)); then
-            # shellcheck disable=SC2016 # We know the variable will not expand.
-            echo '$VAR1='
-            json_xs -t dumper < "${curldata}"
+            # Yes, we know the variable will not expand.
+            echo ''
+            # We have to work around Data::Dumper printing a bless statement for JSON::PP::Boolean
+            perl -MFile::Slurp -MJSON::XS -MData::Dumper -e'
+my $lines=read_file($ARGV[0]);
+my $perl = decode_json($lines);
+$Data::Dumper::Deepcopy=$Data::Dumper::Terse=1;
+my $out = sprintf(q(%s), Data::Dumper->Dump([$perl]));
+$out =~ s/bless. do...my .o = (0|1)..,.*JSON::PP::Boolean.../$1/g;
+print "\$VAR1=$out"' "${curldata}"
         else
             cat -v "${curldata}"
         fi
@@ -646,7 +659,7 @@ print qq($url);' "${curldata}" "${server_url}")
 }
 
 main "$@"
-exit $?
+exit
 echo "$noop" > /dev/null # in lieu of shellcheck 2034
 
 :<<'__PODUSAGE__'
@@ -774,6 +787,10 @@ Whe creating a fork, wait for the fork to create before exiting. Default is to s
 'silent' supresses the header and data output when you just want the return code.
 
 'noexec' show the full curl command, sans authentication info, but does not execute it.
+
+=item --page-limit
+
+Only fetch the first n pages of data for a query that returns multiple pages.
 
 =back
 
