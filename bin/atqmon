@@ -25,20 +25,13 @@ my $metaf = "$ENV{HOME}/.atqlist";
 
 ## Read the live queue
 my %input =
-  map {
-    $_->[0] => {
-        id      => $_->[0],
-        started => "@{$_}[1..5]",
-        queue   => $_->[6],
-        owner   => $_->[7]
-    }
-  } map { [ split( /\s+/, $_ ) ] } qx(/usr/bin/atq);
+  map { $_->[0] => { id => $_->[0], started => "@{$_}[1..5]", queue => $_->[6], owner => $_->[7] } }
+  map { [ split( /\s+/, $_ ) ] } qx(/usr/bin/atq);
 
 ## If given a job to look for, do so.
 if ( $ARGV[0] ) {
     if ( exists( $input{ $ARGV[0] } ) ) {
-        print
-qx(grep -E '^$ARGV[0]' $metaf | sed 's/\?/$input{$ARGV[0]}->{queue}/');
+        print qx(grep -E '^$ARGV[0]' $metaf | sed 's/\?/$input{$ARGV[0]}->{queue}/');
         exit UNIX_TRUE;
     } else {
         print "Job $ARGV[0] not found";
@@ -107,5 +100,5 @@ unlock($metaw);
 
 if (@mail) {
     write_file( "/tmp/atmon.$$", @mail );
-    qx(bbmsg -to $ENV{USER} --subject "at jobs check" --body /tmp/atmon.$$);
+    qx(empmsg -to $ENV{USER} --subject "at jobs check" --body /tmp/atmon.$$);
 }
