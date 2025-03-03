@@ -1,5 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 
 ## git-pre-commit-hook
 
@@ -58,6 +59,7 @@ declare -a delgitobjs
 ##
 finish ()
 {
+    # shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
     rm -f "$G_tfile" "${G_tfile}.jqerr"
 }
 
@@ -526,7 +528,7 @@ for (@ARGV){
 
                 ##
                 ## check: testing utilities left in the code
-                ## BB SPECIFIC
+                ## EMPLOYER SPECIFIC
                 ##
                 grep -H -n -E '\bTestingUtils' "${G_perlfiles[@]}" | grep -v TestingUtils.pm  1>"$G_tfile" 2>&1
                 check "$G_tfile" \
@@ -585,23 +587,43 @@ for (@ARGV){
                     declare tidycmd
                     declare runcheck=0
                     declare tidyrc=0
+                    declare helperfound=0
                     for tidycmd in \
                         "$G_gitroot/t/bin/apply-perltidy-everywhere" \
                             "${TILDAE:-$HOME}/personal/bin/perltidy-bulk"; do
                         if [[ -e "$tidycmd" ]]; then
-                            "$tidycmd" "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
+                            helperfound=1
+
+                            declare sha_ing=0
+                            if which sha256sum 2>/dev/null 1>/dev/null; then
+                                sha_ing=1
+                                sha256sum "${G_perlfiles[@]}" > "$G_tfile".sha.before
+                            fi
+
+                            "$tidycmd" --update "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
                             tidyrc=$?
-                            runcheck=1
+
+                            if ((tidyrc==0)) && ((sha_ing)); then
+                                sha256sum "${G_perlfiles[@]}" > "$G_tfile".sha.after
+                                declare -a add_files
+                                mapfile -t add_files < <(diff "$G_tfile".sha.before "$G_tfile".sha.after | grep '[<>]' | perl -ane 'print $F[2],qq(\n)' | sort -u)
+                                if [[ -n "${add_files[0]}" ]]; then
+                                    pre_commit_info_echo "perltidy-ed files: ${add_files[*]}"
+                                    git add "${add_files[@]}"
+                                fi
+                            fi
+                            rm -f "$G_tfile".sha.before "$G_tfile".sha.after
+                            runcheck=$tidyrc
                             remediation="To correct, run: (cd $(pwd); $tidycmd --update ${G_perlfiles[*]})"
                             break
                         fi
                     done
-                    if ((runcheck==1)); then
+                    if ((runcheck!=0)); then
                         check "$G_tfile" \
                               "One or more files has formatting errors. Please review." \
                               "$tidyrc" \
                               "$remediation"
-                    else
+                    elif ((helperfound==0)); then
                         ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy, no perl perltidy helpers found."
                     fi
                 fi
@@ -729,6 +751,7 @@ for (@ARGV){
 }
 
 main "$@"
+# shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
 exit $G_exitval
 
 :<<'__PODUSAGE__'

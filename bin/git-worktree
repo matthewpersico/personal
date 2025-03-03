@@ -1,5 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
+# shellcheck disable=SC2317
 
 # git-worktree
 
@@ -23,9 +24,9 @@ _git_worktree_check_set_pwd ()
     if [[ ! $cwd =~ /wt ]]; then
         cwd="${cwd}/wt"
         if [[ -d ${cwd} ]]; then
-            builtin cd "$cwd" || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd $cwd"; false; return; }
+            builtin cd "$cwd" || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd $cwd"; false; return; }
         else
-            cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Current directory is ${cwd}." \
+            cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Current directory is ${cwd}." \
                      'No wt path component found.' \
                      'Will not manipulate worktrees outside of wt dir. Aborting.'
             false; return
@@ -43,9 +44,9 @@ _git_worktree_check_set_pwd ()
         if [[ -f $newwd/.git ]]; then
             if ((opt_current_ok!=1)); then
                 if [[ $action == 'create' ]]; then
-                    cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Will not $action a worktree in a worktree."
+                    cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Will not $action a worktree in a worktree."
                 else
-                    cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Will not $action current worktree without -c flag"
+                    cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Will not $action current worktree without -c flag"
                 fi
                 false; return
             fi
@@ -54,7 +55,7 @@ _git_worktree_check_set_pwd ()
     done
 
     ## Go to root so we can start working
-    builtin cd "$wtroot" || { cmd-echo ${celn} $LINENO --id git-worktree -- "Cannot cd $wtroot"; false; return; }
+    builtin cd "$wtroot" || { cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Cannot cd $wtroot"; false; return; }
 
     true
 }
@@ -121,13 +122,13 @@ git-worktree-set ()
                 if [[ $value =~ '{DRQS' ]]; then
                     value=${value//{}
                     value=${value// <GO>\}/}
-                    cmd-echo ${celn} $LINENO --id git-worktree -- "$key value=[$value]"
+                    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "$key value=[$value]"
                 fi
                 git config --replace-all "worktree.${wtname}.${GIT_EXT_META_PREFIX}-spec-ref" "$value"
             fi
             ;;
         * )
-            cmd-echo ${celn} $LINENO --id git-worktree --wc "'$key' is not settable"
+            cmd-echo "${celn}" "$LINENO" --id git-worktree --wc "'$key' is not settable"
             ;;
         esac
 }
@@ -145,7 +146,7 @@ _git_worktree_is_a_pull ()
 _git_worktree_info_add_from_branch_and_ref ()
 {
     ## TODO: Check that basename works in all conditions. Probably not when the
-    ## from branch has a / in it, as in Berg at Bloomberg.
+    ## from branch has a / in it, as in <redacted> at employer.
     git config --replace-all "worktree.$1.${GIT_EXT_META_PREFIX}-from-ref" "$2"
     git config --replace-all "worktree.$1.${GIT_EXT_META_PREFIX}-from-branch" "$(basename "$2")"
     git config --replace-all "branch.$1.${GIT_EXT_META_PREFIX}-from-ref" "$2"
@@ -198,24 +199,38 @@ git-worktree-create ()
     local status=0
     local comment=''
     local branch_from
-    local branch_from_arg
+    local branch_from_orig
     local remote=origin
     local localbranchname
     local pull_request=''
     local wtfullpath
-    local moreopts
-    moreopts=1
     local verbose
     verbose=1
     local opt_reset=1
-    while [[ "$1" =~ ^- ]] && ((moreopts)); do
-        ## Strip all leading dashes here so that -foo and --foo can both
-        ## be processed as 'foo'.
-        local original="$1"
-        local option
 
-        option=$(dashstripper "$original")
-        shift ## That way you avoid endless loops on invalid options.
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    local OPTSARGS
+    local shortopts='fchrl'
+    local longopts1='pr:,pull:,noreset,no-reset,skip-reset,fetch,comment:,from:,from-branch",branch-from:'
+    local longopts2='help,remote:,orphan,local:'
+
+    # Process the command line.
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "${longopts1},${longopts2}" -n "${FUNCNAME[0]}" -- "$@") || return
+
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    local option
+    while (( $# )); do
+        local option=$1
+        shift
+
+        # If the option does not exactly equal the end-of-options marker, strip
+        # the lead dash(es) from the option.
+        [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
 
         case $option in
             pr | pull )
@@ -229,7 +244,7 @@ git-worktree-create ()
             c|comment) comment="$1"; shift ;;
             from | from-branch | branch-from)
                 branch_from=$1; shift
-                branch_from_arg="$option"
+                branch_from_orig=$branch_from
                 ;;
             h|help) git-usage "$0"; true; return ;;
             r|remote) remote=$1; shift ;;
@@ -239,8 +254,9 @@ git-worktree-create ()
                     false; return
                     ;;
             l|local) localbranchname=$1; shift;;
-            --) moreopts=0 ;; ## end of opts, remaining $*, if any, are args
-            *) git-usage "$0" "Error getting options!"; false; return;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *) git-usage "$0" "ASSERTION ERROR:'$option' not handled!"; false; return;;
         esac
     done
 
@@ -257,15 +273,14 @@ git-worktree-create ()
     wtroot="${PWD}"
     local repo
     repo="$(basename "$(dirname "${PWD}")")" ## We are in /wt when we do this.
-    local wtname="$1"
-    shift
+    local wtname=$1; shift
     local add_name_to_wt=0
     if git repo named-branches && \
             [[ ! $(dirname "$wtname") == "$USER" ]] ; then
-        cmd-echo ${celn} $LINENO --id git-worktree -- "This repo is using named branches."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "This repo is using named branches."
         add_name_to_wt=1
     elif ! git repo is fork; then
-        cmd-echo ${celn} $LINENO --id git-worktree -- "This repo is a clone, not a fork."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "This repo is a clone, not a fork."
         add_name_to_wt=1
     fi
     if ((add_name_to_wt)); then
@@ -300,18 +315,18 @@ git-worktree-create ()
                       'BEGIN{$tgt=shift}print $F[2] if $F[0] eq $tgt' "$remote"
           )
     if [[ ! "$exists" = '(fetch)(push)' ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Can't find remote '$remote' for fetch and push"
-        git remote -v | while read -r line; do cmd-echo ${celn} $LINENO --id git-worktree -- -c -- "$line"; done
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Can't find remote '$remote' for fetch and push"
+        git remote -v | while read -r line; do cmd-echo "${celn}" "$LINENO" --id git-worktree -- -c -- "$line"; done
         false; return
     fi
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Using '$remote' as remote."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Using '$remote' as remote."
 
     ## Check worktree dir
-    ((verbose)) && cmd-echo ${celn} $LINENO --id git-worktree -- "Check for existing worktrees with same name."
+    ((verbose)) && cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Check for existing worktrees with same name."
     local wtdir
     wtdir="${PWD}/$localbranchname"
     if [[ -e "${wtdir}" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "${wtdir} already exists. Aborting."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "${wtdir} already exists. Aborting."
         false; return
     fi
 
@@ -319,7 +334,7 @@ git-worktree-create ()
     local wtsubdir=$localbranchname
     local wtbranch=$localbranchname
 
-    ((verbose)) && cmd-echo ${celn} $LINENO --id git-worktree -- "Check for existing branch."
+    ((verbose)) && cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Check for existing branch."
 
     ## Make sure we do not have a local branch with the same name
     exists=$(${REALGIT} branch --list --format='%(refname)' | sed 's|refs/heads/||' | \
@@ -332,18 +347,18 @@ git-worktree-create ()
           )
     if [[ -n "$exists" ]]; then
         if ((fetch_existing==1)) && [[ -n "$exists" ]]; then
-            cmd-echo ${celn} $LINENO --id git-worktree -- "Branch $localbranchname already exists locally. Using it."
+            cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Branch $localbranchname already exists locally. Using it."
             if $REALGIT worktree add "$localbranchname" "$localbranchname"; then
-                ((verbose)) && cmd-echo ${celn} $LINENO --id git-worktree -- "cd ${wtsubdir}"
+                ((verbose)) && cmd-echo "${celn}" "$LINENO" --id git-worktree -- "cd ${wtsubdir}"
                 ## dirlist, not builtin cd, to take advantage this cd enhancement
                 dirlist "$localbranchname"
                 wtfullpath=${PWD}
-                cmd-echo ${celn} $LINENO --id git-worktree -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
+                cmd-echo "${celn}" "$LINENO" --id git-worktree -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
             else
                 return
             fi
         else
-            cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch $localbranchname already exists locally. Cannot create it."
+            cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Branch $localbranchname already exists locally. Cannot create it."
             false; return
         fi
     else
@@ -362,7 +377,7 @@ git-worktree-create ()
             ## so we don't need to do that below.
             exists="$localbranchname"
             if ! git fetch "$remote" "$pull_ref:$localbranchname"; then
-                cmd-echo ${celn} $LINENO --id git-worktree -ec -- "Pull $pull_ref not found in $remote"
+                cmd-echo "${celn}" "$LINENO" --id git-worktree -ec -- "Pull $pull_ref not found in $remote"
                 false; return
             fi
         fi
@@ -370,10 +385,10 @@ git-worktree-create ()
         ## Yes, I could nest conditions instead of repeating them. I prefer to
         ## be explicit here.
         if ((fetch_existing==1)) && [[ -z "$exists" ]]; then
-            cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot find '$remote/${wtname}' to fetch"
+            cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot find '$remote/${wtname}' to fetch"
             false; return
         elif ((fetch_existing==0)) && [[ -n "$exists" ]]; then
-            cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch '${wtname}' already exists in remote '$remote'"
+            cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Branch '${wtname}' already exists in remote '$remote'"
             false; return
         elif ((fetch_existing==1)) && [[ -n "$exists" ]]; then
             ## Fetch it, Dear Henry...
@@ -381,7 +396,7 @@ git-worktree-create ()
             if [[ -z "$pull_request" ]]; then
                 wtargs=('--track' '-b' "$localbranchname" )
             else
-                cmd-echo ${celn} $LINENO --id git-worktree -wc -- \
+                cmd-echo "${celn}" "$LINENO" --id git-worktree -wc -- \
                          "Pulling a PR directly will leave you with a branch" \
                          "that will not track the remote PR, and, therefore cannot be" \
                          "'git pull'ed to update it. " \
@@ -396,33 +411,32 @@ git-worktree-create ()
             $REALGIT worktree add "${wtargs[@]}" "$localbranchname" "$exists"
             status=$?
             if ((status)); then
-                cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Aborting."
+                cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Aborting."
                 false; return
             fi
             local respdbg
             respdbg=$(yesno "Continue" "n")
             [[ $respdbg == 'n' ]] && exit
-            ((verbose)) && cmd-echo ${celn} $LINENO --id git-worktree -- "cd ${wtsubdir}"
+            ((verbose)) && cmd-echo "${celn}" "$LINENO" --id git-worktree -- "cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "${wtsubdir}"
             wtfullpath=${PWD}
-            cmd-echo ${celn} $LINENO --id git-worktree -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
+            cmd-echo "${celn}" "$LINENO" --id git-worktree -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
 
             _git_worktree_info_add_fetched_date "$localbranchname"
         else ## ((fetch_existing==0)) && [[ -z "$exists" ]
             local -a branch_from_ref
             if [[ -n $branch_from ]]; then
-                ## $branch_from is the branch name. We need the full branch ref
-                ## here. Get it and check it.
-                if [[ $branch_from =~ master|main ]]; then
-                    # Typical default
+                ## $branch_from is the branch name. If there is remote
+                ## reference, assume 'upstream'. Check that it exists.
+                if [[ ! $branch_from =~ / ]]; then
                     branch_from="upstream/$branch_from"
                 fi
                 local -a all_refs
                 all_refs=$("${REALGIT}" branch -a)
                 readarray -t branch_from_ref < <("${REALGIT}" branch -a | grep -e "${branch_from}$" | sed -E 's/^\+{0,1}\s+//')
                 case ${#branch_from_ref[@]} in
-                    0 ) cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch '$branch_from' not found in refs list:" "${all_refs[@]}" "Aborting"
+                    0 ) cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Branch '$branch_from' not found in refs list:" "${all_refs[@]}" "Aborting"
                         false; return;;
                     1 ) # Set up "triangle workflow'. Only need the branch
                         # specific pieces. The rest of it was set up when the
@@ -447,8 +461,8 @@ git-worktree-create ()
                             git config --replace-all "$key" "${triangle_workflow[$key]}" || return
                         done
                         ;;
-                    * ) cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch '$branch_from' found more than once in refs list:" "${branch_from_ref[@]}" \
-                                 "Re-run and specify full reference for --$branch_from_arg"
+                    * ) cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Branch '$branch_from' found more than once in refs list:" "${branch_from_ref[@]}" \
+                                 "Re-run and specify full reference for --$branch_from_orig"
                         false; return;;
                 esac
             else
@@ -456,25 +470,25 @@ git-worktree-create ()
             fi
 
             ## Now create the worktree and the branch.
-            ((verbose)) && cmd-echo ${celn} $LINENO --id git-worktree -- "$REALGIT worktree add -b ${wtsubdir} ${wtbranch} ${branch_from_ref[0]}"
+            ((verbose)) && cmd-echo "${celn}" "$LINENO" --id git-worktree -- "$REALGIT worktree add -b ${wtsubdir} ${wtbranch} ${branch_from_ref[0]}"
             $REALGIT worktree add -b "${wtsubdir}" "${wtbranch}" "${branch_from_ref[0]}"
             status=$?
             if ((status)); then
-                cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Aborting."
+                cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Aborting."
                 false; return
             fi
 
-            ((verbose)) && cmd-echo ${celn} $LINENO --id git-worktree -- "cd ${wtsubdir}"
+            ((verbose)) && cmd-echo "${celn}" "$LINENO" --id git-worktree -- "cd ${wtsubdir}"
             ## dirlist, not builtin cd, to take advantage this cd enhancement
             dirlist "${wtsubdir}"
             wtfullpath=${PWD}
-            ## cmd-echo ${celn} $LINENO --id git-worktree -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
+            ## cmd-echo "${celn}" "$LINENO" --id git-worktree -dc -- "set wtfullpath to ${wtfullpath} at line $((LINENO-1)) in $0, func ${FUNCNAME[0]}"
 
             _git_worktree_info_add_created_date "${wtbranch}"
             _git_worktree_info_add_from_branch_and_ref "${wtbranch}" "${branch_from_ref[0]}"
             git-worktree-set 'spec_ref'
             ## Finally push the branch up as a tracking branch
-            ((verbose)) && cmd-echo ${celn} $LINENO --id git-worktree -- "git push --set-upstream $remote ${wtbranch}"
+            ((verbose)) && cmd-echo "${celn}" "$LINENO" --id git-worktree -- "git push --set-upstream $remote ${wtbranch}"
             git push --set-upstream "$remote" "${wtbranch}"
         fi
     fi
@@ -492,7 +506,7 @@ git-worktree-create ()
         wtroot=$(dirname "$wtroot");
     done
     if [[ $wtroot == '/' ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --wc -- "Cannot find a 'wt' parent dir; not making relative worktree .git entry"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --wc -- "Cannot find a 'wt' parent dir; not making relative worktree .git entry"
     else
         relative_path_parts+=('..')
     fi
@@ -506,26 +520,26 @@ git-worktree-create ()
 
     ## Add this repo to the list
     if ((opt_reset)); then
-        cmd-echo ${celn} $LINENO --id git-worktree -- "Resetting git list..."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Resetting git list..."
         git go-set
     else
-        cmd-echo ${celn} $LINENO --id git-worktree -- "--skip-reset. Run 'git go-set' at some point."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "--skip-reset. Run 'git go-set' at some point."
     fi
 
     ## Show some info
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Branch and worktree metadata..."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Branch and worktree metadata..."
     git-repo info --no-pulls
 
     ## Deal with the cd shenanigans
     if [[ -z "$doandcdfile" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree -- \
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- \
                  "Done. Execute" \
                  "    git go $repo/wt/${wtsubdir}" \
                  "to use."
     else
-        ## cmd-echo ${celn} $LINENO --id git-worktree -dc -- "writting wtfullpath '$wtfullpath' into '$doandcdfile' at line $((LINENO+1)) in $0, func ${FUNCNAME[0]}"
+        ## cmd-echo "${celn}" "$LINENO" --id git-worktree -dc -- "writting wtfullpath '$wtfullpath' into '$doandcdfile' at line $((LINENO+1)) in $0, func ${FUNCNAME[0]}"
         echo "dirlist $wtfullpath" > "$doandcdfile"
-        cmd-echo ${celn} $LINENO --id git-worktree -n -- "Done. "
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -n -- "Done. "
     fi
     true
 }
@@ -562,6 +576,8 @@ git-worktree-delete ()
     while true; do
         local option=$1
         shift
+        # If the option does not exactly equal the end-of-options marker, strip
+        # the lead dash(es) from the option.
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
         case "$option" in
             c | current) opt_current=1; wtname="$(_git_worktree_name_from_path "${PWD}")" ;;
@@ -573,17 +589,18 @@ git-worktree-delete ()
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
-                cmd-echo ${celn} $LINENO --id git-worktree -ec -- "$option is an invalid option. See $0 --help"
+                cmd-echo "${celn}" "$LINENO" --id git-worktree -ec -- "$option is an invalid option. See $0 --help"
                 false; return
                 ;;
         esac
     done
 
     if ((opt_force + opt_yes + opt_keep_branch > 1 )); then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "--force, --keep-branch and --yes are mutex options"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "--force, --keep-branch and --yes are mutex options"
         false; return
     fi
 
+    # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
     ! _git_worktree_check_set_pwd delete $opt_current && { false; return; }
     local wtroot
     wtroot="${PWD}"
@@ -591,27 +608,27 @@ git-worktree-delete ()
     if [[ -z "$wtname" ]]; then
         wtname="$1"; shift
     elif [[ -n "$1" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot specify a worktree and --current"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot specify a worktree and --current"
         false; return
     fi
 
     if [[ -z "$wtname" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Worktree not specified"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Worktree not specified"
         false; return
     fi
     if [[ ! -d "$wtname" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot find worktree $wtname
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot find worktree $wtname
 $(ls -la)"
         false; return
     fi
     local wtpath
     wtpath="$wtroot/$wtname"
 
-    builtin cd "$wtpath" || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd $wtpath"; false; return; }
+    builtin cd "$wtpath" || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd $wtpath"; false; return; }
 
     ## Make sure we are in a proper worktree.
     if ! git-worktree-ina; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "$wtname is not a proper worktree for deletion"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "$wtname is not a proper worktree for deletion"
         false; return
     fi
 
@@ -620,7 +637,7 @@ $(ls -la)"
         if((!opt_force)); then
             git status
             echo
-            cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Will not delete unclean worktree. Clean worktree or re-run command with --force."
+            cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Will not delete unclean worktree. Clean worktree or re-run command with --force."
             false; return
         fi
     fi
@@ -633,7 +650,7 @@ $(ls -la)"
     local current_branch_dir
     current_branch_dir=$(_git_worktree_name_from_path "${PWD}")
     if [[ "$current_branch" != "$current_branch_dir" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Branch name '$current_branch' does not match current subdir name '$current_branch_dir'." \
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Branch name '$current_branch' does not match current subdir name '$current_branch_dir'." \
                  "I'm bailing; you fix this mess."
             false; return
         false; return
@@ -641,18 +658,18 @@ $(ls -la)"
     git status
     local rc=$?
     if ((rc)); then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "git status returned non-success value $rc." \
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "git status returned non-success value $rc." \
                     "I'm bailing; you fix this mess."
         false; return
     fi
 
     ## Whack it. Start with the current dir, which is the worktree.
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Deleting the worktree directory..."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Deleting the worktree directory..."
     local delit
     delit=$(basename "${PWD}")
-    builtin cd .. || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd .."; false; return ; }
+    builtin cd .. || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd .."; false; return ; }
     if ! rm -rf "$delit"; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Bad rm of ./$delit (from ${PWD}). Aborting."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Bad rm of ./$delit (from ${PWD}). Aborting."
         false; return
     fi
 
@@ -662,17 +679,17 @@ $(ls -la)"
         if [[ -z "$(ls -A "${PWD}")" ]]; then
             #it's empty
             delit=$(basename "${PWD}")
-            builtin cd .. || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd .."; false; return; }
-            command rm -rf "$delit" || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Bad rm of ./$delit (from ${PWD}). Aborting."; false; return; }
+            builtin cd .. || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd .."; false; return; }
+            command rm -rf "$delit" || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Bad rm of ./$delit (from ${PWD}). Aborting."; false; return; }
         else
-            builtin cd .. || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd .."; false; return; }
+            builtin cd .. || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd .."; false; return; }
         fi
     done
 
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Worktree directory deleted."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Worktree directory deleted."
 
     ## Now fix the administrative files.
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Cleaning worktree metadata..."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Cleaning worktree metadata..."
     $REALGIT worktree prune
 
     # Hold onto some info..
@@ -681,10 +698,10 @@ $(ls -la)"
 
     ## ...before we trash the metadata
     _git_worktree_info_remove "$current_branch"
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Worktree metadata cleaned."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Worktree metadata cleaned."
 
     ## Now the take care of the branch.
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Cleaning branch..."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Cleaning branch..."
     local resp
     if ((opt_yes)); then
         resp='y'
@@ -692,37 +709,38 @@ $(ls -la)"
         resp='n'
     else
         true; if [[ $was_fetched == "?" ]]; then
-            cmd-echo ${celn} $LINENO --id git-worktree -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
+            cmd-echo "${celn}" "$LINENO" --id git-worktree -wc -- "This worktree's branch was fetched, not created. Be careful deleting the remote."
         fi
         resp=$(cmd-yesno --id git-worktree "Delete associated local branch '$current_branch'" 'n')
     fi
     if [[ "$resp" = 'n' ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree -- "If you change your mind: git-branch --delete $current_branch"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "If you change your mind: git-branch --delete $current_branch"
     else
         ## Have to be in the git repo that the basis for the worktree.
         while [[ "$(basename "${PWD}")" != 'wt' ]]; do
-            builtin cd .. || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd .." ; false; return; }
+            builtin cd .. || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd .." ; false; return; }
         done
-        builtin cd .. || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd .." ; false; return; }
+        builtin cd .. || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd .." ; false; return; }
         if [[ "$resp" = 'y' ]]; then
             declare force
             ((opt_force)) && force="--force"
+            # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
             git-branch --delete $force --no-go-set $opt_yes_string "$current_branch"
         fi
     fi
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Branch cleaned."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Branch cleaned."
 
     ## Cleanup
     if ((opt_reset)); then
-        cmd-echo ${celn} $LINENO --id git-worktree -- "Resetting git list..."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Resetting git list..."
         git go-set
     else
-        cmd-echo ${celn} $LINENO --id git-worktree -- "--skip-reset. Run 'git go-set' at some point."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "--skip-reset. Run 'git go-set' at some point."
     fi
 
     [[ -n "$doandcdfile" ]] && echo "dirlist $wtroot" > "$doandcdfile"
 
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Done."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Done."
 
     true
 }
@@ -758,7 +776,7 @@ git-worktree-rename ()
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
-                cmd-echo ${celn} $LINENO --id git-worktree -ec -- "$option is an invalid option. See $0 --help"
+                cmd-echo "${celn}" "$LINENO" --id git-worktree -ec -- "$option is an invalid option. See $0 --help"
                 false; return
                 ;;
         esac
@@ -776,6 +794,7 @@ git-worktree-rename ()
 
     local status
 
+    # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
     ! _git_worktree_check_set_pwd rename $opt_current && { false; return; }
     local wtroot
     wtroot="${PWD}"
@@ -786,7 +805,7 @@ git-worktree-rename ()
     fi
 
     if [[ ! -d "$old_wtname" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot find worktree $old_wtname
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot find worktree $old_wtname
 $(ls -la)"
         false; return
     fi
@@ -794,16 +813,16 @@ $(ls -la)"
 
     local new_wtname="$1" ; shift
     if [[ -d "$new_wtname" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Will not overwrite existing worktree $new_wtname
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Will not overwrite existing worktree $new_wtname
 $(ls -la)"
         false; return
     fi
     local new_wtpath="$wtroot/$new_wtname"
-    builtin cd "$old_wtpath" || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd $old_wtpath" ; false; return; }
+    builtin cd "$old_wtpath" || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd $old_wtpath" ; false; return; }
     local cb
     cb="$(git repo current-branch)"
     if [[ "$cb" = "$old_wtname" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree -- "Renaming the branch..."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Renaming the branch..."
         git-branch --rename "$old_wtname" "$new_wtname"
         status=$?
         if ((status != OK)); then
@@ -811,7 +830,7 @@ $(ls -la)"
         fi
     fi
 
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Updating metadata..."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Updating metadata..."
     ## Get the metadata directory for this worktree
     local metadatadir
     metadatadir="$(grep -E '^gitdir:' .git | sed 's/.* //')"
@@ -830,9 +849,9 @@ $(ls -la)"
     newmetadatadir="$(dirname "$metadatadir")/$new_wtname"
     mv "$metadatadir" "$newmetadatadir" || return
 
-    cmd-echo ${celn} $LINENO --id git-worktree -- "Moving the local files..."
+    cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Moving the local files..."
     ## Move us
-    builtin cd .. || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd .." ; false; return; }
+    builtin cd .. || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd .." ; false; return; }
     mv "$old_wtpath" "$new_wtpath" || return
 
     ## Register the rename
@@ -842,27 +861,27 @@ $(ls -la)"
     local gitgoto
     gitgoto="$(printf "%s/" "${paths[@]:$sliceindex:3}")${paths[-1]}"
     if ((opt_reset)); then
-        cmd-echo ${celn} $LINENO --id git-worktree -- "Resetting git list..."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Resetting git list..."
         git go-set
         if ((opt_current)); then
             git go "$gitgoto"
         fi
     else
-        cmd-echo ${celn} $LINENO --id git-worktree -- "--skip-reset. Run 'git go-set' at some point."
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "--skip-reset. Run 'git go-set' at some point."
     fi
 
     if ((opt_current)); then
         if [[ -z "$doandcdfile" ]]; then
-            cmd-echo ${celn} $LINENO --id git-worktree -- \
+            cmd-echo "${celn}" "$LINENO" --id git-worktree -- \
                      "Done. Execute" \
                      "    git go $gitgoto" \
                      "to use."
         else
             echo "dirlist $new_wtpath" > "$doandcdfile"
-            cmd-echo ${celn} $LINENO --id git-worktree -n -- "Done. "
+            cmd-echo "${celn}" "$LINENO" --id git-worktree -n -- "Done. "
         fi
     else
-        cmd-echo ${celn} $LINENO --id git-worktree -- "Done. "
+        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Done. "
     fi
 
     true
@@ -871,7 +890,7 @@ $(ls -la)"
 git-worktree-diff-to-root ()
 {
     if ! git-worktree-ina; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Must be in a worktree"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Must be in a worktree"
         false; return;
     fi
 
@@ -906,7 +925,7 @@ git-worktree-diff-to-root ()
     if ((${#files[@]}==0)); then
         mapfile -t files < <(git ls-files)
         if ((${#files[@]}==0)); then
-            cmd-echo ${celn} $LINENO --id git-worktree --ec -- "No git files found. Is current dir '${PWD}' a git repo?"
+            cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "No git files found. Is current dir '${PWD}' a git repo?"
             false; return;
         fi
     fi
@@ -921,7 +940,7 @@ git-worktree-diff-to-root ()
         if ((opt_reverse)); then
             comp=("$i" "${root}/$i")
         fi
-        git --no-pager diff --no-index --color=$opt_color "${diff_opts[@]}" "${comp[@]}" 2>&1
+        git --no-pager diff --no-index --color="$opt_color" "${diff_opts[@]}" "${comp[@]}" 2>&1
     done | less -RE
 }
 
@@ -966,39 +985,39 @@ git-worktree-mark-merged ()
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
                          ## remaining $*, if any, are args
             *)
-                cmd-echo ${celn} $LINENO --id git-worktree -ec -- "$option is an invalid option. See $0 --help"
+                cmd-echo "${celn}" "$LINENO" --id git-worktree -ec -- "$option is an invalid option. See $0 --help"
                 false; return
                 ;;
         esac
     done
 
-    ! _git_worktree_check_set_pwd "mark merged" $opt_current && { false; return; }
+    ! _git_worktree_check_set_pwd "mark merged" "$opt_current" && { false; return; }
     local wtroot
     wtroot="${PWD}"
 
     if [[ -z "$wtname" ]]; then
         wtname="$1"; shift
     elif [[ -n "$1" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot specify a worktree and --current"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot specify a worktree and --current"
         false; return
     fi
 
     if [[ -z "$wtname" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Worktree not specified"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Worktree not specified"
         false; return
     fi
     if [[ ! -d "$wtname" ]]; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot find worktree $wtname
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot find worktree $wtname
 $(ls -la)"
         false; return
     fi
     local wtpath
     wtpath="$wtroot/$wtname"
 
-    builtin cd "$wtpath" || { cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Cannot cd $wtpath" ; false; return; }
+    builtin cd "$wtpath" || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd $wtpath" ; false; return; }
 
     if ! git-worktree-ina; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "$wtname is not a proper worktree for marking merged"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "$wtname is not a proper worktree for marking merged"
         false; return;
     fi
 
@@ -1016,7 +1035,7 @@ $(ls -la)"
     git config --replace-all "$worktreekey" "$markdate" || return
     git config --replace-all "$branchkey" "$markdate" || return
 
-    cmd-echo ${celn} $LINENO --id git-worktree "Worktree $worktreename, branch $branchname marked merged at $markdate"
+    cmd-echo "${celn}" "$LINENO" --id git-worktree "Worktree $worktreename, branch $branchname marked merged at $markdate"
 }
 
 git-worktree-purge()
@@ -1029,12 +1048,12 @@ git-worktree-purge()
         (
             builtin cd "$wt" || exit
             echo
-            cmd-echo ${celn} $LINENO --id git-worktree --title --color BLUE -- "$wt"
+            cmd-echo "${celn}" "$LINENO" --id git-worktree --title --color BLUE -- "$wt"
             local ok_to_purge=1
             local pr
             pr=$(git repo pr-get --open)
             local prstat=$?
-            cmd-echo ${celn} $LINENO --id git-worktree -- "Pull Request: $pr"
+            cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Pull Request: $pr"
             if [[ $prstat == '0' ]] || \
                    ! git repo is pristine -v; then
                 ok_to_purge=0
@@ -1054,7 +1073,7 @@ git-worktree-purge()
 git-worktree-comment ()
 {
     if ! git-worktree-ina; then
-        cmd-echo ${celn} $LINENO --id git-worktree --ec -- "Must be in a worktree"
+        cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Must be in a worktree"
         false; return;
     fi
     if [[ $1 =~ -(show|get) ]]; then
@@ -1101,7 +1120,7 @@ main ()
                 retval=$?
                 ;;
             * )
-                cmd-echo ${celn} $LINENO --id git-worktree --wc -- "unknown git worktree action '$action'."
+                cmd-echo "${celn}" "$LINENO" --id git-worktree --wc -- "unknown git worktree action '$action'."
                 if [[ $(yesno "Do you want to create a worktree with that name?" "n") == 'y' ]]; then
                     git-worktree-create "$action" "$@"
                     retval=$?
@@ -1174,7 +1193,7 @@ A synonymn for 'add' but one that respects our conventions.
 For branches:
 
  git worktree cre[ate] [-f] [-r remote] [-c 'comment'] \
-              [--[branch-from|from-branch] somebranch] [-l localbranchname] \
+              [--[branch-from|from-branch|from] somebranch] [-l localbranchname] \
               worktree-name
        -f|--fetch
            - Do not create the branch, but fetch an existing branch.
@@ -1183,7 +1202,9 @@ For branches:
        -c|--comment
            - Record a short description readable with git-st-ext.
        --branch_from
-           - use 'somebranch' as the worktree basis. The default is read from the repo.
+           - use upstream/'somebranch' as the worktree basis. The default is
+             whatever the default is in upstream (main, master, debian, etc.). If you
+             want to branch from some other reference, you'll need to specify it.
        -l localbranchname
            - When fetching an existing remote branch 'X', use 'localbranchname'
              as the tracking branch name instead of 'X'. Most useful if you are

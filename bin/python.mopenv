@@ -1,8 +1,9 @@
 # -*- sh -*-
 # shellcheck shell=bash
+# shellcheck disable=SC2218 #https://github.com/koalaman/shellcheck/wiki/SC2218
 
 # python.mopenv - Even though we have this file in PERSONALBIN, you should invoke
-# it from WORKBIN if there is a WORKBIN because you'll need any WORK paths on
+# it from EMPBIN if there is a EMPBIN because you'll need any WORK paths on
 # PATH to find where your WORK installs Python.
 
 # We'll check for virtualenv in PS1 ourselves.
@@ -15,142 +16,54 @@ if [[ -e "${TILDAE:-$HOME}/.config/skip_python" ]]; then
     return ## This file gets dotted in
 fi
 
-##
-## Each tool has its own version of python in it. We will simply link each tool
-## and let it use the python version it wants. The default version is simply
-## whatever we have sstated in the config file, warning if there is a greater
-## version.
-##
+## What versions to we have?
+function python_show_versions {
+     find "$EMPOPTGLOBALROOT/bin" -name 'python*' \
+          | perl -ne '
+$_ =~ m/python[0-9.]+$/ && chomp && push @p, [split(/\./,$_)];
+END { print(join(q( ),
+                 map { s/.*python//; $_ }
+                 map { join(q(.), @$_) }
+                 sort { $a->[0] cmp $b->[0]
+                        ||
+                        $a->[1] <=> $b->[1]
+                      } @p)) }'
+}
 
-declare verbose=0
-declare init=''
-while (($#)); do
-    [[ $1 =~ '-v' ]] && verbose=1 && shift && continue
-    if [[ $1 =~ '-init' ]]; then
-        init=$2
-        shift;shift;
-        continue
-    fi
-    ## No other arguments are valid
-    cmd-echo --id "$cmd_echo_id" --error -- "$1 is an invalid argument"
-    return ## This file gets dotted in
-done
-
-declare pypath="${TILDAE:-$HOME}/local/bin/python"
+## What version do we want?
+declare wanted_python_version_file="${TILDAE:-$HOME}/.config/python_version"
+read -r wanted_python_version < <(cat "$wanted_python_version_file")
+export PYTHON_VERSION=$wanted_python_version
+export PYTHON_EXE=$EMPOPTGLOBALROOT/bin/python$wanted_python_version
 
 ## Find the latest python
-declare wanted_python_version_max=999.999
-declare wanted_python_version=0.0
-## This is either the current version on disk OR the version we want to upgrade
-## to, after which it's back to the version on disk. If we can update the file,
-## the update will run on the next login. Or we can run by hand with a --init
-## X.Y option.
-declare wanted_python_version_file="${TILDAE:-$HOME}/.config/python_version"
+declare -a python_versions
+read -r -a python_versions < <(python_show_versions)
+declare latest_python_version=${python_versions[-1]}
 
-if [[ -n $init ]]; then
-    wanted_python_version_max=$init
-elif [[ -r $wanted_python_version_file ]]; then
-    wanted_python_version_max=$(cat "$wanted_python_version_file")
-fi
-wanted_python_version=$wanted_python_version_max
-declare local_python_version=0
-if [[ -h "$pypath/python" ]]; then
-    local_python_version=$(basename "$(readlink "$pypath/python")")
-    local_python_version=${local_python_version##python}
-fi
+function python_compare_versions {
+    perl -e '
+    @cmps = map { [split(/\./, $_) ] } @ARGV[0,2];
+    $cmp = ($cmps[0]->[0] <=> $cmps[1]->[0]
+           ||
+           $cmps[0]->[1] <=> $cmps[1]->[1]);
+    for ( $ARGV[1] ) {
+        /=/ && $cmp ==  0 && exit 0;
+        /</ && $cmp == -1 && exit 0;
+        />/ && $cmp ==  1 && exit 0;
+        exit 1
+    }
+' "$@"
+}
 
-# Using a current python version as the max ensures that we won't automatically
-# update until we want to, but we will be notified. When we want to upgrade,
-# put the desired version into $out_python_version_file.
-declare latest_available_version
-latest_available_version=$(python-version-verify --max "$wanted_python_version_max" --version-only)
-declare latest_available_exe
-latest_available_exe=$(python-version-verify --max "$wanted_python_version_max" --nowarn)
-
-declare upgrade=0
-if [[ ! -d "$pypath" ]] || [[ -n $init ]]; then
-    upgrade=1
+if python_compare_versions "$wanted_python_version" '=' "$latest_python_version"; then
+    cmd-echo --id "python.mopenv" -- "python $wanted_python_version is default"
 else
-    # Perl #line directive is current line # -1
-    upgrade=$(perl -e "#line 59
-sub vcomp { (\$lmaj, \$lmin, \$rmaj, \$rmin) = map{split(/\./,\$_)}(@_); return (\$lmaj <=> \$rmaj || \$lmin <=> \$rmin); }
-
-#if on disk is less than    what we want, upgrade
-#if on disk is greater than what we want, that should never be
-#if on disk is equal to     what we want
-#    if on disk is less than    max available, warn to upgrade
-#    if on disk is greater than max available, that should never be
-#    if on disk is equal to     max available, then we are good
-
-if ( vcomp( q($local_python_version), q($wanted_python_version) ) == -1 ) {
-    warn qq(>>> [python.mopenv] WARNING: Have Python $local_python_version, want Python $wanted_python_version. Upgrading...\n);
-    print(q(1)); exit 0;
-}
-if ( vcomp( q($local_python_version), q($wanted_python_version) ) == 1 ) {
-    warn qq(>>> [python.mopenv] WARNING: Have Python $local_python_version, want Python $wanted_python_version. That should not be. Please review.\n);
-    print(q(0)); exit 1;
-}
-#if on disk is equal to     what we want...
-if ( vcomp(q($local_python_version),q($latest_available_version)) == -1) {
-    warn qq(>>> [python.mopenv] WARNING: Have Python $local_python_version, but $latest_available_version is available. We do not do automatic upgrades. Run $0 --init to upgrade.\n);
-    print(q(0)); exit 1;
-}
-if ( vcomp(q($local_python_version),q($latest_available_version)) == 1) {
-    warn qq(>>> [python.mopenv] WARNING: Have Python $local_python_version, but $latest_available_version is available. That should not be. Please review.\n);
-    print(q(0)); exit 1;
-}
-# If we are here, we want and have the latest
-print(q(0)); exit 0;
-")
+    cmd-echo --id "python.mopenv" -wc -- "python wanted version $wanted_python_version does not match latest available version $latest_python_version"
 fi
-
-if ((upgrade == 0)); then
-    ((verbose)) && cmd-echo --id "$cmd_echo_id" --info "Our python is up to date."
-else
-    ## Bury all the python links in a python subdir
-    mkdir -p "$pypath"
-    export PYTHON_PATH="$pypath"
-
-    ## Find all the python exes and link them locally, hoping that there are no
-    ## programs not related to python that end in the same number. :facepalm:
-    declare link
-    declare -a candidates
-    mapfile -t candidates < <(ls "$(dirname "$latest_available_exe")"/*"$latest_available_version")
-    for exe in "${candidates[@]}"; do
-        ## Exception - there are three forms of this one. Why?
-        if [[ $exe =~ coverage ]] && [[ ! $exe =~ coverage${latest_available_version} ]]
-        then
-            continue
-        fi
-        ## If we don't do this twice, we will end up with some local commands like
-        ## '2to3-' instead of '2to3'.
-        link="$pypath"/$(basename "$exe" -"$latest_available_version")
-        link="$pypath"/$(basename "$link" "$latest_available_version")
-        if [[ $(readlink "$link") != "$exe" ]]
-        then
-            ## There's a higher version of python out there. Grab it.
-            rm -fv "$link"
-            ln -sv "$exe" "$link"
-
-            # This looks for the python link and adds the python3 link
-            if [[ $exe =~ python${latest_available_version} ]]; then
-                declare la_major_version=${latest_available_version%.*}
-                link="$link${la_major_version}"
-                rm -fv "$link"
-                ln -sv "$exe" "$link"
-            fi
-        fi
-    done
-
-    ## One more
-    declare pylint="$pypath/pylint"
-    if [[ ! -f "$pylint" ]]; then
-        echo 'python -m pylint "$@"' > "$pylint"
-        chmod a+x "$pylint"
-    fi
+if [[ ! -x $EMPOPTGLOBALROOT/bin/python${wanted_python_version} ]]; then
+    cmd-echo --id "python.mopenv" -wc -- "python wanted version $wanted_python_version is not in $EMPOPTGLOBALROOT/bin"
 fi
-
-addpath -fx PATH "$pypath"
 
 PYTHONENV_LOADED=1
 export PYTHONENV_LOADED
