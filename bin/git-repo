@@ -14,6 +14,27 @@ _git-repo-date-to-epoch ()
     date -d "${1/./ }" +%s
 }
 
+_git-repo-get-wt-or-br-create-date ()
+{
+    local -a lines
+    local cb; cb="$(git-repo-current-branch)"
+    local wt; wt="$(git worktree ina -v)"
+
+    local key
+    local value
+    local crdate
+    # current branch create date
+    local cbcd; cbcd=$(git config --get-regexp "branch.${cb}\.${GIT_EXT_META_PREFIX}-created")
+    read -r key crdate <<< "$cbcd"
+
+    local wtcd; wtcd=$(git config --get-regexp "worktree.${wt}\.${GIT_EXT_META_PREFIX}-created")
+    read -r key value <<< "$wtcd"
+    if [[ "$value" < "$crdate" ]]; then
+        crdate=$value
+    fi
+    echo "${crdate/./T}"
+}
+
 git-repo-check ()
 {
     git-repo-check-with "$@"
@@ -25,6 +46,7 @@ git-repo-check-with ()
     if [[ $arg1 =~ ^--def ]]; then
         shift
         local branch_name
+        # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
         branch_name=$(git-repo-default-branch)
         ## clone-and-fork repos need to check with the default branch in the
         ## canonical upstream branch.  If there is no 'upstream', then it's
@@ -46,7 +68,7 @@ git-repo-check-with ()
                 status=$?
             else
                 cmd-echo --id git-repo --ec -- "Current repo is not a clone of a remote"
-                status=1
+                false; status=$?
             fi
         fi
     else
@@ -60,13 +82,13 @@ git-repo-current-branch ()
 {
     local warn=1
     if [[ $1 == '--no-warn' ]]; then
-         warn=0
-         shift
+        warn=0
+        shift
     fi
 
     if [[ -n $1 ]]; then
         cmd-echo --id git-repo --ec -- "Cannot set current branch yet"
-        false;return $?
+        false; return
     else
         local cb
         cb=$($REALGIT branch --show-current)
@@ -75,7 +97,7 @@ git-repo-current-branch ()
             cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
             if [[ -z $cb ]]; then
                 ((warn)) && cmd-echo --id git-repo --ec -- "Cannot get current branch"
-                false;return $?
+                false; return
             fi
         fi
         echo "$cb"
@@ -114,7 +136,6 @@ git-repo-default-branch ()
         cmd-echo --id git-repo --ec -- "Cannot find default branch for ${PWD}"
         false
     fi
-    return $?
 }
 
 git-repo-show-default-branch ()
@@ -126,21 +147,30 @@ git-repo-delete ()
 {
     local current=0
     local dirmode=''
-    [[ -z $1 ]] && git-usage "$0" && { false; return; }
-    if [[ $1 = '--pwdmode' ]] \
-           || [[ $1 =~ ^--curr ]] \
-           || [[ $1 == '-c' ]] \
-           || [[ $1 == '.' ]]; then
-        current=1
-        shift
-    elif [[ $1 = '--dirmode' ]]; then
-        dirmode=$2
-        shift
-        shift
-    elif [[ -n $1 ]]; then
-        dirmode=$1
-        shift
+    local opt_force=0
+    if [[ -z $1 ]]; then
+        git-usage "$0" "missing options or repo to work on"
+        false; return;
     fi
+    while [[ $1 =~ ^- ]]; do
+        if [[ $1 = '--pwdmode' ]] \
+               || [[ $1 =~ ^--curr ]] \
+               || [[ $1 == '-c' ]] \
+               || [[ $1 == '.' ]]; then
+            current=1
+            shift
+        elif [[ $1 = '--dirmode' ]]; then
+            dirmode=$2
+            shift
+            shift
+        elif [[ $1 = '--force' ]]; then
+            opt_force=1
+            shift
+        elif [[ -n $1 ]]; then
+            dirmode=$1
+            shift
+        fi
+    done
 
     # If we were given '.', then we are really doing --current.
     if [[ -n $dirmode ]] && [[ ${PWD} = $(realpath "$dirmode") ]]; then
@@ -154,16 +184,16 @@ git-repo-delete ()
 
     if [[ -n "$dirmode" ]]; then
         ## We were given the directory containing the repo
-        \cd "$dirmode" || { cmd-echo --id git-repo "Cannot cd $dirmode"; false; return; }
+        builtin cd "$dirmode" || { cmd-echo --id git-repo "Cannot cd $dirmode"; false; return; }
         local root_or_err
         root_or_err="$(git root 2>&1)"
         local status=$?
-        if ((status)); then
+        if ((status!=$(true; echo $?))); then
             cmd-echo --id git-repo -- "$root_or_err"
-            \cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
+            builtin cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
             return $status
         else
-            \cd "$root_or_err" || { cmd-echo --id git-repo "Cannot cd $root_or_err"; false; return; }
+            builtin cd "$root_or_err" || { cmd-echo --id git-repo "Cannot cd $root_or_err"; false; return; }
         fi
     elif ((!current)); then
         ## Then we were given a local repo URL; find it and go there
@@ -177,16 +207,14 @@ git-repo-delete ()
         githost_url=$(git kv --get "svcs.$githost")
         if [[ -z "$githost_url" ]]; then
             cmd-echo --id git-repo -- "$githost is unknown. Valid githosts are:$(git kv --key-only --section serverid)"
-            return 1
+            false; return
         fi
 
-        added
         ## Go to what we want to whack, to make sure it's there.
-        git go "$githost/$namespace/$repo"
-        status=$?
-        ((status != 0)) && { false; return; } ## If the git go fails, we should
-                                              ## see error messages, no need to
-                                              ## do anything else.
+        git go "$githost/$namespace/$repo" || return ## If the git go fails, we
+        ## should see error
+        ## messages, no need to do
+        ## anything else.
     else # we were told to delete the directory/repo we are currently in
         if [[ -z $GIT_DISPATCHER ]]; then
             git-dispatch-warning "git-repo delete --current"
@@ -200,29 +228,35 @@ git-repo-delete ()
     (
         ## Subshell to allow cding around to be handled gracefully at the end
 
+        ## Don't delete worktrees. Use 'git wt del' for that
+
+        if git repo is a worktree; then
+            cmd-echo --id git-repo "This is a worktrees. Use 'git wt del' to delete a worktree."
+            cmd-echo --id git-repo "Will not delete repo."
+            false; return
+        fi
+
         ## Make sure it's clean
         if [[ -d wt ]] && (($(find wt | wc -l) > 1)); then
             cmd-echo --id git-repo "worktrees directory not empty:"
             ls -la wt
             cmd-echo --id git-repo
-            cmd-echo --id git-repo "Will not delete repo"
+            cmd-echo --id git-repo "Will not delete repo."
             false; return
         fi
 
-        dirty=$(git status --porcelain)
-        if [[ -n "$dirty" ]]; then
-            git status
-            cmd-echo --id git-repo
-            cmd-echo --id git-repo "Will not delete current repo"
-            false; return
+        if ! git repo is clean; then
+            if((!opt_force)); then
+                git status
+                cmd-echo --id git-repo
+                cmd-echo --id git-repo "Will not delete current repo."
+                false; return
+            fi
         fi
 
-        \cd .. || { cmd-echo --id git-repo "Cannot cd .."; false; return; }
-        \rm -rf "$repo"
-        status=$?
-        ((status != 0)) && { false; return; } ## If the rm fails, we should see
-                                              ## error messages, no need to add
-                                              ## more.
+        builtin cd .. || { cmd-echo --id git-repo "Cannot cd .."; false; return; }
+        command rm -rf "$repo" || return ## If the rm fails, we should see error
+        ## messages, no need to add more.
 
         cmd-echo --id git-repo "Done. Not touching remote repo. Resetting git list..."
         ## Remove the just-deleted repo from the list of local git repos.
@@ -241,14 +275,14 @@ git-repo-delete ()
 
     ## Go there.
     if [[ ! "$returnpath" = '/' ]]; then
-        \cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
+        builtin cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
     else
-        \cd ~ || { cmd-echo --id git-repo "Cannot cd ~"; false; return; }
+        builtin cd ~ || { cmd-echo --id git-repo "Cannot cd ~"; false; return; }
     fi
 
     ## Feed "there" back to the git function to make it stick.
     if [[ -n "$doandcdfile" ]]; then
-        echo "ecd ${PWD}" > "$doandcdfile"
+        echo "dirlist ${PWD}" > "$doandcdfile"
         cmd-echo --id git-repo -n -- "Done. "
     fi
 
@@ -318,8 +352,7 @@ git-repo-diff ()
         repo[left]=${PWD}
         repo[right]=$(realpath "$1")
     else
-        cmd-echo --id git-repo -- "Need at least one directory"
-        git-usage "$0"; false; return
+        git-usage "$0" "Need at least one directory"; false; return
     fi
 
     if [[ "${repo[left]}" = "${repo[right]}" ]]; then
@@ -338,7 +371,7 @@ git-repo-diff ()
     local -A rightfiles
     for which in left right; do
         perl -e 'chdir $ARGV[0];
-             print qx(git ls-files)' "${repo[$which]}" > "${list[$which]}"
+                          print qx(git ls-files)' "${repo[$which]}" > "${list[$which]}"
         if [[ -n "$exclude" ]]; then
             grep -v "$exclude" "${list[$which]}" > "${list[$which]}.filt"
             mv "${list[$which]}.filt" "${list[$which]}"
@@ -401,10 +434,9 @@ git-repo-diff ()
             else
                 cmd-echo --id git-repo -- '-----'
                 local diffcmd
-                # shellcheck disable=SC2230
                 diffcmd=$(which colordiff 2>/dev/null)
-                # shellcheck disable=SC2209 # We don't want to run diff, just
-                # prepare the command
+                # shellcheck disable=SC2209 #https://github.com/koalaman/shellcheck/wiki/SC2209
+                # We don't want to run diff, just prepare the command
                 ( [[ -z "$diffcmd" ]] || ((nocolor)) ) && diffcmd=diff
                 $diffcmd "$side_by_side" "${leftf}" "${rightf}"
                 echo
@@ -418,7 +450,7 @@ git-repo-diff ()
             false; return
         else
             $EDITOR "${editable[@]}"
-            return $?
+            return
         fi
     fi
 
@@ -433,10 +465,10 @@ git-repo-is ()
         verbose=1
         shift
     fi
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || { false; return; } }
+    [[ "$1" ]] && [[ $1 != . ]] && { builtin cd "$1" || return; }
     git rev-parse --show-toplevel 2>/dev/null 1>&2
     declare status=$?
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd -    || { false; return; } }
+    [[ "$1" ]] && [[ $1 != . ]] && { builtin cd -    || return; }
     (( verbose )) && ( (( status )) && echo false || echo true )
     return $status
 }
@@ -446,7 +478,8 @@ git-repo-ina () { git-repo-is; }
 
 git-repo-is_clean ()
 {
-    (( $(git st --porcelain | grep -cv '??') == 0 ))
+    (( $(git st --porcelain | grep -cv '??') == 0 )) &&
+        (( $(git status | grep 'Your branch is' | grep -c -v 'up.to.date') == 0 ));
 }
 
 git-repo-is_spotless ()
@@ -456,17 +489,17 @@ git-repo-is_spotless ()
 
 git-repo-is_pristine ()
 {
-    (( $(git st --porcelain | wc -l) == 0 )) \
+    git-repo-is_clean \
         && ( git worktree ina || (( $(git worktree list | wc -l) == 1 )) ) \
         && { true; return; }
     if [[ $1 == '-v' ]]; then
-        (( $(git st --porcelain | wc -l) != 0 )) && git status
+        git status
         if ! git worktree ina && (( $(git worktree list | wc -l) != 1 )); then
             echo Found worktrees:
             git worktree list | tail -n +2 # Do not print the root repo for the
-                                           # worktrees, which is always the
-                                           # first entry of the wt list
-                                           # command.
+            # worktrees, which is always the
+            # first entry of the wt list
+            # command.
         fi
     fi
     false
@@ -497,8 +530,8 @@ git-repo-is_fork ()
     fi
     (
         # shellcheck disable=SC2164 #https://github.com/koalaman/shellcheck/wiki/SC2164
-        \cd "${1:-.}" # so that the git remote works on the current dir as well
-                     # as a specified repo dir
+        builtin cd "${1:-.}" # so that the git remote works on the current dir as well
+        # as a specified repo dir
         local origin
         local fork_of=''
         origin=$(git remote get-url origin)
@@ -506,7 +539,7 @@ git-repo-is_fork ()
             local server=${origin%%:*}
             local repo_path=${origin##*:}
             fork_of=$(perl -e'
-   use JSON::PP::Boolean;
+use JSON::PP::Boolean;
 our $VAR1;
 eval "@ARGV";
 $VAR1->{parent} && print $VAR1->{parent}{full_name};
@@ -549,7 +582,6 @@ git-repo-is_openpr ()
     local -a output
     for tgt_namespace in "${!namespaces[@]}"; do
         local tmpfile;
-        # shellcheck disable=SC2119 #https://github.com/koalaman/shellcheck/wiki/SC2119
         tmpfile=$(mktempfile)
         rm-on-exit "$tmpfile"
         github-api --server "$server" --perl-data pulls "$tgt_namespace/$repo" > "$tmpfile"
@@ -585,7 +617,7 @@ git-repo-info ()
     local cb; cb="$(git-repo-current-branch)"
     local wt; wt="$(git worktree ina -v)"
 
-    mapfile                 -t                 lines < <(git config --get-regexp "extmeta\." | sort)
+    mapfile                 -t                 lines < <(git config --get-regexp "${GIT_EXT_META_PREFIX}\." | sort)
     [[ -n $cb ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "branch.${cb}\." | sort)
     [[ -n $wt ]] && mapfile -t -O ${#lines[@]} lines < <(git config --get-regexp "worktree.${wt}\." | sort)
     mapfile                 -t -O ${#lines[@]} lines < <(git config --get-regexp "remote\.*\.url" | sort)
@@ -632,15 +664,14 @@ git-repo-name ()
     else
         false
     fi
-    return
 }
 
 # shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-org ()
 {
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd "$1" || { false; return; } }
+    [[ "$1" ]] && [[ $1 != . ]] && { builtin cd "$1" || return; }
     name=$(git remote -v 2>/dev/null | grep origin |  sed -e 's/.*://' -e 's/\/.*//' | sort -u)
-    [[ "$1" ]] && [[ $1 != . ]] && { \cd - || { false; return; } }
+    [[ "$1" ]] && [[ $1 != . ]] && { builtin cd - || return; }
     [[ -z "$name" ]] && { false; return; }
     echo "$name"
     true
@@ -652,26 +683,31 @@ _git-repo-pr-get-lookup-pr-state ()
     local remote_svc=$2
     local remote_repo=$3
     local -n pr_state=$4
-    local -n pr_timestamp=$5
+    local -n pr_date=$5
+    local -n pr_draft=$6
+    local -n pr_title=$7
     local jsondata; jsondata=$(mktempfile git-repo-pr-get.jsondata)
     rm-on-exit "$jsondata"
     github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" > "$jsondata"
-    pr_state=$(jq -r .state "$jsondata")
+    pr_state=$(jq -M -r .state "$jsondata")
+    pr_title=$(jq -M -r .title "$jsondata")
+    pr_draft=$(jq -M -r .draft "$jsondata")
     if [[ $pr_state == 'closed' ]]; then
         local merged; merged=$(jq -r .merged "$jsondata")
         if [[ $merged == 'true' ]]; then
             pr_state='merged'
-            pr_timestamp=$(jq -r .merged_at "$jsondata")
+            pr_date=$(jq -r .merged_at "$jsondata")
         else
-            pr_timestamp=$(jq -r .closed_at "$jsondata")
+            pr_date=$(jq -r .closed_at "$jsondata")
         fi
     else
         # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
-        pr_timestamp=$(jq -r .updated_at "$jsondata")
+        # https://github.com/koalaman/shellcheck/issues/817
+        pr_date=$(jq -r .updated_at "$jsondata")
     fi
 }
 
-declare PR_CACHE_VERSION='1'
+declare PR_CACHE_VERSION='3' # also in git-repo-pr-store
 
 git-repo-pr-get ()
 {
@@ -679,9 +715,7 @@ git-repo-pr-get ()
     local shortopts=''
     local longopts='open,closed,merged,silent,refresh,update,remote:'
 
-    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@")
-    local status=$?
-    ((status != 0)) && return $status
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || return
 
     eval set -- "$OPTSARGS"
 
@@ -700,7 +734,7 @@ git-repo-pr-get ()
             remote )
                 remotes=("$1"); shift;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
-                         ## remaining $*, if any, are args
+            ## remaining $*, if any, are args
             *)
                 cmd-echo --id git-repo -ec -- "$option is an invalid option. See $0 --help"
                 false; return
@@ -717,7 +751,9 @@ git-repo-pr-get ()
             if [[ "$remote_url" =~ ^http(s)? ]];
             then
                 # shellcheck disable=SC2183 #https://github.com/koalaman/shellcheck/wiki/SC2183
+                # The call returns enough strings to satisfy the printf
                 # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
+                # We need word slpitting from the call to get the three strings
                 remote_url=$(printf "%s:%s/%s" $(git utils decode-http "$remote_url"))
             fi
             break
@@ -736,10 +772,14 @@ git-repo-pr-get ()
     local pr_url
     local pr_state
     local pr_date
+    local pr_draft
+    local pr_title
 
     local pr_cache_url
     local pr_cache_state
     local pr_cache_date
+    local pr_cache_draft
+    local pr_cache_title
     local pr_cache_as_of
     local pr_cache_version
 
@@ -747,72 +787,87 @@ git-repo-pr-get ()
     local cb; cb=$(git-repo-current-branch)
 
     if ((opt_refresh==0)); then
-        _git-repo-pr-retrieve pr_cache_url pr_cache_state pr_cache_date pr_cache_as_of pr_cache_version
-    # else we don't get any data, which causes cached to be set to no
+        _git-repo-pr-retrieve pr_cache_url pr_cache_state pr_cache_date pr_cache_draft pr_cache_title pr_cache_as_of pr_cache_version
+        # else we don't get any data, which causes cached to be set to no later.
+        # _git-repo-pr-retrieve passes data back using args-by-ref
     fi
 
     local cached
     if [[ -z $pr_cache_as_of ]] || \
            [[ -z $pr_cache_state ]] || \
            [[ -z $pr_cache_date ]] || \
+           [[ -z $pr_cache_draft ]] || \
+           [[ -z $pr_cache_title ]] || \
            [[ -z $pr_cache_version ]] || \
-           [[ ! $pr_cache_version == "$PR_CACHE_VERSION" ]]
+           [[ ! $pr_cache_version == "$PR_CACHE_VERSION" ]] || \
+           [[ $pr_cache_state == 'CREATING' ]]
     then
-        cached='no'
+        cached='false'
     else
         local cache_date; cache_date=$(_git-repo-date-to-epoch "${pr_cache_as_of}")
         local now; now=$(_git-repo-date-to-epoch "$(date "$GIT_EXT_META_DATE_FMT")")
 
         ## Six hour cache
         if ((now - cache_date < 86400/4)); then
-            cached='yes'
+            cached='true'
         else
             cached='expired'
         fi
     fi
 
-    if [[ $cached == 'yes' ]]; then
-        pr_date=$pr_cache_date
-        [[ $pr_cache_url == 'NOOPENPR' ]] && pr_date=$pr_cache_as_of
+    if [[ $cached == 'true' ]]; then
         pr_url=$pr_cache_url
         pr_state=$pr_cache_state
+        pr_date=$pr_cache_date
+        [[ $pr_cache_url == 'NOOPENPR' ]] && pr_date=$pr_cache_as_of
+        pr_draft=$pr_cache_draft
+        pr_title=$pr_cache_title
     elif [[ $cached == 'expired' ]]; then
         if [[ $pr_cache_url == 'NOOPENPR' ]]; then
             ## Need to see if one has been created.
-            cached='no'
+            cached='false'
         else
             ## Let's try the inexpensive option of seeing if the state has
             ## changed.
-            _git-repo-pr-get-lookup-pr-state "$pr_cache_url" "$remote_svc" "$remote_repo" pr_now_state pr_now_date
+            _git-repo-pr-get-lookup-pr-state "$pr_cache_url" "$remote_svc" "$remote_repo" pr_now_state pr_now_date pr_now_draft pr_now_title
             # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
+            # pr_now_* set via args-by-ref call above
             if [[ $pr_now_state == "$pr_cache_state" ]]; then
-                # updates the cache date, keeps url and state the same.
-                _git-repo-pr-store "$pr_cache_url" "$pr_now_state" "$pr_now_date"
+                # updates the cache date, keeps url, state and title the same.
+                git-repo-pr-store "$pr_cache_url" "$pr_now_state" "$pr_now_date" "$pr_now_draft" "$pr_now_title"
                 pr_url="$pr_cache_url"
                 pr_state="$pr_now_state"
                 pr_date="$pr_now_date"
+                pr_draft="$pr_now_draft"
+                pr_title="$pr_now_title"
             elif [[ $pr_cache_state == 'open' ]]; then
                 # The pr is now is closed or merged. Still might be the latest
                 # one but we don't know, so we have to check.
-                cached='no'
+                cached='false'
             fi
         fi
     fi
 
-    if [[ $cached == 'no' ]]; then
+    if [[ $cached == 'false' ]]; then
         local perldata; perldata=$(mktempfile -+perldata)
         rm-on-exit "$perldata"
-        github-api --page-limit 10 --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
+        ## TODO: Update github-api to take --date-limit instead of --page-limit
+        ## local max_back_date; max_back_date=$(_git-repo-get-wt-or-br-create-date)
+        ## --date-limit body->created_at YYYY-MM-DDTHH:MM:SS
+        github-api --page-limit 5 --stream-data --perl-data --server "$remote_svc" pulls "$remote_repo" >> "$perldata"
         local corg; corg=$(git-repo-org)
         local -a pr_now
-        #read -r -a pr_now < <(perl -d:ptkdb -MData::Dumper -e ' ## no-ptkdb-issue
-        read -r -a pr_now < <(perl -e '
+        local -a debug=()
+        ## debug=(-d:ptkdb -MData::Dumper) ## no-ptkdb-issue
+        read -r -a pr_now < <(perl "${debug[@]}" -e '
 ## Gets the latest (because the data is sorted newest to oldest) pull request
 ## for this branch on this org.
 ## $ARGV[0] - file with perl data, sorted newest to oldest. No "merged" state flags
 ##            in this dataset, figure it out from the closed/merged times.
 ## $ARGV[1] - org
 ## $ARGV[2] - current branch name
+use lib $ENV{PERSONALLIB};
+use Misc qw(UNIX_TRUE UNIX_FALSE);
 do $ARGV[0];
 for $pull (@{$VAR1}) {
     my %pullinfo;
@@ -835,21 +890,30 @@ for $pull (@{$VAR1}) {
                       $pull->{html_url},
                       $pullinfo{state},
                       $pullinfo{date},
+                      $pull->{draft},
+                      $pull->{title}
                   ), qq(\n);
-        exit 0;
+        exit UNIX_TRUE;
     }
 }
-exit 0;' "$perldata" "$corg" "$cb")
+exit UNIX_TRUE;' "$perldata" "$corg" "$cb")
         if [[ -z ${pr_now[0]} ]]; then
+            if [[ $pr_cache_state == 'CREATING' ]]; then
+                # Bail. Don't write anything. Keep looking every time we are
+                # called until a PR is created.
+                false; return
+            fi
             # Cache the no
-            _git-repo-pr-store --noopenpr
+            git-repo-pr-store --noopenpr
             false; return
         else
             ## Cache the PR and its state
-            _git-repo-pr-store "${pr_now[@]}"
+            git-repo-pr-store "${pr_now[@]}"
             pr_url=${pr_now[0]}
             pr_state=${pr_now[1]}
             pr_date=${pr_now[2]}
+            pr_draft=${pr_now[3]}
+            pr_title="${pr_now[*]:4}"
         fi
     fi
 
@@ -861,18 +925,24 @@ exit 0;' "$perldata" "$corg" "$cb")
         # You effectively asked for the latest PR available, so we give
         # you the state of it with the URL.
         [[ $pr_state == 'open' ]] && pr_state="open, last updated"
-        if [[ $cached == 'yes' ]]; then
+        if [[ $cached == 'true' ]]; then
             cached=", cached"
         else
             cached=''
         fi
-        ((opt_print)) && echo "${pr_state^} $pr_date${cached} - ${pr_url}"
+        local lead
+        if [[ $pr_draft == 'true' ]]; then
+            lead="draft, ${pr_state}"
+        else
+            lead=${pr_state}
+        fi
+        ((opt_print)) && echo "${lead^} $pr_date${cached} - [${pr_title}](${pr_url})"
     else
         if [[ $opt_match_state == "$pr_state" ]]; then
             # You asked for a particular state, and we matched it, but you
-            # specified the state, you probably don't want it coming back at
-            # you so that you have to get rid of it to use the url, so we just
-            # print the url.
+            # specified the state, you probably don't want it (and all the
+            # other info) coming back at you so that you have to get rid of it
+            # to use the url, so we just print the url.
             ((opt_print)) && echo "$pr_url"
         else
             # We didn't find a match
@@ -882,53 +952,23 @@ exit 0;' "$perldata" "$corg" "$cb")
     true
 }
 
-_git-repo-pr-store ()
-{
-    local pr_url
-    local pr_state
-    local pr_date
-    if [[ $1 == '--noopenpr' ]]; then
-        pr_url="NOOPENPR"
-        pr_state="NOSTATE"
-        pr_date="1970-01-01T00:00:01Z"
-    else
-        pr_url=${1}
-        pr_state=${2}
-        pr_date=${3}
-    fi
-
-    local wt; wt=$(git worktree ina -v)
-    local cb; cb=$(git-repo-current-branch)
-    local asof; asof="$(date "$GIT_EXT_META_DATE_FMT")"
-    if [[ -n $wt ]]; then
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
-        git config --replace-all "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
-    fi
-    if [[ -n $cb ]]; then
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr" "$pr_url"
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state" "$pr_state"
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date" "$pr_date"
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of" "$asof"
-        git config --replace-all "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version" "$PR_CACHE_VERSION"
-    fi
-}
-
 _git-repo-pr-retrieve ()
 {
     local -n _pr_url=$1
     local -n _pr_state=$2
     local -n _pr_date=$3
-    local -n _pr_cache_as_of=$4
-    local -n _pr_cache_version=$5
+    local -n _pr_draft=$4
+    local -n _pr_title=$5
+    local -n _pr_cache_as_of=$6
+    local -n _pr_cache_version=$7
     local wt; wt=$(git worktree ina -v)
     local cb; cb=$(git-repo-current-branch)
     _pr_url=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr")
     if [[ -n $_pr_url ]]; then
         _pr_state=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-state")
         _pr_date=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-date")
+        _pr_draft=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-draft")
+        _pr_title=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-title")
         _pr_cache_as_of=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-as-of")
         _pr_cache_version=$(git config --get "worktree.${wt}.${GIT_EXT_META_PREFIX}-pr-cache-version")
     else
@@ -936,6 +976,8 @@ _git-repo-pr-retrieve ()
         if [[ -n $_pr_url ]]; then
             _pr_state=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-state")
             _pr_date=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-date")
+            _pr_draft=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-draft")
+            _pr_title=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-title")
             _pr_cache_as_of=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-as-of")
             _pr_cache_version=$(git config --get "branch.${cb}.${GIT_EXT_META_PREFIX}-pr-cache-version")
         fi
@@ -1000,7 +1042,7 @@ git-repo-purge()
     local repo
     for repo in "${repos[@]}"; do
         (
-            \cd "$repo" || { true; exit; }
+            builtin cd "$repo" || { true; exit; }
             cmd-echo --id git-repo -- "$repo"
             local ok_to_purge=1
             # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
@@ -1015,7 +1057,7 @@ git-repo-purge()
             fi
             git-repo-pr-get --open \
                 && ok_to_purge=0 ## func returns success if it finds a open PR,
-                                 ## in which case we can't purge it.
+            ## in which case we can't purge it.
             ! git-repo-is_pristine -v && ok_to_purge=0
             if ((ok_to_purge)); then
                 resp=$(cmd-yesno --id git-repo -dc "Repo is pristine. Delete it" n)
@@ -1057,10 +1099,9 @@ git-repo-restore ()
 
 git-repo-tags ()
 {
-     git tag --list --sort=v:refname
+    git tag --list --sort=v:refname
 }
 
-# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 git-repo-source-branch ()
 {
     local current_branch
@@ -1087,7 +1128,7 @@ git-repo-named-branches ()
 
     if [[ -z $1 ]]; then
         git-repo-using-named-branches "$verbose"
-        return $?
+        return
     fi
 
     if [[ ! $1 =~ ^(true|false)$ ]]; then
@@ -1131,6 +1172,7 @@ main()
 
     case $action in
         status | st ) action=info;;
+        del ) action=delete;;
     esac
 
     action_func_name="git-repo-${action}"
@@ -1141,15 +1183,14 @@ main()
         case $action in
             * )
                 cmd-echo --id git-repo --ec --id git-repo -- "unknown git repo action '$action'"
-                return 1
+                false; return
                 ;;
         esac
     fi
-    return $?
 }
 
 main "$@"
-exit $?
+exit
 echo "$noop" > /dev/null # in lieu of shellcheck 2034
 
 :<<'__PODUSAGE__'
@@ -1167,7 +1208,7 @@ git-repo - act on or interrogate the current repo
  n git-repo check
  n git-repo current-branch
  n git-repo default-branch
-   git-repo delete
+   git-repo del[ete]
  o git-repo diff
    git-repo is
    git-repo ina

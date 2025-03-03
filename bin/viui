@@ -1,12 +1,10 @@
 # -*- sh -*-
 # shellcheck shell=bash
-# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-
 # viui
 
 # Give any command line a UI.
 
-[[ $1 =~ -h ]] && bash-usage "$0" && exit 0
+[[ $1 =~ -h ]] && bash-usage "$0" && { true; exit; }
 
 # Make sure we have a config location to use. Not implementing the full XDG
 # spec.
@@ -25,7 +23,7 @@ if [[ -z $command ]]; then
     done
     COLUMNS=1 ## One character wide terminal, forces list to be one column.
     select command in "${cmds[@]}" quit; do
-        if [[ $command == 'quit' ]]; then exit 1; fi
+        [[ $command == 'quit' ]] && { false; exit; }
         break
     done
 fi
@@ -36,7 +34,7 @@ declare command_data_file="$CONFIG_HOME/${command}.data"
 [[ $2 == "--init" ]] && rm -f "$command_template"
 if [[ $2 == '--edit' ]]; then
     vi "$command_template" "$command_data_file"
-    true; exit $?
+    true; exit
 fi
 
 if [[ ! -f $command_template ]]; then
@@ -63,7 +61,7 @@ if [[ ! -f $command_template ]]; then
             fi
         fi
     done
-    echo "${command_args[@]}" > "$command_template"
+    echo "exec_string=\"${command_args[*]}\"" > "$command_template"
     chmod +x "$command_template"
     echo "# viui: Options for '$command'" > "$command_data_file"
     echo "# v_* takes an optional value for the required option" >> "$command_data_file"
@@ -75,12 +73,15 @@ fi
 
 # Set the data and read it in.
 vi "$command_data_file"
-# shellcheck disable=SC1090
+# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 . "$command_data_file"
 
 # Read in the template and apply the data.
 declare exec_string
-exec_string=$(eval echo "$(cat "$command_template")")
+# shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+if ! . "$command_template"; then
+    exit 1
+fi
 
 # Check and run
 declare default='n'
@@ -96,10 +97,10 @@ while true; do
     then
         set -o pipefail
         $exec_string
-        exit $?
+        exit
     else
         echo Bye.
-        exit 0
+        true; exit
     fi
 done
 

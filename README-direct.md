@@ -6,7 +6,7 @@ GitHub.
 # Setup
 
 ## ssh
-Make a `${HOME}/.ssh` directory if it does not already exist. Set it `chmod 700`. Copy your `id_rsa` and `id_rsa.pub` files into the directory and set them `chmod 401`
+Make a `${HOME}/.ssh` directory if it does not already exist. Set it `chmod 700`. Copy your `id_rsa` and `id_rsa.pub` files into the directory and set them `chmod 400`
 
 ## git
 Execute the following to install the latest version of git:
@@ -21,7 +21,7 @@ sudo apt upgrade
 We put stuff that we build in /opt/mop:
 ```
 sudo mkdir -p /opt/mop/build
-sudo chown -R /opt
+sudo chown -R ${USER} /opt
 ```
 
 ## Grab the repos
@@ -82,7 +82,7 @@ cd $HOME/personal/dotfiles
 cd ..
 bin/makesymlinks -i dotfiles 2>&1 | tee bin/makesymlinks.log
 export REALGIT=$(which git)
-bin/github.env.init
+bin/github.mopenv.init
 git-kv --cat
 ```
 
