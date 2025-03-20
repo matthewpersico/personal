@@ -1,0 +1,392 @@
+# -*- sh -*-
+# shellcheck shell=bash
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
+        # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+
+# venv - because why not wrap a wrapper?
+
+# <Function Class: python>
+# <Function Justification: env>
+
+declare -A opts
+
+_venv_create()
+{
+    declare action=${FUNCTION//_venv_}
+
+    if $PYTHON_EXE -m venv "${opts[venv_dir]}"; then
+        cmd-echo --id "venv:$action" -- "Created venv ${opts[venv_dir]}"
+    else
+        cmd-echo --id "venv:$action" -- "Failed to create venv ${opts[venv_dir]}"
+        false; return
+    fi
+
+    _venv_assign_envvars "${opts[venv_dir]}"
+
+    cat <<EOF >> "$VIRTUAL_ENV_INIT_FILE"
+pip install --upgrade pip
+python -m pip install ruff black isort mypy pylint
+# Per-project customizations here:
+
+EOF
+
+}
+
+_venv_info()
+{
+    cat "${opts[venv_dir]}/pyvenv.cfg"
+}
+
+_venv_init()
+{
+   declare action=${FUNCTION//_venv_}
+
+   if [[ ! -r $VIRTUAL_ENV_INIT_FILE ]]; then
+       cmd-echo --id "venv:$action" -ec -- "Cannot find venv init file $VIRTUAL_ENV_INIT_FILE."
+       false; return
+   fi
+
+   if [[ -e $VIRTUAL_ENV_INITED_FILE ]]; then
+       cmd-echo --id "venv:$action" -ec -- "Already executed $action; marker file $VIRTUAL_ENV_INIT_FILE exists. Try 'reinit' if you want to run the init again."
+       false; return
+   fi
+
+   . "$VIRTUAL_ENV_INIT_FILE" && touch "$VIRTUAL_ENV_INITED_FILE"
+}
+
+_venv_reinit()
+{
+   declare action=${FUNCTION//_venv_}
+
+   if [[ ! -r $VIRTUAL_ENV_INIT_FILE ]]; then
+       cmd-echo --id "venv:$action" -ec -- "Cannot find venv init file $VIRTUAL_ENV_INIT_FILE."
+       false; return
+   fi
+
+   if [[ ! -e $VIRTUAL_ENV_INITED_FILE ]]; then
+       cmd-echo --id "venv:$action" -ec -- "Cannot $action; marker file $VIRTUAL_ENV_INIT_FILE not found. Try 'init' if you want to run the init."
+       false; return
+   fi
+
+   \rm "$VIRTUAL_ENV_INITED_FILE"
+   . "$VIRTUAL_ENV_INIT_FILE" && touch "$VIRTUAL_ENV_INITED_FILE"
+}
+
+_venv_assign_envvars()
+{
+    declare ve=${VIRTUAL_ENV:-$1}
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+    export VIRTUAL_ENV_NAME=$(basename "$(realpath "$ve")")
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+    export VIRTUAL_ENV_ROOT=$(dirname "$(realpath "$ve")")
+    export VIRTUAL_ENV_INIT_FILE=${VIRTUAL_ENV_ROOT}/${VIRTUAL_ENV_NAME}.init
+    export VIRTUAL_ENV_INITED_FILE=${VIRTUAL_ENV_ROOT}/${VIRTUAL_ENV_NAME}.inited
+}
+
+_venv_show_envvars()
+{
+    env | grep -E '^VIRTUAL_ENV'
+}
+
+
+_venv_swtich()
+{
+    declare -a target
+    if [[ -n $1 ]]; then
+        target=('--dir' "%{opts[vevn_dir]}")
+    fi
+    venv decativate
+    venv activate "${target[@]}"
+}
+
+_venv_activate()
+{
+    # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
+    source "${opts[venv_dir]}/bin/activate"
+    _venv_assign_envvars
+    if [[ -e $VIRTUAL_ENV_INIT_FILE ]] \
+           && [[ ! -e $VIRTUAL_ENV_INITED_FILE ]]; then
+        _venv_init
+    fi
+}
+
+_venv_deactivate()
+{
+    deactivate
+}
+
+_venv_abandon ()
+{
+    declare action=${FUNCTION//_venv_}
+
+    if is-a-function 'deactivate'; then
+        cmd-echo --id "venv:$action" -- '"deactivate" is available; calling "deactivate"...'
+        deactivate
+        cmd-echo --id "venv:$action" -- 'Done.'
+    elif [[ -z $VIRTUAL_ENV ]]; then
+        cmd-echo --id "venv:$action" -- '"VIRTUAL_ENV" is set; nothing to do.'
+    else
+        cmd-echo -n --id "venv:$action" -- 'Unsetting VIRTUAL_ENV...'
+        unset VIRTUAL_ENV
+        echo " Done."
+    fi
+}
+
+# vv => venv_verification
+_venv_verify_should_not_specify_a_venv_dir()
+{
+    if [[ -n ${opts[venv_dir_provided]} ]]; then
+        cmd-echo --id "venv:$1" -ec -- "Cannot $1 with '${opts[venv_dir_provided]}'; $1 only applies to the current venv."
+        false; return
+    fi
+    true; return
+}
+
+_venv_verify_venv_dir_should_exist()
+{
+    if [[ ! -d ${opts[venv_dir]} ]]; then
+        cmd-echo --id "venv:$1" -ec -- "Cannot $1 with '${opts[venv_dir]}'; directory not found."
+        false; return
+    fi
+    true; return
+}
+
+_venv_verify_venv_dir_should_not_exist()
+{
+    if [[ -e ${opts[venv_dir]} ]]; then
+        cmd-echo --id "venv:$1" -ec -- "Cannot $1; directory '${opts[venv_dir]}' already exists: "
+        ls -la "${opts[venv_dir]}"
+        false; return
+    fi
+    true; return
+}
+
+_venv_verify_should_not_be_in_a_venv()
+{
+    if [[ -n $VIRTUAL_ENV ]]; then
+        cmd-echo --id "venv:$1" -ec -- "Cannot $1 in a venv. Currently in $VIRTUAL_ENV."
+        false; return
+    fi
+    true; return
+}
+
+_venv_verify_should_be_in_a_venv()
+{
+    if [[ -z $VIRTUAL_ENV ]]; then
+        cmd-echo --id "venv:$1" -ec -- "Cannot $1 outside a venv. VIRTUAL_ENV not defined."
+        false; return
+    fi
+    true; return
+}
+
+venv()
+{
+    opts=()
+    local OPTSARGS
+    local shortopts='HDD:'
+    local longopts='help,dir:'
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || return
+    eval set -- "$OPTSARGS"
+
+    while true; do
+        local option=$1
+        shift
+        [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
+        case $option in
+            h | help )
+                bash-usage venv
+                true; return
+                ;;
+            d | dir )
+                declare venv_dir=$1
+                shift
+
+                declare dn
+                dn="$(dirname "$venv_dir")"
+                declare rp
+                rp="$(realpath "$dn")"
+                if [[ $rp != "${PWD}" ]]; then
+                    cmd-echo --id venv -ec -- "venv dir must be in the current directory, not $dn ."
+                    false; return
+                fi
+
+                declare bn
+                bn=$(basename "$venv_dir")
+
+                if [[ ! $bn =~ ^\. ]]; then
+                    bn=".$bn"
+                    cmd-echo --id venv -wc -- "Best practice is for a venv dir to be \"hidden\". Using $bn for the name."
+                fi
+
+                opts[venv_dir]=$bn
+                opts[venv_dir_provided]=$bn
+                ;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo --id venv -ec -- "$option is an invalid option. See $0 --help"
+                false; return
+                ;;
+        esac
+    done
+
+    if [[ -z ${opts[venv_dir]} ]]; then
+        if [[ -n $VIRTUAL_ENV ]]; then
+            opts[venv_dir]=$VIRTUAL_ENV
+        else
+            opts[venv_dir]=".venv"
+        fi
+    fi
+
+    local action=$1; shift
+    if [[ -z $action ]]; then
+        bash-usage venv
+        true; return
+    fi
+
+    # Shortcut processing here
+    case $action in
+        ac | act ) action='activate';;
+        deac) action='deactivate';;
+    esac
+
+    declare ceid="venv:$action"
+    local action_func_name="_venv_${action}"
+
+    if declare -F "$action_func_name" >/dev/null; then
+        shift ## the action
+
+        case $action in
+            abandon )
+                ;;
+            create )
+                if ! _venv_verify_venv_dir_should_not_exist "$action" \
+                        || ! _venv_verify_should_not_be_in_a_venv "$action"; then
+                    false; return
+                fi
+                ;;
+            activate )
+                if ! _venv_verify_venv_dir_should_exist "$action" \
+                        || ! _venv_verify_should_not_be_in_a_venv "$action"; then
+                    false; return
+                fi
+                ;;
+            switch )
+                if ! _venv_verify_should_be_in_a_venv "$action"; then
+                    false; return
+                fi
+                ;;
+            info | reinit | deactivate )
+                if ! _venv_verify_should_be_in_a_venv "$action" \
+                        || ! _venv_verify_should_not_specify_a_venv_dir "$action"; then
+                    false; return
+                fi
+                ;;
+            help )
+                bash_usage venv
+                true; return
+                ;;
+            * )
+                cmd-echo --id "venv:$action" -ec -- "'$action' not supported."
+                false; return
+                ;;
+        esac
+
+        if [[ -n $VIRTUAL_ENV ]] \
+               && [[ $action != 'switch' ]]; then
+            _venv_assign_envvars
+        fi
+        "$action_func_name" "$@"
+        return $?
+    else
+        cmd-echo --id "$ceid" -ec --id venv-- "unknown env action '$action'"
+        false; return
+    fi
+}
+
+declare f
+for f in $(declare -F | sed 's/.* //' | grep _venv); do
+    echo "re-typesetting $f"
+    typeset -fx "$f"
+done
+
+autotrack venv "$0"
+
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
+:<<'__PODUSAGE__'
+#line 287
+=head1 NAME
+
+venv - useful things to do with venv
+
+=head1 SYNOPSIS
+
+ venv create [-d .name]
+ venv info [-d .name]
+ venv activate [-d .name]
+ vevn switch [-d .name]
+ venv reinit
+ venv deactivate
+
+=head1 DESCRIPTION
+
+A collection of actions and data about a python venv.
+
+=head1 ACTIONS
+
+=over 4
+
+=item create
+
+Create a venv environment. Without the -d option, creates C<./.venv>. Will
+not function if you are already in a venv (as defined by the envvar
+VIRTUAL_ENV).
+
+venvs must live in local, hidden files (for now). A directory will be rejected
+if it does not resolve to PWD. A name without a leading dot will have one added.
+
+A file C<.name.init> will also be created in the current directory with
+commands to take to initialize the venv the first time it is activated.
+
+=item info
+
+Show the venv config information. Without the -d option, queries
+C<$VIRTUAL_ENV/pyvenv.cfg>, then C<./.venv/pyvenv.cfg>.
+
+=item activate
+
+Starts up the requested venv. Without the -d option, runs
+C<./.venv/bin/acrivate>. Will not function if you are already in a venv (as
+defined by the envvar VIRTUAL_ENV).
+
+Also looks for the file C<.name.inited>) and if not found, runs C<.name.init>
+if it is found. If the init is successful, C<.name.ininted> is created to
+prevent init re-execution.
+
+=item swtich
+
+deactivate the current venv and activate the requested one. Without the -d
+option, assumes C<.venv>.
+
+=item reinit
+
+Rerun the C<.name.init> script, even if it has been previously run.
+
+=item deactivate
+
+Exit the current venv. Will not funtion if you provide a name arg or are not in
+a venv (as defined by the envvar VIRTUAL_ENV).
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item -help|-h
+
+Print this help text.
+
+=back
+
+__PODUSAGE__
