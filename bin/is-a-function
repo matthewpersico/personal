@@ -3,29 +3,44 @@
 
 # is-a-function
 
-if [[ $1 =~ ^-+h ]]; then
-    bash-usage is-a-function
-    true; exit
-fi
+# <Function Class: env>
+# <Function Justification: env mod>
 
-declare verbose=0
-if [[ $1 =~  ^-+v ]]; then
-    verbose=1
-    shift
-fi
+is-a-function ()
+{
 
-[[ -n $(declare -F "$1" 2>/dev/null) ]]
-declare status=$?
-if [[ $verbose == '1' ]]; then
-    if [[ $status == '0' ]]; then
-        autoload -w "$1" 2>/dev/null
-    else
-        echo "is not a function: $1"
+    if [[ $1 =~ ^-+h ]]; then
+        bash-usage is-a-function
+        true; return
     fi
-fi
 
-exit $status
+    declare verbose=0
+    if [[ $1 =~ ^-+v ]]; then
+        verbose=1
+        shift
+    fi
 
+    declare verb
+    declare status
+    declare f
+    f=$(declare -F "$1" 2>/dev/null)
+    if [[ -n $f ]]; then
+        verb='is'
+        true; status=$?
+    else
+        verb='is not'
+        false; status=$?;
+    fi
+
+    if((verbose)); then
+        echo "$verb a function: $1"
+    fi
+
+    return "$status"
+}
+autotrack is-a-function "$0"
+
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -52,9 +67,9 @@ Is this a function?
 
 =head1 OUTPUT
 
-Exits with shell logical true or false. If --verbose is used, prints
+Returns with shell logical true or false. If --verbose is used, prints
 
- is [not] a function:potential_function_name
+ is [not] a function: potential_function_name
 
 accordingly.
 
