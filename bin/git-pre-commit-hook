@@ -521,7 +521,7 @@ for (@ARGV){
                 else
                     # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
                     # We want to pass the $ into the grep.
-                    grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
+                    grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" | grep -v '# pre-commit-hook-ignore' 1>"$G_tfile" 2>&1
                     check "$G_tfile" \
                           "One or more files has Perl-debugger-related statements. Please remove instrumentation."
                 fi
@@ -587,33 +587,13 @@ for (@ARGV){
                     declare tidycmd
                     declare runcheck=0
                     declare tidyrc=0
-                    declare helperfound=0
                     for tidycmd in \
                         "$G_gitroot/t/bin/apply-perltidy-everywhere" \
                             "${TILDAE:-$HOME}/personal/bin/perltidy-bulk"; do
                         if [[ -e "$tidycmd" ]]; then
-                            helperfound=1
-
-                            declare sha_ing=0
-                            if which sha256sum 2>/dev/null 1>/dev/null; then
-                                sha_ing=1
-                                sha256sum "${G_perlfiles[@]}" > "$G_tfile".sha.before
-                            fi
-
-                            "$tidycmd" --update "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
+                            "$tidycmd" "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
                             tidyrc=$?
-
-                            if ((tidyrc==0)) && ((sha_ing)); then
-                                sha256sum "${G_perlfiles[@]}" > "$G_tfile".sha.after
-                                declare -a add_files
-                                mapfile -t add_files < <(diff "$G_tfile".sha.before "$G_tfile".sha.after | grep '[<>]' | perl -ane 'print $F[2],qq(\n)' | sort -u)
-                                if [[ -n "${add_files[0]}" ]]; then
-                                    pre_commit_info_echo "perltidy-ed files: ${add_files[*]}"
-                                    git add "${add_files[@]}"
-                                fi
-                            fi
-                            rm -f "$G_tfile".sha.before "$G_tfile".sha.after
-                            runcheck=$tidyrc
+                            runcheck=1
                             remediation="To correct, run: (cd $(pwd); $tidycmd --update ${G_perlfiles[*]})"
                             break
                         fi
@@ -623,7 +603,7 @@ for (@ARGV){
                               "One or more files has formatting errors. Please review." \
                               "$tidyrc" \
                               "$remediation"
-                    elif ((helperfound==0)); then
+                    else
                         ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy, no perl perltidy helpers found."
                     fi
                 fi
@@ -669,7 +649,7 @@ for (@ARGV){
                 if [[ -n ${skips[shellcheck]} ]]; then
                     ((opt_verbose)) && pre_commit_ok_echo "Skipping shellcheck, ${G_skip_messages[${skips[shellcheck]}]}."
                 else
-                    shellcheck "${shellfiles[@]}" 1>"$G_tfile" 2>&1
+                    shellcheck -x "${shellfiles[@]}" 1>"$G_tfile" 2>&1
                     check "$G_tfile" \
                           "One or more files has failed shellcheck checks. Please review."
                 fi
@@ -808,7 +788,9 @@ Don't leave debugger statements of the form
 
     $DB::s(ingle|tep)
 
-in production code.
+in production code, unless you explicitly want it:
+
+    $DB::s(ingle|tep) # pre-commit-hook-ignore
 
 =item o The presence of the testing module TestingUtils.
 
