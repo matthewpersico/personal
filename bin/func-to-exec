@@ -17,13 +17,14 @@ if [[ -z "$1" ]] || [[ $1 =~ ^-+h ]]; then
     false; exit
 fi
 
-convert_only=0
+declare convert_only=0
+declare -a force
 while [[ "$1" =~ ^- ]]; do
     if [[ "$1" = '--convert-only' ]]; then
         convert_only=1
         shift
     elif [[ "$1" = '--force' ]]; then
-        force='--force'
+        force+=('--force')
         shift
     fi
 done
@@ -51,7 +52,7 @@ for raw_src_path in "${raw_src_paths[@]}"; do
         cmd-echo --id func-to-exec -- "$src_path not found"
         ((bad+=1))
     else
-        if [[ "$force" = '--force' ]]; then
+        if [[ "${force[0]}" = '--force' ]]; then
             justified=''
         else
             justified=$(grep 'Function Justification' "$src_path" | \
@@ -79,7 +80,7 @@ done
 
 ## Do the conversions
 cmd-echo --id func-to-exec "Converting to scripts..."
-if ! perl -S func-to-exec.pl $force "${tgt_paths[@]}"; then
+if ! perl -S func-to-exec.pl "${force[0]}" "${tgt_paths[@]}"; then
     ## Each conversion of bin/foo will be in bin/foo.new
     exit
 fi

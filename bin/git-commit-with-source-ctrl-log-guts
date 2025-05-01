@@ -4,11 +4,9 @@
 # git-commit-with-source-ctrl-log-guts
 
 declare opt_a
-declare opt_v
+declare -a opts
 declare -a opt_edit
 declare -A opt_exclude
-declare opt_skip
-declare opt_debug
 declare opt_confirm=''
 declare -a opt_scl_pick
 declare moreopts=1
@@ -20,19 +18,19 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
 
     case $option in
         a ) opt_a='-a';;
-        v ) opt_v='-v';;
+        v ) opts+=('-v');;
         e ) opt_edit=(--edit --editor "$EDITOR");;
         editor ) opt_edit=(--edit --editor "$1"); shift;;
-        s ) opt_skip='--skip-no-source-ctrl-log';;
+        s ) opts+=('--skip-no-source-ctrl-log');;
         sclpick ) opt_scl_pick=("$original" "$1"); shift;;
-        sclonly ) opt_skip='--sclonly' ;;
-        nosclonly ) opt_skip='--nosclonly' ;;
+        sclonly ) opts+=('--sclonly') ;;
+        nosclonly ) opts+=('--nosclonly') ;;
         c | confirm ) opt_confirm='--confirm';;
         exclude | ex) opt_exclude["$(realpath "$1")"]=1; shift;;
         h | help )
             git-usage "$0"
             true; exit ;;
-        debug | x ) set -x; opt_debug='-x'; trap 'set +x' EXIT ;; # OK if you are grepping
+        debug | x ) set -x; opts+=('-x'); trap 'set +x' EXIT ;; # OK if you are grepping
         --)
             moreopts=0
             ;;
@@ -74,10 +72,11 @@ if (( ${#opt_exclude[@]} > 0 )); then
     filenames=("${included[@]}")
 fi
 git-process-source-ctrl-log --commit \
-                            $opt_confirm $opt_v $opt_debug "${opt_edit[@]}" \
-                            $opt_skip "${opt_scl_pick[@]}" "${filenames[@]}"
+                            $opt_confirm "${opts[@]}" "${opt_edit[@]}" \
+                            "${opt_scl_pick[@]}" "${filenames[@]}"
 exit
 
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<__USAGE__
 git-commit-with-source-ctrl-log [-a] [ -v] [-e | --editor editor] [-s] [-ex file [-ex file...]] [file [file...]]
 

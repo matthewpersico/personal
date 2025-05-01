@@ -13,7 +13,7 @@ declare restore=0
 declare confirm=0
 declare diff=0
 declare overwrite=0
-declare verbose_flag
+declare -a verbose_flag
 declare verbose=0
 declare drop=0
 
@@ -45,7 +45,7 @@ while [[ "$1" =~ ^- ]] && ((moreopts)); do
             eval "$option"=1;;
         v | verbose )
             verbose=1
-            verbose_flag='-v';;
+            verbose_flag+=('-v');;
         h | help )
             git-usage "$0"
             true; exit
@@ -124,7 +124,7 @@ elif (( restore )); then
 
                 declare resp=y
                 if (( confirm )); then
-                    resp=$(yesno -q "cp $verbose_flag $fullfile $repo/$file")
+                    resp=$(yesno -q "cp ${verbose_flag[*]} $fullfile $repo/$file")
                 fi
                 if [[ "$resp" = 'y' ]]; then
                     ## We don't mkdir -p @(dirname $repo/$file) on the theory
@@ -132,7 +132,7 @@ elif (( restore )); then
                     ## backed up. If the structure has changed so that
                     ## directories have been deleted, the copy may be of
                     ## dubious use. If that is not the case, change the code.
-                    cp $verbose_flag "$fullfile" "$repo/$file" || exit ## cp command will spit out an error message
+                    cp "${verbose_flag[@]}" "$fullfile" "$repo/$file" || exit ## cp command will spit out an error message
                 elif [[ "$resp" = 'n' ]]; then
                     echo "Skipping"
                 else
@@ -201,18 +201,18 @@ else
                 continue
             fi
 
-            declare cprecurse_flag
+            declare -a cprecurse_flag
             if [[ -d "$fullfile" ]]; then
-                cprecurse_flag='-r'
+                cprecurse_flag+=('-r')
             fi
 
             declare resp=y
             if (( confirm )); then
-                resp=$(yesno -q "cp $verbose_flag $cprecurse_flag $fullfile $holddir/$file")
+                resp=$(yesno -q "cp ${verbose_flag[*]} ${cprecurse_flag[*]} $fullfile $holddir/$file")
             fi
             if [[ "$resp" = 'y' ]]; then
                 mkdir -p "$(dirname "$holddir/$file")" || exit ## mkdir command will spit out an error message
-                cp $verbose_flag $cprecurse_flag "$fullfile" "$holddir/$file" || exit ## cp command will spit out an error message
+                cp "${verbose_flag[@]}" "${cprecurse_flag[@]}" "$fullfile" "$holddir/$file" || exit ## cp command will spit out an error message
             elif [[ "$resp" = 'n' ]]; then
                 echo "Skipping"
             else
@@ -230,6 +230,7 @@ true; exit
 ## not =head2/3/etc/. If you want just plain text, get rid of pod tags and the
 ## 'POD' in __PODUSAGE__.
 
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
