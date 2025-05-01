@@ -48,7 +48,9 @@ main ()
     local cb
     cb=$(git rev-parse --abbrev-ref HEAD)
     status=$?
-    ((status != 0 )) && false; return
+    if ((status != 0 )); then
+        false; return
+    fi
 
     # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
     if [[ "$cb" == '' ]]; then
@@ -88,7 +90,7 @@ EOF
     ## Check the local branch against its origin
     local stcheck
     stcheck=$(mktempfile -+ check)
-    rm-on-exit "$stcheck"
+    rm_on_exit "$stcheck"
     git status 1>"$stcheck" 2>&1
     if ! grep "Your branch is up.to.date with 'origin/$cb'." "$stcheck" 1>/dev/null; then
         cat "$stcheck"
@@ -111,7 +113,7 @@ EOF
     ## Now grab the remote branch
     local gflog
     gflog=$(mktempfile -+ gflog)
-    rm-on-exit "$gflog"
+    rm_on_exit "$gflog"
     git fetch "${opt_remote}" "${opt_branch}" 2>"$gflog"
     local rc=$?
     if ((rc)); then
@@ -124,19 +126,19 @@ EOF
     ## Log the local branch
     local locallog
     locallog=$(mktempfile -+ locallog)
-    rm-on-exit "$locallog"
+    rm_on_exit "$locallog"
     git log > "$locallog"
 
     ## Log the local copy of the remote branch
     local remotelog
     remotelog=$(mktempfile -+ remotelog)
-    rm-on-exit "$remotelog"
+    rm_on_exit "$remotelog"
     git log "${opt_remote}/${opt_branch}" > "$remotelog"
 
     ## Diff 'em
     local difflog
     difflog=$(mktempfile +- difflog)
-    rm-on-exit "$difflog"
+    rm_on_exit "$difflog"
     diff "$locallog" "$remotelog" 1> "$difflog" 2>&1
 
     if [[ -s "$difflog" ]]; then

@@ -3,17 +3,7 @@
 
 # git-status-with-source-ctrl-log
 
-declare edit
-declare filesonly
-declare sclonly
-declare -a sclpick
-declare gcsonly
 declare -a diff
-declare debug
-declare cached
-declare color
-declare -a color_opt
-declare -a untracked_opt
 
 # Define the options. ':' suffix for a mandatory value to an option, '::' for
 # an optional one. Note that the long and short don't have to match up.
@@ -27,37 +17,42 @@ OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
 
+declare -a gpscl_options
+
 # Reprocess the command line, extracting options and their arguments into
 # variables.
 while true; do
     declare option=$1
     shift
     case "$option" in
-        --edit) edit='--edit';;
-        --filesonly) filesonly='--filesonly';;
-        --sclonly | --sclo ) sclonly='--sclonly';;
-        --sclpick) sclpick=('--sclpick' "$1"); shift;;
-        --nosclonly | --nosclo ) sclonly='--nosclonly';;
-        --gcsonly | --gsco ) gcsonly='--gcsonly' ;;
-        --nogcsonly |--nogsco) gcsonly='--nogcsonly' ;;
+        --edit) gpscl_options+=('--edit');;
+        --filesonly) gpscl_options+=('--filesonly');;
+        --sclonly | --sclo ) gpscl_options+=('--sclonly');;
+        --sclpick) gpscl_options+=('--sclpick' "$1"); shift;;
+        --nosclonly | --nosclo ) gpscl_options+=('--nosclonly');;
+        --gcsonly | --gsco ) gpscl_options+=('--gcsonly') ;;
+        --nogcsonly |--nogsco) gpscl_options+=('--nogcsonly') ;;
         --diff) diff[0]="$option"
                 ## Args to --diff are optional, but if none are specified,
                 ## 'getopts' will still add a blank argument that can be
                 ## detected and actioned, but must be shifted off.
                 [[ -n $1 ]] && diff[0]="$option=$1"
+                gpscl_options+=("${diff[@]}")
                 shift;;
-        --cached) cached='--cached';;
+        --cached) gpscl_options+=('--cached');;
         -h|--help) git-usage git-status-ext; true; exit ;;
-        --debug | -x ) set -x; debug='-x'; trap 'set +x' EXIT;; # OK if you are grepping
-        --color) color=$1
+        --debug | -x ) set -x;
+                       gpscl_options+=('-x' '--perl-debug')
+                       trap 'set +x' EXIT
+                       ;; # OK if you are grepping
+        --color) gpscl_options+=('--color' "$1")
                  shift
-                 color_opt=(--color "$color")
                  ;;
         --nocolor)
-            color_opt=(--color "never")
+            gpscl_options+=(--color "never")
             ;;
         --noun | --nountracked | --uno )
-            untracked_opt=('--nountracked')
+            gpscl_options+=('--nountracked')
             ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
@@ -77,6 +72,5 @@ else
     mapfile -t filenames < <(git what is edited)
 fi
 
-git-process-source-ctrl-log "${diff[@]}" $cached $debug "${color_opt[@]}" \
-                            "${untracked_opt[@]}" $sclonly $gcsonly \
-                            $filesonly $edit "${sclpick[@]}" "${filenames[@]}"
+git-process-source-ctrl-log "${gpscl_options[@]}" \
+                            "${filenames[@]}"

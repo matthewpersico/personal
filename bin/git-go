@@ -104,6 +104,8 @@ declare opt_time
 opt_time='--notime'
 declare opt_root
 opt_root='0'
+declare opt_show_pr
+opt_show_pr=0
 declare -a limited
 declare -a tgts
 declare doandcdfile
@@ -119,7 +121,7 @@ longopts="$longopts,wc,with-comments,wco,with-comments-only"
 longopts="$longopts,list,lf,listfull,size,update"
 longopts="$longopts,wt,nowt,wto"
 longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
-longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,set,top:,time,notime"
+longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,show-pr,spr,set,top:,time,notime"
 longopts="$longopts,root,prune,page"
 
 # Process the command line.
@@ -151,6 +153,7 @@ while true; do
         wco | with-comments-only ) opt_comments=2; opt_list=1 ;;
         wpr | with-pr ) git_get_opts+=('--with-pr');;
         npr | no-pr ) git_get_opts+=('--no-pr');;
+        spr | show-pr ) opt_show_pr=1; opt_list=1 ;;
         l | list ) opt_list=1 ;;
         lf | listfull ) opt_list=2 ;;
         comma ) opt_comma=1 ;;
@@ -266,7 +269,7 @@ else
             ## Re-sort the list of repos by size descending using
             ## byte-level counts.
             repos_size=$(mktempfile)
-            rm-on-exit "$repos_size"
+            rm_on_exit "$repos_size"
             for r in "${REPOS[@]}"; do
                 du -s --exclude wt "${TILDAE:-$HOME}/${r}"
             done > "$repos_size"
@@ -309,6 +312,14 @@ else
                         fi
                         [[ -n "$output" ]] && echo "    $output" && echo
                     )
+                elif ((opt_show_pr)); then
+                     (
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo --id git-go -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
+                        echo "$rexp"
+                        echo -n "    "
+                        git repo pr-get
+                        echo
+                     )
                 else
                     echo -n "$rexp"
                     if ((opt_comma)) && [[ "$r" != "${REPOS[-1]}" ]]; then ## and not the last rexp

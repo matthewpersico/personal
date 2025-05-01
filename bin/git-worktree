@@ -289,7 +289,7 @@ git-worktree-create ()
         [[ $resp == 'y' ]] && wtname="$USER/$wtname"
         [[ $resp == 'q' ]] && { false; return; }
     fi
-    echo "$wtname"
+    cmd-echo "${celn}" "$LINENO" --id git-worktree --dc  "WT name is $wtname"
     local pull_ref
     if [[ -z "${wtname}" ]]; then
         if [[ -z "$pull_request" ]]; then
@@ -580,7 +580,21 @@ git-worktree-delete ()
         # the lead dash(es) from the option.
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
         case "$option" in
-            c | current) opt_current=1; wtname="$(_git_worktree_name_from_path "${PWD}")" ;;
+            c | current) opt_current=1;
+                         local wtpath
+                         wtpath="$(git root)"
+                         if [[ "$PWD" = "$wtpath" ]]; then
+                             # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+                             noop=1
+                         elif [[ "$PWD" =~ $wtpath ]]; then
+                             cmd-echo "${celn}" "$LINENO" --id git-worktree "Must be in git worktree root dir to delete. Going there."
+                             builtin cd "$wtpath" || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd $wtpath"; false; return; }
+                         else
+                             cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot locate the current worktree. PWD=$PWD"
+                             false; return
+                         fi
+                         wtname=$(basename "$PWD")
+                         ;;
             noreset | no-reset | skip-reset) opt_reset=0; ;;
             y|yes) opt_yes=1; opt_yes_string='--yes'; ;;
             f|force) opt_force=1; ;;
@@ -633,7 +647,7 @@ $(ls -la)"
     fi
 
     ## Check for cleanliness.
-    if ! git repo is clean; then
+    if ! git repo is spotless; then
         if((!opt_force)); then
             git status
             echo

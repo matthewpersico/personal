@@ -13,6 +13,7 @@ git ()
         false; return
     fi
 
+    local opt_canonical=0
     local moreopts=1
     while (( moreopts)); do
         if [[ -z $1 ]]; then
@@ -36,6 +37,13 @@ git ()
         elif [[ $1 == '-x' ]]; then
             shift
             set -x # OK if you are grepping
+        elif [[ $1 == '+x' ]]; then
+            shift
+            set +x # OK if you are grepping
+        elif [[ $1 == '--canonical' ]]; then
+            opt_canonical=1
+            export GIT_EXT_SHOW_CANONICAL=1
+            shift
         else
             moreopts=0
         fi
@@ -45,8 +53,18 @@ git ()
     # script or function. So we alias them here and handle any arguments in the
     # alias expansion.
     local -A git_aliases
-    git_aliases=([wt]=worktree [st]=status [stx]='status -ext' [ls]=ls-files)
+    git_aliases=([wt]=worktree [st]=status [stx]='status -ext' [ls]=ls-files
+                 [oops]='commit --oops' [fush]='push --force' [porce]='push --force'
+                 [oof]='commit --oops --push --force')
     local alias="$1"; shift
+    if [[ $alias == '--show-local-aliases' ]]; then
+        local key
+        local k
+        for key in $(for k in "${!git_aliases[@]}";do echo "$k";done|sort); do
+             echo "alias.$key ${git_aliases[$key]}";
+         done
+         true; return
+    fi
     local -a commands=("$alias")
     if [[ -n ${git_aliases[$alias]} ]]; then
         asplit "${git_aliases[$alias]}" -a commands
@@ -113,7 +131,6 @@ git ()
 
         "${commands[@]}" "${args[@]}"
         cmd_status=$?
-        unset GIT_DISPATCHER
     else
         if [[ ",${GIT_DISPATCHER_VERBOSE}," =~ ,${commands[0]},|,${alias},|all ]]; then
             cmd-echo --id 'GIT WRAPPER' --dc -- "Calling ${REALGIT} ${commands[*]} ${args[*]}"
@@ -153,6 +170,10 @@ git ()
     # cleanups take care of it.
     [[ -n $doandcdfile ]] && command rm -f "$doandcdfile"
 
+    if((opt_canonical)); then
+        unset GIT_EXT_SHOW_CANONICAL
+    fi
+
     return $cmd_status
 }
 autotrack git "$0"
@@ -164,6 +185,14 @@ git - A wrapper around 'git' to expand it.
 =head1 SYNOPSIS
 
  git ...
+
+ git [--real|--bypass] ...
+
+ git [-x|+x] ...
+
+ git [--canonical] ...
+
+ git [--help|-h]
 
 =head1 DESCRIPTION
 
@@ -202,6 +231,30 @@ have this script in the first place.
 We also end up handling commands that B<extend> git commands. This fucntion d
 doesn't know or care if the function or script that it runs is an extension or
 an expansion. The function or script itself will take care of the details.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --real | --bypass
+
+Take all the following command line arguments and call then with $REALGIT,
+doing no other processing.
+
+=item --help | -h
+
+Show this text.
+
+=item -x | +x
+
+Turn on or off, respectively, shell command verbosity.
+
+=item --canonical
+
+Set GIT_EXT_SHOW_CANONICAL=1 so that oour scripts can print out the ultimate
+commands we send to $REALGIT.
+
+=back
 
 =head1 NOTES
 

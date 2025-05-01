@@ -98,6 +98,7 @@ main ()
     local opt_extref=''
     local do_push=0
     local opt_pr=''
+    local do_force=0
     local -a opt_skip_hook
 
     ## This hunk of processing was written after git-clone and is an attempt to
@@ -129,9 +130,6 @@ main ()
                     git-usage "$0"
                     true; exit
                     ;;
-                wc | wscl )
-                    cmd-echo --id 'git-commit' -- "--$option is deprecated. Use --scl in the future."
-                    ;& ## bash fall through and unconditionally execute next case
                 scl )
                     opt_scl=1
                     ## no pass_on_args here, we use the flag as a switch later
@@ -237,9 +235,8 @@ ${message:$limidx} - $(git worktree get-name)"
                     ## no pass_on_args here, processed after commit
                     continue
                     ;;
-                pr-force )
-                    do_push=1
-                    opt_pr='--pr-force'
+                force )
+                    do_force=1
                     ## no pass_on_args here, processed after commit
                     continue
                     ;;
@@ -258,6 +255,10 @@ ${message:$limidx} - $(git worktree get-name)"
                     [[ -z "$ovalue" ]] && shift
                     continue
                     ;;
+                oops )
+                    pass_on_args+=('--amend' '--no-edit')
+                    continue
+                    ;;
                 ## No '*)' case needed; anything else just gets passed on
             esac
         fi
@@ -267,7 +268,7 @@ ${message:$limidx} - $(git worktree get-name)"
     done
 
     if ((do_interactive)) && ((!opt_scl)); then
-        cmdecho --wc -- "--interactive without --scl ignored"
+        cmd-echo --wc -- "--interactive without --scl ignored"
     fi
 
     if ((${#opt_skip_hook[@]})); then
@@ -284,10 +285,17 @@ ${message:$limidx} - $(git worktree get-name)"
         "${REALGIT}" commit "${opt_message[@]}" "${pass_on_args[@]}"
     fi
     status=$?
-
     if ((status == 0 && do_push)); then
         cmd-echo --id 'git-commit' -- 'Pushing...'
-        git push $opt_pr
+        declare opt_push=$opt_pr
+        if ((do_force)) ; then
+            if [[ $opt_push == '--pr' ]]; then
+                opt_push='--pr-force'
+            else
+                opt_push='--force'
+            fi
+        fi
+        git push $opt_push
         status=$?
         if [[ -z $opt_pr ]]; then
             # We didn't ask to pop up a browser to create a PR. See if there is
@@ -309,6 +317,7 @@ ${message:$limidx} - $(git worktree get-name)"
 main "$@"
 exit
 
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -321,6 +330,7 @@ git-commit - git extention of git commit
  git commit --m[emojid] "message" [-eref reference |-dref]
  git commit --no[[-]hook[s]|verify]
  git commit --push|--pr
+ git commit --oops
 
 =head1 DESCRIPTION
 
@@ -413,6 +423,13 @@ other push options.
 
 After a successful commit, run 'git push' using all the defaults for remote and
 other push options and then open up a browser to a pull request creation page.
+
+=item --oops
+
+Instead of a new commit and a new message, just shove these changes into the
+current commit. This will mess up clones and forks of the source repo if the
+commit has already been pushed, so be careful. Use this primarily to store
+corrections and minor fixes to code you are working on B<before> you push.
 
 =back
 

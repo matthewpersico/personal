@@ -11,6 +11,20 @@
 declare CONFIG_HOME="$HOME/.config/viui"
 mkdir -p "$CONFIG_HOME"
 
+# Get the editor
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+declare ceid=$(basename "$0")
+declare -a editor=("$ceid")
+editor[0]=${editor[0]%%ui}
+case ${editor[0]} in
+    vi )
+        editor=(vi)
+        ;;
+    xo | emacs* )
+        editor=(emacsclient -c)
+        ;;
+esac
+
 # Get the command. Should be on your PATH so that we can use the command name
 # for the config file names without having to worry about slashes.
 declare command=$1
@@ -33,14 +47,14 @@ declare command_template="$CONFIG_HOME/${command}.cmd"
 declare command_data_file="$CONFIG_HOME/${command}.data"
 [[ $2 == "--init" ]] && rm -f "$command_template"
 if [[ $2 == '--edit' ]]; then
-    vi "$command_template" "$command_data_file"
+    "${editor[@]}" "$command_template" "$command_data_file"
     true; exit
 fi
 
 if [[ ! -f $command_template ]]; then
     declare -a command_args=("$command")
     declare -a command_data
-    cmd-echo --id viui "Creating template for command $command"
+    cmd-echo --id "$ceid" "Creating template for command $command"
     declare resp='not empty'
     while [[ -n $resp ]]; do
         resp=$(prompt "Enter an option for template, <Return>to end:")
@@ -57,13 +71,13 @@ if [[ ! -f $command_template ]]; then
                 command_args+=("\$fv_$resp")         # Add the option's flag and value variable
                 command_data+=("fv_$resp='--$resp'") # Set the option's flag and value variable to the flag
             else
-                cmd-echo --id viui --ec "Must use -,--,+ or ++ specifier"
+                cmd-echo --id "$ceid" --ec "Must use -,--,+ or ++ specifier"
             fi
         fi
     done
     echo "exec_string=\"${command_args[*]}\"" > "$command_template"
     chmod +x "$command_template"
-    echo "# viui: Options for '$command'" > "$command_data_file"
+    echo "# $ceid: Options for '$command'" > "$command_data_file"
     echo "# v_* takes an optional value for the required option" >> "$command_data_file"
     echo "# fv_* takes an optional flag and value for the non-required option" >> "$command_data_file"
     for el in "${command_data[@]}"; do
@@ -72,7 +86,7 @@ if [[ ! -f $command_template ]]; then
 fi
 
 # Set the data and read it in.
-vi "$command_data_file"
+"${editor[@]}" "$command_data_file"
 # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 . "$command_data_file"
 
@@ -107,12 +121,12 @@ done
 :<<'__PODUSAGE__'
 =head1 NAME
 
-viui - wrap a hackey UI around anything
+viui/xoui - wrap a hackey UI around anything
 
 =head1 SYNOPSIS
 
- viui [commandname] [--init|--edit]
- viui --help
+ viui/xoui [commandname] [--init|--edit]
+ viui/xoui --help
 
 =head1 DESCRIPTION
 
@@ -138,7 +152,7 @@ converted to variables.
 
 Once the templates are created, the data file will be brought up in vi so that
 you can specify arguments to the options, if required. Once updated, write the
-file, quite vi and the command will be run.
+file, quit vi/emacs and the command will be run.
 
 =head2 EDITING
 

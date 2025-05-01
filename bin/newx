@@ -2,13 +2,13 @@
 # shellcheck shell=bash
 
 # newx
-
 declare more_opts=1
 declare opt_proc_handling=''
 declare lxtermgeo_w="$XTERMGEO_W"
 declare opt_nogeo=0
 declare opt_wh
 declare opt_verbose=0
+declare opt_fg=0
 declare target=$HOSTNAME
 
 declare var
@@ -62,6 +62,7 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
         x )
             set -x;; # OK if you are grepping
         v ) opt_verbose=1 ;;
+        'fg' ) opt_fg=1;;
         * )
             echo "Invalid option: $original"
             bash-usage "$0"
@@ -102,7 +103,7 @@ set_geo ()
         geo=()
     else
         if [[ -n $opt_wh ]]; then
-            geo=('-geometry' "${wh}+$((XTERMGEO_X+(j*delta_x)))+$((XTERMGEO_Y+(j*delta_y)))")
+            geo=('-geometry' "${opt_wh}+$((XTERMGEO_X+(j*delta_x)))+$((XTERMGEO_Y+(j*delta_y)))")
         else
             geo=('-geometry' "${lxtermgeo_w}x${XTERMGEO_H}+$((XTERMGEO_X+(j*delta_x)))+$((XTERMGEO_Y+(j*delta_y)))")
         fi
@@ -113,7 +114,11 @@ set_geo
 declare -a cmd=(RXCmd)
 if ((opt_verbose)) ; then
     cmd+=('-v')
-    fi
+fi
+if ((opt_fg)) ; then
+    cmd+=('--fg')
+fi
+
 cmd+=("$target" "${geo[@]}" "$@" -fg "${colors%%,*}" -bg "${colors##*,}")
 if [[ -n $XTERMFONT_NAME ]]; then
     cmd+=('-fa' "$XTERMFONT_NAME")
@@ -133,6 +138,7 @@ esac
 
 true; exit
 
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -176,6 +182,10 @@ and narrow are twice and half that, respectively.
 
 Specify the exact width and height.
 
+=item [-n_terms]
+
+Open up 'n' number of xterms.
+
 =item --host
 
 Open terminal on that host, not the current.
@@ -183,6 +193,10 @@ Open terminal on that host, not the current.
 =item --sc[hemes]
 
 List the available color schemes in order to pick one.
+
+=item --fg
+
+Start the xterm in the background. Does not apply under [-n_terms].
 
 =back
 

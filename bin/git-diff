@@ -4,6 +4,7 @@
 # git-diff
 
 use on_exit
+use mktemp
 
 declare -a pass_on
 declare opt_edit=0
@@ -28,6 +29,9 @@ while (( $# )); do
         --name* )
             pass_on+=('--name-only')
             ;;
+        --no-git )
+            opt_no_git=1;
+            ;;
         --help | -h )
             git-usage "$0"
             true; exit
@@ -41,12 +45,33 @@ done
 if ((opt_edit)) ; then
     # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
     $EDITOR $("$REALGIT" diff "${pass_on[@]}")
+    true # set exit val
+elif ((opt_no_git)); then
+    "$REALGIT" diff --color=always "${pass_on[@]}" | perl -e'
+    #line 49
+    my $print = 0;
+    my $exit_val = 0; # no diffs
+    while ( <> ) {
+        $exit_val=1; #foudn a diff
+        if ($_ =~ m/^(\e\[\d+m)?diff --git/) {
+            if ($_ =~ m|/\.git| ) {
+                $print = 0;
+            } else {
+                $print = 1;
+            }
+        }
+        print $_ if $print;
+    }
+   exit $exit_val # Use exit val of the diff not this perl
+'
 else
     "$REALGIT" diff "${pass_on[@]}"
+    # Use exit val of the diff, $?
 fi
 
-true; exit
+exit
 
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -54,7 +79,7 @@ git-diff - extension to git diff
 
 =head1 SYNOPSIS
 
- git-diff [--edit | --name | --help ]
+ git-diff [--edit | --name | --no-git | --help ]
 
 =head1 DESCRIPTION
 
@@ -72,7 +97,14 @@ Run in --names-only mode and start $EDITOR for all files found.
 
 Shortcut for --names-only.
 
-=item --help
+=item --no-git
+
+If you are using git diff to compare two repos by directory name, the diff is
+going to work in "file" mode. That is, it will not diff just the git objects
+but all files in the directories. This will include the .git directory. This is
+probably not what you want. This flag will prevent that from happening.
+
+ =item --help
 
 This text.
 

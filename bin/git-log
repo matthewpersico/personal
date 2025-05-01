@@ -4,10 +4,14 @@
 # git-log
 
 use on_exit
-
 declare dispatch_to_real_git=1
 
 declare -a pass_on
+declare opt_stop_at=0
+declare opt_reverse=0
+declare opt_count=0
+declare opt_id=0
+declare limit_to=0
 
 ## DO NOT attempt to convert this to a 'getopt' implementation; it would
 ## require specifying and handling every existing option in 'git log',
@@ -34,10 +38,29 @@ while (( $# )); do
             pass_on+=("--pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset'" '--abbrev-commit')
             ;;
         --id*)
+            opt_id=1
             pass_on+=("--pretty=format:%h")
             ;;
         --ID*)
+            opt_id=1
             pass_on+=("--pretty=format:%H")
+            ;;
+        --stop-at)
+            opt_stop_at=$1
+            shift
+            ;;
+        --reverse)
+            opt_reverse=1;
+            pass_on+=("--reverse")
+            ;;
+        -[1-9]*)
+            ;&
+        -[1-9][0-9]*)
+            if [[ $arg =~ st|nd|rd|th ]]; then
+                limit_to=1;
+                arg=${arg//[a-z]*/}
+            fi
+            opt_count=$((arg * -1))
             ;;
         * )
             pass_on+=("$arg")
@@ -45,14 +68,55 @@ while (( $# )); do
     esac
 done
 
+if { ((opt_reverse)) && ((opt_count)) ; } || (( limit_to )); then
+    declare color_char_pattern='..33[0-9;]*m'
+    declare line
+    declare count=0
+    while read -r line; do
+        if { [[ $line =~ ${color_char_pattern} ]] && [[ $line =~ commit ]] ; } \
+           || ((opt_id)); then
+            ((count+=1))
+        fi;
+        if { ((count < opt_count)) && ((limit_to == 0)) ; } \
+               || ((count == opt_count)); then
+            echo "$line";
+        fi
+        if  ((count > opt_count)); then
+            break
+        fi
+    done < <("$REALGIT" log --color=always "${pass_on[@]}" )
+    true; exit
+fi
+
+## else...
+if ((opt_reverse)); then
+    pass_on+=("--reverse")
+fi
+if ((opt_count)); then
+    pass_on+=("-$opt_count")
+fi
+
+if [[ "$opt_stop_at" != '0' ]]; then
+    declare -a ids
+    mapfile -t ids < <($REALGIT log --pretty=format:%H)
+
+    declare idlimit=0
+    for id in "${ids[@]}"; do
+        ((idlimit+=1))
+        if [[ $id == "$opt_stop_at" ]]; then
+            pass_on+=("-$idlimit")
+            break
+        fi
+    done
+fi
+
 if ((dispatch_to_real_git)); then
-    ## Currently, we ALWAYS run the real git log, unless we exec-out or exit
-    ## above.
     "$REALGIT" log "${pass_on[@]}" || exit
 fi
 
 true; exit
 
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -108,6 +172,24 @@ List just the commit ids in long format:
   33583f0c19f54f1756d8f9860725f3be354a74b2
   d2984e84a43b7b00cfb788ba6043444a47e33a3b
   ...
+
+=item --stop_at deadbeefdeadbeef
+
+Given a long format commit it, stop the log output at that commit id.
+
+=item --reverse -n
+
+--reverse prints commits from the first log entry forward. -n prints the last
+'n' log entires made. But you can't combine them; -n takes precedence over
+--reverse.
+
+Well, now you can. :-)
+
+=item -nth
+
+-n prints the last n log entries items. -nth gives you only the nth log
+entry. Also works with --reverse. 'st', 'nd', and 'rd' are allowed for
+syntactic-sugar but there is no checking done: -5st and -1th will be accepted.
 
 =back
 

@@ -1,5 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 
 # git-branch
 
@@ -145,11 +146,12 @@ git-branch-delete ()
             delarg=('-d')
         fi
         local brdelstat
+        [[ -n $GIT_EXT_SHOW_CANONICAL ]] && cmd-echo --id git-branch --color BLUE -- "Canonical command: ${REALGIT} branch ${delarg[*]} $branch"
         ${REALGIT} branch "${delarg[@]}" "$branch"
         brdelstat=$?
         if ((brdelstat)); then
             cmd-echo --id git-branch --ec -- "'git branch ${delarg[*]} $branch' failed. Returning '$brdelstat'."
-            return $brdelstat
+            return "$brdelstat"
         fi
         cmd-echo --id git-branch -- "Branch deleted locally."
 
@@ -270,6 +272,7 @@ git-branch-track-remote ()
         already_tracking_remote="$(git config branch."$local_branch".remote)"
         if [[ -z "$already_tracking_remote" ]]; then
             ## Exists, not tracking, track
+            [[ -n $GIT_EXT_SHOW_CANONICAL ]] && cmd-echo --id git-branch --color BLUE -- "Canonical command: ${REALGIT} branch --set-upstream-to $remote/$branch $local_branch"
             ${REALGIT} branch --set-upstream-to "$remote/$branch" "$local_branch"
             _git_branch_info_add_fetched_date "$local_branch"
         else
@@ -363,8 +366,10 @@ git-branch-list ()
     [[ -n $show_current ]] && opts=("$show_current")
 
     if ((strip)); then
+        [[ -n $GIT_EXT_SHOW_CANONICAL ]] && cmd-echo --id git-branch --color BLUE -- "Canonical command: ${REALGIT} branch --no-color ${opts[*]} $* | sed 's/^[ *] //' | sed 's/ .*//'"
         "${REALGIT}" branch --no-color "${opts[@]}" "$@" | sed 's/^[ *] //' | sed 's/ .*//'
     else
+        [[ -n $GIT_EXT_SHOW_CANONICAL ]] && cmd-echo --id git-branch --color BLUE -- "Canonical command: ${REALGIT} branch ${opts[*]} $*"
         "${REALGIT}" branch "${opts[@]}" "$@"
     fi
 }
@@ -566,13 +571,15 @@ print $F[0]')
         declare source_commit
         source_commit=$(git rev-parse HEAD)
         pulloutput=$(mktempfile)
-        rm-on-exit "$pulloutput"
+        rm_on_exit "$pulloutput"
         declare target
         for target in "${!brm[@]}"; do
             cmd-echo --id git-branch --title --color REVBLUE -- "Syncing $target..."
 
             # Copy the new commits from 'source' onto 'target':
+            [[ -n $GIT_EXT_SHOW_CANONICAL ]] && cmd-echo --id git-branch --color BLUE -- "Canonical command: $REALGIT switch ${target}"
             $REALGIT switch "${target}" || return
+            [[ -n $GIT_EXT_SHOW_CANONICAL ]] && cmd-echo --id git-branch --color BLUE -- "Canonical command: $REALGIT pull"
             $REALGIT pull || return
             declare target_commit
             target_commit=$(git rev-parse HEAD)
@@ -685,6 +692,7 @@ main ()
         "$action_func_name" "$@"
     else
         ## Dispatch to real git branch
+        [[ -n $GIT_EXT_SHOW_CANONICAL ]] && cmd-echo --id git-branch --color BLUE -- "Canonical command:${REALGIT} branch $*"
         "${REALGIT}" branch "$@"
     fi
 }

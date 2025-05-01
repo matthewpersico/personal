@@ -14,7 +14,6 @@ declare filter
 declare exact
 declare limited
 declare with_pr
-
 # Read the options and args from command line. Note that the long and short
 # don't have to match up.
 declare OPTSARGS
@@ -65,8 +64,8 @@ filter="$1"
 
 declare tmpfile
 tmpfile=$(mktempfile)
-rm-on-exit "$tmpfile"
-rm-on-exit "${tmpfile}.001"
+rm_on_exit "$tmpfile"
+rm_on_exit "${tmpfile}.001"
 
 declare gitfuncs_git_go_file
 if [[ -n "$limited" ]]; then
@@ -92,11 +91,6 @@ else
         grep '/wt/' "$tmpfile" > "${tmpfile}.001"
         mv "${tmpfile}.001" "$tmpfile"
     fi
-
-    if ((with_pr)); then
-        cmd-echo --id git-go-get -- 'Options --(with|no)-pr not yet implemented'
-    fi
-
 fi
 
 if [[ -n "$filter" ]]; then
@@ -114,6 +108,23 @@ if [[ -n "$filter" ]]; then
         tail     ) grep -E "${grepargs[@]}" "$filter\$"  "$tmpfile" > "${tmpfile}.001" ;;
         *        ) grep -i "${grepargs[@]}" "$filter"    "$tmpfile" > "${tmpfile}.001" ;;
     esac
+    mv "${tmpfile}.001" "$tmpfile"
+fi
+
+if ((with_pr)); then
+    declare repos
+    readarray -t repos < <(cat "$tmpfile")
+    for r in "${repos[@]}"; do
+        (
+            # The false; exit; will exit from the subshell, skipping the rest
+            cd "${TILDAE:-$HOME}/$r" || { echo "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
+            if ((with_pr==1)) && git repo pr-get 1>/dev/null 2>&1 ; then
+                echo "$r"
+            elif ((with_pr==2)) && ! git repo pr-get 1>/dev/null 2>&1 ; then
+                echo "$r"
+            fi
+        )
+    done > "${tmpfile}.001"
     mv "${tmpfile}.001" "$tmpfile"
 fi
 

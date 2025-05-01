@@ -52,13 +52,13 @@ declare source_ctrl_logbkp
 declare -a pscl_flags
 declare git_editor
 declare opt_confirm=0
-declare debug
+declare -a perl_debug
 
 # Read the options and args from command line. Note that the long and short
 # don't have to match up.
 declare OPTSARGS
 declare shortopts='hx'
-declare longopts='debug,verbose,commit,diff::,cached,sclonly,sclpick:,sclmatch:'
+declare longopts='perl-debug,verbose,commit,diff::,cached,sclonly,sclpick:,sclmatch:'
 longopts="$longopts,nosclonly,gcsonly,nogcsonly,filesonly,skip-no-source-ctrl-log,edit"
 longopts="$longopts,confirm,editor:,color:,nountracked,inter,interactive"
 
@@ -82,8 +82,8 @@ while true; do
         x )
             set -x; trap 'set +x' EXIT # OK if you are grepping
             ;;
-        debug )
-            debug='-d:ptkdb' ## no-ptkdb-issue
+        perl-debug )
+            perl_debug=('-d:ptkdb') ## no-ptkdb-issue
             ;;
         verbose | v )
             opt_v='-v'
@@ -223,7 +223,7 @@ export PSCL_LEAD_CHAR='*' ## NOTE: If you change the lead character for items
 ## Status display only
 ##
 if [[ "$action" != 'commit' ]]; then
-    perl $debug -S process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
+    perl "${perl_debug[@]}" -S process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
     exit
 fi
 
@@ -241,7 +241,7 @@ if [[ -f "$source_ctrl_log" ]]; then
 fi
 
 ## Parse
-if ! perl $debug -S process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
+if ! perl "${perl_debug[@]}" -S process-source-ctrl-log --scl "$source_ctrl_log" "${pscl_flags[@]}" "${filelist[@]}"
 then
     rollback
     false; exit
@@ -272,10 +272,10 @@ fi
 ## Preparations
 declare git_status_before
 git_status_before=$(mktempfile -+ before-status)
-rm-on-exit "$git_status_before"
+rm_on_exit "$git_status_before"
 declare git_status_after
 git_status_after=$(mktempfile -+ after-status)
-rm-on-exit "$git_status_after"
+rm_on_exit "$git_status_after"
 
 (
     ## The file names that come out of the control log are repo-root

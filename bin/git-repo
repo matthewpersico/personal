@@ -1,5 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 
 # git-repo
 
@@ -75,7 +76,7 @@ git-repo-check-with ()
         git-check-with-remote "$@"
         status=$?
     fi
-    return $status
+    return "$status"
 }
 
 git-repo-current-branch ()
@@ -91,9 +92,11 @@ git-repo-current-branch ()
         false; return
     else
         local cb
+        [[ -n $GIT_EXT_SHOW_CANONICAL ]] && cmd-echo --id git-repo --color BLUE -- "Canonical command: $REALGIT branch --show-current"
         cb=$($REALGIT branch --show-current)
         if [[ -z $cb ]]; then
             ((warn)) && cmd-echo --id git-repo --wc -- "--show-current can't find current branch. Are you in a rebase? Falling back to alt method"
+            [[ -n "$GIT_EXT_SHOW_CANONICAL" ]] && cmd-echo --id git-repo --color BLUE -- "Canonical command: $REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/'"
             cb=$($REALGIT branch --color=never --contains HEAD | grep '(no branch, rebasing' | sed 's/.* \(.*\))/\1/')
             if [[ -z $cb ]]; then
                 ((warn)) && cmd-echo --id git-repo --ec -- "Cannot get current branch"
@@ -191,7 +194,7 @@ git-repo-delete ()
         if ((status!=$(true; echo $?))); then
             cmd-echo --id git-repo -- "$root_or_err"
             builtin cd "$returnpath" || { cmd-echo --id git-repo "Cannot cd $returnpath"; false; return; }
-            return $status
+            return "$status"
         else
             builtin cd "$root_or_err" || { cmd-echo --id git-repo "Cannot cd $root_or_err"; false; return; }
         fi
@@ -286,7 +289,7 @@ git-repo-delete ()
         cmd-echo --id git-repo -n -- "Done. "
     fi
 
-    return $status
+    return "$status"
 }
 
 git-repo-del ()
@@ -363,7 +366,7 @@ git-repo-diff ()
     local -A list
     list[left]=$(mktempfile -+left)
     list[right]=$(mktempfile -+right)
-    rm-on-exit "${list[left]}" "${list[right]}"
+    rm_on_exit "${list[left]}" "${list[right]}"
 
     # Get lists of files from each repo
     local which
@@ -457,6 +460,14 @@ git-repo-diff ()
     true
 }
 
+git-repo-get_commit () {
+    declare nth=$1
+    if (( nth<=0 )); then
+        echo "We will give 0-$nth commit back from the head"
+    else
+        echo "We wiill give $nth commit from the beginning of the repo"
+    fi
+}
 
 git-repo-is ()
 {
@@ -466,11 +477,12 @@ git-repo-is ()
         shift
     fi
     [[ "$1" ]] && [[ $1 != . ]] && { builtin cd "$1" || return; }
-    git rev-parse --show-toplevel 2>/dev/null 1>&2
-    declare status=$?
+    declare status=0
+    $REALGIT rev-parse --show-toplevel 2>/dev/null 1>&2
+    status=$?
     [[ "$1" ]] && [[ $1 != . ]] && { builtin cd -    || return; }
     (( verbose )) && ( (( status )) && echo false || echo true )
-    return $status
+    return "$status"
 }
 
 git-repo-isa () { git-repo-is "$@"; }
@@ -583,7 +595,7 @@ git-repo-is_openpr ()
     for tgt_namespace in "${!namespaces[@]}"; do
         local tmpfile;
         tmpfile=$(mktempfile)
-        rm-on-exit "$tmpfile"
+        rm_on_exit "$tmpfile"
         github-api --server "$server" --perl-data pulls "$tgt_namespace/$repo" > "$tmpfile"
         local tmpout
         tmpout=$(perl -e '
@@ -687,7 +699,7 @@ _git-repo-pr-get-lookup-pr-state ()
     local -n pr_draft=$6
     local -n pr_title=$7
     local jsondata; jsondata=$(mktempfile git-repo-pr-get.jsondata)
-    rm-on-exit "$jsondata"
+    rm_on_exit "$jsondata"
     github-api --stream-data --server "$remote_svc" --pull "$pullId" pulls "$remote_repo" > "$jsondata"
     pr_state=$(jq -M -r .state "$jsondata")
     pr_title=$(jq -M -r .title "$jsondata")
@@ -719,6 +731,7 @@ git-repo-pr-get ()
 
     eval set -- "$OPTSARGS"
 
+    local -a args=("$@")
     local opt_match_state;
     local opt_print=1
     local opt_refresh=0
@@ -850,7 +863,7 @@ git-repo-pr-get ()
 
     if [[ $cached == 'false' ]]; then
         local perldata; perldata=$(mktempfile -+perldata)
-        rm-on-exit "$perldata"
+        rm_on_exit "$perldata"
         ## TODO: Update github-api to take --date-limit instead of --page-limit
         ## local max_back_date; max_back_date=$(_git-repo-get-wt-or-br-create-date)
         ## --date-limit body->created_at YYYY-MM-DDTHH:MM:SS
@@ -903,8 +916,10 @@ exit UNIX_TRUE;' "$perldata" "$corg" "$cb")
                 # called until a PR is created.
                 false; return
             fi
-            # Cache the no
+            # Cache the no...
             git-repo-pr-store --noopenpr
+            # ...and show it
+            git-repo-pr-get "${args[@]}"
             false; return
         else
             ## Cache the PR and its state
@@ -1026,7 +1041,7 @@ git-repo-sync-with ()
         git-sync-with-remote "$@"
         status=$?
     fi
-    return $status
+    return "$status"
 }
 
 git-repo-prune()
@@ -1179,6 +1194,7 @@ main()
     if declare -F "$action_func_name" >/dev/null; then
         shift ## the $action
         "$action_func_name" "$@"
+        return $?
     else
         case $action in
             * )
@@ -1210,6 +1226,7 @@ git-repo - act on or interrogate the current repo
  n git-repo default-branch
    git-repo del[ete]
  o git-repo diff
+   git-repo get-commit i
    git-repo is
    git-repo ina
    git-repo info|st[atus]
@@ -1224,7 +1241,7 @@ git-repo - act on or interrogate the current repo
 
 o git-repo purge/prune [repo-dir [repo-dir]... ]
 
- DESCRIPTION
+=head1 DESCRIPTION
 
 A collection of actions and data about the current repository.
 
@@ -1258,6 +1275,11 @@ then, in the source repo that has the files you want to copy:
 If you want to more carefully do such a copy, then use --edit to bring all the
 files into your editor and use its diff and write facilities to Do The Right
 Thing.
+
+=item get-commit i
+
+Get the ith commit in the repo. First commit is #1. 0th commit is
+HEAD. Negative commits work backwards from head.
 
 =item is
 

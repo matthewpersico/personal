@@ -42,6 +42,14 @@ _git_rebase_via_ilog ()
             true; exit
         fi
         if [[ "$resp" = 'y' ]]; then
+            ## If you feed the selected sha to the rebase command, the display
+            ## will not show the selected sha, just the ones to be rebased. If
+            ## you try to rebase them all away with 'fixup', you get an error.
+            ## Therefore, we will feed the rebase command the *next* sha so we
+            ## always see the one to base the rebase on. And yes, there might
+            ## be a problem in a new repo with under 3 or 4 commits. Too bad;
+            ## I'm not going to worry about it.
+            rebase_sha=$(git-log-grab-sha -2 "$rebase_sha")
             "$REALGIT" rebase -i "$rebase_sha" || exit
             cmd-echo --id git-rebase --head 'Log is now:'
             if(($($REALGIT log | grep -c -E '^commit') > 2)); then
@@ -93,6 +101,7 @@ main ()
 main "$@"
 exit
 
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
