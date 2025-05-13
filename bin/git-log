@@ -4,13 +4,14 @@
 # git-log
 
 use on_exit
-
-# shellcheck disable=SC2034 # We'll use it eventually
-cmd_echo_id='git-log'
-
 declare dispatch_to_real_git=1
 
 declare -a pass_on
+declare opt_stop_at=0
+declare opt_reverse=0
+declare opt_count=0
+declare opt_id=0
+declare limit_to=0
 
 ## DO NOT attempt to convert this to a 'getopt' implementation; it would
 ## require specifying and handling every existing option in 'git log',
@@ -20,9 +21,8 @@ while (( $# )); do
     shift
     case "$arg" in
         --h | --help )
-            # shellcheck disable=SC2119
             git-usage "$0"
-            exit 0
+            true; exit
             ;;
         --names-only | --names | --with-names | \
             --files | --with-files | --show-files )
@@ -37,20 +37,86 @@ while (( $# )); do
         --short)
             pass_on+=("--pretty=format:'%Cred%h%Creset -%C(yellow)%d%Creset %s %Cgreen(%cr) %C(bold blue)<%an>%Creset'" '--abbrev-commit')
             ;;
+        --id*)
+            opt_id=1
+            pass_on+=("--pretty=format:%h")
+            ;;
+        --ID*)
+            opt_id=1
+            pass_on+=("--pretty=format:%H")
+            ;;
+        --stop-at)
+            opt_stop_at=$1
+            shift
+            ;;
+        --reverse)
+            opt_reverse=1;
+            pass_on+=("--reverse")
+            ;;
+        -[1-9]*)
+            ;&
+        -[1-9][0-9]*)
+            if [[ $arg =~ st|nd|rd|th ]]; then
+                limit_to=1;
+                arg=${arg//[a-z]*/}
+            fi
+            opt_count=$((arg * -1))
+            ;;
         * )
             pass_on+=("$arg")
             ;;
     esac
 done
 
-if ((dispatch_to_real_git)); then
-    ## Currently, we ALWAYS run the real git log, unless we exec-out or exit
-    ## above.
-    "$REALGIT" log "${pass_on[@]}" || exit $?
+if { ((opt_reverse)) && ((opt_count)) ; } || (( limit_to )); then
+    declare color_char_pattern='..33[0-9;]*m'
+    declare line
+    declare count=0
+    while read -r line; do
+        if { [[ $line =~ ${color_char_pattern} ]] && [[ $line =~ commit ]] ; } \
+           || ((opt_id)); then
+            ((count+=1))
+        fi;
+        if { ((count < opt_count)) && ((limit_to == 0)) ; } \
+               || ((count == opt_count)); then
+            echo "$line";
+        fi
+        if  ((count > opt_count)); then
+            break
+        fi
+    done < <("$REALGIT" log --color=always "${pass_on[@]}" )
+    true; exit
 fi
 
-exit 0
+## else...
+if ((opt_reverse)); then
+    pass_on+=("--reverse")
+fi
+if ((opt_count)); then
+    pass_on+=("-$opt_count")
+fi
 
+if [[ "$opt_stop_at" != '0' ]]; then
+    declare -a ids
+    mapfile -t ids < <($REALGIT log --pretty=format:%H)
+
+    declare idlimit=0
+    for id in "${ids[@]}"; do
+        ((idlimit+=1))
+        if [[ $id == "$opt_stop_at" ]]; then
+            pass_on+=("-$idlimit")
+            break
+        fi
+    done
+fi
+
+if ((dispatch_to_real_git)); then
+    "$REALGIT" log "${pass_on[@]}" || exit
+fi
+
+true; exit
+
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -80,6 +146,50 @@ AND see the renames in the log. Only works for one file at a time.
 =item --diff
 
 Synonym for -p.
+
+=item --ids
+
+List just the commit ids in short format:
+
+  f4328da
+  99b0288
+  cd7681c
+  6965d9b
+  82817e6
+  33583f0
+  d2984e8
+  ...
+
+=item --IDs
+
+List just the commit ids in long format:
+
+  f4328dada1e636d2f0b045222d2f16d6f2fb121b
+  99b028819cc618967e0f362af45119d4af7b76b6
+  cd7681ccf840b7dd4885ed4811f500dc31173e9a
+  6965d9b40c865275edb1cc67b115898a86ebcf6e
+  82817e638883d1d9aa9efec2771cf45e2de2c6aa
+  33583f0c19f54f1756d8f9860725f3be354a74b2
+  d2984e84a43b7b00cfb788ba6043444a47e33a3b
+  ...
+
+=item --stop_at deadbeefdeadbeef
+
+Given a long format commit it, stop the log output at that commit id.
+
+=item --reverse -n
+
+--reverse prints commits from the first log entry forward. -n prints the last
+'n' log entires made. But you can't combine them; -n takes precedence over
+--reverse.
+
+Well, now you can. :-)
+
+=item -nth
+
+-n prints the last n log entries items. -nth gives you only the nth log
+entry. Also works with --reverse. 'st', 'nd', and 'rd' are allowed for
+syntactic-sugar but there is no checking done: -5st and -1th will be accepted.
 
 =back
 

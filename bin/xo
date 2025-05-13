@@ -16,18 +16,20 @@ forceX=0
 emacs_exe=$(type -P emacs)
 if [[ -z $emacs_exe ]] ; then
     echo "No emacs executable found. Bye!"
-    exit 1
+    false; exit
 fi
 emacsclient_exe="${emacs_exe}client"
 declare -a git_is_mod ## These are modified files in a git repo
 declare -a which      ## We used to use the 'which' utility to find these
 declare -a org        ## The org file
-declare -a xorc       ## If we find ./xo.rc, we read it for files to load
 declare as_visual=0
 declare new_frame=0
 declare more_opts=1
 declare nobg=0
 declare use_rc=1
+declare xo_verbose=0
+declare files_only=0
+declare stdin_file=''
 declare -a emacs_opts
 while ((more_opts)) && [[ "$1" =~ ^- ]]; do
     original="$1"
@@ -43,14 +45,14 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             else
                 $emacs_exe -g +${rootx}+${rooty} "$@" &
             fi
-            exit 0
+            true; exit
             ;;
         nobg )
             nobg=1
             ;;
         debug-init )
             emacs_opts+=('--debug-init') ;;
-        debug | x ) set -x; debug=1 ;;
+        debug | x ) set -x; debug=1 ;; # OK if you are grepping
         forceX ) forceX=1 ;;
         which )
             declare tmp
@@ -67,7 +69,7 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             emacsclient_exe="$1/emacsclient"
             declare i
             for i in $emacs_exe $emacsclient_exe; do
-                [[ -x "$i" ]] || (cmd-echo --id xo "Cannot find '$i'. --root cannot be used." && exit 1);
+                [[ -x "$i" ]] || (cmd-echo --id xo "Cannot find '$i'. --root cannot be used." && { false; exit; });
             done
             shift
             ;;
@@ -76,19 +78,23 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             emacsclient_exe="${1}client"
             declare i
             for i in $emacs_exe $emacsclient_exe; do
-                [[ -x "$i" ]] || (cmd-echo --id xo "Cannot find '$i'. --root cannot be used." && exit 1);
+                [[ -x "$i" ]] || (cmd-echo --id xo "Cannot find '$i'. --root cannot be used." && { false; exit; });
             done
             shift
             ;;
         gim )
-            mapfile -t git_is_mod < <(git what is mod 2>/dev/null)
-            if [[ -z "${git_is_mod[0]}" ]]; then
-                if ! git root 2>/dev/null 1>&2; then
-                    cmd-echo --id xo -- "--gim not allowed; not in a git repo"
-                else
-                    cmd-echo --id xo -- "No modified git files found."
+            if git repo isa; then
+                mapfile -t git_is_mod < <(git what is mod 2>/dev/null)
+                if [[ -z "${git_is_mod[0]}" ]]; then
+                    if ! git root 2>/dev/null 1>&2; then
+                        cmd-echo --id xo -- "--gim not allowed; not in a git repo"
+                    else
+                        cmd-echo --id xo -- "No modified git files found."
+                    fi
+                    false; exit
                 fi
-                exit 1
+            else
+                cmd-echo --id xo "${PWD} is not a git repo. --gim ignored"
             fi
             ;;
         nf )
@@ -100,19 +106,29 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
         norc )
             use_rc=0
             ;;
+        xov )
+            xo_verbose=1
+            ;;
+        fo | files-only )
+            files_only=1
+            ;;
+        std| stdin-file )
+            stdin_file=$1
+            shift
+            ;;
         help )
-            bash-usage "$0"; exit 0;;
+            bash-usage "$0"; { true; exit; } ;;
         -- )
             more_opts=0
             ;;
         * )
-            cmd-echo --id xo -- "$original is an invalid option. See $0 --help"; exit 1;;
+            cmd-echo --id xo -- "$original is an invalid option. See $0 --help"; { false; exit; } ;;
     esac
 done
 
 ## Temp file for processing and diagnostic messages.
 procs=$(mktempfile xo.$$)
-rm-on-exit "$procs"
+rm_on_exit "$procs"
 
 ##
 ## Main
@@ -135,7 +151,7 @@ case $OS in
         ;;
     * )
         cmd-echo --id xo "ps command for $OS not defined"
-        exit 1
+        false; exit
         ;;
 esac
 cutstart=$($pscmd | head -1 | sed 's/ PID.*/ PID/')
@@ -163,7 +179,7 @@ fi
 ## Get potential emacs server processes. The last grep is because emacsclient
 ## is called usually directly (no path, no processing by this script) when the
 ## $EDITOR command is used.
-$pscmd | grep "$grepargs" | grep -v grep | \
+$pscmd | grep "$grepargs" | grep -v ' grep '| \
     grep -vi "$emacs_exe -Q" | \
     grep -vi "$emacsclient_exe -c" | \
     grep -vi " emacsclient -c " | \
@@ -192,33 +208,74 @@ elif [[ "$1" = '--nf' ]] || [[ "$1" = '-nf' ]]; then
     shift
 fi
 
-if ((use_rc)) && [[ -r ./xo.rc ]]; then
-    declare xorcline
-    while read -r xorcline; do
-        declare -a xorcline_a
-        read -a xorcline_a -r <<< "$xorcline"
-        xorc+=("${xorcline_a[@]}")
-    done < ./xo.rc
-    [[ -n ${xorc[0]} ]] && cmd-echo --id xo -- "Loading these files from ./xo.rc:" "${xorc[@]}"
+declare -a allfiles
+if [[ -p /dev/stdin ]]; then
+    if [[ -z $stdin_file ]]; then
+        stdin_file=$(mktempfile)
+        rm_on_exit "$stdin_file"
+    fi
+    declare tmpline
+    while read -r tmpline; do echo "$tmpline"; done > "$stdin_file"
+    allfiles=("$stdin_file")
+else
+    allfiles=("$@" "${org[@]}" "${git_is_mod[@]}" "${which[@]}")
+    if ((use_rc)) && [[ -r ./xo.rc ]] && [[ ${#allfiles[@]} == '0' ]]; then
+        declare xorcline
+        while read -r xorcline; do
+            declare -a xorcline_a
+            read -a xorcline_a -r <<< "$xorcline"
+            allfiles+=("${xorcline_a[@]}")
+        done < ./xo.rc
+        if (( ${#allfiles[@]} )); then
+            cmd-echo --id xo -- "Loading these files from ./xo.rc:" "${allfiles[@]}"
+        fi
+    fi
+
+    if ((files_only)); then
+        declare tmpf
+        for tmpf in "${allfiles[@]}"; do
+            [[ -f $tmpf ]] && tmpa+=("$tmpf");
+        done
+        allfiles=("${tmpa[@]}")
+    fi
+
+    declare -a allfilesparsed
+    read -r -a allfilesparsed < <(perl -e '
+for (@ARGV) {
+  @s = split(/:/, $_);
+  if($s[-1] =~ m/^[0-9]+$/) {
+    # print("+$s[1] $s[[0] ") does not account for files with : in their
+    # names.
+    $n=pop @s;
+    print qq(+$n ) . join(q(:),@s) . q( );
+  } else {
+      print qq($_ );
+  }
+} ' "${allfiles[@]}")
+    allfiles=("${allfilesparsed[@]}")
 fi
 
-declare -a allfiles
-allfiles=("$@" "${org[@]}" "${git_is_mod[@]}" "${which[@]}" "${xorc[@]}")
 if ((serverup==0)); then
     if ((as_visual==0)) && ((new_frame==0)); then
         if (( hasX )); then
             declare rootx=$XTERMGEO_X
             declare rooty=$XTERMGEO_Y
             if ((nobg)); then
+                ((xo_verbose)) && set -x # OK if you are grepping
                 $emacs_exe -g "+${rootx}+${rooty}" \
                            "${emacs_opts[@]}" "${allfiles[@]}"
+                ((xo_verbose)) && set +x # OK if you are grepping
             else
+                ((xo_verbose)) && set -x # OK if you are grepping
                 $emacs_exe -g "+${rootx}+${rooty}" \
                            "${emacs_opts[@]}" "${allfiles[@]}" &
+                ((xo_verbose)) && set +x # OK if you are grepping
             fi
         else
+            ((xo_verbose)) && set -x # OK if you are grepping
             $emacs_exe -nw \
                        "${emacs_opts[@]}" "${allfiles[@]}" < /dev/tty
+            ((xo_verbose)) && set +x # OK if you are grepping
         fi
     else
         cmd-echo --id xo "No emacs server found. Start one and try again or use -m."
@@ -227,14 +284,22 @@ elif ((serverup==1)); then
     if ((${#allfiles[@]})); then
         if ((new_frame)); then
             if ((nobg)); then
+                ((xo_verbose)) && set -x # OK if you are grepping
                 $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs'
+                ((xo_verbose)) && set +x # OK if you are grepping
             else
+                ((xo_verbose)) && set -x # OK if you are grepping
                 $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs' &
+                ((xo_verbose)) && set +x # OK if you are grepping
             fi
         elif ((as_visual==1)); then
+            ((xo_verbose)) && set -x # OK if you are grepping
             $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}"
+            ((xo_verbose)) && set +x # OK if you are grepping
         else
+            ((xo_verbose)) && set -x # OK if you are grepping
             $emacsclient_exe -n -a "$emacs_exe" "${emacs_opts[@]}" "${allfiles[@]}"
+            ((xo_verbose)) && set +x # OK if you are grepping
         fi
     else
         cmd-echo --id xo "Server already up. Specify a file to edit."
@@ -246,8 +311,9 @@ else
     cat "$procs"
 fi
 
-exit 0
+true; exit
 
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -258,12 +324,14 @@ xo - Start up emacs, using X and client mode where possible.
   xo [--debug] [--forceX] [--root /path/to/emacs-root-dir] \\
      [--exe /path/to/emacs ] \\
      [--org|--todo] [--gim] [--which file[,file...]] \\
-     [--norc] \\
+     [--norc] [--nf] [--xov] [--fo|files-only] \\
      [-- any-emacs-opts] [file [file...]]
 
   xo [--nobg] --geo-only <emacs opts and args>
 
   xo --help
+
+  somecommand arg1 | xo [ --std[in-file] name ]
 
 =head1 DESCRIPTION
 
@@ -281,6 +349,47 @@ droop".
 =item file
 
 Files to edit. But see options below for other items to filter or substitute for a file list.
+
+Note: We have plugged in some parsing of filename arguments such that if you
+are highlighting the filename from a 'grep -n' listing and instead of getting
+just the filename (the/filename) you highlight
+
+=over 4
+
+=item the/filename:
+
+we drop the last colon.
+
+=item the/filename:456
+
+we assume that the number is a line number from the grep -n and translate that into
+
+  +456 the/filename
+
+so that emacs will open the file and place the cursor on that number line.
+
+=item the/filename:456:
+
+drop the last colon, open the file and place the cursor on that line.
+
+=back
+
+=item somecommand
+
+You can pipe the stdout of any command into 'xo'. We implement this by simply
+writing the input to a temp file and then editing the temp file. The file will
+be removed when 'xo' exists. If you want to capture stderr too, just '2>&1'
+before you pipe.
+
+If you want a specfic name and location for the piped in data so that you can
+save it, use the '--stdin-file' option to provide the name. 'xo' will not
+delete such a file on exit.
+
+It is left as an exercise for the reader to see if any options to 'xo' are
+useful when piping data in.
+
+Note that the input must be complete before the temp file can be opened by
+'xo'; you cannot use 'xo' as a fancy 'tail -f'. Sorry.
 
 =back
 
@@ -331,6 +440,14 @@ paths or relative the direcdtory in which the xo.rc file is found.
 =item --nf
 
 New frame. Open this file in a new frame.
+
+=item --xov
+
+Print the emacs command that is run.
+
+=item --fo|--files-only
+
+Files only. If you do 'xo *', skip the directories.
 
 =item -- any-emacs-opts
 

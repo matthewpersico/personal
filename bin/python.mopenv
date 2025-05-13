@@ -1,0 +1,69 @@
+# -*- sh -*-
+# shellcheck shell=bash
+# shellcheck disable=SC2218 #https://github.com/koalaman/shellcheck/wiki/SC2218
+
+# python.mopenv - Even though we have this file in PERSONALBIN, you should invoke
+# it from EMPBIN if there is a EMPBIN because you'll need any WORK paths on
+# PATH to find where your WORK installs Python.
+
+# We'll check for virtualenv in PS1 ourselves.
+export VIRTUAL_ENV_DISABLE_PROMPT=1
+
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+declare cmd_echo_id='python.mopenv'
+if [[ -e "${TILDAE:-$HOME}/.config/skip_python" ]]; then
+    cmd-echo --id "$cmd_echo_id" --info -- "Skipping local python by request (${TILDAE:-$HOME}/.config/skip_python exists)"
+    return ## This file gets dotted in
+fi
+
+## What versions to we have?
+function python_show_versions {
+     find "$EMPOPTGLOBALROOT/bin" -name 'python*' \
+          | perl -ne '
+$_ =~ m/python[0-9.]+$/ && chomp && push @p, [split(/\./,$_)];
+END { print(join(q( ),
+                 map { s/.*python//; $_ }
+                 map { join(q(.), @$_) }
+                 sort { $a->[0] cmp $b->[0]
+                        ||
+                        $a->[1] <=> $b->[1]
+                      } @p)) }'
+}
+
+## What version do we want?
+declare wanted_python_version_file="${TILDAE:-$HOME}/.config/python_version"
+read -r wanted_python_version < <(cat "$wanted_python_version_file")
+export PYTHON_VERSION=$wanted_python_version
+export PYTHON_EXE=$EMPOPTGLOBALROOT/bin/python$wanted_python_version
+
+## Find the latest python
+declare -a python_versions
+read -r -a python_versions < <(python_show_versions)
+declare latest_python_version=${python_versions[-1]}
+
+function python_compare_versions {
+    perl -e '
+    @cmps = map { [split(/\./, $_) ] } @ARGV[0,2];
+    $cmp = ($cmps[0]->[0] <=> $cmps[1]->[0]
+           ||
+           $cmps[0]->[1] <=> $cmps[1]->[1]);
+    for ( $ARGV[1] ) {
+        /=/ && $cmp ==  0 && exit 0;
+        /</ && $cmp == -1 && exit 0;
+        />/ && $cmp ==  1 && exit 0;
+        exit 1
+    }
+' "$@"
+}
+
+if python_compare_versions "$wanted_python_version" '=' "$latest_python_version"; then
+    cmd-echo --id "python.mopenv" -- "python $wanted_python_version is default"
+else
+    cmd-echo --id "python.mopenv" -wc -- "python wanted version $wanted_python_version does not match latest available version $latest_python_version"
+fi
+if [[ ! -x $EMPOPTGLOBALROOT/bin/python${wanted_python_version} ]]; then
+    cmd-echo --id "python.mopenv" -wc -- "python wanted version $wanted_python_version is not in $EMPOPTGLOBALROOT/bin"
+fi
+
+PYTHONENV_LOADED=1
+export PYTHONENV_LOADED
