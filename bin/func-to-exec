@@ -7,23 +7,24 @@ if [[ "${PWD}" =~ functions ]] || \
        [[ "${PWD}" =~ bin ]]; then
     cmd-echo --id func-to-exec 'Cannot be in functions or bin subdir for conversion.' \
                 'cd .. and re-exec.'
-    exit 1
+    false; exit
 fi
 
 if [[ -z "$1" ]] || [[ $1 =~ ^-+h ]]; then
     cmd-echo --id func-to-exec "usage: $0 [--convert-only] [--force] func [func...]" \
                 "       You can use or not use the 'function/'" \
                 "       prefix;we will adjust."
-    exit 1;
+    false; exit
 fi
 
-convert_only=0
+declare convert_only=0
+declare -a force
 while [[ "$1" =~ ^- ]]; do
     if [[ "$1" = '--convert-only' ]]; then
         convert_only=1
         shift
     elif [[ "$1" = '--force' ]]; then
-        force='--force'
+        force+=('--force')
         shift
     fi
 done
@@ -51,7 +52,7 @@ for raw_src_path in "${raw_src_paths[@]}"; do
         cmd-echo --id func-to-exec -- "$src_path not found"
         ((bad+=1))
     else
-        if [[ "$force" = '--force' ]]; then
+        if [[ "${force[0]}" = '--force' ]]; then
             justified=''
         else
             justified=$(grep 'Function Justification' "$src_path" | \
@@ -68,8 +69,8 @@ for raw_src_path in "${raw_src_paths[@]}"; do
         fi
     fi
 done
-((${#src_paths[@]}==0)) && cmd-echo --id func-to-exec "No sources found to convert. Bailing." && exit 1
-((bad)) && cmd-echo --id func-to-exec "Some sources bad. Bailing" && exit 1
+((${#src_paths[@]}==0)) && cmd-echo --id func-to-exec "No sources found to convert. Bailing." && { false; exit; }
+((bad)) && cmd-echo --id func-to-exec "Some sources bad. Bailing" && { false; exit; }
 
 ## Copy function files to bin
 cmd-echo --id func-to-exec "Copying function files..."
@@ -79,9 +80,9 @@ done
 
 ## Do the conversions
 cmd-echo --id func-to-exec "Converting to scripts..."
-if ! perl -S func-to-exec.pl $force "${tgt_paths[@]}"; then
+if ! perl -S func-to-exec.pl "${force[0]}" "${tgt_paths[@]}"; then
     ## Each conversion of bin/foo will be in bin/foo.new
-    exit $?
+    exit
 fi
 
 ## Review the conversions
@@ -105,7 +106,7 @@ for funcname in "${funcnames[@]}"; do
             if((scstatus)); then
                 $EDITOR "${tmp_path}" /tmp/func-to-exec.$$
             fi
-            \rm /tmp/func-to-exec.$$
+            command rm /tmp/func-to-exec.$$
         done
 
         diff -w "${src_path}" "${tmp_path}" && true ## so that a diff does not
@@ -127,7 +128,7 @@ for funcname in "${revert_list[@]}"; do
     cmd-echo --id func-to-exec "Reverting $funcname..."
     tgt_path="${tgt_paths[$funcname]}"
     tmp_path="${tmp_paths[$funcname]}"
-    \rm -f "$tgt_path" "$tmp_path"
+    command rm -f "$tgt_path" "$tmp_path"
     unset 'src_paths["$funcname"]'
     unset 'tgt_paths["$funcname"]'
     unset 'tmp_paths["$funcname"]'
@@ -137,11 +138,11 @@ if (( convert_only == 0 )); then
 
     if ((!${#commit_list[@]})); then
         cmd-echo --id func-to-exec 'Nothing to commit.'
-        exit 0
+        true; exit
     fi
 
     ## Get rid of the new files we used as input to the Perl conversion script.
-    \rm -f "${tgt_paths[@]}"
+    command rm -f "${tgt_paths[@]}"
 
     ## Do the git move
     cmd-echo --id func-to-exec "git mv ${src_paths[*]} bin"

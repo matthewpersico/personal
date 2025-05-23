@@ -3,32 +3,84 @@
 
 # git-go
 
-if [[ -z $GIT_DISPATCHER ]]; then
+if [[ -z $GIT_DISPATCHER ]] \
+       && [[ ! $1 =~ ^-+h ]]; then
     git-dispatch-warning git-go
 fi
 
 use mktemp
 use on_exit
 
-tail-number-strip ()
+_line-dehance ()
 {
-    local a
+    local a notime
     for a in "$@"; do
-        echo "${a% (*}"
+        notime="${a##*:}"
+        echo "${notime% (*}"
     done
 }
 
-tail-number-add ()
+_line-enhance ()
 {
     local i=0
-    for a in "$@"; do
-        ((i+=1))
-        printf '%s (%d\n' "$a" "$i"
-    done
+    local addtime=0
+    if [[ $1 == '--time' ]] || [[ $1 == '--notime' ]]; then
+        [[ $1 == '--time' ]] && addtime=1;
+        shift;
+    fi
+    if (( ! addtime )) ; then
+        for a in "$@"; do
+            ((i+=1))
+            printf '%s (%d\n' "$a" "$i"
+        done
+    else
+        declare gitfuncs_git_went_file="${TILDAE:-$HOME}/gits/.git-went"
+        declare repo secs time line
+        declare -a lines
+        for a in "$@"; do
+            # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+            read -r repo secs < <(grep -E "^$a " "$gitfuncs_git_went_file")
+            if [[ -n $secs ]]; then
+                time="$(date -d @"$secs"):"
+            else
+                time=''
+            fi
+            line=$(printf '%d|%s%s' "$secs" "$time" "$a")
+            lines+=("$line")
+        done
+        declare sorted
+        readarray -t sorted < <(printf '%s\n' "${lines[@]}" | sort -n)
+        for a in "${sorted[@]}"; do
+            ((i+=1))
+            printf '%s (%d\n' "${a##*|}"  "$i"
+        done
+
+    fi
+}
+
+_set-and-go ()
+{
+    local repo=$1
+    local doandcdfile=$2
+
+    if [[ -n "$repo" ]]; then
+	declare th
+	th="$(realpath "${TILDAE:-$HOME}")"
+        declare full_repo="${th}/"${repo##"${th}/"}
+        if [[ ! -d "$full_repo" ]]; then
+            cmd-echo --id git-go --ec -- "'$repo' does not exist. It will be removed from consideration."
+            git go-set
+            false; exit
+        fi
+        ## dirlist, not builtin cd, to take advantage this cd enhancement
+        dirlist "$full_repo"
+    fi
+
+    [[ -n "$doandcdfile" ]] && echo "dirlist ${PWD}" > "$doandcdfile"
 }
 
 declare PS3
-PS3="Choose by number, /string to rematch, q to quit: "
+PS3="Choose by number, /string to rematch, --time to redisplay with times, q to quit: "
 declare -a git_get_opts
 declare opt_list
 opt_list=0
@@ -48,6 +100,14 @@ declare opt_repo_no
 opt_repo_no=0
 declare opt_comma
 opt_comma=0
+declare opt_top
+opt_top=0
+declare opt_time
+opt_time='--notime'
+declare opt_root
+opt_root='0'
+declare opt_show_pr
+opt_show_pr=0
 declare -a limited
 declare -a tgts
 declare doandcdfile
@@ -63,13 +123,11 @@ longopts="$longopts,wc,with-comments,wco,with-comments-only"
 longopts="$longopts,list,lf,listfull,size,update"
 longopts="$longopts,wt,nowt,wto"
 longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
-longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,set"
+longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,show-pr,spr,set,top:,time,notime"
+longopts="$longopts,root,prune,page"
 
 # Process the command line.
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$0" -- "$@")
-declare status
-status=$?
-((status != 0)) && return $status ## return $status ## in functions
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$0" -- "$@") || exit
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -84,7 +142,6 @@ while true; do
     case "$option" in
         upstream) declare tmp
                   tmp=$(git remote get-url upstream 2>/dev/null)
-                  # shellcheck disable=SC2154
                   if [[ -z $tmp ]]; then
                       cmd-echo --id git-go -ec -- "No upstream for current repo (${PWD})"
                       false; exit
@@ -98,6 +155,7 @@ while true; do
         wco | with-comments-only ) opt_comments=2; opt_list=1 ;;
         wpr | with-pr ) git_get_opts+=('--with-pr');;
         npr | no-pr ) git_get_opts+=('--no-pr');;
+        spr | show-pr ) opt_show_pr=1; opt_list=1 ;;
         l | list ) opt_list=1 ;;
         lf | listfull ) opt_list=2 ;;
         comma ) opt_comma=1 ;;
@@ -116,7 +174,11 @@ while true; do
         set ) cmd-echo --id git-go -- Working...
               git go-set; true; exit;;
         prune ) cmd-echo --id git-go -- Working...
-              git go-prune; true; exit;;
+                git go-prune "$@"; true; exit;;
+        top) opt_top=$1; shift ;;
+        time ) opt_time='--time';;
+        notime ) opt_time='--notime';;
+        root ) opt_root=1;;
         h | help ) git-usage "$0"; true; exit ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
@@ -126,9 +188,14 @@ while true; do
             ;;
     esac
 done
+
+if ((opt_root)); then
+    _set-and-go "$(git root)" "$doandcdfile"
+    true; exit
+fi
+
 if ((opt_stat!=2)) && ((opt_brief)); then
-    cmd-echo --id git-go -ec -- "Cannot specify --brief without --dirty"
-    git-usage "$0"; false; exit
+    git-usage "$0" "Cannot specify --brief without --dirty"; false; exit
 fi
 
 ## These settings are here and not in the case above where they are set because
@@ -159,7 +226,7 @@ tgts=("${tgts[@]:1}")
 
 ## The rest need the REPOS feedback.
 for tgt in "${tgts[@]}"; do
-    readarray -t tns < <(tail-number-strip "${REPOS[@]}")
+    readarray -t tns < <(_line-dehance "${REPOS[@]}")
     declare alltgts
     ajoin alltgts -s ',' "${tns[@]}"
     readarray -t REPOS < <(git go-get --limited "$alltgts" "$tgt")
@@ -180,6 +247,12 @@ if ((${#REPOS[@]}==0)); then
     fi
     false; exit
 else
+    if ((opt_top)); then
+        declare -a repostemp
+        repostemp=("${REPOS[@]:0:$opt_top}")
+        REPOS=("${repostemp[@]}")
+    fi
+
     if ((opt_mod)); then
         for r in "${REPOS[@]}"; do
             (
@@ -198,7 +271,7 @@ else
             ## Re-sort the list of repos by size descending using
             ## byte-level counts.
             repos_size=$(mktempfile)
-            rm-on-exit "$repos_size"
+            rm_on_exit "$repos_size"
             for r in "${REPOS[@]}"; do
                 du -s --exclude wt "${TILDAE:-$HOME}/${r}"
             done > "$repos_size"
@@ -235,14 +308,20 @@ else
                         cd "${TILDAE:-$HOME}/$r" || { cmd-echo --id git-go -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
                         declare output
                         output="$(git comment --show --hi)"
-                        # shellcheck disable=SC2030 #https://github.com/koalaman/shellcheck/wiki/SC2030
                         if ((opt_comments==1)) || \
                                ( ((opt_comments==2)) && [[ -n $output ]] ); then
                             echo "$rexp"
                         fi
-                        # shellcheck disable=SC2031 #https://github.com/koalaman/shellcheck/wiki/SC2031
                         [[ -n "$output" ]] && echo "    $output" && echo
                     )
+                elif ((opt_show_pr)); then
+                     (
+                        cd "${TILDAE:-$HOME}/$r" || { cmd-echo --id git-go -ec -- "Cannot cd ${TILDAE:-$HOME}/$r"; false; exit; }
+                        echo "$rexp"
+                        echo -n "    "
+                        git repo pr-get
+                        echo
+                     )
                 else
                     echo -n "$rexp"
                     if ((opt_comma)) && [[ "$r" != "${REPOS[-1]}" ]]; then ## and not the last rexp
@@ -280,7 +359,7 @@ else
             cmd-echo --id git-go -- "Matches only ${REPOS[0]}. Going there."
             REPO=${REPOS[0]}
         else
-            readarray -t REPOS < <(tail-number-add "${REPOS[@]}")
+            readarray -t REPOS < <(_line-enhance $opt_time "${REPOS[@]}")
             COLUMNS=1 ## One character wide terminal, forces list to be one
                       ## column.
 
@@ -289,20 +368,24 @@ else
                     exit
                 fi
                 if [[ -n "$REPO" ]]; then
-                    REPO=$(tail-number-strip "$REPO")
+                    REPO=$(_line-dehance "$REPO")
                     break
                 elif [[ "${REPLY,,}" = 'q' ]]; then
                     exit
-                elif [[ "$REPLY" =~ ^/ ]]; then
+                elif [[ "$REPLY" =~ ^/ ]] || [[ "$REPLY" = '--time' ]]; then
+                    if [[ "$REPLY" = '--time' ]]; then
+                        opt_time="$REPLY"
+                        REPLY='/'
+                    fi
                     declare repolist
                     # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
-                    # Wants to quote "$(trail_number_strip...), but we need the
+                    # Wants to quote "$(_line__number_strip...), but we need the
                     # output to be individual items so that ajoin works. Will
                     # be an issue if a path has a space in it.
-                    ## TODO - tail-number-strip should take an array as a target and not
+                    ## TODO - _line-dehance should take an array as a target and not
                     ## use 'echo' to return its output.
-                    ajoin repolist -s ',' $(tail-number-strip "${REPOS[@]}")
-                    git go --limited "$repolist" "${REPLY#/}"
+                    ajoin repolist -s ',' $(_line-dehance "${REPOS[@]}")
+                    git go "$opt_time" --limited "$repolist" "${REPLY#/}"
                     break
                 else
                     cmd-echo --id git-go -ec -- "'$REPLY' is an invalid choice"
@@ -312,22 +395,12 @@ else
     fi
 fi
 
-if [[ -n "$REPO" ]]; then
-    if [[ ! -d "${TILDAE:-$HOME}/$REPO" ]]; then
-        cmd-echo --id git-go --ec -- "'$REPO' does not exist. It will be removed from consideration."
-        git go-set
-        false; exit
-    fi
-    ## dirlist, not builtin cd, to take advantage this cd enhancement
-    dirlist "${TILDAE:-$HOME}/${REPO}"
-fi
-
-[[ -n "$doandcdfile" ]] && echo "ecd ${PWD}" > "$doandcdfile"
+_set-and-go "$REPO" "$doandcdfile"
 
 true
 
 :<<'__USAGE__'
-Usage: git go [options] [ filter [filter...] ]
+Usage: git go [options] [ [^]filter [ [^]filter...] ]
 
    git go --upstream
 
@@ -413,7 +486,24 @@ Usage: git go [options] [ filter [filter...] ]
        try to remove it. The repo must have no open PRs and no uncommitted
        objects.
 
-   'filter' will filter the list using grep.
+   --top n
+       Return only the first 'n' items of a list. Useful to present the base
+       repo when there are a lot of worktrees.
+
+   --time
+      Sort the list by the last time the repo was entered using 'git-go', from
+      earliest to latest, showing the 'cd' time on the left. Repos not yet
+      entered after this functionality was added will show no time. and will
+      sort alphabetically.
+
+   --root
+      Go directly to the root level of the current repo, ostensibly from some
+      subdir of the repo, no menu presented.
+
+   'filter' will filter the list using grep to match the filter. ^filter will
+   filter non matches (-v in grep). We use '^' instead of '!' because '!' is
+   used to recall history and needs to be backslashed or quoted, both of which
+   are annoying.
 
    You can specify 'item' only after one 'dirmatch' filter. Otherwise you
    can specify 0 or more 'dirmatch' filters. If the first 'dirmatch' filter

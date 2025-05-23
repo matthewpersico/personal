@@ -22,7 +22,6 @@ addpath ()
     ###########################################################################
 
     typeset options_shift_val options_missing_arg
-    # shellcheck disable=SC2034 # options_unknown_opt may be set in 'options'
     typeset options_unknown_opt
     typeset options_num_args_left
     typeset opt_h opt_p opt_s
@@ -71,7 +70,6 @@ addpath ()
         pathfunc_usage "${USAGE[@]}" "Missing argument for -$options_missing_arg"
         return
     fi
-    # shellcheck disable=SC2154
     if [[ -n "$options_unknown_opt" ]]; then
         pathfunc_usage "${USAGE[@]}" "Unknown option -$options_unknown_opt"
         return
@@ -107,7 +105,7 @@ addpath ()
     # ennvar and move on. But first, we special case MANPATH because if it is
     # not currently set and we set it, we have to include the system manpage
     # paths, or we lose them.
-    eval tmp=\$$pathvar
+    eval tmp=\$"$pathvar"
     local assigned=0
     if [[ "$tmp" = "" ]]; then
         if [[ "$pathvar" = 'MANPATH' ]]; then
@@ -116,17 +114,17 @@ addpath ()
         fi
         ## We re-eval just in case the manpath function returns nothing; i.e.;
         ## not present or misconfigured.
-        eval tmp=\$$pathvar
+        eval tmp=\$"$pathvar"
         if [[ "$tmp" = "" ]]; then
             # If asked, check to see if the path exists on disk and bail if it
             # does not.
             if (( opt_d || opt_D )) && [[ ! -d "$dirname" ]]; then
                 (( opt_d )) && echo "$dirname does not exist. Skipping."
-                return 1
+                false; return
             fi
             ## Single quotes in case dirname contains spaces, (), or other
             ## "weird" characters.
-            eval $pathvar="'$dirname'"
+            eval "$pathvar"="'$dirname'"
             assigned=1
         fi
     fi
@@ -136,13 +134,13 @@ addpath ()
         # does not.
         if (( opt_d || opt_D )) && [[ ! -d "$dirname" ]]; then
             (( opt_d )) && echo "$dirname does not exist. Skipping."
-            return 1
+            false; return
         fi
 
         # Only add the new value if it DNE, unless we explicitly said to move it
         local element
         local oldvalue
-        oldvalue=$(eval echo \$$pathvar)
+        oldvalue=$(eval echo \$"$pathvar")
         element=$(echo "$oldvalue" | awk "BEGIN{RS=\"$sep\"}{print}" | grep -x "$dirname")
         if [[ ! "$element" = "" ]] && ((opt_m)); then
             # delete it (so we can re-add it)
@@ -170,7 +168,7 @@ addpath ()
             elif [[ -n "$opt_i" ]]; then
                 # Break it up...
                 typeset -a oldparts
-                mapfile -t oldparts < <(listpath -s "${sep}" -p $pathvar)
+                mapfile -t oldparts < <(listpath -s "${sep}" -p "$pathvar")
 
                 # Insert the new directory...
                 typeset -a newparts=(
@@ -188,13 +186,13 @@ addpath ()
             else
                 newvalue="${oldvalue}${sep}${dirname}"
             fi
-            eval $pathvar="'$newvalue'"
+            eval "$pathvar"="'$newvalue'"
         fi
     fi
-    [[ -n "$opt_v" ]] && listpath -s "${sep}" -p $pathvar
-    # shellcheck disable=SC2163 # yes, we are exporting the expansion
-    [[ -n "$opt_x" ]] && export $pathvar
-    set +x
+    [[ -n "$opt_v" ]] && listpath -s "${sep}" -p "$pathvar"
+    # shellcheck disable=SC2163 #https://github.com/koalaman/shellcheck/wiki/SC2163
+    # yes, we are exporting the expansion
+    [[ -n "$opt_x" ]] && export "$pathvar"
 }
 autotrack addpath "$0"
 # emacs

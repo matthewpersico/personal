@@ -1,9 +1,25 @@
 # -*- sh -*-
 # shellcheck shell=bash
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 
 # git-utils
 
 declare scope='git-utils'
+
+git-utils-decode-http ()
+{
+    local server=$1
+
+    local repo
+    repo=${server##*/}
+    server=${server/\/$repo/}
+
+    local org
+    org=${server##*/}
+    server=${server/\/$org/}
+
+    echo "$server" "$org" "$repo"
+}
 
 git-utils-decode-url ()
 {
@@ -23,7 +39,6 @@ git-utils-decode-url ()
     fi
 
     local serverid
-    # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
     serverid=$scheme
 
     serverid=${serverid%%.*}
@@ -37,6 +52,7 @@ git-utils-decode-url ()
 git-utils-main()
 {
     local action=$1
+    shift
 
     if [[ "$action" =~ ^-+h ]]; then
         git-usage "$0"
@@ -46,21 +62,20 @@ git-utils-main()
     local action_handler="$scope-$action"
     if declare -F "$action_handler" >/dev/null 2>&1 \
            || which "$action_handler" >/dev/null 2>&1 ; then
-        shift ## the $action
         "$action_handler" "$@"
     else
         case $action in
             * )
-                cmd-echo --id git-utils --ec --id $scope -- "unknown action '$action'"
+                cmd-echo --id git-utils --ec --id $scope -- "unknown action '$action', with arguments $*"
                 false
                 ;;
         esac
     fi
-    return $?
+    return
 }
 
 git-utils-main "$@"
-exit $?
+exit
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -93,10 +108,10 @@ Given a git url, give back the serverid, scheme, org and repo.
   echo "#$serverid $scheme $org $repo"
   #github git@github.com koalaman shellcheck
 
-  url='bbgithub:koalaman/shellcheck'
+  url='employer:koalaman/shellcheck'
   read -r serverid scheme org repo < <(git utils decode-url "$url")
   echo "#$serverid $scheme $org $repo"
-  #bbgithub bbgithub koalaman shellcheck
+  #employer employer koalaman shellcheck
 
 =cut
 

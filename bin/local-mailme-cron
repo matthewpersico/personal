@@ -1,11 +1,7 @@
-#!/opt/bb/bin/perl
+#!/usr/bin/env perl
 
-use strict;
-use warnings;
 use 5.16.3;
-
-## WORKISM
-use lib "/home/mpersico5/perl/@{[substr($^V,1,rindex($^V,'.')-1)]}/lib/perl5";
+use warnings;
 
 use POSIX qw(strftime);
 use Sys::Hostname;
@@ -25,11 +21,12 @@ sub normalize_address {
 sub main {
     while (<>) {
         chomp;
-        /^From:\s+.*<(.*)>/ && do {
+        ( /^From:\s+.*<(.*)>/ or /^From:\s+(.*)/ )
+          && do {
             $from = normalize_address($1);
             push @headers, $_;
             next;
-        };
+          };
 
         /^To:\s+(.*)/ && do {
             $to = normalize_address($1);
@@ -66,9 +63,10 @@ sub main {
     my $mailer = $0;
     $mailer =~ s/-cron//;
     my $mail_cmd = qq($mailer --notrailer -t $to --f $from -s '$subject');
+    #<<< perltidy
     my $body     = join(
         qq(\n), @body,
-'--- local-mailme-cron -------------------------------------------------',
+        '--- local-mailme-cron -------------------------------------------------',
         "Sent by $0",
         "  using $mailer",
         "     on @{[hostname]}",
@@ -83,6 +81,7 @@ sub main {
         ),
         ''
     );
+    #>>> perltidy
 
     print qx($mail_cmd <<EOBODY\n$body\nEOBODY\n);
     return $?;

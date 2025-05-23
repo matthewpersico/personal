@@ -1,0 +1,216 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+declare infile # datafile of prompts and commands
+
+declare noexec=0
+declare verbose=0
+declare datadir
+datadir=$(dirname "$(realpath "$0")")/../data
+
+declare OPTSARGS
+declare shortopts='nd:hv'
+declare longopts='noexec,verbose,datadir:,help'
+
+if ! OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@"); then
+    bash-usage "$0"
+    false; exit
+fi
+eval set -- "$OPTSARGS"
+while true; do
+    declare option=$1
+    shift
+    [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
+    case "$option" in
+        h|help)
+            bash-usage "$0"; true; exit ;;
+        n|noexec)
+            noexec=1 ;& # fallthrough
+        v|verbose)
+            verbose=1 ;;
+        d|datadir)
+            datadir=$(realpath "$1"); shift ;;
+        --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                     ## remaining $*, if any, are args
+        *)
+            cmd-echo --id select-from-file -ec -- "$option is an invalid option"
+            false; exit ;;
+    esac
+done
+
+COLUMNS=1 # force one column in select call
+
+# Choose a config file if we do not provide one.
+if [[ $# == 0 ]]; then
+    declare datadir
+    select file in $(ls "$datadir"/*.sff) quit; do
+        if [[ $file == 'quit' ]] \
+               || [[ $REPLAY =~ ^q ]]; then
+            false
+            exit;
+        fi
+        [[ -n $file ]] && break
+    done
+    infile=$file
+else
+    infile=$1
+fi
+
+declare tag action bg
+declare -a tags
+declare -A actions
+declare -A bgs
+
+if ((verbose)); then
+    echo "Reading $infile"
+fi
+
+while IFS='|' read -r tag action bg; do
+    [[ $tag =~ ^# ]] && continue
+    tags+=("$tag")
+    actions["$tag"]="$action"
+    bgs["$tag"]="$bg"
+done < "$infile"
+
+declare tag
+select tag in "${tags[@]}" quit ; do
+    if [[ $tag == 'quit' ]] \
+           || [[ $REPLY =~ ^q ]]; then
+        false;
+        exit;
+    fi
+    [[ -n $tag ]] && break
+done
+
+declare -a commands
+IFS=';' read -r -a commands <<< "${actions["$tag"]}"
+declare last_command_idx=$((${#commands[@]} -1 ))
+declare command_idx=0
+for command in "${commands[@]}"; do
+    evaled=$(eval echo "$command")
+    if ((verbose)); then
+        # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
+        echo ${evaled}
+    fi
+    if ((noexec)); then
+        # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+        noop=42
+    elif ((command_idx == last_command_idx)) && [[ -n ${bgs["$tag"]} ]]; then
+        ${evaled} &
+    else
+        ${evaled}
+    fi
+    ((command_idx+=1))
+done
+exit $?
+
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
+:<<'__PODUSAGE__'
+=head1 NAME
+
+select-from-file - menu command system
+
+=head1 SYNOPSIS
+
+ select-from-file [-v|-verbose] [-n|--noexec] sff-file
+ select-from-file [-v|-verbose] [-n|--noexec] --datadir|-d /directory/with/sff-files
+ select-from-file --help
+
+
+=head1 DESCRIPTION
+
+Create a menu for common commands that differ in a small set, most likely one option.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item sff-file
+
+A file with the following format:
+
+ # comments start with a '#' on their own line
+ menu option1|command1 and its arguments that can include $EXPORTED $VARIABLES
+ menu option2|command2 and its arguments that can include $EXPORTED $VARIABLES|&
+
+If the line ends with '|&' it will be backgrounded and 'select-from-file' will
+exit. Use this format to start programs with a gui. You can akso have a chain
+of commands separated by semicolons. The following is a practical example:
+
+* This is my tshxterms.sff
+
+ # xterms via teleport
+SHORTNAME1|unset BROWSER; tsh ssh -Y REDACTED_FQDN1 xterm -geometry 132x40|&
+SHORTNAME2|unset BROWSER; tsh ssh -Y REDACTED_FQDN2 xterm -geometry 132x40|&
+SHORTNAME3|unset BROWSER; tsh ssh -Y REDACTED_FQDN3 xterm -geometry 132x40|&
+SHORTNAME4|unset BROWSER; tsh ssh -Y REDACTED_FQDN4 xterm -geometry 132x40|&
+SHORTNAME5|unset BROWSER; tsh ssh -Y REDACTED_FQDN5 xterm -geometry 132x40|&
+SHORTNAME6|unset BROWSER; tsh ssh -Y REDACTED_FQDN6 xterm -geometry 132x40|&
+
+* This is running the program:
+
+ $ select-from-file /home/mpersico5/.config/tshxterms.sff
+ 1) SHORTNAME1
+ 2) SHORTNAME2
+ 3) SHORTNAME3
+ 4) SHORTNAME4
+ 5) SHORTNAME5
+ 6) SHORTNAME6
+ 7) quit
+ #?
+
+Choose one of the numbers and the command is executed.
+
+=back
+
+=head OPTIONS
+
+=over 4
+
+=item --verbose|-v
+
+Print the command that is about to be run.
+
+=item --noexec|-n
+
+Print the command, but do not run it.
+
+=item --datadir|-d <directory>
+
+All *.sff files in the specified directory are themselves loaded up into a menu
+and the chosen one is then processed. This was useful for me when testing
+teleport. I had the following files:
+
+ /home/mpersico5/.config/sshs.sff
+ /home/mpersico5/.config/tshsshs.sff
+ /home/mpersico5/.config/tshxterms.sff
+ /home/mpersico5/.config/xterms.sff
+
+Here is a sample run:
+
+ $ select-from-file -v -d ../.config/
+ 1) /home/mpersico5/.config/sshs.sff
+ 2) /home/mpersico5/.config/tshsshs.sff
+ 3) /home/mpersico5/.config/tshxterms.sff
+ 4) /home/mpersico5/.config/xterms.sff
+ 5) quit
+ #? 1
+ 1) mpersico5-2023-03-28
+ 2) depopp-pw-359
+ 3) depopp-pw-276
+ 4) depopp-ob-428
+ 5) depopp-ob-020
+ 6) quit
+ #?
+
+With this, I could test all four connection methods to any machine.
+
+=item --help|-h
+
+This help text.
+
+=back
+
+=cut
+
+__PODUSAGE__

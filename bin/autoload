@@ -4,8 +4,11 @@
 # The psuedo-ksh autoloader.
 
 # How to use:
-# o One function per file.
-# o File and function name match exactly.
+# o One public function per file. You can have as many private functions as you
+#   wish. Well, not exactly. Any function in the file will end up in the
+#   environment. But those helper functions should start with an '_', and it is
+#   yet to be determined if they survive to subshells.
+# o File and public function name match exactly.
 # o File is located in a directory that is in FPATH.
 # o This script (autoload) must be sourced in as early as possible. This
 #   implies that any code in this script should NOT rely on any library of local
@@ -30,7 +33,8 @@ autoload_calc_shimsize ()
 
 _autoload_split_fpath ()
 {
-    # shellcheck disable=SC2086 ## Quoting ${FPATH} breaks the split
+    # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
+    # Quoting ${FPATH} breaks the split
     (IFS=':'; set -- ${FPATH}; echo "$@")
 }
 
@@ -58,9 +62,11 @@ _aload()
                mapfile -t loadthese < <(find "$OPTARG" -maxdepth 1 -type f | sort );;
             o) optimize=1;;
             y) summary=1;;
-            f) # shellcheck disable=SC2046 # We want the splitting on _autoload_split_fpath
+            f)
+                # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
+                # We want the splitting on _autoload_split_fpath
                 mapfile -t loadthese < <(find $(_autoload_split_fpath) -maxdepth 1 -type f | sort );;
-            *) echo "_aload: usage: _aload [-xrvlyf] [-a dir] [function ...]" >&2; return;;
+            *) _autoload_say ERROR "_aload: usage: _aload [-xrvlyf] [-a dir] [function ...]"; return;;
         esac
     done
 
@@ -84,7 +90,7 @@ _aload()
         exists_fn=$(declare -F "$func")
         if [[ -n "$exists_fn" ]] && ((doreload==0)) && ((doevalshim==0)); then
             if ((doverbose)); then
-                echo "autoload: function '$func' already exists"
+                _autoload_say INFO "autoload: function '$func' already exists"
             fi
         else
             local andevaled=''
@@ -165,24 +171,36 @@ _aload()
                     }'
                 elif grep -q NO_BRAND "$funcfile" && \
                         [[ $(basename "$funcfile") != "autoload" ]]; then
-                    # shellcheck disable=SC1090
+                    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
                     . "$funcfile"
                 else
-                    # shellcheck disable=SC1090
+                    # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
                     . "$funcfile"
                     eval "$brandtext"
                 fi
                 evalstat=$?
                 if((evalstat==0)); then
                     ((loaded+=1))
-                    # shellcheck disable=SC2163 ## exporting $func, we want that behavior
+
+                    # When trying to run under 'set -x', we can set PS4 to give
+                    # us the current file and function, except that on exported
+                    # functions defined outside of the current running script
+                    # these exported function, we lose the file information.
+
+                    # Unless we put it back. :-) And then we can access it in
+                    # PS4 with a little magic.
+                    local exportable="BASH_FUNCFILE_${func//-/__}"
+                    export "$exportable"="$funcfile"
+
                     if ((doexport)); then
+                        # shellcheck disable=SC2163 #https://github.com/koalaman/shellcheck/wiki/SC2163
+                        # exporting $func, we want that behavior
                         export -f "$func"
                         andexported=', exported'
                         ((exported+=1))
                     fi
 
-                    ((doverbose)) && echo "$func autoloaded${andexported}${andevaled}"
+                    ((doverbose)) && _autoload_say INFO "$func autoloaded${andexported}${andevaled}"
                     if [[ -z $AUTOLOAD_SHIM_OVERHEAD ]] && ((doshim)); then
                         ## ...we have just loaded the first function shim into
                         ## memory. Let's calc the AUTOLOAD_SHIM_OVERHEAD size
@@ -202,18 +220,18 @@ _aload()
                         export AUTOLOAD_SHIM_OVERHEAD
                     fi
                 else
-                    echo "$func failed to load" >&2
+                    _autoload_say ERROR "$func failed to load"
                 fi
             fi
         fi
     done
     if ((summary)); then
-        echo -n "autoload:"
+        declare -a msg
         if [[ -n $loaded_from ]]; then
-            echo " source:$loaded_from"
-            echo -n "         "
+            msg+=("source:$loaded_from")
         fi
-        echo " loaded:$loaded exported:$exported optimized:$optimized overhead:$AUTOLOAD_SHIM_OVERHEAD bytes"
+        msg+=("loaded:$loaded exported:$exported optimized:$optimized overhead:$AUTOLOAD_SHIM_OVERHEAD bytes")
+        _autoload_say INFO "${msg[@]}"
     fi
 }
 
@@ -226,7 +244,7 @@ _autoload_dump()
         case $opt in
             p ) opt_p=1;;
             s ) opt_s=1;;
-            * ) echo "Invalid flag"; return 1;;
+            * ) echo "Invalid flag"; false; return ;;
         esac
     done
 
@@ -251,7 +269,7 @@ _autoload_resolve()
 {
     if [[ ! "$FPATH" ]]; then
         echo "autoload: FPATH not set or null" >&2
-        return 1
+        false; return
     fi
 
     local p # for 'path'. The $() commands in the for loop split the FPATH
@@ -267,7 +285,7 @@ _autoload_resolve()
 
 _autoload_edit()
 {
-    [[ -z "$EDITOR" ]] && echo "Error: no EDITOR defined" && return 1
+    [[ -z "$EDITOR" ]] && echo "Error: no EDITOR defined" && { false; return; }
     local -a toedit
     local func
     for func in "$@"; do
@@ -280,7 +298,7 @@ _autoload_edit()
         fi
     done
 
-    [[ -z "${toedit[0]}" ]] && return 1
+    [[ -z "${toedit[0]}" ]] && { false; return; }
     local timemarker
     timemarker=$(mktemp -t tmp."${FUNCNAME[0]}".XXXXXXXXXX)
 
@@ -295,12 +313,12 @@ _autoload_edit()
             autoload -r "$f"
         fi
     done
-    \rm -f "$timemarker"
+    command rm -f "$timemarker"
 }
 
 _autoload_page()
 {
-    [[ -z "$PAGER" ]] && echo "Error: no PAGER defined" && return 1
+    [[ -z "$PAGER" ]] && echo "Error: no PAGER defined" && { false; return; }
     local topage
     local func
     for func in "$@"; do
@@ -313,7 +331,7 @@ _autoload_page()
         fi
     done
 
-    [[ -z "$topage" ]] && return 1
+    [[ -z "$topage" ]] && { false; return; }
     $PAGER "$topage"
 }
 
@@ -322,9 +340,15 @@ _autoload_remove()
     unset -f "$@"
 }
 
+_autoload_say()
+{
+    declare status=$1;shift
+    "${HOME}/personal/bin/cmd-echo" --id autoload "--$status" "$@"
+}
+
 _autoload_help()
 {
-    cat <<EOH
+    cat <<'EOH'
 NAME
         autoload
 
@@ -480,7 +504,7 @@ NOTES
 
           That being said...
 
-          If you are running under set -x and/or set -v, you may see that the
+          If you are running under set x and/or set -v, you may see that the
           shim does not appear to "work"; instead of seeing the shim first and
           the real code subsequently, you may see the shim evaluated multiple
           times.
@@ -562,6 +586,81 @@ NOTES
           function and all of its support functions. Additionally, we export
           all of these functions so that they are available in subshells; you
           do not have to re-source the autoload file in '.bashrc'.
+
+        o Functions in bash can be found in the environment by dumping it with
+          the 'env' command. When you do so, you will notice that the code for
+          functions processed by this autoload are defined in the environment
+          with under an environment variable. For a function 'fooey',
+
+          BASH_FUNC_fooey%%=() { echo fooey;
+           echo bye;
+          }
+
+          Now, there are techniques to update the PS4 prompt to give
+          script/function and line information under 'set -x'. However, for
+          these functions loaded into the environment, we lose the file in
+          which the functions were defined.
+
+          In order to solve that problem, when we process a function, we also
+          create an environment variable to hold that information. For our
+          hypothetical 'fooey' function, it would look like
+
+          BASH_FUNCFILE_fooey=/home/theuserhomedir/functions/fooey
+
+          We can take advantage of that by putting this code in your .bashrc file:
+
+              _PS4_source ()
+              {
+                  local -a source
+                  if [[ -n ${BASH_SOURCE[1]} ]]; then
+                      source+=("${BASH_SOURCE[1]##*/}")
+                  elif [[ -n ${FUNCNAME[1]} ]]; then
+                      local var="BASH_FUNCFILE_${FUNCNAME[1]//-/__}"
+                      local val=${!var}
+                      if [[ -n $val ]]; then
+                          source+=("$val")
+                      fi
+                  fi
+                  if [[ -z ${source[0]} ]]; then
+                      source+=("$0")
+                  fi
+                  if [[ -n ${FUNCNAME[1]} ]]; then
+                      source+=("${FUNCNAME[1]}()")
+                  fi
+                  if [[ -n ${source[1]} ]]; then
+                      echo "${source[0]}/${source[1]}"
+                  else
+                      echo "${source[0]}"
+                  fi
+              }
+              typeset -fx _PS4_source
+
+              PS4_LONG="+\$(_PS4_source):\$LINENO> "
+              export PS4_LONG
+
+              PS4_DEFAULT="+"
+              export PS4_DEFAULT
+
+              export PS4="$PS4_DEFAULT"
+
+          The default PS4 prompt is a set of +, one fot each nested shell
+          level. When you want to debug with 'set -x' and you want to know
+          where the code lines are coming from:
+
+          $ export PS4="$PS4_LONG"
+
+          Now the 'set -x' output will look something like:
+
+          +++/home/mpersico5/personal/functions/git/git():75> [[ -n '' ]]
+          +++/home/mpersico5/personal/functions/git/git():88> [[ -n '' ]]
+          +++/home/mpersico5/personal/functions/git/git():89> return 0
+          ++git-status/main():49> ((  0  ))
+          ++git-status/main():54> echo
+
+          ++git-status/main():55> echo '=== Status:'
+          === Status:
+          ++git-status/main():56> local outcmd=cat
+          +
 
 EOH
 }
