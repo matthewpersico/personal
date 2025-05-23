@@ -1,6 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
-# shellcheck disable=SC2218 #https://github.com/koalaman/shellcheck/wiki/SC2218
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
 
 # python.mopenv - Even though we have this file in PERSONALBIN, you should invoke
 # it from EMPBIN if there is a EMPBIN because you'll need any WORK paths on
@@ -9,37 +9,48 @@
 # We'll check for virtualenv in PS1 ourselves.
 export VIRTUAL_ENV_DISABLE_PROMPT=1
 
-# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-declare cmd_echo_id='python.mopenv'
+declare -a ceid=('--id' 'python.mopenv')
+
+## Quick skip check
 if [[ -e "${TILDAE:-$HOME}/.config/skip_python" ]]; then
-    cmd-echo --id "$cmd_echo_id" --info -- "Skipping local python by request (${TILDAE:-$HOME}/.config/skip_python exists)"
+    cmd-echo "${ceid[@]}" --info -- "Skipping local python by request (${TILDAE:-$HOME}/.config/skip_python exists)"
     return ## This file gets dotted in
 fi
 
-## What versions to we have?
-function python_show_versions {
-     find "$EMPOPTGLOBALROOT/bin" -name 'python*' \
-          | perl -ne '
+
+## What versions do we have in the obvious places?
+function show_pythons {
+    declare -a locations
+    for location in "$HOME/local/bin" /opt/bin /usr/bin /bin; do
+        [[ -d $location ]] && locations+=("$location")
+    done
+    # A second pass each location individually so that the locations are kept
+    # in the desired order as we sort on versions.
+    for location in "${locations[@]}"; do
+        find "$location" -name 'python*' \
+        | perl -ne '
 $_ =~ m/python[0-9.]+$/ && chomp && push @p, [split(/\./,$_)];
 END { print(join(q( ),
-                 map { s/.*python//; $_ }
                  map { join(q(.), @$_) }
+                 reverse
                  sort { $a->[0] cmp $b->[0]
                         ||
                         $a->[1] <=> $b->[1]
                       } @p)) }'
+        echo -n ' '
+    done
 }
 
 ## What version do we want?
 declare wanted_python_version_file="${TILDAE:-$HOME}/.config/python_version"
 read -r wanted_python_version < <(cat "$wanted_python_version_file")
 export PYTHON_VERSION=$wanted_python_version
-export PYTHON_EXE=$EMPOPTGLOBALROOT/bin/python$wanted_python_version
 
-## Find the latest python
-declare -a python_versions
-read -r -a python_versions < <(python_show_versions)
-declare latest_python_version=${python_versions[-1]}
+## Find the latest python.
+declare -a pythons
+read -r -a pythons < <(show_pythons)
+declare latest_python=${pythons[0]}
+declare latest_python_version=${latest_python##*python}
 
 function python_compare_versions {
     perl -e '
@@ -56,14 +67,54 @@ function python_compare_versions {
 ' "$@"
 }
 
+declare -a msg=()
+declare -a status=()
+declare which_python="$(which python"${latest_python_version}")"
+declare resolved_python=$(realpath "$which_python")
+
+## Look at versioned pythons.
 if python_compare_versions "$wanted_python_version" '=' "$latest_python_version"; then
-    cmd-echo --id "python.mopenv" -- "python $wanted_python_version is default"
+    msg=("python $wanted_python_version is wanted and latest"
+         "    $latest_python")
+    if [[ $latest_python == "$which_python" ]]; then
+        msg+=("and is chosen via PATH.")
+    else
+        if [[ $latest_python == "$resolved_python" ]]; then
+            msg+=("and is chosen via link on PATH"
+                  "    $(ls -l "$which_python")")
+        else
+            status=(-wc)
+            msg+=("but is not chosen via PATH. Chosen version is "
+                  "    $which_python: $($which_python --version))")
+        fi
+    fi
 else
-    cmd-echo --id "python.mopenv" -wc -- "python wanted version $wanted_python_version does not match latest available version $latest_python_version"
+    status=(-wc)
+    msg=("python wanted version $wanted_python_version does not match latest available version"
+         "    $latest_python")
+    if [[ $latest_python == "${which_python}" ]]; then
+        msg+=("which is in PATH.")
+    else
+        if [[ $latest_python == "$resolved_python" ]]; then
+            msg+=("which is on PATH via link" "    ($(ls -l "$which_python"))")
+        else
+            msg+=("which is not in PATH. PATH version is"
+                  "    $which_python: $($which_python --version))")
+        fi
+    fi
 fi
-if [[ ! -x $EMPOPTGLOBALROOT/bin/python${wanted_python_version} ]]; then
-    cmd-echo --id "python.mopenv" -wc -- "python wanted version $wanted_python_version is not in $EMPOPTGLOBALROOT/bin"
-fi
+cmd-echo "${ceid[@]}" "${status[@]}" -- "${msg[@]}"
+
+# Now let's check what "python" points to.
+which_python=$(which python)
+resolved_python=$(realpath "$which_python")
+export PYTHON_EXE=$which_python
+
+cmd-echo "${ceid[@]}" "${status[@]}" -- \
+         "'python' on PATH is" \
+         "    $(ls -l "$which_python")" \
+         "which resolves to " \
+         "    $(ls -l "$resolved_python")"
 
 PYTHONENV_LOADED=1
 export PYTHONENV_LOADED

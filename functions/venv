@@ -8,9 +8,9 @@
 # <Function Class: python>
 # <Function Justification: env>
 
-_venv_create()
+venv::create()
 {
-    declare action=${FUNCNAME[0]//_venv_}
+    declare action=${FUNCNAME[0]//venv::}
 
     if $PYTHON_EXE -m venv .venv && [[ -d .venv ]]; then
         cmd-echo --id "venv:$action" -- "Created venv .venv (${PWD})"
@@ -19,7 +19,7 @@ _venv_create()
         false; return
     fi
 
-    __venv_assign_envvars
+    _venv::assign_envvars
 
     cat <<EOF >> "${PYTHON_VIRTUAL_ENV_INIT_SPEC}"
 pip install --upgrade pip
@@ -32,26 +32,26 @@ EOF
     cat "${PYTHON_VIRTUAL_ENV_INIT_SPEC}"
 }
 
-_venv_info()
+venv::info()
 {
-   declare action=${FUNCNAME[0]//_venv_}
+   declare action=${FUNCNAME[0]//venv::}
 
    cmd-echo --id "venv:$action" --title -- "pyvenv.cfg"
    cat ".venv/pyvenv.cfg"
    cmd-echo --id "venv:$action" --title -- ".venv.init"
    cat ".venv.init"
    cmd-echo --id "venv:$action" --title -- "envvars"
-   __venv_show_envvars
+   _venv::show_envvars
 }
 
-_venv_show()
+venv::show()
 {
-    _venv_info
+    venv::info
 }
 
-_venv_init()
+venv::init()
 {
-   declare action=${FUNCNAME[0]//_venv_}
+   declare action=${FUNCNAME[0]//venv::}
 
    if [[ ! -r ${PYTHON_VIRTUAL_ENV_INIT_SPEC} ]]; then
        cmd-echo --id "venv:$action" -ec -- "Cannot find venv init file ${PYTHON_VIRTUAL_ENV_INIT_SPEC}."
@@ -66,14 +66,14 @@ _venv_init()
    . "${PYTHON_VIRTUAL_ENV_INIT_SPEC}" && touch "${PYTHON_VIRTUAL_ENV_INITED_SPEC}"
 }
 
-_venv_edit()
+venv::edit()
 {
     ${EDITOR:-vi} "${PYTHON_VIRTUAL_ENV_INIT_SPEC}"
 }
 
-_venv_reinit()
+venv::reinit()
 {
-   declare action=${FUNCNAME[0]//_venv_}
+   declare action=${FUNCNAME[0]//venv::}
 
    if [[ ! -r ${PYTHON_VIRTUAL_ENV_INIT_SPEC} ]]; then
        cmd-echo --id "venv:$action" -ec -- "Cannot find venv init file ${PYTHON_VIRTUAL_ENV_INIT_SPEC}."
@@ -89,7 +89,7 @@ _venv_reinit()
    . "${PYTHON_VIRTUAL_ENV_INIT_SPEC}" && touch "${PYTHON_VIRTUAL_ENV_INITED_SPEC}"
 }
 
-__venv_assign_envvars()
+_venv::assign_envvars()
 {
     # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
     export PYTHON_VIRTUAL_ENV_SPEC=$(realpath .venv)
@@ -103,32 +103,34 @@ __venv_assign_envvars()
 
     export PYTHON_VIRTUAL_ENV_INITED_FILE=${PYTHON_VIRTUAL_ENV_NAME}.inited
     export PYTHON_VIRTUAL_ENV_INITED_SPEC=${PYTHON_VIRTUAL_ENV_ROOT}/${PYTHON_VIRTUAL_ENV_INITED_FILE}
+
+    export PYTHON_VIRTUAL_ENV_PID=$$
 }
 
-__venv_show_envvars()
+_venv::show_envvars()
 {
     env | grep -E '^(PYTHON_)?VIRTUAL_ENV' | sort
 }
 
-_venv_activate()
+venv::activate()
 {
     # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
     source ".venv/bin/activate"
-    __venv_assign_envvars
+    _venv::assign_envvars
     if [[ -e ${PYTHON_VIRTUAL_ENV_INIT_SPEC} ]] \
            && [[ ! -e ${PYTHON_VIRTUAL_ENV_INITED_SPEC} ]]; then
-        _venv_init
+        venv::init
     fi
 }
 
-_venv_pip()
+venv::pip()
 {
     if python -m pip "$@"; then
         echo "python -m pip $* # venv pip-install $(date)" >> "${PYTHON_VIRTUAL_ENV_INIT_SPEC}"
     fi
 }
 
-_venv_deactivate()
+venv::deactivate()
 {
     if is-a-function 'deactivate'; then
         cmd-echo --id "venv:$action" -- 'deactiving"...'
@@ -139,26 +141,26 @@ _venv_deactivate()
     fi
 }
 
-_venv_destroy ()
+venv::destroy ()
 {
-    declare action=${FUNCNAME[0]//_venv_}
+    declare action=${FUNCNAME[0]//venv::}
 
     if is-a-function 'deactivate'; then
-        cmd-echo --id "venv:$action" -- 'deactiving"...'
+        cmd-echo --id "venv:$action" -- 'deactiving...'
         deactivate
         cmd-echo --id "venv:$action" -- 'Done.'
         cmd-echo --id "venv:$action" -- 'Removing venv dir...'
         rm -rf "${PYTHON_VIRTUAL_ENV_SPEC}"
         cmd-echo --id "venv:$action" -- 'Done.'
-        __venv_unassign_envvars
+        _venv::unassign_envvars
     elif [[ -z $VIRTUAL_ENV ]]; then
         cmd-echo --id "venv:$action" -- '"VIRTUAL_ENV" is not set; nothing to do.'
     else
-        cmd-echo --id "venv:$action" --wc -- 'No "deactivate function found, but PYTHON_VIRTUAL_ENV is set. Nothing to do. Investigate.'
+        cmd-echo --id "venv:$action" --wc -- 'No "deactivate function found, but VIRTUAL_ENV is set. Investigate.'
     fi
 }
 
-__venv_unassign_envvars()
+_venv::unassign_envvars()
 {
     unset PYTHON_VIRTUAL_ENV_SPEC
     unset PYTHON_VIRTUAL_ENV_NAME
@@ -169,7 +171,7 @@ __venv_unassign_envvars()
     unset PYTHON_VIRTUAL_ENV_INITED_SPEC
 }
 
-__venv_verify_venv_dir_should_exist()
+_venv::verify_venv_dir_should_exist()
 {
     if [[ ! -d .venv ]]; then
         cmd-echo --id "venv:$1" -ec -- "Cannot $1 with '.venv'; directory not found."
@@ -178,7 +180,7 @@ __venv_verify_venv_dir_should_exist()
     true; return
 }
 
-__venv_verify_venv_dir_should_not_exist()
+_venv::verify_venv_dir_should_not_exist()
 {
     if [[ -e .venv ]]; then
         cmd-echo --id "venv:$1" -ec -- "Cannot $1; directory '.venv' already exists: "
@@ -188,25 +190,33 @@ __venv_verify_venv_dir_should_not_exist()
     true; return
 }
 
-__venv_verify_should_not_be_in_a_venv()
+_venv::verify_should_not_be_in_a_venv()
 {
     if [[ -n $VIRTUAL_ENV ]]; then
-        cmd-echo --id "venv:$1" -ec -- "Cannot $1 in a venv. Currently in $VIRTUAL_ENV."
-        false; return
+        if [[ "$PYTHON_VIRTUAL_ENV_PID" = "$$" ]]; then
+            cmd-echo --id "venv:$1" -ec -- "Cannot $1 in a venv. Currently in $VIRTUAL_ENV."
+            false; return
+        # else
+        #   This is probably a spawned shell inheriting envvars from the parent
+        fi
     fi
     true; return
 }
 
-__venv_verify_should_be_in_a_venv()
+_venv::verify_should_be_in_a_venv()
 {
     if [[ -z $VIRTUAL_ENV ]]; then
         cmd-echo --id "venv:$1" -ec -- "Cannot $1 outside a venv. VIRTUAL_ENV not defined."
         false; return
     fi
+    if [[ "$PYTHON_VIRTUAL_ENV_PID" != "$$" ]]; then
+        cmd-echo --id "venv:$1" -ec -- "Cannot $1 outside a venv. VIRTUAL_ENV is set, but the process id is incorrect ($PYTHON_VIRTUAL_ENV_PID instead of $$)."
+        false; return
+    fi
     true; return
 }
 
-__venv_usage()
+_venv::usage()
 {
     bash-usage venv "$PYTHON_EXE" -m venv -h
 }
@@ -225,7 +235,7 @@ venv()
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
         case $option in
             h | help )
-                __venv_usage
+                _venv::usage
                 set +x; true; return
                 ;;
             --) break ;; ## VITAL!!! Exits the while loop, no more options,
@@ -239,7 +249,7 @@ venv()
 
     local action=$1; shift
     if [[ -z $action ]]; then
-        __venv_usage
+        _venv::usage
         set +x; true; return
     fi
 
@@ -250,37 +260,37 @@ venv()
     esac
 
     declare ceid="venv:$action"
-    local action_func_name="_venv_${action}"
+    local action_func_name="venv::${action}"
 
     if declare -F "$action_func_name" >/dev/null; then
         case $action in
             abandon | destroy )
                 ;;
             create )
-                if ! __venv_verify_venv_dir_should_not_exist "$action" \
-                        || ! __venv_verify_should_not_be_in_a_venv "$action"; then
+                if ! _venv::verify_venv_dir_should_not_exist "$action" \
+                        || ! _venv::verify_should_not_be_in_a_venv "$action"; then
                     set +x; false; return
                 fi
                 ;;
             activate )
-                if ! __venv_verify_venv_dir_should_exist "$action" \
-                        || ! __venv_verify_should_not_be_in_a_venv "$action"; then
+                if ! _venv::verify_venv_dir_should_exist "$action" \
+                        || ! _venv::verify_should_not_be_in_a_venv "$action"; then
                     set +x; false; return
                 fi
                 ;;
             cd | reinit | deactivate | edit )
-                if ! __venv_verify_should_be_in_a_venv "$action"; then
+                if ! _venv::verify_should_be_in_a_venv "$action"; then
                     set +x; false; return
                 fi
                 ;;
             info | show )
-                if ! __venv_verify_venv_dir_should_exist "$action" ; then
+                if ! _venv::verify_venv_dir_should_exist "$action" ; then
                     set +x; false; return
                 fi
                 ;;
             pip )
-                if ! __venv_verify_venv_dir_should_exist "$action" \
-                        || ! __venv_verify_should_be_in_a_venv "$action"; then
+                if ! _venv::verify_venv_dir_should_exist "$action" \
+                        || ! _venv::verify_should_be_in_a_venv "$action"; then
                     set +x; false; return
                 fi
                 ;;
@@ -339,10 +349,9 @@ A collection of actions and data about a python venv.
 =item create
 
 Create a venv environment. Will not function if you are already in a venv (as
-defined by the envvar VIRTUAL_ENV).
-
-A file C<.venv.init> will also be created in the current directory with
-commands to take to initialize the venv the first time it is activated.
+defined by the envvar VIRTUAL_ENV). A file C<.venv.init> will also be created
+in the current directory with commands to take to initialize the venv the first
+time it is activated.
 
 =item info|show
 
@@ -352,11 +361,9 @@ C<$VIRTUAL_ENV/pyvenv.cfg>.
 =item activate
 
 Starts up the requested venv. Will not function if you are already in a venv
-(as defined by the envvar VIRTUAL_ENV).
-
-Also looks for the file C<.venv.inited> in .venv and, if not found, runs
-C<.venv.init> if it is found. If the init is successful, C<.venv.ininted> is
-created to prevent init re-execution.
+(as defined by the envvar VIRTUAL_ENV). Also looks for the file C<.venv.inited>
+in .venv and, if not found, runs C<.venv.init> if it is found. If the init is
+successful, C<.venv.ininted> is created to prevent init re-execution.
 
 =item reinit
 
@@ -371,12 +378,12 @@ the envvar VIRTUAL_ENV).
 
 Exit the current venv. Remove the .venv subdir.
 
-=back
-
 =item pip
 
 Runs pip install but adds the requested package to the .venv.init file so you
 don't have to re-run the command if you re-init the venv.
+
+=back
 
 =head1 OPTIONS
 
