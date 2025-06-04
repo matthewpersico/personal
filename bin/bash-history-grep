@@ -4,13 +4,11 @@
 # bash-history-grep
 
 declare OPTSARGS
-declare shortopts='ilm:fhd:'
+declare shortopts='ilm:fhd:A:B:C:'
 declare longopts='host:,local,localhost,dirs,days:,matchdir:,match-dir:file,help'
 
 # Process the command line.
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
-declare status=$?
-((status != 0)) && exit $status
+OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -22,6 +20,7 @@ declare -a hostfilt
 hostfilt=('--hostname' "$(hostname)")
 declare -a epoch_ago
 declare -a matchdir
+declare -a include_args
 declare daysago
 while true
 do
@@ -30,7 +29,6 @@ do
     [ "$option" != '--' ] && option=${option##-} && option=${option##-}
     case "$option" in
         host )
-            # shellcheck disable=SC2034 # remove when implemented
             if [[ $1 = 'all' ]]; then
                 hostfilt=('--hostname' '.*')
             else
@@ -55,31 +53,35 @@ do
             grepopts+=("-$option")
             ;;
         dirs )
-            dodir=--include-dir
+            include_args+=('--include-dir')
             ;;
         m | matchdir | match-dir)
             matchdir=('--match-dir' "$1")
             shift
             ;;
         f | file )
-            dofile=--include-file
+            include_args+=('--include-file')
+            ;;
+        A|B|C )
+            grepopts+=("-$option" "$1")
+            shift
             ;;
         h | help )
             bash-usage bash-history-grep
-            exit 0
+            true; exit
             ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
         *)
             cmd-echo --id bash-history-grep -e -- "$option is an invalid option. See $0 --help"
-            exit 1 ## return 1 in functions
+            false; exit
             ;;
     esac
 done
 
 pattern_to_match="${1:-.*}"
 ## no-ptkdb-issue : perl -d:ptkdb -S \
-bash-history-parse "${epoch_ago[@]}" "${hostfilt[@]}" $dodir $dofile "${matchdir[@]}" "${grepopts[@]}" -- "$pattern_to_match"
+bash-history-parse "${epoch_ago[@]}" "${hostfilt[@]}" "${include_args[@]}" "${matchdir[@]}" "${grepopts[@]}" -- "$pattern_to_match"
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -184,6 +186,11 @@ Print only the name of the history file in which the commands are located.
 =item -i
 
 Make the command search is case insensitive.
+
+=item A|B|C n
+
+Show 'n' number of lines before (B), after (A), or on each side (C) of each
+matching line.
 
 =item -h|--help
 

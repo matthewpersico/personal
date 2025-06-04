@@ -1,8 +1,8 @@
-# -*- sh -*-
+ # -*- sh -*-
 # shellcheck shell=bash
 # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 
-# git.env
+# git.mopenv
 
 # Make sure this is re-entrant - some $job profiles need to re-run it
 
@@ -20,7 +20,7 @@ export REALGIT
 ##
 declare REALGIT_VERSION_VERIFY_FILE="${TILDAE}/.config/git-version-verify.data"
 export REALGIT_VERSION_VERIFY_FILE
-git-version-verify git.env
+git-version-verify git.mopenv
 
 ##
 ## gitfuncs environment stuff
@@ -34,29 +34,29 @@ export GITENV_REPO_ROOT
 [[ ! -e "$GITENV_REPO_ROOT" ]] &&  mkdir -vp "$GITENV_REPO_ROOT"
 
 if ! declare -F | grep -q __git_ps1; then
-    ! $CRON && echo "__git_ps1 not loaded."
+    ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "__git_ps1 not loaded."
     declare shl
     shl="$(hash -r; "${REALGIT}" --exec-path)/git-sh-prompt"
     if [[ -e "$shl" ]]; then
         . "$shl"
         safe_func_export __git_ps1
-        ! $CRON && echo "$shl loaded."
+        ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "$shl loaded."
     else
-        ! $CRON && echo "$shl not found."
+        ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --warn "$shl not found."
     fi
 fi
 
 if ! declare -F | grep -q __git_complete; then
-    ! $CRON && echo "__git_complete not loaded."
+    ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "__git_complete not loaded."
     declare gitinstallroot
     gitinstallroot=$(dirname "$(dirname "$REALGIT")")
     declare shl="$gitinstallroot/share/bash-completion/completions/git"
     if [[ -e "$shl" ]]; then
         . "$shl"
         safe_func_export __git_complete __git_sequencer_status __git_eread
-        ! $CRON && echo "$shl loaded."
+        ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "$shl loaded."
     else
-        ! $CRON && echo "$shl not found."
+        ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --warn "$shl not found."
     fi
 fi
 
@@ -73,9 +73,10 @@ export ALTERNATE_EDITOR
 ##
 ## Extentions per remote repo type
 ##
-# shellcheck disable=SC2043
-for remote_repo_type in github; do
-    . "${PERSONALBIN}/${remote_repo_type}.env"
+declare -a remote_repo_types
+remote_repo_types=('github')
+for remote_repo_type in "${remote_repo_types[@]}"; do
+    . "${PERSONALBIN}/${remote_repo_type}.mopenv"
 done
 unset remote_repo_type
 
@@ -85,9 +86,11 @@ unset remote_repo_type
 
 declare _git_env_path
 for _git_env_path in "$HOME/personal" \
+                         "$HOME/.emacs.d" \
                          "$HOME/.emacs.d/taps/$USER" \
-                         "$HOME/.git_template" \
-                         "$HOME/examples"; do
+                         "$HOME/.git-template" \
+                         "$HOME/examples" \
+                     ; do
     addpath -p GIT_IMPORTANT_REPO_LIST "$_git_env_path"
 done
 export GIT_IMPORTANT_REPO_LIST
@@ -100,8 +103,17 @@ export GIT_EXT_META_DATE_FMT
 GIT_EXT_META_PREFIX='extmeta'
 export GIT_EXT_META_PREFIX
 
-GIT_HOOK_SKIP_TAGS=" perl perltidy perlcompile python black isort pylint shell shellcheck shebang "
+GIT_HOOK_SKIP_TAGS=" perl perltidy perlcompile perlcompilenoprogress python black isort pylint shell shellcheck shebang "
 export GIT_HOOK_SKIP_TAGS
+
+## Fat finger
+alias gitgp='git go '
+
+## Git aliases you can't make with gitconfig (because you cannot create an
+## alias that resolves to your own command, or at least as I've configured it
+## with the local 'git' dispatcher.
+alias gitgo='git go '
+alias gitpull='git pull '
 
 GITENV_LOADED=1
 export GITENV_LOADED
