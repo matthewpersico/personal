@@ -119,9 +119,11 @@ git-worktree-set ()
             fi
             if [[ -n $value ]]; then
                 local wtname; wtname=$(git-worktree-get-name)
-                if [[ $value =~ '{DRQS' ]]; then
-                    value=${value//{}
+                if [[ $value =~ 'DRQS' ]]; then
+                    value=${value//{/}
                     value=${value// <GO>\}/}
+                    number=${value//DRQS /}
+                    value="https://blinks.bloomberg.com/screens/DRQS%20${number}"
                     cmd-echo "${celn}" "$LINENO" --id git-worktree -- "$key value=[$value]"
                 fi
                 git config --replace-all "worktree.${wtname}.${GIT_EXT_META_PREFIX}-spec-ref" "$value"
@@ -521,7 +523,7 @@ git-worktree-create ()
     ## Add this repo to the list
     if ((opt_reset)); then
         cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Resetting git list..."
-        git go-set
+        git-go-add "$wtfullpath"
     else
         cmd-echo "${celn}" "$LINENO" --id git-worktree -- "--skip-reset. Run 'git go-set' at some point."
     fi
@@ -557,7 +559,6 @@ git-worktree-rm ()
 git-worktree-delete ()
 {
     local opt_yes=0
-    local opt_yes_string
     local opt_force=0
     local opt_reset=1
     local opt_keep_branch=0
@@ -601,7 +602,7 @@ git-worktree-delete ()
                          wtname=$(basename "$PWD")
                          ;;
             noreset | no-reset | skip-reset) opt_reset=0; ;;
-            y|yes) opt_yes=1; opt_yes_string='--yes'; ;;
+            y|yes) opt_yes=1; ;;
             f|force) opt_force=1; ;;
             h|help) git-usage "$0"; true; return ;;
             k|keep-branch) opt_keep_branch=1 ;;
@@ -684,6 +685,7 @@ $(ls -la)"
 
     ## Whack it. Start with the current dir, which is the worktree.
     cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Deleting the worktree directory..."
+    declare git_go_del_arg="${PWD}"
     local delit
     delit=$(basename "${PWD}")
     builtin cd .. || { cmd-echo "${celn}" "$LINENO" --id git-worktree --ec -- "Cannot cd .."; false; return ; }
@@ -744,7 +746,7 @@ $(ls -la)"
             declare force
             ((opt_force)) && force="--force"
             # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
-            git-branch --delete $force --no-go-set $opt_yes_string "$current_branch"
+            git-branch --delete $force "$current_branch"
         fi
     fi
     cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Branch cleaned."
@@ -752,7 +754,7 @@ $(ls -la)"
     ## Cleanup
     if ((opt_reset)); then
         cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Resetting git list..."
-        git go-set
+        git-go-del "$git_go_del_arg"
     else
         cmd-echo "${celn}" "$LINENO" --id git-worktree -- "--skip-reset. Run 'git go-set' at some point."
     fi
@@ -879,9 +881,10 @@ $(ls -la)"
     local sliceindex=$((${#paths[@]} - 4 ))
     local gitgoto
     gitgoto="$(printf "%s/" "${paths[@]:$sliceindex:3}")${paths[-1]}"
+
     if ((opt_reset)); then
-        cmd-echo "${celn}" "$LINENO" --id git-worktree -- "Resetting git list..."
-        git go-set
+        git-go-del "$old_wtpath"
+        git-go-add "$new_wtpath"
         if ((opt_current)); then
             git go "$gitgoto"
         fi

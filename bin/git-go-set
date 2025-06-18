@@ -14,7 +14,11 @@ declare -a repo_paths
 mapfile -t repo_paths < <(git config --value-only --expand --get-regexp ext.git-repo-paths.path |  perl -MCwd -n -e '$rp{Cwd::realpath($_)}++; END { print sort keys %rp }')
 
 declare -a repos
+declare verbose=0
+declare nth=0
+declare total=${#repo_paths[@]}
 for repo_path in "${repo_paths[@]}"; do
+    ((nth+=1))
     # We do not want to use symbolic links; they cause more trouble than they
     # are worth.
     if [[ -h $repo_path ]]; then
@@ -35,6 +39,7 @@ for repo_path in "${repo_paths[@]}"; do
     # - Perl test scratch locations: /t/data/
     # - Emacs stuff:                 /elpa/
     # - JOB stuff:                   /parent-cluster-conversions/clone-workspace/
+    ((verbose)) && cmd-echo --id git-go-set --dc -- "Processing $repo_path"
     mapfile -O "${#repos[@]}" -t repos \
             < <(find "$repo_path" -name .git \
                     | grep -v /t/data/ \
@@ -43,6 +48,8 @@ for repo_path in "${repo_paths[@]}"; do
                     | sed 's/\/.git$//g'\
                     | sort -u \
                )
+    progress-bar $nth "$total" ">>> [git-go-set] "
+    #"($repo_path)"
 done
 
 if [[ $1 != -p ]]; then

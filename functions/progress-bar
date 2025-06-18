@@ -1,0 +1,124 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# progress-bar
+
+# <Function Class: n/a>
+# <Function Justification: efficiency>
+
+progress-bar () {
+    if [[ "$1" =~ ^-+h ]]; then
+        bash-usage bash-strict
+        true; return
+    fi
+    local current="$1"
+    local total="$2"
+    local prefix="$3"
+    local suffix="$4"
+    local bar_length=20
+    local progress=$((current * 100 / total))
+    local filled_length=$((progress * bar_length / 100))
+    local bar=""
+    for ((i=0; i<filled_length; i++)); do
+        bar+="#";
+    done
+    for ((i=filled_length; i<bar_length; i++)); do
+        bar+=" ";
+    done
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+    declare output=$(printf "${prefix}[%s] %d%% %s" "$bar" "$progress" "$suffix")
+    declare outlen=${#output}
+    declare static="progress_bar_max_$$"
+    if [[ -n ${!static} ]]; then
+        declare max=${!static}
+        if (( max > outlen )); then
+            declare fill=$((max-outlen))
+            output=$(printf %s%${fill}s "$output" " ")
+        else
+            export $static="$outlen"
+        fi
+    else
+        export $static="$outlen"
+    fi
+
+    printf "\r%s" "$output"
+    if [ "$current" -eq "$total" ]; then
+        echo "" # Add a newline at the end
+    fi
+    true; return
+}
+autotrack progress-bar "$0"
+
+:<<'__PODUSAGE__'
+=head1 NAME
+
+progress-bar - show a one line graph of progress
+
+=head1 SYNOPSIS
+
+ progress-bar nth total ["prefix"] ["suffix"]
+
+ total_steps=100
+ for ((i=1; i<=total_steps; i++)); do
+   sleep 0.05 # Simulate work
+   progress-bar "$total_steps" "$i"
+ done
+
+=head1 DESCRIPTION
+
+Print a bar of hashes to show progress.
+
+=head1 ARGUMENTS
+
+=over 4
+
+=item nth
+
+What number of the total we just processed.
+
+=item total
+
+Total number of items to process.
+
+=item prefix
+
+String to print before the bar.
+
+=item prefix
+
+String to print after percentage. If no prefix is desired, use "" for prefix.
+
+=back
+
+=head1 OPTIONS
+
+=over 4
+
+=item --help
+
+Show this help text.
+
+=back
+
+=head1 NOTES
+
+=over 4
+
+=item Variable length text
+
+If either prefix or suffix change in size from call to call, we try to make
+sure we write a long enough string to completely blank out the prior output
+when the current output is shorter than the prior. We do this by storing the
+output length in the exported variable "progress_bar_$$", which lives only as
+long as the current process (which should be the caller of the function) lives.
+
+=item Short terminal
+
+If the width of the terminal is shorter than the output string, the carriage
+return won't work and you'll get a new line for each line printed.
+
+=back
+
+=cut
+
+__PODUSAGE__
