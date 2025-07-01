@@ -4,8 +4,8 @@
 # bash_profile
 # Linked by ~/.bash_profile
 
-# Note: the shebang is ignored. It is only there to help editors and
-# linters. profiles are not executed. They are sourced into the shell that
+# Note: there is no shebang line. The text that is there is for helping editors
+# and linters. profiles are not executed. They are sourced into the shell that
 # calls them, to which any line with a # is a comment.
 
 # How to tell if we are running during profile setup or not
@@ -23,14 +23,6 @@ export RUNNING_IN_BASH_PROFILE
 [[ -z "$CRON" ]] && CRON=false;
 export CRON
 
-## For use under sudo
-if [[ "$1" = '--tildae' ]]; then
-    export TILDAE=$2; shift; shift;
-    echo "Base for this profile is overriden to TILDAE=${TILDAE}"
-else
-    export TILDAE=$HOME
-fi
-
 ## It's shells all the way down...
 MASTER_SHLVL=$SHLVL
 export MASTER_SHLVL
@@ -40,19 +32,221 @@ export MASTER_SHLVL
 # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
 [[ -r "$HOME/bash_profile.monkeypatch" ]] && . "$HOME/bash_profile.monkeypatch"
 
+declare this_profile="$HOME/.bash_profile"
 "$HOME/personal/bin/monkeytell" \
-    "$VERBOSE_PROFILE" "$HOME/.bash_profile" 'start'
+    "$VERBOSE_PROFILE" "$this_profile" 'start'
 
-# User specific environment and startup programs. The main one is the personal
-# one, which is '~/.profile.${USER}'. All the rest ( ~/.profile.${USER}*) will
-# sort after the first one, so make sure they name-sort in the order you want
-# them to.
-for p in ~/.profile."${USER}"*; do
+## OS_O(riginal) is the 'proclaimed' operating system name. Use this where a system may
+## be lying, but fakes it pretty well. Do **NOT** use OS for this variable;
+## that can be set by the operating system itself for its own purposes.
+OS_O=$(uname -s)
+export OS_O
+
+## NFS cross-mount check
+declare undershell
+undershell="$(realpath "$SHELL")"
+undershell="$(basename "$undershell")"
+if [[ ! "$undershell" = 'bash' ]]; then
+    echo "Skipping personal profile under '$SHELL'"
+    true; return ## return is ok even though this is not a function because
+                 ## this script is dotted in.
+fi
+
+shopt -s expand_aliases
+
+##
+## Start here
+##
+if [[ -d /opt/mop ]]; then
+    export OPTROOT=/opt/mop
+    export OPTBIN=$OPTROOT/bin
+fi
+export PERSONALROOT=${HOME}/personal
+export PERSONALBIN=$PERSONALROOT/bin
+export PERSONALLIB=$PERSONALROOT/lib
+export PERSONALDATA=$PERSONALROOT/data
+export LOCALROOT=${HOME}/local
+export LOCALBIN=$LOCALROOT/bin
+export LOCALDATA=$LOCALROOT/data
+## Python creates this, but our python.mopenv is a bit of a mess right now, so we
+## stick this definition here.
+export DOTLOCALROOT=${HOME}/.local
+export DOTLOCALBIN=$DOTLOCALROOT/bin
+export DOTLOCALDATA=$DOTLOCALROOT/data
+if [[ -d ${HOME}/.config ]]; then
+    export CONFIGDIR=${HOME}/.config
+fi
+
+##
+## autoload setup
+##
+export FPATH=$PERSONALROOT/functions ## First profile called so init is
+                                     ## safe. Besides, we will not have
+                                     ## 'addpath' until the autoload is done.
+if [[ -z "$(declare -F autoload )" ]]; then
+    ## Load autoloading. All of these functions get exported.
+    # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
+    . "$PERSONALBIN/autoload"
+fi
+
+if [[ -z "$(declare -F autoloaded-personal)" ]]; then
+    declare -a _profile_autoload_args
+    _profile_autoload_args=(-x -o)
+    declare -a _profile_autoload_summary
+
+    ## First, load autoload tracking, unshimmed, since every other function
+    ## will use it.
+    autoload "${_profile_autoload_args[@]}" \
+             "${_profile_autoload_summary[@]}" \
+             -l \
+             autotrack
+    declare _profile_unshim_count=1
+
+    ## Over time you discover that many of your functions are only used in the
+    ## context of backticks and other scripts that are executed but never
+    ## sourced into your current process directly. That means that all of these
+    ## subshells are going to re-evalute the shim over and over, even if you
+    ## have exported the functions. This code will run 'autoload -l' on
+    ## specified functions to do just that - unshim the most widely used
+    ## functions. Don't be verbose under cron.
+    declare _profile_unshim_func
+    declare _profile_unshim_list="${HOME}/.config/autoload-unshim.config"
+    if [[ -f "$_profile_unshim_list" ]]; then
+        while read -r _profile_unshim_func; do
+            autoload "${_profile_autoload_args[@]}" \
+                     -l \
+                     "$_profile_unshim_func"
+            ((_profile_unshim_count+=1))
+        done < "$_profile_unshim_list"
+        ! $CRON && "$PERSONALBIN/cmd-echo" --id ".profile.$USER" --info "auto-unshimmed: $_profile_unshim_count"
+    fi
+
+    ## Finally, autoload everything else. Order does not matter here since it's all
+    ## shims, so nothing needs to know about anything else until it's actually
+    ## called, in which case its shim, or its full function code, will be
+    ## ready.
+    ! $CRON && _profile_autoload_summary+=(-y)
+    autoload "${_profile_autoload_args[@]}" \
+             "${_profile_autoload_summary[@]}" \
+             -a "$PERSONALROOT/functions"
+
+fi
+
+## Now that functions are loaded, we can use them.
+## Add our base paths.
+[[ -n $OPTBIN ]] && addpath -fx PATH "$OPTBIN"
+addpath -fx PATH "$PERSONALBIN"
+addpath -fx PATH "$LOCALBIN"
+addpath -fx PATH "$DOTLOCALBIN"
+## Fix path we inherit from system - remove dups but, more importantly, non-existent paths.
+uniqpath -dx PATH
+
+##
+## env setup
+##
+
+## Variables that can be exported to subshells are loaded here. We also load
+## the xterminit file here (via xtermfuncs) as it contains functions that we
+## cannot break out into their own files for autoload since xterminit is run
+## under ksh before bash is invoked on chimera machines.
+declare -a _profile_env_list
+if [[ -f ${HOME}/empenv/bin/early.mopenv ]]; then
+    _profile_env_list+=("${HOME}/empenv/bin/early.mopenv")
+fi
+
+declare -a _profile_env_init_list
+_profile_env_init_list+=('util.mopenv' 'cd.mopenv' 'git.mopenv')
+_profile_env_init_list+=('ansi-colors.mopenv' 'xtermfuncs')
+_profile_env_init_list+=('nfssnapshot.mopenv' 'rsync.mopenv' 'bash-history.mopenv')
+_profile_env_init_list+=('nvm.mopenv')
+if iswsl; then
+    _profile_env_init_list+=('wsl.mopenv')
+fi
+if [[ ! -d ${HOME}/empenv ]]; then
+    _profile_env_init_list+=('python.mopenv')
+fi
+
+declare _profile_env_init
+for _profile_env_init in "${_profile_env_init_list[@]}"; do
+    _profile_env_list+=("$PERSONALBIN/${_profile_env_init}")
+done
+
+declare _profile_env _profile_env_full _profile_envvar _profile_envvar_val
+for _profile_env_full in "${_profile_env_list[@]}"; do
+    declare _profile_env
+    _profile_env=$(basename "$_profile_env_full")
+    _profile_envvar="$(echo "${_profile_env^^}" | tr -d '.' | tr '-' '_')_LOADED"
+    _profile_envvar_val="$(eval echo "\$$_profile_envvar")"
+    if [[ -z "$_profile_envvar_val" ]]; then
+        "$HOME/personal/bin/monkeytell" \
+            "$VERBOSE_PROFILE" "$this_profile" "Loading $_profile_env"
+        # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+        . "$_profile_env_full"
+    else
+        "$HOME/personal/bin/monkeytell" \
+            "$VERBOSE_PROFILE" "$this_profile" \
+            "Skipped loading $_profile_env, $_profile_envvar=$_profile_envvar_val"
+    fi
+done
+
+if ! $CRON; then
+    ## Items we don't need in a cron job, some potentially fatal in that
+    ## environment
+
+    ## Check the personal repo.
+    git-daily-repo-check "$PERSONALROOT"
+
+    # MISC
+
+    # X - Don't clear the screen.
+    # R - Don't cleanse colors.
+    # F - Exit at end only if one page so that you can go back if needed.
+    # i - Case insensitive search unless you type one or more capital letters.
+    LESS="-XRFi"
+    export LESS
+
+    # Needs setting
+    declare _profile_pager
+    for _profile_pager in less more; do
+        [[ -z "$PAGER" ]] && PAGER=$(type -P $_profile_pager)
+    done
+    [[ -n "$PAGER" ]] && export PAGER
+
+    # Editing
+    declare iEDITOR
+    for iEDITOR in xo emacs vi; do
+        if [[ "$(type -P $iEDITOR 2>/dev/null)" ]]; then
+            EDITOR="$iEDITOR"
+            export EDITOR
+            if [[ $EDITOR == 'xo' ]]; then
+                LOGIT_EDITOR='xo -nf'
+                export LOGIT_EDITOR
+            fi
+            break
+        fi
+    done
+
+    # Browsing (decidedly non-standard)
+    set-browser firefox
+
+    # for silencing emacs dbus warning message
+    export NO_AT_BRIDGE=1
+
+    # History - set up a new history file per shell session. By the time we get
+    # here, the function is defined in this session or an ancestor session, unless
+    # we skipped it because we are running under cron.
+    bash-history-init
+
+fi
+
+# Other environment startup programs. Make sure they name-sort in the order you
+# which you want them to execute.
+for p in ~/.bash_profile.*; do
     [[ -e "${p}" ]] || continue # Make sure the glob isn't empty
     if [[ -e "${p}.skip" ]]; then
         echo "Skipping ${p} because ${p}.skip found" >&2
     else
-        var=PROFILE_SKIP_$(basename "${p}" | sed 's/\./_/g')
+        var=BASH_PROFILE_SKIP_$(basename "${p}" | sed 's/\./_/g')
         var=${var^^}
         val="$(eval echo \$"$var")"
         if [[ -n "$val" ]]; then
@@ -67,13 +261,29 @@ done
 # Get the aliases and functions. We don't run other bashrcs here; we do that in
 # .bashrc so that under a subshell they all get read. And we don't need (or
 # want) .bashrc in under cron.
+# 2025-07-01 - The overall order of operations for files processed is currently:
+# bash_profile
+# bash_profile1
+# bash_profile2...
+# bashrc
+# bashrc1
+# bashrc2...
+# I wonder if each bash_profile should call its bashrc so that:
+# bash_profile
+# bashrc
+# bash_profile1
+# bashrc1
+# bash_profile2
+# bashrc2
+# ...
+
 if ! $CRON && [[ -f ~/.bashrc ]]; then
     # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
     . ~/.bashrc
 fi
 
 "$HOME/personal/bin/monkeytell" \
-    "$VERBOSE_PROFILE" "$HOME/.bash_profile" 'end'
+    "$VERBOSE_PROFILE" "$this_profile" 'end'
 
 RAN_BASH_PROFILE="PID:$$ at $(date)"
 export RAN_BASH_PROFILE

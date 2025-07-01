@@ -13,16 +13,239 @@
 
 ## How to plug in (monkeypatch) 'set -x', VERBOSE_PROFILE, etc, if needed. Use
 ## the "monkeypatch" program to manage this file.
-[[ -r "${TILDAE}/bashrc.monkeypatch" ]] && . "${TILDAE}/bashrc.monkeypatch"
+[[ -r "${HOME}/bashrc.monkeypatch" ]] && . "${HOME}/bashrc.monkeypatch"
 
 "$HOME/personal/bin/monkeytell" \
-    "$VERBOSE_RC" "${TILDAE}/.bashrc" 'start'
+    "$VERBOSE_RC" "${HOME}/.bashrc" 'start'
 
-# User specific environment and startup programs. The main one is the personal
-# one, which is '~/.bashrc.${USER}'. All the rest ( ~/.bashrc.${USER}*) will
-# sort after the first one, so make sure they name-sort in the order you want
-# them to be sourced.
-for b in ~/.bashrc."${USER}"*; do
+# set a restrictive umask
+umask 002
+
+##############################################################################
+## This is a WORK-RELATED concept that I can't relocate to later on in the rc
+## execution chain.
+##############################################################################
+# If chimera generated aliases exist, pull them into the current ENV.
+if [[ -f ~/.empalias ]]; then
+    . ~/.empalias
+elif [[ -f /etc/bashrc ]]; then
+    # Source global definitions
+    # By this time we have already set up a shell. Don't let /etc/bashrc trash it.
+    declare my_shell=$SHELL
+    # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
+    . /etc/bashrc
+    SHELL=$my_shell
+fi
+
+## Aliases
+_bashrc_alias_init_list='hist perl misc yum apt dpkg tmux'
+for _bashrc_alias in ${_bashrc_alias_init_list}; do
+"$HOME/personal/bin/monkeytell" \
+    "$VERBOSE_RC" "${HOME}/.bashrc.${USER}" "Loading ${_bashrc_alias}.alias"
+    . "$PERSONALBIN/${_bashrc_alias}.alias"
+done
+
+##############################################################################
+## Prompts
+##
+
+PROMPT_COMMAND=$(declare -F | grep bash-history-sync| sed 's/.* //' )
+_PS1_lcstatus='\n[\$? = $?]\n' ## Status of the last command prior to this prompt
+_PS1_xterm_title_cmds=''
+if [[ -z $INSIDE_EMACS ]]; then
+    _PS1_xterm_title_cmds='\[\e]0;\u@\h:$$:\w\a\]'
+fi
+_PS1_where='where   : \u@\h'
+if [[ -r "${HOME}/.config/openstack_instname" ]]; then
+     OPENSTACK_INSTANCE_NAME=$(cat  "${HOME}/.config/openstack_instname")
+     export OPENSTACK_INSTANCE_NAME
+     _PS1_where="$_PS1_where($OPENSTACK_INSTANCE_NAME)"
+fi
+
+_PS1_since="since   : $(date +'%a %b %d %H:%M:%S')"
+_PS1_as_of='as-of   : \d \t'
+
+_PS1_wsl_distro ()
+{
+    [[ -n $WSL_DISTRO_NAME ]] && echo '' && echo -n "WSL     : $WSL_DISTRO_NAME"
+}
+typeset -fx _PS1_wsl_distro
+
+_PS1_local_perl ()
+{
+    [[ -n $PERL5LIB_ROOT ]] && echo && echo -n "perl    : $PERL5LIB_ROOT"
+}
+typeset -fx _PS1_local_perl
+
+_PS1_tmux ()
+{
+    local tmux_count=0
+    type -P tmux 1>/dev/null 2>&1 && tmux_count=$(wc -l < <(tmux list-sessions 2>/dev/null))
+    ((tmux_count)) && echo && echo -n "tmux    : $tmux_count"
+}
+typeset -fx _PS1_tmux
+
+_PS1_pyvenv ()
+{
+    [[ -n $VIRTUAL_ENV ]] && echo && echo -n "pyvenv  : $VIRTUAL_ENV"
+}
+typeset -fx _PS1_pyvenv
+
+_PS1_from_branch ()
+{
+    local b; b=$(git repo ina && git config --value-only  --get-regexp "branch.$(git-branch --current --no-warn).*from-branch")
+    [[ -n $b ]] && echo -n " (from $b)"
+}
+typeset -fx _PS1_from_branch
+
+# shellcheck disable=SC2089 #https://github.com/koalaman/shellcheck/wiki/SC2089
+# shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+_PS1_git='$(git repo ina && __git_ps1 "\nbranch  : %s")$(_PS1_from_branch)$(git-stash-get-count -no0 "\nstashes : ")$(git-get-default-remote --no-warn "\nremote  : ")'
+
+_PS1_git_lite ()
+{
+    local pgl
+    if git repo ina; then
+        pgl="$(git repo ina && git-get-default-remote --no-warn )$(__git_ps1 '@%s')$(_PS1_from_branch)$(git-stash-get-count -no0 ' stashes: ')"
+        echo "$pgl"
+        echo ' '
+    fi
+}
+typeset -fx _PS1_git_lite
+
+_PS1_eops1 ()
+{
+    if [[ $USER == 'root' ]]; then
+        echo '#'
+    else
+        echo '$'
+    fi
+}
+typeset -fx _PS1_eops1
+
+_PS1_xrdb_loaded ()
+{
+    [[ -n "$DISPLAY" ]] && ! xrdb -query | grep -q Xdefaults.load && echo && echo "Xdefaults not loaded"
+}
+typeset -fx _PS1_xrdb_loaded
+
+_PS1_pwd='pwd     : \w'
+_PS1_pid='[$$]'
+
+# Multiple items are on the same line because they are optional and so provide
+# their own newlines, or not if they evaluate to a blank string.
+PS1_FULL="${_PS1_lcstatus}
+${_PS1_xterm_title_cmds}${_PS1_where}
+${_PS1_since}
+${_PS1_as_of}\$(_PS1_wsl_distro)\$(_PS1_local_perl)\$(_PS1_tmux)\$(_PS1_pyvenv)${_PS1_git}
+${_PS1_pwd}\$(_PS1_xrdb_loaded)
+${_PS1_pid} \$(_PS1_eops1) "
+# shellcheck disable=SC2090 #https://github.com/koalaman/shellcheck/wiki/SC2090
+export PS1_FULL
+
+PS1_LITE="$USER \$(_PS1_git_lite)\w [$$] $ "
+export PS1_LITE
+
+# shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+PS1_SHORT='($USER) \w [$$] $ '
+export PS1_SHORT
+
+# shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+PS1_SHLVL='($USER) \w (SHLVL=$SHLVL) [$$] $ '
+export PS1_SHLVL
+
+PS1_TINY='$ '
+export PS1_TINY
+
+PS1_ROOT="${_PS1_lcstatus}
+${_PS1_xterm_title_cmds}${_PS1_where}
+${_PS1_since}
+${_PS1_as_of}
+${_PS1_pwd}
+${_PS1_pid} # "
+export PS1_ROOT
+
+# Default prompt.
+if [[ -z $DPKG_ENV_SANITIZED ]]; then
+    ## Employer stuff.
+    export PS1="$PS1_FULL"
+fi
+
+# You can switch between PS1 prompts with the 'switch-ps1' command.
+
+# PS2 is the continuation prompt string
+# PS3 is the select prompt string
+# PS4 is the trace prompt string (under 'set -x'). From https://www.reddit.com/r/bash/comments/xcejrb/comment/io52img/?utm_source=share&utm_medium=web2x&context=3
+_PS4_source ()
+{
+    local short=0
+    if [[ $1 == '--short' ]]; then
+        short=1
+    fi
+    local -a source
+    if [[ -n ${BASH_SOURCE[1]} ]]; then
+        source+=("${BASH_SOURCE[1]##*/}")
+    elif [[ -n ${FUNCNAME[1]} ]]; then
+        local var="BASH_FUNCFILE_${FUNCNAME[1]//-/__}"
+        local val=${!var}
+        if [[ -n $val ]]; then
+            source+=("$val")
+        fi
+    fi
+    if [[ -z ${source[0]} ]]; then
+        source+=("$0")
+    fi
+    if [[ -n ${FUNCNAME[1]} ]]; then
+        source+=("${FUNCNAME[1]}()")
+    fi
+    if [[ -n ${source[1]} ]]; then
+        ((short==1)) && source[1]=$(basename "${source[1]}")
+        echo "${source[0]}/${source[1]}"
+    else
+        ((short==1)) && source[0]=$(basename "${source[0]}")
+        echo "${source[0]}"
+    fi
+}
+typeset -fx _PS4_source
+
+PS4_LONG="+\$(_PS4_source):\$LINENO> "
+export PS4_LONG
+
+PS4_SHORT="+\$(_PS4_source --short):\$LINENO> "
+export PS4_SHORT
+
+PS4_DEFAULT="+ "
+export PS4_DEFAULT
+
+export PS4="$PS4_DEFAULT"
+# You can switch between PS4 prompts with the 'switch-ps4' command.
+
+##
+## End of Prompts
+##############################################################################
+
+# Conveniences
+alias cvs='echo cvs? Are you nuts? - Try again!'
+alias dir='ls -la '
+alias dirt='ls -lat '
+alias dirrt='ls -lart '
+alias envg='env | grep '
+alias setg='set | grep '
+alias allg='(env && set) | grep '
+alias rm='rm -i '
+alias mydiff='diff -U3 '
+alias sidediff='diff -w --side-by-side --suppress-common-lines '
+alias mopquota='df -h '
+alias showfunc='type '
+alias grepnc='grep --color=never'
+
+# Fat finger protection
+alias vf='echo cd, you moron; cd '
+alias fit='echo dir, you moron; dir '
+
+# Other environment startup programs. Make sure they name-sort in the order you
+# which you want them to execute.
+for b in ~/.bashrc.*; do
     [[ -e "${b}" ]] || continue # Make sure the glob isn't empty
     if [[ -e "${b}.skip" ]]; then
         echo "Skipping ${b} because ${b}.skip found" >&2
@@ -39,7 +262,7 @@ for b in ~/.bashrc."${USER}"*; do
 done
 
 "$HOME/personal/bin/monkeytell" \
-    "$VERBOSE_RC" "${TILDAE}/bashrc" 'end'
+    "$VERBOSE_RC" "${HOME}/bashrc" 'end'
 
 RAN_BASHRC="PID:$$ at $(date)"
 export RAN_BASHRC

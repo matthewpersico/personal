@@ -567,7 +567,7 @@ for (@ARGV){
                             ((opt_verbose)) && pre_commit_ok_echo "Perl compile check will show progress, as ${G_skip_messages[${skips[perlcompilenoprogress]}]}."
                         fi
                         checkcmd="${TILDAE:-$HOME}/personal/bin/perlcheck-bulk ${perlcheck_args[*]} ${libs[*]}"
-                        $checkcmd "${G_perlfiles[@]}" | tee "$G_tfile"
+                        $checkcmd "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
                         runcheck=1
                         remediation="To review, run: (cd $(pwd); $checkcmd ${G_perlfiles[*]})"
                     else
@@ -595,7 +595,7 @@ for (@ARGV){
                             helperfound=1
                             "$tidycmd" "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
                             tidyrc=$?
-                            runcheck=$tidyrc
+                            ((runcheck == 0)) && runcheck=$tidyrc
                             remediation="To correct, run: (cd $(pwd); $tidycmd --update ${G_perlfiles[*]})"
                             break
                         fi
@@ -603,7 +603,7 @@ for (@ARGV){
                     if ((runcheck!=0)); then
                         check "$G_tfile" \
                               "One or more files has formatting errors. Please review." \
-                              "$tidyrc" \
+                              "$runcheck" \
                               "$remediation"
                     elif ((helperfound==0)); then
                         ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy, no perl perltidy helpers found."
@@ -651,9 +651,15 @@ for (@ARGV){
                 if [[ -n ${skips[shellcheck]} ]]; then
                     ((opt_verbose)) && pre_commit_ok_echo "Skipping shellcheck, ${G_skip_messages[${skips[shellcheck]}]}."
                 else
-                    shellcheck -x "${shellfiles[@]}" 1>"$G_tfile" 2>&1
-                    check "$G_tfile" \
-                          "One or more files has failed shellcheck checks. Please review."
+                    if ! shellcheck -x "${shellfiles[@]}" 1>"$G_tfile" 2>&1; then
+                        # https://github.com/koalaman/shellcheck/wiki/SC2005
+                        # https://github.com/koalaman/shellcheck/wiki/SC2046
+                        # shellcheck disable=SC2005,SC2046
+                        check "$G_tfile" \
+                              "One or more files has failed shellcheck checks. Please review." \
+                              1 \
+                              "Edit and correct these files: $(echo $(grep -E "^In (.*) line" "$G_tfile" | sed 's/In \(.*\) line.*/\1/' | sort -u))"
+                    fi
                 fi
             fi
         fi
