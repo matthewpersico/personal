@@ -6,7 +6,9 @@ GitHub.
 # Setup
 
 ## ssh
-Make a `${HOME}/.ssh` directory if it does not already exist. Set it `chmod 700`. Copy your `id_rsa` and `id_rsa.pub` files into the directory and set them `chmod 400`
+Make a `${HOME}/.ssh` directory if it does not already exist. Set it `chmod 700`. Copy your `id_rsa` and `id_rsa.pub` files into the directory and set them `chmod 400`.
+
+If you do not have ssh key file, see [Generating a new SSH key and adding it to the ssh-agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
 
 ## git
 Execute the following to install the latest version of git:
