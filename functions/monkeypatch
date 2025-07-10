@@ -7,13 +7,6 @@
 # <Function Justification: env>
 
 # Turn off monkeypatching or turn it on with minimal functionality
-declare -A _monkeypatch_status
-_monkeypatch_status=(["${HOME}/bash_profile.monkeypatch"]=VERBOSE_PROFILE
-                     ["${HOME}/bash_profile.employer.monkeypatch"]=VERBOSE_PROFILE
-                     ["${HOME}/bashrc.monkeypatch"]=VERBOSE_RC
-                     ["${HOME}/bashrc.employer.monkeypatch"]=VERBOSE_RC
-                    )
-
 declare -A _monkeypatch_envvarseen
 _monkeypatch_envvar_check ()
 {
@@ -37,13 +30,20 @@ monkeypatch()
 {
     declare action=$1;shift;
     declare mp
-    for mp in "${!_monkeypatch_status[@]}"; do
+    declare -A _monkeypatch_status_envvar
+    _monkeypatch_status_envvar=(["${HOME}/bash_profile.monkeypatch"]=VERBOSE_PROFILE
+                         ["${HOME}/bash_profile.employer.monkeypatch"]=VERBOSE_PROFILE
+                         ["${HOME}/bashrc.monkeypatch"]=VERBOSE_RC
+                         ["${HOME}/bashrc.employer.monkeypatch"]=VERBOSE_RC
+                        )
+
+    for mp in "${!_monkeypatch_status_envvar[@]}"; do
         if [[ $action == 'status' ]]; then
             ls -lart "$mp"
-            _monkeypatch_envvar_check "${_monkeypatch_status[$mp]}" status
+            _monkeypatch_envvar_check "${_monkeypatch_status_envvar[$mp]}" status
         elif [[ $action == 'whack' ]]; then
             rm -rfv "$mp"
-            _monkeypatch_envvar_check "${_monkeypatch_status[$mp]}"
+            _monkeypatch_envvar_check "${_monkeypatch_status_envvar[$mp]}"
         elif [[ $action == 'off' ]]; then
             if [[ -f $mp ]]; then
                 echo "chmod a-r $mp"
@@ -51,14 +51,14 @@ monkeypatch()
             else
                 echo "No file $mp to chmod a-x"
             fi
-            _monkeypatch_envvar_check "${_monkeypatch_status[$mp]}"
+            _monkeypatch_envvar_check "${_monkeypatch_status_envvar[$mp]}"
         elif [[ $action == 'on' ]] \
              || [[ $action == 'edit' ]]; then
             if [[ ! -f $mp ]]; then
                 echo "Creating $mp"
                 # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
                 # Using single, non-expanding quotes on purpose
-                echo 'if ! $CRON; then export' "${_monkeypatch_status[$mp]}=true; fi" > "$mp"
+                echo 'if ! $CRON; then export' "${_monkeypatch_status_envvar[$mp]}=true; fi" > "$mp"
             fi
             echo "chmod a+r $mp"
             chmod a+r "$mp"

@@ -516,15 +516,20 @@ for (@ARGV){
                 ##
                 ## check: Perl debug statements
                 ##
-                if [[ -e "${G_gitroot}/.hookcfg/skip.DBcheck" ]]; then
-                    echo "Skipping '$DB::s(ingle|tep) check as per .hookcfg"
+                # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                # We want to pass the $ into the grep.
+                grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" 1>"${G_tfile}.001" 2>&1
+                if [[ -e "${HOME}/.config/git-pre-commit-hook/skip.DBcheck" ]]; then
+                    declare -a excls
+                    readarray -t excls <  "${HOME}/.config/git-pre-commit-hook/skip.DBcheck"
+                    declare excls_re
+                    excls_re=$(IFS='|'; echo "${excls[*]}")
+                    grep -H -n -E -v "$excls_re" "${G_tfile}.001" > "${G_tfile}"
                 else
-                    # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
-                    # We want to pass the $ into the grep.
-                    grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" | grep -v '# pre-commit-hook-ignore' 1>"$G_tfile" 2>&1
-                    check "$G_tfile" \
-                          "One or more files has Perl-debugger-related statements. Please remove instrumentation."
+                    mv "${G_tfile}.001" "${G_tfile}"
                 fi
+                check "$G_tfile" \
+                      "One or more files has Perl-debugger-related statements. Please remove instrumentation. If you want to exclude any of the files '' from the check, add them to ${HOME}/.config/git-pre-commit-hook/skip.DBcheck"
 
                 ##
                 ## check: testing utilities left in the code
