@@ -1,0 +1,78 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# monkeypatch
+
+# <Function Class: n/a>
+# <Function Justification: env>
+
+# Turn off monkeypatching or turn it on with minimal functionality
+declare -A _monkeypatch_status
+_monkeypatch_status=(["${HOME}/bash_profile.monkeypatch"]=VERBOSE_PROFILE
+                     ["${HOME}/bash_profile.employer.monkeypatch"]=VERBOSE_PROFILE
+                     ["${HOME}/bashrc.monkeypatch"]=VERBOSE_RC
+                     ["${HOME}/bashrc.employer.monkeypatch"]=VERBOSE_RC
+                    )
+
+declare -A _monkeypatch_envvarseen
+_monkeypatch_envvar_check ()
+{
+    if [[ -z ${_monkeypatch_envvarseen[$1]} ]]; then
+        if [[ ${!1} = true ]]; then
+            echo -n "${1} is set"
+            if [[ $2 == 'status' ]]; then
+                echo " "
+            else
+                echo "; unsetting ${1}"
+                unset "$1"
+            fi
+        else
+            echo "envvar ${1} is not set"
+        fi
+        _monkeypatch_envvarseen[$1]='seen'
+    fi
+}
+
+monkeypatch()
+{
+    declare action=$1;shift;
+    declare mp
+    for mp in "${!_monkeypatch_status[@]}"; do
+        if [[ $action == 'status' ]]; then
+            ls -lart "$mp"
+            _monkeypatch_envvar_check "${_monkeypatch_status[$mp]}" status
+        elif [[ $action == 'whack' ]]; then
+            rm -rfv "$mp"
+            _monkeypatch_envvar_check "${_monkeypatch_status[$mp]}"
+        elif [[ $action == 'off' ]]; then
+            if [[ -f $mp ]]; then
+                echo "chmod a-r $mp"
+                chmod a-r "$mp"
+            else
+                echo "No file $mp to chmod a-x"
+            fi
+            _monkeypatch_envvar_check "${_monkeypatch_status[$mp]}"
+        elif [[ $action == 'on' ]] \
+             || [[ $action == 'edit' ]]; then
+            if [[ ! -f $mp ]]; then
+                echo "Creating $mp"
+                # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                # Using single, non-expanding quotes on purpose
+                echo 'if ! $CRON; then export' "${_monkeypatch_status[$mp]}=true; fi" > "$mp"
+            fi
+            echo "chmod a+r $mp"
+            chmod a+r "$mp"
+            if [[ $action == 'edit' ]]; then
+                chmod +w "$mp"
+                ${EDITOR:-vi} "$mp"
+                chmod -w "$mp"
+            fi
+        else
+            echo "status, on, off, whack: pick one..."
+            false; return
+        fi
+    done
+    true; return
+}
+
+autotrack monkeypatch "$0"

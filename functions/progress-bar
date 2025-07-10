@@ -1,5 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
 
 # progress-bar
 
@@ -11,40 +12,73 @@ progress-bar () {
         bash-usage bash-strict
         true; return
     fi
-    local current="$1"
-    local total="$2"
-    local prefix="$3"
-    local suffix="$4"
-    local bar_length=20
-    local progress=$((current * 100 / total))
-    local filled_length=$((progress * bar_length / 100))
-    local bar=""
+    local OPTSARGS
+    local shortopts='p:s:l'
+    local longopts='prefix:,suffix:,length:'
+    # Process the command line
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "${FUNCNAME[0]}" -- "$@") || exit
+
+    eval set -- "$OPTSARGS" # Reset the command line ($@).
+    local prefix
+    local suffix
+    local total_bar_length=20
+    while true; do
+        local option=$1
+        shift
+        [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
+        case "$option" in
+            p | prefix )
+                prefix=$1; shift;;
+            s | suffix )
+                suffix=$1; shift;;
+            l | length )
+                total_bar_length=$1; shift;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo --id dirlist -ec -- "$option is an invalid option. See $0 --help"
+                false; return
+                ;;
+        esac
+    done
+
+    local current_count="$1"
+    local total_count="$2"
+    local progress_ratio=$(awk "BEGIN { print $current_count / $total_count }" )
+    local progress_pct=$(awk "BEGIN { print $progress_ratio * 100 }" )
+    local filled_length=$(awk "BEGIN { print int($progress_ratio * $total_bar_length) }" )
+    local bar=''
+    local complete_bar=''
     for ((i=0; i<filled_length; i++)); do
         bar+="#";
+        complete_bar+="#";
     done
-    for ((i=filled_length; i<bar_length; i++)); do
+    for ((i=filled_length; i<total_bar_length; i++)); do
         bar+=" ";
     done
+
+    ## This is the string with prefix, bar and suffix
     # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-    declare output=$(printf "${prefix}[%s] %d%% %s" "$bar" "$progress" "$suffix")
+    declare output=$(printf "${prefix}[%s] %d%% %s" "$bar" "$progress_pct" "$suffix")
+
+    ## All of this is to account for change in prefix or suffix between
+    ## calls. We keep that last number of chars printed and if we are currently
+    ## short of the last print, we print blanks to cover up.
     declare outlen=${#output}
-    declare static="progress_bar_max_$$"
-    if [[ -n ${!static} ]]; then
-        declare max=${!static}
-        if (( max > outlen )); then
-            declare fill=$((max-outlen))
+    declare prior_outlen_envvar="PROGRESS_BAR_PRIOR_OUTLEN_$$"
+    if [[ -n ${!prior_outlen_envvar} ]]; then
+        declare prior_outlen=${!prior_outlen_envvar}
+        if (( prior_outlen > outlen )); then
+            declare fill=$((prior_outlen-outlen))
             output=$(printf %s%${fill}s "$output" " ")
-        else
-            export $static="$outlen"
+            outlen=${#output}
         fi
-    else
-        export $static="$outlen"
     fi
+    export $prior_outlen_envvar="$outlen"
 
     printf "\r%s" "$output" >&2
-    if [ "$current" -eq "$total" ]; then
+    if [ "$current_count" -ge "$total_count" ]; then
         echo "" >&2 # Add a newline at the end
-        unset $static
     fi
     true; return
 }
@@ -57,13 +91,25 @@ progress-bar - show a one line graph of progress
 
 =head1 SYNOPSIS
 
- progress-bar nth total ["prefix"] ["suffix"]
+  progress-bar [-p|--prefix "prefix string] \
+               [-s|--suffix "suffix string"] \
+               [-l|--length n] \
+               nth total
 
- total_steps=100
- for ((i=1; i<=total_steps; i++)); do
-   sleep 0.05 # Simulate work
-   progress-bar "$total_steps" "$i"
- done
+  total_steps=100
+  for ((step=1; step<=$total_steps; step++)); do
+    sleep 0.05
+    progress-bar --prefix "Progress:" --l 50 $step $total_steps
+  done
+
+  # Sampled outputs (all on one line in reality):
+  Progress:[                                                  ] 1%
+
+  Progress:[#################                                 ] 34%
+
+  Progress:[########################################          ] 81%
+
+  Progress:[##################################################] 100%
 
 =head1 DESCRIPTION
 
@@ -82,19 +128,23 @@ What number of the total we just processed.
 
 Total number of items to process.
 
-=item prefix
-
-String to print before the bar.
-
-=item prefix
-
-String to print after percentage. If no prefix is desired, use "" for prefix.
-
 =back
 
 =head1 OPTIONS
 
 =over 4
+
+=item --prefix|-p
+
+String to print before the bar.
+
+=item --suffix|-s
+
+String to print after percentage.
+
+=item --length|-l
+
+Number of hash marks to use for the bar. Default is 20.
 
 =item --help
 
@@ -111,8 +161,11 @@ Show this help text.
 If either prefix or suffix change in size from call to call, we try to make
 sure we write a long enough string to completely blank out the prior output
 when the current output is shorter than the prior. We do this by storing the
-output length in the exported variable "progress_bar_$$", which lives only as
-long as the current process (which should be the caller of the function) lives.
+output length in the exported variable "PROGRESS_BAR_PRIOR_OUTLEN_$$", which
+lives only as long as the current process (which should be the caller of the
+function) lives. There are no issues with leaving it set from the end of one
+loop, reaching 100% to the beginnng of the next, except for maybe a few extra
+spaces printed at the end of the first call.
 
 =item Short terminal
 
