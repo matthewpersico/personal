@@ -60,7 +60,7 @@ declare -a delgitobjs
 finish ()
 {
     # shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
-    rm -f "$G_tfile" "${G_tfile}.jqerr"
+    rm -f "$G_tfile".*
 }
 
 get_status ()
@@ -518,19 +518,28 @@ for (@ARGV){
                 ##
                 # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
                 # We want to pass the $ into the grep.
-                grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" 1>"${G_tfile}.001" 2>&1
-                if [[ -e "${HOME}/.config/git-pre-commit-hook/skip.DBcheck" ]]; then
+                grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" 1>"${G_tfile}" 2>&1
+                declare excls_re
+                declare excls_file="${HOME}/.config/git-pre-commit-hook/skip-check.perl.DB";
+                if [[ -e $excls_file ]]; then
                     declare -a excls
-                    readarray -t excls <  "${HOME}/.config/git-pre-commit-hook/skip.DBcheck"
-                    declare excls_re
-                    excls_re=$(IFS='|'; echo "${excls[*]}")
-                    grep -H -n -E -v "$excls_re" "${G_tfile}.001" > "${G_tfile}"
-                else
-                    mv "${G_tfile}.001" "${G_tfile}"
+                    readarray -t excls <  <(grep -v '#' "$excls_file")
+                    if [[ ${#excls[@]} != '0' ]]; then
+                        declare excls_re
+                        excls_re=$(IFS='|'; echo "${excls[*]}")
+
+                        ## Warn on exclusions.
+                        grep -H -n -E "$excls_re" "${G_tfile}" > "${G_tfile}.excluded"
+                        if [[ -s "${G_tfile}.excluded" ]]; then
+                            pre_commit_warning_echo "These files contain Perl-debugger-related statements, but are allowed to as exceptions in $excls_file"
+                        fi
+                        ## Check for violations.
+                        grep -H -n -E -v "$excls_re" "${G_tfile}" > "${G_tfile}.001"
+                        mv "${G_tfile}.001" "${G_tfile}"
+                    fi
                 fi
                 check "$G_tfile" \
-                      "One or more files has Perl-debugger-related statements. Please remove instrumentation. If you want to exclude any of the files '' from the check, add them to ${HOME}/.config/git-pre-commit-hook/skip.DBcheck"
-
+                      "One or more files has Perl-debugger-related statements. Please remove instrumentation. If you want to exclude any of the files listed from the check, add the path and name as presented below to the file '$excls_file'."
                 ##
                 ## check: testing utilities left in the code
                 ## EMPLOYER SPECIFIC
@@ -632,11 +641,31 @@ for (@ARGV){
                     declare shellcheck_shell_text
                     rm -f "$G_tfile"
                     touch "$G_tfile"
+
+                    declare excls_shebang_re
+                    declare excls_shebang_file="${HOME}/.config/git-pre-commit-hook/skip-check.shell.shebang"
+                    if [[ -e $excls_shebang_file ]]; then
+                        declare -a excls_shebang
+                        readarray -t excls_shebang <  <(grep -v '#' "$excls_shebang_file")
+                        excls_shebang_re=$(IFS='|'; echo "${excls_shebang[*]}")
+                    fi
+
+                    declare excls_directive_re
+                    declare excls_directive_file="${HOME}/.config/git-pre-commit-hook/skip-check.shell.directive"
+                    if [[ -e $excls_directive_file ]]; then
+                        declare -a excls_directive
+                        readarray -t excls_directive <  <(grep -v '#' "$excls_directive_file")
+                        excls_directive_re=$(IFS='|'; echo "${excls_directive[*]}")
+                    fi
+
                     for shellfile in "${shellfiles[@]}"; do
                         shebang_text=$(head -1 "$shellfile" | grep '^#!')
                         if [[ -n $shebang_text ]]; then
                             if grep '<<<git-commit' "$shellfile" | grep -q ALLOW_SHEBANG; then
-                                : # shebang was locally allowed.
+                                pre_commit_warning_echo "shebang violation was locally allowed for $shellfile."
+                            elif [[ -n $excls_shebang_re ]] \
+                                     && [[ $shellfile =~ $excls_shebang_re ]]; then
+                                pre_commit_warning_echo "shebang violation is allowed for $shellfile, exception in '$excls_shebang_file'."
                             else
                                 echo "$shellfile has a shebang line ($shebang_text)" >> "$G_tfile"
                             fi
@@ -644,7 +673,10 @@ for (@ARGV){
                         shellcheck_shell_text=$(head -2 "$shellfile" | tail -1 | grep '^# shellcheck shell=')
                         if [[ -z $shellcheck_shell_text ]]; then
                             if grep '<<<git-commit' "$shellfile" | grep -q ALLOW_MISSING_SHELLCHECK_SHELL; then
-                                : # missing shellcheck shell directive was locally allowed.
+                                pre_commit_warning_echo "missing directive violation was locally allowed for $shellfile."
+                            elif [[ -n $excls_directive_re ]] \
+                                     && [[ $shellfile =~ $excls_directive_re ]]; then
+                                pre_commit_warning_echo "missing directive violation is allowed for $shellfile, exception in '$excls_directive_file'."
                             else
                                 echo "$shellfile is missing a 'shellcheck shell=' definition line" >> "$G_tfile"
                             fi
@@ -652,6 +684,7 @@ for (@ARGV){
                     done
                     check "$G_tfile" \
                           "One or more files has failed shebang checks. Please review."
+
                 fi
                 if [[ -n ${skips[shellcheck]} ]]; then
                     ((opt_verbose)) && pre_commit_ok_echo "Skipping shellcheck, ${G_skip_messages[${skips[shellcheck]}]}."
