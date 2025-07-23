@@ -44,11 +44,14 @@ main ()
     # Read the options and args from command line. Note that the long and short
     # don't have to match up.
     local OPTSARGS
-    local shortopts='aih'
-    local longopts='auto,yes,invert,inverse,help'
+    local shortopts='ah'
+    local longopts='auto,yes,help,stop-on-success,stop-on-failure,stop-on-0,stop-on-1'
     local opt_auto=0
-    local opt_invert=0
-
+    local opt_stop_on_success=1
+    local opt_stop_on_failure=0
+    local opt_stop_on_0=0
+    local opt_stop_on_1=0
+    local opt_stops_set=0
     # Process the command line.
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
@@ -65,8 +68,49 @@ main ()
             a | auto | yes )
                 opt_auto=1
                 ;;
-            i | invert | inverse)
-                opt_invert=1
+            stop-on-success )
+                if ((opt_stops_set)) ; then
+                    cmd-echo --id "$ceid" -ec -- "Cannot set more than one --stop-on option"
+                    false; return
+                fi
+                opt_stops_set=1
+                opt_stop_on_success=1
+                opt_stop_on_failure=0
+                opt_stop_on_0=0
+                opt_stop_on_1=0
+                ;;
+            stop-on-failure )
+                if ((opt_stops_set)) ; then
+                    cmd-echo --id "$ceid" -ec -- "Cannot set more than one --stop-on option"
+                    false; return
+                fi
+                opt_stops_set=1
+                opt_stop_on_success=0
+                opt_stop_on_failure=1
+                opt_stop_on_0=0
+                opt_stop_on_1=0
+                ;;
+            stop-on-0 )
+                if ((opt_stops_set)) ; then
+                    cmd-echo --id "$ceid" -ec -- "Cannot set more than one --stop-on option"
+                    false; return
+                fi
+                opt_stops_set=1
+                opt_stop_on_success=0
+                opt_stop_on_failure=0
+                opt_stop_on_0=1
+                opt_stop_on_1=0
+                ;;
+            stop-on-1 )
+                if ((opt_stops_set)) ; then
+                    cmd-echo --id "$ceid" -ec -- "Cannot set more than one --stop-on option"
+                    false; return
+                fi
+                opt_stops_set=1
+                opt_stop_on_success=0
+                opt_stop_on_failure=0
+                opt_stop_on_0=0
+                opt_stop_on_1=1
                 ;;
             h | help )
                 git-usage "$0"
@@ -107,15 +151,15 @@ main ()
             prevcommitid="$commitid"
         fi
 
-        cmd-echo --id "$ceid" -- "Start output for $commitid  (commit #$current_commit/${total_commits}):"
+        cmd-echo --id "$ceid" -- "Start output for $commitid (commit #$current_commit/${total_commits}):"
         "${cmd[@]}"
         status=$?
-        cmd-echo --id "$ceid" -- "End   output for $commitid. Status $status. Invert $opt_invert."
+        cmd-echo --id "$ceid" -- "End   output for $commitid. Status $status. "
         ((current_commit -= 1))
 
-        if { [[ $opt_invert == 0 ]] && [[ $status == 0 ]]; }  \
-               ||
-               { [[ $opt_invert == 1 ]] && [[ $status != 0 ]]; }; then
+        if (( ( status == 0 && (opt_stop_on_success == 1 || opt_stop_on_0 == 1) )
+                ||
+              ( status != 0 && (opt_stop_on_failure == 1 || opt_stop_on_1 == 1) ) )); then
             cmd-echo --id "$ceid" -- "Search successful."
             break;
         fi
@@ -175,9 +219,45 @@ exit
 
 git-linear - git bisect but linearly
 
+=head1 TODO
+
+Rewrite how we keep state. From https://www.google.com/search?q=how+does+git+bisect+store+its+current+state+data
+
+ Git bisect stores its current state data within the .git/ directory of your
+ repository. Specifically, it creates and utilizes several files to keep track
+ of the bisection process:
+
+  * .git/BISECT_START: This file stores the starting point of the bisection,
+  usually the "bad" commit where the bug exists.
+
+  * .git/BISECT_LOG: This file records the actions taken during the bisect,
+  such as marking commits as "good" or "bad". It acts as a history of the
+  bisection process and can be used to retrace steps or correct mistakes.
+
+  * Other files within .git/: Git bisect also utilizes other internal files,
+  such as refs/bisect/bad which points to the last known "bad" commit and
+  refs/bisect/good for the last known "good" commit.
+
+ These files collectively enable Git bisect to:
+
+  * Track the range of suspect commits: It remembers the known good and bad
+  commits to define the boundaries of the search.
+
+  * Maintain the bisection history: The BISECT_LOG file allows you to see the
+  commits you've tested and how you've marked them.
+
+  * Continue the process after interruption: If you stop a bisect session and
+  resume later, Git bisect uses this stored information to pick up where it
+  left off.
+
+In essence, these files are how Git bisect keeps track of its current progress
+in the binary search and ensures it can efficiently narrow down the possible
+commits until the culprit is found.
+
 =head1 SYNOPSIS
 
- git-linear [-a|--auto] [-i|--invert] command and args to perform on each commit.
+ git-linear [-a|--auto] [--stop-on-[success|failure|0|1]] \
+    command and args to perform on each commit
 
 =head1 DESCRIPTION
 
@@ -219,11 +299,24 @@ examined and if successful (0), processing stops. Otherwise, the next commit is
 checked out and the process repeated. The process will stop if you reach the
 first SHA.
 
-=item --invert
+=item --stop-on-success
 
-Instead of stopping when the command succeeds, processing halts when the
-command fails. This would allow you for example, to stop when git grep fails to
-find what you are looking for.
+The default setting. When the command returns 0, C<git-linear> stops
+checking and leaves you at the commit where the command succeeded.
+
+=item --stop-on-failure
+
+The inverted setting. When the command returns not 0, C<git-linear> stops
+checking and leaves you at the commit where the command failed.
+
+=item --stop-on-0|1
+
+For a command like C<diff> where you would B<THINK> that if the files are
+different, you would get a success (0) return, but instead you get a failure
+(non-zero) return, you can specify exactly what return value you want to stop
+on. For '0', use --stop-on-0. For non-zero, use '--stop-on-1'. When the command
+return matches your chosen option, C<git-linear> stops checking and leaves you
+at the commit where the command succeeded.
 
 =item --help
 

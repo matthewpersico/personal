@@ -519,27 +519,28 @@ for (@ARGV){
                 # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
                 # We want to pass the $ into the grep.
                 grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" 1>"${G_tfile}" 2>&1
-                declare excls_re
-                declare excls_file="${HOME}/.config/git-pre-commit-hook/skip-check.perl.DB";
-                if [[ -e $excls_file ]]; then
-                    declare -a excls
-                    readarray -t excls <  <(grep -v '#' "$excls_file")
-                    if [[ ${#excls[@]} != '0' ]]; then
-                        declare excls_re
-                        excls_re=$(IFS='|'; echo "${excls[*]}")
+                declare excls_perldb_file="${HOME}/.config/git-pre-commit-hook/skip-check.perl.DB";
+                if [[ -e $excls_perldb_file ]]; then
+                    declare -a excls_perldb
+                    readarray -t excls_perldb <  <(grep -v '#' "$excls_perldb_file")
+                    if [[ ${#excls_perldb[@]} != '0' ]]; then
+                        declare excls_perldb_re
+                        excls_perldb_re=$(IFS='|'; echo "${excls_perldb[*]}")
 
                         ## Warn on exclusions.
-                        grep -H -n -E "$excls_re" "${G_tfile}" > "${G_tfile}.excluded"
+                        grep -H -n -E "$excls_perldb_re" "${G_tfile}" > "${G_tfile}.excluded"
                         if [[ -s "${G_tfile}.excluded" ]]; then
-                            pre_commit_warning_echo "These files contain Perl-debugger-related statements, but are allowed to as exceptions in $excls_file"
+                            pre_commit_warning_echo "These files contain Perl-debugger-related statements, but are allowed to as exceptions in $excls_perldb_file"
                         fi
                         ## Check for violations.
-                        grep -H -n -E -v "$excls_re" "${G_tfile}" > "${G_tfile}.001"
+                        grep -H -n -E -v "$excls_perldb_re" "${G_tfile}" > "${G_tfile}.001"
                         mv "${G_tfile}.001" "${G_tfile}"
                     fi
                 fi
                 check "$G_tfile" \
-                      "One or more files has Perl-debugger-related statements. Please remove instrumentation. If you want to exclude any of the files listed from the check, add the path and name as presented below to the file '$excls_file'."
+                      "One or more files contain Perl-debugger-related statements. Please remove instrumentation." \
+                      "" \
+                      "To override Perl-debugger-related statements violations, add file(s) to '$excls_perldb_file'."
                 ##
                 ## check: testing utilities left in the code
                 ## EMPLOYER SPECIFIC
@@ -683,8 +684,9 @@ for (@ARGV){
                         fi
                     done
                     check "$G_tfile" \
-                          "One or more files has failed shebang checks. Please review."
-
+                          "One or more files has failed shebang checks. Please review." \
+                          "" \
+                          "To override shebang violations, add file(s) to '$excls_shebang_file'. To override missing directive violations, add file(s) to '$excls_directive_file'."
                 fi
                 if [[ -n ${skips[shellcheck]} ]]; then
                     ((opt_verbose)) && pre_commit_ok_echo "Skipping shellcheck, ${G_skip_messages[${skips[shellcheck]}]}."
