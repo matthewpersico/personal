@@ -72,6 +72,10 @@ _set-and-go ()
             git-go-del "$full_repo"
             false; exit
         fi
+        if [[ "$doandcdfile" == 'print' ]]; then
+            echo "$full_repo"
+            true; return
+        fi
         ## dirlist, not builtin cd, to take advantage this cd enhancement
         dirlist "$full_repo"
     fi
@@ -108,6 +112,8 @@ declare opt_root
 opt_root='0'
 declare opt_show_pr
 opt_show_pr=0
+declare opt_match
+opt_match=0
 declare -a limited
 declare -a tgts
 declare doandcdfile
@@ -124,7 +130,7 @@ longopts="$longopts,list,lf,listfull,size,update"
 longopts="$longopts,wt,nowt,wto"
 longopts="$longopts,stat,dirty,brief,mod,help,index:,limited:,comma"
 longopts="$longopts,doandcd:,wpr,with-pr,npr,no-pr,show-pr,spr,set,top:,time,notime"
-longopts="$longopts,root,prune,page"
+longopts="$longopts,root,prune,page,match"
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$0" -- "$@") || exit
@@ -179,6 +185,7 @@ while true; do
         time ) opt_time='--time';;
         notime ) opt_time='--notime';;
         root ) opt_root=1;;
+        match ) opt_match=1;;
         h | help ) git-usage "$0"; true; exit ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
@@ -335,7 +342,7 @@ else
         done
         exit
     elif ((${#REPOS[@]}==1)); then
-        cmd-echo --id git-go -- "Matches only ${REPOS[0]}. Going there."
+        [[ $opt_match == 0 ]] && cmd-echo --id git-go -- "Matches only ${REPOS[0]}. Going there."
         REPO=${REPOS[0]}
     else
         declare REPO
@@ -356,9 +363,13 @@ else
         if ((${#REPOS[@]}==1)); then
             ## Re-check singlematch condition in case we modified REPOS
             ## above.
-            cmd-echo --id git-go -- "Matches only ${REPOS[0]}. Going there."
+            [[ $opt_match == 0 ]] && cmd-echo --id git-go -- "Matches only ${REPOS[0]}. Going there."
             REPO=${REPOS[0]}
         else
+            if [[ $opt_match == 1 ]]; then
+                 cmd-echo --id git-go --ec -- "Cannot process option --match; more than one candidate."
+                 false; exit
+            fi
             readarray -t REPOS < <(_line-enhance $opt_time "${REPOS[@]}")
             COLUMNS=1 ## One character wide terminal, forces list to be one
                       ## column.
@@ -395,7 +406,11 @@ else
     fi
 fi
 
-_set-and-go "$REPO" "$doandcdfile"
+if [[ $opt_match == 1 ]]; then
+    _set-and-go "$REPO" "print"
+else
+    _set-and-go "$REPO" "$doandcdfile"
+fi
 
 true
 
@@ -499,6 +514,12 @@ Usage: git go [options] [ [^]filter [ [^]filter...] ]
    --root
       Go directly to the root level of the current repo, ostensibly from some
       subdir of the repo, no menu presented.
+
+   --match
+      If the filters presented result in a single match, the real path of the
+      repo will be printed and no change of directory will be processed. This
+      can be useful when you need to refer to a repo from another location for
+      building purposes.
 
    'filter' will filter the list using grep to match the filter. ^filter will
    filter non matches (-v in grep). We use '^' instead of '!' because '!' is
