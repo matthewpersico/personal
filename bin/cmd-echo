@@ -11,63 +11,76 @@ declare nonl=''
 declare local_nonl=''
 declare continuation_line=0
 declare no_continuation_line=0
-declare head=0
-declare title=0
-declare join=0
-declare id=''
 declare append=0
 declare prefix='>>> '
+
+declare opt_title=0
+declare opt_head=0
+declare opt_id=''
+declare opt_lineno=''
+declare opt_interactive=1
+[[ ! -t 1 ]] && opt_interactive=0
+declare opt_join=0
 declare opt_color=0
-declare opt_stderr=0
 declare opt_reverse=0
-declare lineno=''
+declare opt_inverse=0
 declare color=NONE
+
+## Colors for statuses. Others are added as needed on the fly.
 declare -A colors
 colors=(
     [NONE]=''
+    [REVERSE]="${ANSI_REVERSE}"
 
     [RED]="${ANSI_FG_RED}"
     [REVRED]="${ANSI_FG_RED}${ANSI_REVERSE}"
-    [INVRED]="${ANSI_FG_BLACK}${ANSI_BG_RED}"
-
-    [YELLOW]="${ANSI_FG_YELLOW}"
-    [REVYELLOW]="${ANSI_FG_YELLOW}${ANSI_REVERSE}"
-    [INVYELLOW]="${ANSI_FG_BLACK}${ANSI_BG_YELLOW}"
+    [INVRED]="${ANSI_FG_WHITE}${ANSI_BG_RED}" # Sometimes, just doesn't show up
+                                              # well, so we define and inverse
+                                              # for these statuses.
 
     [ORANGE]="${ANSI_FG_ORANGE}"
     [REVORANGE]="${ANSI_FG_ORANGE}${ANSI_REVERSE}"
     [INVORANGE]="${ANSI_FG_BLACK}${ANSI_BG_ORANGE}"
 
+    [GREEN]="${ANSI_FG_GREEN}"
+    [REVGREEN]="${ANSI_FG_GREEN}${ANSI_REVERSE}"
+    [INVGREEN]="${ANSI_FG_WHITE}${ANSI_BG_GREEN}"
+
     [BLUE]="${ANSI_FG_BLUE}"
     [REVBLUE]="${ANSI_FG_BLUE}${ANSI_REVERSE}"
     [INVBLUE]="${ANSI_FG_WHITE}${ANSI_BG_BLUE}"
 
-    [GREEN]="${ANSI_FG_GREEN}"
-    [REVGREEN]="${ANSI_FG_GREEN}${ANSI_REVERSE}"
-    [INVGREEN]="${ANSI_FG_BLACK}${ANSI_BG_GREEN}"
-)
-## Add the status colors and control sequence
-colors+=(
-    [REVERSE]="${ANSI_REVERSE}"
-    [WARNING]="${colors[INVORANGE]}"
-    [ERROR]="${colors[INVRED]}"
-    [DEBUG]="${colors[INVBLUE]}"
-    [INFO]="${colors[INVGREEN]}"
+    [WARNING]="${colors[ORANGE]}" # Yellow
+    [ERROR]="${colors[RED]}"
+    [INFO]="${colors[GREEN]}"
+    [DEBUG]="${colors[BLUE]}"
+
+    [REVWARNING]="${colors[REVORANGE]}"
+    [REVERROR]="${colors[REVRED]}"
+    [REVINFO]="${colors[REVGREEN]}"
+    [REVDEBUG]="${colors[REVBLUE]}"
+
+    [INVWARNING]="${colors[INVORANGE]}"
+    [INVERROR]="${colors[INVRED]}"
+    [INVINFO]="${colors[INVGREEN]}"
+    [INVDEBUG]="${colors[INVBLUE]}"
 )
 
-declare holdstdout
+declare -A revinvmap
+revinvmap=([r]="opt_reverse" [i]="opt_inverse")
 
 declare msg_status=''
-declare interactive=1
-[[ ! -t 1 ]] && interactive=0
+
 # Read the options and args from command line. Note that the long and short
 # don't have to match up.
 declare OPTSARGS
 declare shortopts='inachfsojwedp::xl:'
 declare longopts
-longopts='head,title,id:,help,wc,ec,dc,info,infoc,color:'
+longopts='head,title,id:,help,ec,wc,ic,dc,color:'
 longopts="${longopts},oii,noreverse,norev,reverse,rev,noc,lineno:,nolineno:"
-longopts="${longopts},INFO,warn,warning,WARN,WARNING,err,error,ERR,ERROR,debug,DEBUG"
+longopts="${longopts},err,error,ERR,ERROR,warn,warning,WARN,WARNING,info,INFO,debug,DEBUG"
+longopts="${longopts},join,ecr,wcr,icr,dcr,eci,eci,ici,dci"
+longopts="${longopts},interactive"
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
 # Reset the command line ($@).
@@ -81,23 +94,23 @@ while true; do
     [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
     case "$option" in
         head )
-            head=1 ;;
+            opt_head=1 ;;
         title )
-            head=1
-            title=1
+            opt_head=1
+            opt_title=1
             reset_title="${reset_normal}"
             reset_normal=''
             ;;
         id )
-            id="$1"; shift ;;
+            opt_id="$1"; shift ;;
         l | lineno )
-            lineno=$1;shift
+            opt_lineno="$1";shift
             ;;
         nolineno )
-            shift
+            opt_lineno=''
             ;;
-        i )
-            interactive=1 ;;
+        interactive )
+            opt_interactive=1 ;;
         n )
             nonl='-n' ;;
         a )
@@ -112,46 +125,57 @@ while true; do
             ;;
         f | s | o )
             echo "cmd-echo: -f, -s and -o are no longer used. Ignored..." ;;
-        j )
-            join=1 ;;
+        j | join )
+            opt_join=1 ;;
+        wc*)
+            [[ -n ${option#wc} ]] && eval "${revinvmap[${option#wc}]}"=1
+            ;&
         wc )
             opt_color=1
-            ;&
+            ;& # <- UNCONDITIONAL fallthrough
         w | warn* )
             msg_status='WARNING'
-            opt_stderr=1
             ;;
+        ec*)
+            [[ -n ${option#ec} ]] && eval "${revinvmap[${option#ec}]}"=1
+            ;&
         ec )
             opt_color=1
             ;&
         e | err* )
             msg_status='ERROR'
-            opt_stderr=1
             ;;
+        dc*)
+            [[ -n ${option#dc} ]] && eval "${revinvmap[${option#dc}]}"=1
+            ;&
         dc )
             opt_color=1
             ;&
         d | debug )
             msg_status='DEBUG'
-            opt_stderr=1
             ;;
+        infoc*)
+            [[ -n ${option#infoc} ]] && eval "${revinvmap[${option#infoc}]}"=1
+            ;&
         infoc )
             opt_color=1
             ;&
         info )
             msg_status='INFO'
-            opt_stderr=0
             ;;
         color )
             opt_color=1
-            color="${1^^}"; shift
-            declare norev=${color#REV}
+            color="${1^^}"; shift  # Uppercase
+            declare norev=${color#REV} # Strip off any previx
             case "$norev" in
                 BLACK | BLUE | CYAN | GREEN | MAGENTA \
                     | ORANGE | RED | WHITE | YELLOW )
+                    # Add the color to our map so we do not have to hardcode it
+                    # in this script.
                     declare fgvar="ANSI_FG_${norev}"
                     colors+=(["$norev"]="${!fgvar}"
                              ["REV${norev}"]="${!fgvar}${ANSI_REVERSE}")
+                    # Set the flag for later use.
                     if [[ $color =~ ^rev ]]; then
                         opt_reverse=1
                     fi
@@ -167,7 +191,7 @@ while true; do
         rev* )
             opt_reverse=1 ;;
         oii | only-if-interactive )
-            ((interactive==0)) && { true; exit; } ;;
+            ((opt_interactive==0)) && { true; exit; } ;;
         x )
             set -x;; # OK if you are grepping
         -- ) break ;; ## ## VITAL!!! Exits the while loop, no more options,
@@ -179,9 +203,9 @@ while true; do
     esac
 done
 
-if [[ -n $lineno ]] && [[ -z $id ]]; then
+if [[ -n $opt_lineno ]] && [[ -z $opt_id ]]; then
     cmd-echo --id cmd-echo --wc "Won't print line number without --id option"
-    lineno=''
+    opt_lineno=''
 fi
 
 declare dorest
@@ -193,37 +217,25 @@ if ((opt_color)); then
     doresn=${reset_normal}
 fi
 
-if ( ((! interactive )) && ((! opt_stderr )) ); then
-    ## There are two conditions in the if.  First is if STDOUT is being
-    ## redirected away from the terminal,let's assume it's a file, don't print
-    ## the colorizing sequences, **except** if the redirection is to stderr for
-    ## a warning/error/debug message.
+if ((! opt_interactive )); then
+    ## If STDOUT is being redirected away from the terminal, then let's assume
+    ## it's a file and don't print the colorizing sequences.
     docolor=''
     dorest=''
     doresn=''
-else
-    if((opt_color)) && [[ -n $msg_status ]]; then
-        docolor=${colors[$msg_status]}
-        dorest=${reset_title}
-        doresn=${reset_normal}
-    fi
+elif((opt_color)) && [[ -n $msg_status ]]; then
+    docolor=${colors[$msg_status]}
+    ((opt_reverse)) && docolor=${colors["REV${msg_status}"]}
+    ((opt_inverse)) && docolor=${colors["INV${msg_status}"]}
+    dorest=${reset_title}
+    doresn=${reset_normal}
 fi
-if ((opt_stderr)); then
-        holdstdout=$(get-next-descriptor)
-        eval "exec $holdstdout>&1"  ## Link file descriptor with stdout, which saves stdout.
-        exec 1>&2  ## Re-point stdout to stderr. Now we don't need to
-                   ## conditionally redirect every echo call.
 
-        ## We set up a trap here to make sure we unwind the redirects on success or failure
-        trap "eval ""exec 1>&$holdstdout $holdstdout>&-""
-     " SIGTERM SIGINT SIGFPE SIGBUS EXIT
-fi
-((head)) && echo
 declare argcnt="$#"
-if [[ -n "${id}" ]]; then
-    [[ -n $lineno ]] && id="$id:$lineno"
-    prefix="${prefix/% / [${id}]} "
-    id=''
+if [[ -n "${opt_id}" ]]; then
+    [[ -n $opt_lineno ]] && opt_id="$opt_id:$opt_lineno"
+    prefix="${prefix/% / [${opt_id}]} "
+    opt_id=''
 fi
 if [[ -n "${msg_status}" ]]; then
     prefix="${prefix/% / ${msg_status}:} "
@@ -232,25 +244,22 @@ fi
 if ((append)); then
     prefix=''
 fi
+
+##
+## Start printing
+##
+((opt_head)) && echo
 for arg in "$@"; do
     if ((continuation_line == 1)); then
         # shellcheck disable=SC2001 #https://github.com/koalaman/shellcheck/wiki/SC2001
         prefix=$(echo "$prefix" | sed 's/./ /g')
     fi
-    ## If there is a next line, it should be a continuation line
+
+    ## If there is a next line, it should be a continuation line, so let's set
+    ## it up ahead of time.
     ((no_continuation_line == 0)) && continuation_line=1
-    if ((opt_stderr)); then
-        holdstdout=$(get-next-descriptor)
-        eval "exec $holdstdout>&1"  ## Link file descriptor with stdout, which saves stdout.
-        exec 1>&2  ## Re-point stdout to stderr. Now we don't need to
-                   ## conditionally redirect every echo call.
 
-        ## We set up a trap here to make sure we unwind the redirects on success or failure
-        trap "eval ""exec 1>&$holdstdout $holdstdout>&-""
-     " SIGTERM SIGINT SIGFPE SIGBUS EXIT
-    fi
-
-    if ((join)); then
+    if ((opt_join)); then
         echo $nonl -e "${docolor}${prefix}$*${dorest}${doresn}"
     else
         if((argcnt==1)); then
@@ -261,12 +270,12 @@ for arg in "$@"; do
     fi
 
     ## Reset out of title
-    if ((title)); then
-        title=0 ## no need to reset for ever
+    if ((opt_title)); then
+        opt_title=0 ## no need to reset for ever
         ((opt_color)) && reset_normal="${doresn}"
         reset_title=''
     fi
-    if ((join)); then
+    if ((opt_join)); then
         break
     fi
 done
@@ -284,7 +293,7 @@ exit
 =head1 SYNOPSIS
 
 cmd-echo [--oii] [--head] [--title] [-n] [-a] [-c|--noc] [-i] [-id "id" ] \
-         [j] [ [-w[c]|-e[c]|-d[c]|--info[c]|--color [REV]COLOR] -- "text" ["text"...]
+         [j] [--rev] [-w[c]|-e[c]|-d[c]|--info[c]|--color [REV]COLOR] -- "text" ["text"...]
 
 =head1 DESCRIPTION
 
@@ -307,6 +316,12 @@ the output on a different output descriptor (i.e., STDERR).
 Indicates end of options to 'cmd-echo' so that all subsequent arguments are
 taken as text to print. Technically not necessary UNLESS your first argument to
 print happens to match one of the options to 'cmd-echo'.
+
+=item --interactive
+
+Force interactive mode to force the colorization strings. Use when you know
+that the context of usage is not interactive (assuming being redirected to a
+file) yet you want the colorization.
 
 =item --oii|--only-if-interactive
 
@@ -344,11 +359,6 @@ get multiple calls to line up.
 
 Print no lines as continuation lines; all lines get the prefix.
 
-=item -i
-
-Force interactive mode to force the colorization strings. Used when the output
-is being passed onto some other command as a prompt.
-
 =item --id "text"
 
 Prefix the first line of the message with this text, followed by a ": " and
@@ -360,9 +370,8 @@ text ('cmd'-echo; get it?). Turns out that this piece of information is
 ambiguous when you start defining functions both outside your script and inside
 your script, and then you start calling one from the other, and then you call
 them in subshells to capture output. So, don't try to add the
-auto-determination to the code. We've already ripped it out once. Leave --id
-off unless you come to an output that you don't understand; then find it and
-add '--id'.
+auto-determination to the code. We've already ripped it out once. If you want
+to know what function/script is printing a message, explicitly use --id in it.
 
 =item -l|--lineno $LINENO
 
@@ -377,40 +386,44 @@ it in.
 Provided for you to globally change the flag in your code to stop line numbers
 from printing when you've finished debugging your problem.
 
-=item --color [REV]COLOR
-
-Print the message in color. COLOR is one of BLACK, BLUE, CYAN, GREEN, MAGENTA,
-ORANGE, RED, WHITE, or YELLOW. Adding the 'REV' prefix prints in reverse.
-
-=item -j
+=item -j|--join
 
 Instead of printing each argument on its own line, print them all on one line,
 separated by one space each.
 
-=item -w|-e|-d
+=item --color [REV]COLOR
 
-Put the string 'WARNING', 'ERROR', or 'DEBUG' before the message and print to
-stderr. The following synonyms are accepted:
+Print the message in color. COLOR is one of BLACK, BLUE, CYAN, GREEN, MAGENTA,
+ORANGE, RED, WHITE, or YELLOW. Adding the 'REV' prefix prints in reverse,
+switching the background and foreground.
 
- -w: --warn --warning --WARN --WARNING
- -e: --err --error --ERR --ERROR
+=item --rev
+
+If printing in color, prints in reverse, switching the background and
+foreground. Alternative to specifying REVcolor.
+
+=item [-e|-w|-i|-d][c[r|i]]
+
+Put the string 'ERROR', WARNING', 'INFO', or 'DEBUG' before the message. The
+following synonyms are accepted:
+
+ -e: --err   --ERR  --error   --ERROR
+ -w: --warn  --WARN --warning --WARNING
+ -1: --info  --INFO
  -d: --debug --DEBUG
 
-=item --info
+Appending a 'c' to the option prints the error message in color:
 
-Put the string 'INFO' before the message and print stdout. We use '--info'
-because '-i' is taken. '--INFO' is also accepted.
+ ERROR:   red
+ WARNING: orange, displays better than yellow
+ INFO:    green
+ DEBUG:   blue
 
-=item --wc|--ec|--dc
+Appending an 'r' uses an ANSI reverse sequence to swap background and
+foreground.
 
-Put the string 'WARNING', 'ERROR', or 'DEBUG' before the message. Print to
-stderr with an orange (easier to read than yellow), red, or blue background,
-respectively.
-
-=item --infoc
-
-Put the string 'INFO' before the message. Print to stdout with a green
-background.
+Appending an 'i' "inverts" the colors; the given color is used
+for the background, but either white or black is used for text.
 
 =back
 
