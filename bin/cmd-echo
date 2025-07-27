@@ -70,7 +70,7 @@ declare -A revinvmap
 revinvmap=([r]="opt_reverse" [i]="opt_inverse")
 
 declare msg_status=''
-
+declare set_title=''
 # Read the options and args from command line. Note that the long and short
 # don't have to match up.
 declare OPTSARGS
@@ -81,6 +81,7 @@ longopts="${longopts},oii,noreverse,norev,reverse,rev,noc,lineno:,nolineno:"
 longopts="${longopts},err,error,ERR,ERROR,warn,warning,WARN,WARNING,info,INFO,debug,DEBUG"
 longopts="${longopts},join,ecr,wcr,icr,dcr,eci,eci,ici,dci"
 longopts="${longopts},interactive"
+declare orig_args="$*"
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
 # Reset the command line ($@).
@@ -98,6 +99,7 @@ while true; do
         title )
             opt_head=1
             opt_title=1
+            set_title="${ANSI_REVERSE}"
             reset_title="${reset_normal}"
             reset_normal=''
             ;;
@@ -107,9 +109,9 @@ while true; do
             opt_lineno="$1";shift
             ;;
         nolineno )
-            opt_lineno=''
+            opt_lineno='';shift
             ;;
-        interactive )
+        i | interactive )
             opt_interactive=1 ;;
         n )
             nonl='-n' ;;
@@ -176,7 +178,7 @@ while true; do
                     colors+=(["$norev"]="${!fgvar}"
                              ["REV${norev}"]="${!fgvar}${ANSI_REVERSE}")
                     # Set the flag for later use.
-                    if [[ $color =~ ^rev ]]; then
+                    if [[ $color =~ ^REV ]]; then
                         opt_reverse=1
                     fi
                     ;;
@@ -198,6 +200,12 @@ while true; do
                       ## remaining $*, if any, are args
         * )
             echo "cmd-echo: '$option' is an invalid option."
+            echo "cmd-echo: args: '$orig_args'"
+            set -x
+            declare i
+            for (( i=${#BASH_SOURCE[@]}-1; i>=0; i-- )); do
+                printf "  %s at %s:%s\n" "${FUNCNAME[i]}" "${BASH_SOURCE[i]}" "${BASH_LINENO[i]}"
+            done
             false; exit
             ;;
     esac
@@ -211,6 +219,11 @@ fi
 declare dorest
 declare doresn
 declare docolor=${colors[$color]}
+if ((opt_title)); then
+    dorest=${reset_title}
+    doresn=${reset_normal}
+fi
+
 if ((opt_color)); then
     ((opt_reverse)) && docolor=${colors["REV${color}"]}
     dorest=${reset_title}
@@ -260,18 +273,19 @@ for arg in "$@"; do
     ((no_continuation_line == 0)) && continuation_line=1
 
     if ((opt_join)); then
-        echo $nonl -e "${docolor}${prefix}$*${dorest}${doresn}"
+        echo $nonl -e "${docolor}${set_title}${prefix}$*${dorest}${doresn}"
     else
         if((argcnt==1)); then
             local_nonl=$nonl
         fi
         ((argcnt-=1))
-        echo $local_nonl -e "${docolor}${prefix}${arg}${dorest}${doresn}"
+        echo $local_nonl -e "${docolor}${set_title}${prefix}${arg}${dorest}${doresn}"
     fi
 
     ## Reset out of title
     if ((opt_title)); then
         opt_title=0 ## no need to reset for ever
+        set_title=''
         ((opt_color)) && reset_normal="${doresn}"
         reset_title=''
     fi
@@ -395,22 +409,22 @@ separated by one space each.
 
 Print the message in color. COLOR is one of BLACK, BLUE, CYAN, GREEN, MAGENTA,
 ORANGE, RED, WHITE, or YELLOW. Adding the 'REV' prefix prints in reverse,
-switching the background and foreground.
+switching the background and foreground. Yes, we accept lowercase.
 
 =item --rev
 
 If printing in color, prints in reverse, switching the background and
 foreground. Alternative to specifying REVcolor.
 
-=item [-e|-w|-i|-d][c[r|i]]
+=item [-e|-w|--info|-d][c[r|i]]
 
 Put the string 'ERROR', WARNING', 'INFO', or 'DEBUG' before the message. The
 following synonyms are accepted:
 
- -e: --err   --ERR  --error   --ERROR
- -w: --warn  --WARN --warning --WARNING
- -1: --info  --INFO
- -d: --debug --DEBUG
+     -e: --err   --ERR  --error   --ERROR
+     -w: --warn  --WARN --warning --WARNING
+ --info: --INFO  # -i is already taken for 'interactive'
+     -d: --debug --DEBUG
 
 Appending a 'c' to the option prints the error message in color:
 
