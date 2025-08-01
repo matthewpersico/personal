@@ -9,7 +9,7 @@ declare -a diff
 # an optional one. Note that the long and short don't have to match up.
 declare OPTSARGS
 declare shortopts='xh'
-declare longopts='filesonly,sclonly,sclo,nosclonly,nosclo,gcsonly,gsco,nogsconly,nogcso,diff::,cached,help,debug,color:,nocolor,edit,noun,nountracked,sclpick:untracked:,uno'
+declare longopts='filesonly,sclonly,sclo,nosclonly,nosclo,noscl,gcsonly,gsco,nogsconly,nogcso,diff::,cached,help,debug,color:,nocolor,edit,noun,nountracked,sclpick:untracked:,uno'
 
 # Process the command line.
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
@@ -29,16 +29,24 @@ while true; do
         --filesonly) gpscl_options+=('--filesonly');;
         --sclonly | --sclo ) gpscl_options+=('--sclonly');;
         --sclpick) gpscl_options+=('--sclpick' "$1"); shift;;
-        --nosclonly | --nosclo ) gpscl_options+=('--nosclonly');;
+        --nosclonly | --nosclo | --noscl ) gpscl_options+=('--nosclonly');;
         --gcsonly | --gsco ) gpscl_options+=('--gcsonly') ;;
         --nogcsonly |--nogsco) gpscl_options+=('--nogcsonly') ;;
         --diff) diff[0]="$option"
                 ## Args to --diff are optional, but if none are specified,
                 ## 'getopts' will still add a blank argument that can be
                 ## detected and actioned, but must be shifted off.
-                [[ -n $1 ]] && diff[0]="$option=$1"
+                if [[ -n $1 ]]; then
+                    diff[0]="$option=$1"
+                else
+                    diff[0]="$option=default" ## process-source-ctrl-log needs
+                                              ## this to prevent sloughing off
+                                              ## the next argv if not from
+                                              ## diff.
+                fi
                 gpscl_options+=("${diff[@]}")
-                shift;;
+                shift
+                ;;
         --cached) gpscl_options+=('--cached');;
         -h|--help) git-usage git-status-ext; true; exit ;;
         --debug | -x ) set -x;

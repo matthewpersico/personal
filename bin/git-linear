@@ -6,52 +6,228 @@
 
 # git-linear
 
-use on_exit
-do_on_exit END
+# Early bail to prevent git-based initialization when not in a git repo,
+# especially if ina-a-session() is called in a PS1.
+if ! $REALGIT rev-parse --show-toplevel 1>/dev/null 2>/dev/null; then
+    false; exit
+fi
 
-# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-declare ceid=$(basename "$0")
+declare ceid
+ceid=$(basename "$0")
 
-declare starting_remote
-declare starting_branch
-# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-declare restore_file="$(pwd)/git-linear-restore"
-declare write_restore_file=0
-declare resp
-main ()
-{
-
-    # Deal with a found restart file
-    if [[ -e $restore_file ]]; then
-        write_restore_file=0
-        cmd-echo --id "$ceid" -- "Restore file $restore_file found."
-        select resp in \
-            "restore and continue" \
-                "restore and exit" \
-                "delete and exit" \
-                "ignore and continue" \
-                "quit" ; do
-            case $REPLY in
-                1) $restore_file && rm "$restore_file" && break;;
-                2) $restore_file && rm "$restore_file" && return 0 ;;
-                3) rm "$restore_file" && return 0;;
-                4) break ;;
-                5) return 0 ;;
+# cmd-echo is an elaborate message printer with colors and formatting and the
+# kitchen sink. This replacment suffices for the limited options used in this
+# script and allow one to not have to adopt the whole of my personal stack.
+if ! which cmd-echo 2>/dev/null 1>/dev/null; then
+    cmd-echo ()
+    {
+        declare prefix='>>>'
+        declare continuation_line=0
+        declare no_continuation_line=0
+        while [[ $1 != '--' ]]; do
+            case "$1" in
+                --id ) shift
+                       prefix="$prefix [$1]"
+                       shift
+                       ;;
+                --ec ) shift
+                       prefix="$prefix ERROR:"
+                       ;;
+                -c ) shift
+                     continuation_line=1
+                     ;;
+                * ) echo "BAD CMD-ECHO CALL"
+                    echo "\$1=$1"
+                    shift
+                    ;;
             esac
         done
+        shift # get rid of the '--'
+        while [[ -n $1 ]]; do
+            echo "$prefix $1"; shift
+            if ((continuation_line == 1)); then
+                # shellcheck disable=SC2001 #https://github.com/koalaman/shellcheck/wiki/SC2001
+                prefix=$(echo "$prefix" | sed 's/./ /g')
+            fi
+            ## If there is a next line, it should be a continuation line, so
+            ## let's set it up ahead of time.
+            ((no_continuation_line == 0)) && continuation_line=1
+        done
+    }
+fi
+
+REALGIT=${REALGIT:-$(which git)}
+
+declare linear_ref="LINEAR"
+
+declare linear_ref_file
+linear_ref_file="$($REALGIT rev-parse --git-dir)/$linear_ref"
+
+# Need these defs here to set $linear_key_root
+read_git_linear_ref ()
+{
+    if [[ -r "$linear_ref_file" ]]; then
+        cat "$linear_ref_file"
+    fi
+}
+
+get_linear_key_root ()
+{
+    declare glr
+    glr="$(read_git_linear_ref)"
+    [[ -n $glr ]] && echo "LINEAR.$glr"
+}
+
+declare linear_key_root
+linear_key_root=$(get_linear_key_root)
+
+
+# Globals
+declare starting_remote
+declare starting_branch
+declare opt_auto=0
+declare opt_auto_set=0
+declare opt_stop_on_success=1
+declare opt_stop_on_failure=0
+declare opt_stop_on_0=0
+declare opt_stop_on_non_0=0
+declare opt_stops_set=0
+declare command
+
+# Functions
+write_git_linear_ref ()
+{
+    $REALGIT update-ref "$linear_ref" "$1"
+}
+
+delete_git_linear_ref ()
+{
+    $REALGIT update-ref -d "$linear_ref"
+}
+
+do_config_entry () {
+    $REALGIT config "$@"
+}
+
+in_a_session ()
+{
+    $REALGIT rev-parse --show-toplevel 1>/dev/null 2>/dev/null && \
+        [[ -n $(read_git_linear_ref) ]]
+}
+
+load_config ()
+{
+    cmd-echo --id "$ceid" -- "Loading config..."
+    starting_remote=$(do_config_entry "${linear_key_root}.starting-remote")
+    starting_branch=$(do_config_entry "${linear_key_root}.starting-branch")
+    command=$(do_config_entry "${linear_key_root}.command")
+    ## Load unless it's been set, then save instead.
+    if ((!opt_auto_set)); then
+        opt_auto=$(do_config_entry "${linear_key_root}.opt.auto")
+    else
+        do_config_entry "${linear_key_root}.opt.auto" "$opt_auto"
+    fi
+    if ((!opt_stops_set)); then
+        opt_stop_on_success=$(do_config_entry "${linear_key_root}.opt.stop-on-success")
+        opt_stop_on_failure=$(do_config_entry "${linear_key_root}.opt.stop-on-failure")
+        opt_stop_on_0=$(do_config_entry "${linear_key_root}.opt.stop-on-0")
+        opt_stop_on_non_0=$(do_config_entry "${linear_key_root}.opt.stop-on-non-0")
+    else
+        do_config_entry "${linear_key_root}.opt.stop-on-success"  "$opt_stop_on_success"
+        do_config_entry "${linear_key_root}.opt.stop-on-failure"  "$opt_stop_on_failure"
+        do_config_entry "${linear_key_root}.opt.stop-on-0"        "$opt_stop_on_0"
+        do_config_entry "${linear_key_root}.opt.stop-on-non-0"    "$opt_stop_on_non_0"
+    fi
+}
+
+print_config ()
+{
+    cmd-echo --id "$ceid" -- "Current git-linear config:" \
+             "starting remote=$starting_remote" \
+             "starting branch=$starting_branch" \
+             "options:" \
+             "  auto=$opt_auto" \
+             "  stop-on-success=$opt_stop_on_success" \
+             "  stop-on-failure=$opt_stop_on_failure" \
+             "  stop-on-0=$opt_stop_on_0" \
+             "  stop-on-non-0=$opt_stop_on_non_0"
+    if [[ -n $command ]]; then
+        cmd-echo --id "$ceid" -c -- "command: [$command]"
+    fi
+}
+
+run_execute ()
+{
+    if [[ -n $1 ]]; then
+        if [[ -x $1 ]]; then
+            do_config_entry "${linear_key_root}.command" "$1"
+        else
+            cmd-echo --id "$ceid" --ec -- "$1 is not an executable command"
+            false; return
+        fi
+        if [[ -n $2 ]]; then
+            cmd-echo --id "$ceid" --ec -- "$1 cannot take arguments"
+            false; return
+        fi
     fi
 
+    command=$(do_config_entry "${linear_key_root}.command")
+    cmd-echo --id "$ceid" -- "Running '$command':"
+
+    declare resp=y
+    declare prevcommitid
+    declare commitid
+    declare status
+    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
+    declare current_commit_idx=$($REALGIT log --pretty=format:%H | wc -l) ##
+    declare total_commits=$current_commit_idx
+    while [[ $resp == 'y' ]]; do
+        commitid=$($REALGIT rev-parse HEAD)
+        if [[ $prevcommitid == "$commitid" ]]; then
+            cmd-echo --id "$ceid" --ec -- "Reached end of commits."
+            break
+        else
+            prevcommitid="$commitid"
+        fi
+
+        cmd-echo --id "$ceid" -- "Start output for $commitid (commit #$current_commit_idx/${total_commits}):"
+        "$command"
+        status=$?
+        cmd-echo --id "$ceid" -- "End   output for $commitid. Status $status."
+        ((current_commit_idx -= 1))
+
+        if (( ( status == 0 && (opt_stop_on_success == 1 || opt_stop_on_0 == 1) )
+                ||
+              ( status != 0 && (opt_stop_on_failure == 1 || opt_stop_on_non_0 == 1) ) )); then
+            cmd-echo --id "$ceid" -- "Stop condition reached."
+            break;
+        fi
+
+        if [[ $opt_auto == 0 ]]; then
+            resp=$(cmd-yesno --id "$ceid" "Continue" y)
+        fi
+
+        if [[ $resp == 'y' ]]; then
+            if ! $REALGIT checkout -q HEAD~1; then
+                cmd-echo --id "$ceid" --ec -- "Checkout error. Exiting."
+                break;
+            fi
+        elif [[ $resp == 'n' ]]; then
+            cmd-echo --id "$ceid" -- "Stopping at current commit. Exiting."
+            break;
+        fi
+    done
+}
+
+
+main ()
+{
     # Read the options and args from command line. Note that the long and short
     # don't have to match up.
-    local OPTSARGS
-    local shortopts='ah'
-    local longopts='auto,yes,help,stop-on-success,stop-on-failure,stop-on-0,stop-on-1'
-    local opt_auto=0
-    local opt_stop_on_success=1
-    local opt_stop_on_failure=0
-    local opt_stop_on_0=0
-    local opt_stop_on_1=0
-    local opt_stops_set=0
+    declare OPTSARGS
+    declare shortopts='ah'
+    declare longopts='auto,no-auto,help,stop-on-success,stop-on-failure,stop-on-0,stop-on-non-0'
+
     # Process the command line.
     OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
@@ -61,56 +237,61 @@ main ()
     # Reprocess the command line, extracting options and their arguments into
     # variables.
     while true; do
-        local option=$1
+        declare option=$1
         shift
         [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
         case "$option" in
-            a | auto | yes )
+            a | auto )
                 opt_auto=1
+                opt_auto_set=1
+                ;;
+            no-auto | noauto )
+                opt_auto=0
+                opt_auto_set=1
                 ;;
             stop-on-success )
                 if ((opt_stops_set)) ; then
-                    cmd-echo --id "$ceid" -ec -- "Cannot set more than one --stop-on option"
+                    cmd-echo --id "$ceid" --ec -- "Cannot set more than one --stop-on option"
                     false; return
                 fi
                 opt_stops_set=1
                 opt_stop_on_success=1
                 opt_stop_on_failure=0
                 opt_stop_on_0=0
-                opt_stop_on_1=0
+                opt_stop_on_non_0=0
                 ;;
             stop-on-failure )
                 if ((opt_stops_set)) ; then
-                    cmd-echo --id "$ceid" -ec -- "Cannot set more than one --stop-on option"
+                    cmd-echo --id "$ceid" --ec -- "Cannot set more than one --stop-on option"
                     false; return
                 fi
                 opt_stops_set=1
                 opt_stop_on_success=0
                 opt_stop_on_failure=1
                 opt_stop_on_0=0
-                opt_stop_on_1=0
+                opt_stop_on_non_0=0
                 ;;
             stop-on-0 )
                 if ((opt_stops_set)) ; then
-                    cmd-echo --id "$ceid" -ec -- "Cannot set more than one --stop-on option"
+                    cmd-echo --id "$ceid" --ec -- "Cannot set more than one --stop-on option"
                     false; return
                 fi
                 opt_stops_set=1
                 opt_stop_on_success=0
                 opt_stop_on_failure=0
                 opt_stop_on_0=1
-                opt_stop_on_1=0
+                opt_stop_on_non_0=0
                 ;;
-            stop-on-1 )
+            stop-on-non-0 )
                 if ((opt_stops_set)) ; then
-                    cmd-echo --id "$ceid" -ec -- "Cannot set more than one --stop-on option"
+                    cmd-echo --id "$ceid" --ec -- "Cannot set more than one --stop-on option"
                     false; return
                 fi
                 opt_stops_set=1
                 opt_stop_on_success=0
                 opt_stop_on_failure=0
                 opt_stop_on_0=0
-                opt_stop_on_1=1
+                opt_stop_on_non_0=1
                 ;;
             h | help )
                 git-usage "$0"
@@ -119,96 +300,112 @@ main ()
             --)  break ;; ## VITAL!!! Exits the while loop, no more options,
                           ## remaining $*, if any, are args
             *)
-                cmd-echo --id "$ceid" -ec -- "$option is an invalid option. See $0 --help."
+                cmd-echo --id "$ceid" --ec -- "$option is an invalid option. See $0 --help."
                 false; return
                 ;;
         esac
     done
 
-    declare -a cmd
-    cmd=("$@")
-    cmd-echo --id "$ceid" -- "Running '${cmd[*]}':"
+    declare action=$1;shift
+    case "$action" in
+        start | begin)
+            if in_a_session; then
+                cmd-echo --id "$ceid" --ec -- "Cannot start a new linear session; one is already in progress."
+                false; return
+            else
+                write_git_linear_ref "$($REALGIT rev-parse HEAD)"
+                linear_key_root="$(get_linear_key_root)"
 
-    declare -a parts
-    IFS='/' read -r -a parts < <(git rev-parse --abbrev-ref --symbolic-full-name '@{u}')
-    starting_remote=${parts[0]}
-    starting_branch=$(IFS='/'; echo "${parts[*]:1}")
-
-    write_restore_file=1
-    resp=y
-    declare prevcommitid
-    declare commitid
-    declare status
-    # shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
-    declare current_commit=$(git log --IDs | wc -l)
-    declare total_commits=$current_commit
-    while [[ $resp == 'y' ]]; do
-        commitid=$(git log -1 --IDs)
-        if [[ $prevcommitid == "$commitid" ]]; then
-            cmd-echo --id "$ceid" -ec -- "Reached end of commits."
-            break
-        else
-            prevcommitid="$commitid"
-        fi
-
-        cmd-echo --id "$ceid" -- "Start output for $commitid (commit #$current_commit/${total_commits}):"
-        "${cmd[@]}"
-        status=$?
-        cmd-echo --id "$ceid" -- "End   output for $commitid. Status $status. "
-        ((current_commit -= 1))
-
-        if (( ( status == 0 && (opt_stop_on_success == 1 || opt_stop_on_0 == 1) )
-                ||
-              ( status != 0 && (opt_stop_on_failure == 1 || opt_stop_on_1 == 1) ) )); then
-            cmd-echo --id "$ceid" -- "Search successful."
-            break;
-        fi
-
-        if [[ $opt_auto == 0 ]]; then
-            resp=$(cmd-yesno -q --id "$ceid" "Continue" y)
-        fi
-
-        if [[ $resp == 'y' ]]; then
-            if ! git checkout -q HEAD~1; then
-                cmd-echo --id "$ceid" -ec -- "Checkout error. Exiting."
-                break;
+                do_config_entry "${linear_key_root}.start-commit" "$($REALGIT rev-parse HEAD)"
+                declare -a tmp
+                IFS='/' read -r -a tmp < <($REALGIT rev-parse --abbrev-ref --symbolic-full-name '@{u}')
+                do_config_entry "${linear_key_root}.starting-remote" "${tmp[0]}"
+                do_config_entry "${linear_key_root}.starting-branch" "${tmp[1]}"
+                do_config_entry "${linear_key_root}.opt.auto"             "$opt_auto"
+                do_config_entry "${linear_key_root}.opt.stop-on-success"  "$opt_stop_on_success"
+                do_config_entry "${linear_key_root}.opt.stop-on-failure"  "$opt_stop_on_failure"
+                do_config_entry "${linear_key_root}.opt.stop-on-0"        "$opt_stop_on_0"
+                do_config_entry "${linear_key_root}.opt.stop-on-non-0"    "$opt_stop_on_non_0"
+                if [[ -z $1 ]]; then
+                    cmd-echo --id "$ceid" -- "Started a new session:"
+                    load_config
+                    print_config
+                    true; return # Start with no command. Will specify with execute|continue later.
+                else
+                    run_execute "$@"
+                fi
             fi
-        elif [[ $resp == 'n' ]]; then
-            cmd-echo --id "$ceid" -- "Stopping at current commit. Exiting."
-            break;
-        elif [[ $resp == 'q' ]]; then
-            cmd-echo --id "$ceid" -- "Quiting, restoring repo."
-            if git pull "$starting_remote" "$starting_branch" && git checkout "$starting_branch"; then
-                write_restore_file=0
+            ;;
+        execute )
+            if ! in_a_session; then
+                cmd-echo --id "$ceid" --ec -- "Cannot execute a command for a linear session; none is in progress."
+                false; return
+            elif [[ $# == '0' ]]; then
+                if ! do_config_entry "${linear_key_root}.command"; then
+                    cmd-echo --id "$ceid" --ec -- "Need a command to execute."
+                    false; return
+                fi
             fi
-            break;
-        fi
-    done
+            load_config
+            run_execute "$@"
+            ;;
+        in-a-session )
+            in_a_session
+            return
+            ;;
+        status )
+            if in_a_session ; then
+                cmd-echo --id "$ceid" -- "git-linear session in progress."
+                load_config
+                print_config
+            else
+                cmd-echo --id "$ceid" -- "git-linear no session in progress."
+            fi
+            true; return
+            ;;
+        end | exit | stop )
+            if ! in_a_session; then
+                cmd-echo --id "$ceid" --ec -- "Cannot end linear session; one is not started."
+                false; return
+            else
+                cmd-echo --id "$ceid" -- "Ending linear session";
+                load_config
+                if ! $REALGIT pull "$starting_remote" "$starting_branch" ; then
+                    return
+                fi
+                if ! $REALGIT checkout "$starting_branch"; then
+                    return
+                fi
+                do_config_entry --unset "${linear_key_root}.command"
+                do_config_entry --unset "${linear_key_root}.opt.stop-on-non-0"
+                do_config_entry --unset "${linear_key_root}.opt.stop-on-0"
+                do_config_entry --unset "${linear_key_root}.opt.stop-on-failure"
+                do_config_entry --unset "${linear_key_root}.opt.stop-on-success"
+                do_config_entry --unset "${linear_key_root}.opt.auto"
+                do_config_entry --unset "${linear_key_root}.starting-branch"
+                do_config_entry --unset "${linear_key_root}.starting-remote"
+                do_config_entry --unset "${linear_key_root}.start-commit"
+                delete_git_linear_ref
+                true; return;
+            fi
+            ;;
+        continue )
+            if ! in_a_session; then
+                cmd-echo --id "$ceid" --ec -- "Cannot continue executing a command for a linear session; none is in progress."
+                false; return
+            elif [[ $# != '0' ]]; then
+                cmd-echo --id "$ceid" --ec -- "Cannot specify a command to continue."
+                false; return
+            fi
+            load_config
+            run_execute
+            ;;
+        *)
+            cmd-echo --id "$ceid" --ec -- "$option is an invalid option. See $0 --help."
+            false; return
+            ;;
+    esac
 }
-
-echo "done"
-
-END ()
-{
-    cmd-echo --id "$ceid" -- "Current commit:"
-    git log -1
-    if ((write_restore_file)); then
-        if [[ -n $starting_remote ]] && [[ -n $starting_branch ]] ; then
-            echo "git pull $starting_remote $starting_branch && git checkout $starting_branch" > "$restore_file"
-            chmod +x "$restore_file"
-            cmd-echo --id "$ceid" -- "Restore with: $restore_file"
-        else
-            cmd-echo --id "$ceid" --error -- "Cannot write restore file $restore_file: starting_remote='$starting_remote' starting_branch='$starting_branch'"
-        fi
-    fi
-}
-
-NOTHING ()
-{
-    echo > /dev/null
-}
-
-echo "done"
 
 main "$@"
 exit
@@ -219,55 +416,32 @@ exit
 
 git-linear - git bisect but linearly
 
-=head1 TODO
-
-Rewrite how we keep state. From https://www.google.com/search?q=how+does+git+bisect+store+its+current+state+data
-
- Git bisect stores its current state data within the .git/ directory of your
- repository. Specifically, it creates and utilizes several files to keep track
- of the bisection process:
-
-  * .git/BISECT_START: This file stores the starting point of the bisection,
-  usually the "bad" commit where the bug exists.
-
-  * .git/BISECT_LOG: This file records the actions taken during the bisect,
-  such as marking commits as "good" or "bad". It acts as a history of the
-  bisection process and can be used to retrace steps or correct mistakes.
-
-  * Other files within .git/: Git bisect also utilizes other internal files,
-  such as refs/bisect/bad which points to the last known "bad" commit and
-  refs/bisect/good for the last known "good" commit.
-
- These files collectively enable Git bisect to:
-
-  * Track the range of suspect commits: It remembers the known good and bad
-  commits to define the boundaries of the search.
-
-  * Maintain the bisection history: The BISECT_LOG file allows you to see the
-  commits you've tested and how you've marked them.
-
-  * Continue the process after interruption: If you stop a bisect session and
-  resume later, Git bisect uses this stored information to pick up where it
-  left off.
-
-In essence, these files are how Git bisect keeps track of its current progress
-in the binary search and ensures it can efficiently narrow down the possible
-commits until the culprit is found.
-
 =head1 SYNOPSIS
 
- git-linear [-a|--auto] [--stop-on-[success|failure|0|1]] \
-    command and args to perform on each commit
+ git-linear start [[-a|--auto|--no-auto] [--stop-on-[success|failure|0|1]] [command]]
+ git-linear execute [[-a|--auto|--no-auto] [--stop-on-[success|failure|0|1]] [command]
+ git-linear continue
+ git-linear end
 
 =head1 DESCRIPTION
 
-Starting with the current commit, the command given by the arguments is run and
-then you are asked whether or not you want to continue to the prior SHA or not.
+In normal usage:
 
- $ git linear git grep UC
+=over 4
 
-Without options you are prompted to examine the command output and decide
-whether or not to continue. You have three options:
+=item *
+
+git-linear [start|begin] [[-a|--auto|--no-auto] [--stop-on-[success|failure|0|1]]
+
+Start a new session and set options.
+
+=item *
+
+git linear execute command
+
+Run the command (which must be an executable program or script) and respond to
+the prompt about whether or not you want to continue to the prior SHA.  You
+have two options:
 
 =over 4
 
@@ -279,25 +453,46 @@ Checkout the next commit and execute the command.
 
 Stop checking out and executing, leaving the repo at the last commit checked out.
 
-=item q
+=back
 
-Stop checking out and executing, and quit the session, returning the repo to
-the commit it was at when you started.
+=item *
+
+git-linear continue
+
+If you stopped checking out and executing, and want to continue.
+
+=item *
+
+git-linear [end|exit]
+
+When you are finished, return the repo to the starting state.
 
 =back
 
-DESCRIBE RECOVERY ACTIONS HERE
+From the synopis, you cam see that there are many variations. You can update
+options set with C<git-linear start> when you C<git-linear execute>.
+
+You can provide the command with either 'git-linear start' or 'git-linear
+execute' and you can update with a different command when you call 'git-linear
+execute'.
+
+Typically you might C<git-linear start command>, see that your logic is
+correct, and then C<git-linear execute --auto> to avoid having to answer all
+the promots until the condition is met. You could also C<git-linear execute
+--stop*> to change the logic if you got it wrong..
+
 
 =head1 OPTIONS
 
 =over 4
 
-=item --auto
+=item --[no-]auto
 
 Instead of prompting after each command execution, the status of the command is
 examined and if successful (0), processing stops. Otherwise, the next commit is
-checked out and the process repeated. The process will stop if you reach the
-first SHA.
+checked out and the process repeated until the requested stop condition is met
+or you reach the first commit in the repo. You can turn off the option with the
+'no-' prefix.
 
 =item --stop-on-success
 
@@ -309,14 +504,14 @@ checking and leaves you at the commit where the command succeeded.
 The inverted setting. When the command returns not 0, C<git-linear> stops
 checking and leaves you at the commit where the command failed.
 
-=item --stop-on-0|1
+=item --stop-on-[non-]0
 
 For a command like C<diff> where you would B<THINK> that if the files are
 different, you would get a success (0) return, but instead you get a failure
 (non-zero) return, you can specify exactly what return value you want to stop
-on. For '0', use --stop-on-0. For non-zero, use '--stop-on-1'. When the command
-return matches your chosen option, C<git-linear> stops checking and leaves you
-at the commit where the command succeeded.
+on. For '0', use --stop-on-0. For non-zero, use '--stop-on-non-0'. When the
+command return matches your chosen option, C<git-linear> stops checking and
+leaves you at the commit where the command succeeded.
 
 =item --help
 

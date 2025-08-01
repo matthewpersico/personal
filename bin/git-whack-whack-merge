@@ -1,0 +1,53 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# git-whack-whack-merge
+
+# Remove (whack, verb) that annoying (whack, adjective) merge commit when you
+# pull down a branch to someplace other than the last location from whence it
+# was pushed.
+
+declare ceid='git-whack-whack-merge'
+declare current_branch
+# Some 'git' calls are not $REALGIT because we *want* to use the extended
+# functionality.
+current_branch=$(git repo current-branch)
+declare repo_remote
+repo_remote=$($REALGIT remote -v | grep origin | sed -E -e 's/origin\s+//' -e 's/ .*//' | sort -u)
+
+cmd-echo --id "$ceid" "Checking for merge message in top commit..."
+
+declare grepped="Merge branch '$current_branch' of $repo_remote into $current_branch"
+if ! $REALGIT log -1 | grep -q "$grepped"; then
+    cmd-echo --id "$ceid" --ec -- "Cannot find the text" \
+             "[$grepped]" \
+             "in the first log entry:"
+    cmd-echo --id "$ceid" --color red -- "-----------------------------------------"
+    $REALGIT log -1
+    cmd-echo --id "$ceid" --color red -- "-----------------------------------------"
+    cmd-echo --id "$ceid" --ec -- "Therefore, in it's current state, this repo is not a candidate to be reset --hard." \
+             "Bailing; you figure out what's wrong."
+    false; exit
+fi
+
+cmd-echo --id "$ceid" "Double checking for no diffs between top two commits..."
+
+declare -a ttc #top_two_commits
+readarray -t ttc < <($REALGIT log -2 --pretty=format:%H)
+declare status
+$REALGIT diff --exit-code --quiet "${ttc[1]}" "${ttc[0]}"; status=$?
+
+if (( status == 1 )); then
+    cmd-echo --id "$ceid" --ec -- "There appear to be diffs between the top two commits in this repo. First few lines:"
+    sleep 1
+    cmd-echo --id "$ceid" --color red -- "-----------------------------------------"
+    $REALGIT diff --color=always "${ttc[1]}" "${ttc[0]}" | head -15
+    cmd-echo --id "$ceid" --color red -- "-----------------------------------------"
+    cmd-echo --id "$ceid" --ec -- "Therefore, in it's current state, this rep is not a candidate to be reset --hard." \
+             "Run '$REALGIT diff ${ttc[1]} ${ttc[0]}' to see the whole diff." \
+             "Bailing; you figure out what's wrong."
+    false; exit
+fi
+
+cmd-echo --id "$ceid" "Conditions met. Whacking the whack merge commit..."
+$REALGIT reset --hard "${ttc[1]}"

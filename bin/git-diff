@@ -6,8 +6,10 @@
 use on_exit
 use mktemp
 
+declare ceid='git-diff'
 declare -a pass_on
 declare opt_edit=0
+declare -a log_entries
 
 if [[ "$(basename "$0")" == 'git-wdiff' ]] ; then
     pass_on+=('--word-diff')
@@ -32,6 +34,16 @@ while (( $# )); do
         --no-git )
             opt_no_git=1;
             ;;
+        --log* )
+            log_entries+=("$1"); shift
+            if [[ ${#log_entries[@]} == '3' ]]; then
+                cmd-echo --id $ceid --ec -- "Can only compare two log entries, no more."
+                false; exit
+            fi
+            ;;
+        --top-two )
+            log_entries+=(1 0)
+            ;;
         --help | -h )
             git-usage "$0"
             true; exit
@@ -41,6 +53,35 @@ while (( $# )); do
             ;;
     esac
 done
+
+if [[ ${#log_entries[@]} == '1' ]]; then
+    cmd-echo --id $ceid -- "Only 1 log entry speficied. Will compare to top (0) entry."
+    log_entries+=(0)
+fi
+
+if [[ -n ${log_entries[1]} ]]; then
+    # Convert indexes to uuids
+    declare -a commit_ids
+    readarray -t commit_ids < <($REALGIT log --format=%h | head)
+    declare _gdi
+    for _gdi in 0 1; do
+        declare idx=${log_entries[$_gdi]}
+        (( idx < 0 )) && idx=$((idx * -1))
+        log_entries[_gdi]=$idx
+        pass_on+=("${commit_ids[$idx]}")
+    done
+    # The log command won't work if the commits are backwards, even if that's
+    # the diff you want
+    declare numlines
+    numlines=$($REALGIT log "${commit_ids[${log_entries[0]}]}^..${commit_ids[${log_entries[1]}]}"|wc -l)
+    if ((numlines == 0)); then
+        cmd-echo --id $ceid --wc -- "You've specfied the log entries in reverse order of occurrance in the list. The log reflect the proper order and the diff will be a backout one."
+        $REALGIT log "${commit_ids[${log_entries[1]}]}^..${commit_ids[${log_entries[0]}]}"
+    else
+        $REALGIT log "${commit_ids[${log_entries[0]}]}^..${commit_ids[${log_entries[1]}]}"
+    fi
+    sleep 1
+fi
 
 if ((opt_edit)) ; then
     # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
@@ -79,7 +120,7 @@ git-diff - extension to git diff
 
 =head1 SYNOPSIS
 
- git-diff [--edit | --name | --no-git | --help ]
+ git-diff [--edit | --name | --no-git | --log n [--log n] | --help ]
 
 =head1 DESCRIPTION
 
@@ -104,7 +145,22 @@ going to work in "file" mode. That is, it will not diff just the git objects
 but all files in the directories. This will include the .git directory. This is
 probably not what you want. This flag will prevent that from happening.
 
- =item --help
+=item --log n
+
+Providing two --log options will diff between the commits at thost two entries
+in the log. The first entry is index 0. If you only provide one --log, we
+assume the other to be 0. Negative indexes are converted to positive, so -1 and
+1 both indicate the entry after the top one, -2 and 2 the next one, etc.
+
+Provide the -log options in the high index, low index order. In the opposide
+order, you get a diff that "undoes" the changes.
+
+=item --top-two
+
+Syntactic sugar for --log 1 --log 0, even though just --log 1 or --log -1 will
+default the other comparison to --log 0.
+
+=item --help
 
 This text.
 

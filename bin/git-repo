@@ -488,7 +488,14 @@ git-repo-is ()
 }
 
 git-repo-isa () { git-repo-is "$@"; }
-git-repo-ina () { git-repo-is; }
+git-repo-ina ()
+{
+    if [[ -n $1 ]]; then
+        cmd-echo --id git-repo --ec -- "git repo in does not take arguments."
+        false; return
+    fi
+    git-repo-is;
+}
 
 git-repo-is_clean ()
 {
@@ -566,14 +573,7 @@ $VAR1->{parent} && print $VAR1->{parent}{full_name};
 
 git-repo-is_worktree ()
 {
-    if [[ -f $(git root)/.git ]]; then
-        if [[ $1 == 'of' ]]; then
-            realpath "$(git root)/$(sed 's/gitdir: \(.*\)\/\.git\/.*/\1/' < "$(git root)/.git")"
-        fi
-        true
-    else
-        false
-    fi
+    git worktree ina
 }
 
 git-repo-is_openpr ()
@@ -1179,11 +1179,19 @@ main()
         git-usage "$0"
         true; return
     fi
+
     if [[ $action = 'is' ]]; then
         [[ "$2" = 'a' ]] && shift
         if [[ -n $2 ]]; then
             shift
             action="${action}_${1//-/_}"
+        fi
+    fi
+
+    if [[ $action = 'isa' ]]; then
+        if [[ -n $2 ]]; then
+            shift
+            action="is_${1//-/_}"
         fi
     fi
 
@@ -1200,7 +1208,7 @@ main()
     else
         case $action in
             * )
-                cmd-echo --id git-repo --ec --id git-repo -- "unknown git repo action '$action'"
+                cmd-echo --id git-repo --ec -- "unknown git repo action '$action'"
                 false; return
                 ;;
         esac

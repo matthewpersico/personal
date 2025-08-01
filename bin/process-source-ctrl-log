@@ -70,9 +70,10 @@ sub main {
         # These three options are for formatting and will be ignored if
         # --for-commit is set.
         'color=s',    # Same as the git values.
-        'diff:s',     # Include git diff output mixed in with the status and
-                      # changelog info. The arg is a set of optional flags to
-                      # the diff command.
+        'diff=s',     # Include git diff output mixed in with the status and
+                      # changelog info. The arg is a set of flags to the diff
+                      # command. If the arg is 'default', then no flags are
+                      # set; runs with default options.
         'cached',     # Controls the diff output.
 
         'sclonly',    # Only process files with a changelog entry.
@@ -105,8 +106,10 @@ sub main {
         @obsolete
     ) or die "Bad options";
 
-    if ( $opt{diff} eq '' ) {
-        $opt{diff} = 1;         # 0 is no diff and no --diff. '' means --diff with no
+    if (   $opt{diff} eq ''
+        or $opt{diff} eq 'default' )
+    {
+        $opt{diff} = 1;         # 0 is no diff and no --diff. '' or 'default' 1means --diff with no
                                 # args, but that's logical false, so we set logical
                                 # true. If there are args to --diff, the string will
                                 # have a length and be true.
@@ -457,9 +460,9 @@ sub format_scl {
           map { chomp; $_ } qx(git -c color.diff=$opt{color} @diffargs $opt{cached});
         my $entry;
         for my $line (@diff_text) {
-            if ( $line =~ m/^.{0,4}diff --git a/ ) {
+            if ( $line =~ m/^.{0,4}diff --git [ai]/ ) {
                 $entry = $line;
-                $entry =~ s|.*b/||;
+                $entry =~ s|.*[bw]/||;
                 $entry =~ s|([/a-zA-Z0-9_.+-]+).*|$1|;
                 $entry = file_git_rel_to_abs($entry);
                 $diffs{"$entry"} = [];
