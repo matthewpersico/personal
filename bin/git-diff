@@ -9,6 +9,7 @@ use mktemp
 declare ceid='git-diff'
 declare -a pass_on
 declare opt_edit=0
+declare opt_name_only=0
 declare -a log_entries
 
 if [[ "$(basename "$0")" == 'git-wdiff' ]] ; then
@@ -30,6 +31,7 @@ while (( $# )); do
             ;& ## Unconditional fallthrough sets names only,which makes sense for --edit.
         --name* )
             pass_on+=('--name-only')
+	    opt_name_only=1
             ;;
         --no-git )
             opt_no_git=1;
@@ -55,7 +57,7 @@ while (( $# )); do
 done
 
 if [[ ${#log_entries[@]} == '1' ]]; then
-    cmd-echo --id $ceid -- "Only 1 log entry speficied. Will compare to top (0) entry."
+    cmd-echo --id $ceid -- "Only 1 log entry speficied. Will compare to top (0) entry." >&2
     log_entries+=(0)
 fi
 
@@ -75,10 +77,10 @@ if [[ -n ${log_entries[1]} ]]; then
     declare numlines
     numlines=$($REALGIT log "${commit_ids[${log_entries[0]}]}^..${commit_ids[${log_entries[1]}]}"|wc -l)
     if ((numlines == 0)); then
-        cmd-echo --id $ceid --wc -- "You've specfied the log entries in reverse order of occurrance in the list. The log reflect the proper order and the diff will be a backout one."
-        $REALGIT log "${commit_ids[${log_entries[1]}]}^..${commit_ids[${log_entries[0]}]}"
+        cmd-echo --id $ceid --wc -- "You've specfied the log entries in reverse order of occurrance in the list. The log reflects the proper order and the diff will be a backout one." >&2
+        ((opt_name_only == 0)) && $REALGIT log "${commit_ids[${log_entries[1]}]}^..${commit_ids[${log_entries[0]}]}"
     else
-        $REALGIT log "${commit_ids[${log_entries[0]}]}^..${commit_ids[${log_entries[1]}]}"
+        ((opt_name_only == 0)) && $REALGIT log "${commit_ids[${log_entries[0]}]}^..${commit_ids[${log_entries[1]}]}"
     fi
     sleep 1
 fi
