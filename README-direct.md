@@ -13,17 +13,25 @@ If you do not have ssh key file, see [Generating a new SSH key and adding it to 
 ## git
 Execute the following to install the latest version of git:
 ```
-sudo add-apt-repository ppa:git-core/ppa
-sudo apt update
+sudo -i
+```
+```
+add-apt-repository ppa:git-core/ppa
+apt update
 apt list --upgradable
-sudo apt upgrade
+apt upgrade
+exit #sudo
 ```
 
 ## Local Software
 We put stuff that we build in /opt/mop:
 ```
-sudo mkdir -p /opt/mop/build
-sudo chown -R ${USER} /opt
+sudo -i
+```
+```
+mkdir -p /opt/mop/build
+chown -R ${USER} /opt
+exit #sudo
 ```
 
 ## Grab the repos
@@ -33,14 +41,18 @@ We assume that you can reach the remote specified. Make sure you have your
 'id_rsa' key and your ssh config set up to reach the server.
 
 ```
-$ GH_REMOTE_REF=git@github.com:matthewpersico
-$ cd $HOME
-$ git clone ${GH_REMOTE_REF}/.git-template.git .git-template
-$ vi ~/.gitconfig
+cd $HOME
+GH_REMOTE_REF=git@github.com:matthewpersico
+git clone ${GH_REMOTE_REF}/.git-template.git .git-template
+```
+```
+vi ~/.gitconfig
     i[init]
     <TAB>templatedir = <EXPAND THE VALUE OF $HOME HERE>/.git-template
     :wq
-$ git clone ${GH_REMOTE_REF}/personal.git personal
+```
+```
+git clone ${GH_REMOTE_REF}/personal.git personal
 ```
 
 ## Set up the branches
@@ -68,7 +80,7 @@ If you are resetting an existing setup where the branch already exists:
 ```
 for i in '.git-template' 'personal'; do
     cd ${HOME}/$i
-    git checkout --track origin/EXISTING-BRANCH-NAME
+    git checkout --track origin/$existing_branchname
 done
 ```
 
