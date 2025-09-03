@@ -42,6 +42,7 @@ We assume that you can reach the remote specified. Make sure you have your
 
 ```
 cd $HOME
+pwd
 GH_REMOTE_REF=git@github.com:matthewpersico
 git clone ${GH_REMOTE_REF}/.git-template.git .git-template
 ```
@@ -68,6 +69,7 @@ a branch name, execute
 ```
 for i in '.git-template' 'personal'; do
     cd ${HOME}/$i
+    pwd
     git checkout -b $branchname
     git push --set-upstream origin $branchname
 done
@@ -80,6 +82,7 @@ If you are resetting an existing setup where the branch already exists:
 ```
 for i in '.git-template' 'personal'; do
     cd ${HOME}/$i
+    pwd
     git checkout --track origin/$existing_branchname
 done
 ```
@@ -92,8 +95,10 @@ This step stores existing dotfiles and links to new ones in the repo. The log fi
 
 ```
 cd $HOME/personal/dotfiles
+pwd
 . ./dotfilesbootstrap
 cd ..
+pwd
 bin/makesymlinks -i dotfiles 2>&1 | tee bin/makesymlinks.log
 export REALGIT=$(which git)
 bin/github.mopenv.init
