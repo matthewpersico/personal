@@ -39,8 +39,6 @@ main ()
     local moreopts=1
 
     local server='github'
-    local token_file="$HOME/.github"
-    local token=''
     local verbose=0
     local silent=0
     local synchronous=0
@@ -156,12 +154,13 @@ main ()
     fi
 
     local token_file
-    token_file="$HOME/$(git kv --get "token-file.$server")"
+    token_file="$(git kv --get "token-file.$server")"
     if [[ ! -r "$token_file" ]]; then
         github-api-echo -- "Credentials file '$token_file' not found. Do you have the right server?"
         false; return
     fi
-    token=$(grep token "$token_file" | cut -d= -f2)
+    local token
+    token=$(cat "$token_file")
 
     ##
     ## action parsing
@@ -172,6 +171,7 @@ main ()
 
     case $action in
         fork | list-forks | exists | ping | pulls | contents | repo )
+set -x
             ## Requires a repo
             if [[ -z "$1" ]]; then
                 github-api-echo -- "No org/repo specified"
@@ -192,6 +192,7 @@ main ()
             if [[ $action == 'contents' ]]; then
                 contents="$1"; shift
             fi
+set +x
             ;;
 
         org | repos )
@@ -270,8 +271,10 @@ main ()
             ;;
 
         fork )
+set -x
             url="repos/$org/$repo/forks"
             curlopts=('-X' 'POST')
+set +x
             ;;
 
         list-forks )
@@ -352,12 +355,12 @@ main ()
     fi
 
     if((verbose)); then
-        github-api-echo -- "curl --header \"Authorization: token\${token}\" ${curlopts[*]} ${server_url}${url}${otherparams[*]} -s"
+        github-api-echo -- "curl --header \"Authorization: Bearer \${token}\" ${curlopts[*]} ${server_url}${url}${otherparams[*]} -s"
     fi
 
     if ((doexec)); then
         curl \
-            --header "Authorization: token${token}" \
+            --header "Authorization: Bearer ${token}" \
             "${curlopts[@]}" \
             "${server_url}${url}${otherparams[*]}" -s > "$curldata" 2>&1
         local status=$?
@@ -390,7 +393,7 @@ main ()
                 # shellcheck disable=SC2059 #https://github.com/koalaman/shellcheck/wiki/SC2059
                 pageprint="$(printf "$pagenumfmt" "$pagenum")"
                 curl \
-                    --header "Authorization: token${token}" \
+                    --header "Authorization: Bearer ${token}" \
                     "${curlopts[@]}" \
                     "${server_url}${url}${otherparams[*]}&page=$pagenum" -s > "${curldata}.${pageprint}" 2>&1
                 local status=$?
@@ -576,6 +579,7 @@ print qq($url);' "${curldata}" "${server_url}")
                 ;;
 
             fork )
+set -x
                 case $htmlstatus in
                     200 | 202 )
                         if ((opt_data_mode==0)); then
@@ -591,6 +595,7 @@ close(IH);
 $json = decode_json($data);
 print $json->{name};' "${curldata}"
                         fi
+set +x
                         ;;
 
                     307 )

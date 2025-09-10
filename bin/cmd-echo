@@ -49,7 +49,9 @@ colors=(
     [BLUE]="${ANSI_FG_BLUE}"
     [REVBLUE]="${ANSI_FG_BLUE}${ANSI_REVERSE}"
     [INVBLUE]="${ANSI_FG_WHITE}${ANSI_BG_BLUE}"
+)
 
+colors+=(
     [WARNING]="${colors[ORANGE]}" # Yellow
     [ERROR]="${colors[RED]}"
     [INFO]="${colors[GREEN]}"
@@ -79,7 +81,7 @@ declare longopts
 longopts='head,title,id:,help,ec,wc,ic,dc,color:'
 longopts="${longopts},oii,noreverse,norev,reverse,rev,noc,lineno:,nolineno:"
 longopts="${longopts},err,error,ERR,ERROR,warn,warning,WARN,WARNING,info,INFO,debug,DEBUG"
-longopts="${longopts},join,ecr,wcr,icr,dcr,eci,eci,ici,dci"
+longopts="${longopts},join,ec,wc,infoc,dc,ecr,wcr,infocr,dcr,eci,wci,infoci,dci"
 longopts="${longopts},interactive"
 declare orig_args="$*"
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
@@ -129,32 +131,23 @@ while true; do
             echo "cmd-echo: -f, -s and -o are no longer used. Ignored..." ;;
         j | join )
             opt_join=1 ;;
-        wc*)
-            [[ -n ${option#wc} ]] && eval "${revinvmap[${option#wc}]}"=1
-            ;&
-        wc )
-            opt_color=1
-            ;& # <- UNCONDITIONAL fallthrough
-        w | warn* )
-            msg_status='WARNING'
-            ;;
         ec*)
             [[ -n ${option#ec} ]] && eval "${revinvmap[${option#ec}]}"=1
             ;&
         ec )
             opt_color=1
             ;&
-        e | err* )
+        e | err* | ERR*)
             msg_status='ERROR'
             ;;
-        dc*)
-            [[ -n ${option#dc} ]] && eval "${revinvmap[${option#dc}]}"=1
+        wc*)
+            [[ -n ${option#wc} ]] && eval "${revinvmap[${option#wc}]}"=1
             ;&
-        dc )
+        wc )
             opt_color=1
-            ;&
-        d | debug )
-            msg_status='DEBUG'
+            ;& # <- UNCONDITIONAL fallthrough
+        w | warn* | WARN*)
+            msg_status='WARNING'
             ;;
         infoc*)
             [[ -n ${option#infoc} ]] && eval "${revinvmap[${option#infoc}]}"=1
@@ -164,6 +157,15 @@ while true; do
             ;&
         info )
             msg_status='INFO'
+            ;;
+        dc*)
+            [[ -n ${option#dc} ]] && eval "${revinvmap[${option#dc}]}"=1
+            ;&
+        dc )
+            opt_color=1
+            ;&
+        d | debug )
+            msg_status='DEBUG'
             ;;
         color )
             opt_color=1
@@ -215,7 +217,6 @@ if [[ -n $opt_lineno ]] && [[ -z $opt_id ]]; then
     cmd-echo --id cmd-echo --wc "Won't print line number without --id option"
     opt_lineno=''
 fi
-
 declare dorest
 declare doresn
 declare docolor=${colors[$color]}

@@ -11,7 +11,8 @@ Make a `${HOME}/.ssh` directory if it does not already exist. Set it `chmod 700`
 If you do not have ssh key file, see [Generating a new SSH key and adding it to the ssh-agent](https://docs.github.com/en/authentication/connecting-to-github-with-ssh/generating-a-new-ssh-key-and-adding-it-to-the-ssh-agent)
 
 ## git
-Execute the following to install the latest version of git:
+
+Execute the following to install the latest version of git.
 ```
 sudo -i
 ```
@@ -24,14 +25,11 @@ exit #sudo
 ```
 
 ## Local Software
-We put stuff that we build in /opt/mop:
+
+We put stuff that we build in /opt/mop.
 ```
-sudo -i
-```
-```
-mkdir -p /opt/mop/build
-chown -R ${USER} /opt
-exit #sudo
+sudo mkdir -p /opt/mop/build
+sudo chown -r ${USER} /opt/mop
 ```
 
 ## Grab the repos
@@ -62,16 +60,16 @@ In each repo, you now have two choices:
 
 ### Make a machine-specific branch
 
-For a new instance, If the hostname is unique, `branchname=$(hostname)` should
-be sufficient. If not, try `branchname=$(hostname)-$(uname -s)`. When you have
-a branch name, execute
+For a new instance, if the hostname is unique, `machine_branch=$(hostname)` should
+be sufficient. If not, try `machine_branch=$(hostname)-$(uname -s)`. When you have
+`$machine_branch` set, execute
 
 ```
 for i in '.git-template' 'personal'; do
     cd ${HOME}/$i
     pwd
-    git checkout -b $branchname
-    git push --set-upstream origin $branchname
+    git checkout -b $machine_branch
+    git push --set-upstream origin $machine_branch
 done
 ```
 
@@ -83,15 +81,15 @@ If you are resetting an existing setup where the branch already exists:
 for i in '.git-template' 'personal'; do
     cd ${HOME}/$i
     pwd
-    git checkout --track origin/$existing_branchname
+    git checkout --track origin/$machine_branch
 done
 ```
 
-Either way, we will refer to this branch as `machine-branch` later on.
-
 ## Set up dotfiles
 
-This step stores existing dotfiles and links to new ones in the repo. The log file is so that you can have a record od what fails so that you can go back and correct it.
+This step stores existing dotfiles and links to new ones in the repo. The log
+file is created in order that you can have a record of what fails so you can go
+back and correct it.
 
 ```
 cd $HOME/personal/dotfiles
@@ -118,18 +116,18 @@ We are going to avoid the use of the GitHub GUI as it creates superfluous merge
 commits. You can create pull requests if you wish, just to see the diffs, and
 approve them for the audit trail, but never merge them via the GUI.
 
-We also assume that you are working on your live machine branch, so commits and
-pushes happen on the repo in that directory.  You'll need another clone
-of the repo to do all the merging work without disturbing the live repo.
+We also assume that you are working on your live `$machine branch`, so commits
+and pushes happen on the repo in that directory.  You'll need another clone of
+the repo to do all the merging work without disturbing the live repo.
 
 ## Setting up the non-live repo
 
 * Clone the GH repo to a non-temp location.
 
-* Setup `machine-branch`
+* Setup `$machine_branch`
 
 ```
-git checkout --track origin/machine-branch
+git checkout --track origin/$machine_branch
 ```
 
 ## Sending branch changes to all other branches

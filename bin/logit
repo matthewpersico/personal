@@ -26,6 +26,8 @@ declare isat=0
 declare -a gui_geo
 declare opt_logonly=0
 declare -a envs
+declare teeppid=''
+declare teedir=''
 
 declare -a original_argv
 original_argv+=("$0" "$@")
@@ -37,9 +39,9 @@ declare shortopts='kz'
 declare longopts
 
 ajoin longopts -s , \
-      h help \
+      help \
       aa at: isat logonly log: dir: \
-      tee tpe tpae tppe tpye \
+      tee teeppid: teedir: tpe tpae tppe tpye \
       gui gui-only gw: gh: gpe gpae gppe gpye \
       browser browser-only bpe bpae bppe bpye \
       edit-echo edit edit-on-fail \
@@ -106,6 +108,12 @@ while true; do
         tee)
             teeit=1
             ;;
+        teeppid)
+            teeppid="$1"
+            shift ;;
+        teedir)
+            teedir="$1"
+            shift ;;
         tpe | tpae | tppe | tpye )
             teeit=1
             purge=all
@@ -272,7 +280,7 @@ if [[ -z "$logdir" ]]; then
         logfile=$(basename "$logfile")
     else
         logdir=${PWD}
-        [[ -d ./logit ]] && logdir=${PWD}/logit
+        [[ -d ./.logit ]] && logdir=${PWD}/.logit
     fi
 fi
 
@@ -364,21 +372,22 @@ if ((teeit || guiit || browserit)); then
     elif [[ $termer =~ browser ]]; then
         to-browser tail -f "$logspec" &
     else
-        # Locate the popup tailing xterm close to the invoking xterm window for
-        # convenience.
-        declare xtermxy xtermx xtermy
-        xtermxy=$(xterm-cli --pid ${PPID} location get)
-        xtermx=$((${xtermxy%%:*}+20))
-        xtermy=$((${xtermxy##*:}+20))
+        if [[ -z $teeppid ]]; then
+            teeppid=$PPID
+        fi
+        if [[ -z $teedir ]]; then
+            teedir=$(pwd)
+        fi
 
         # Size the popup tailing xterm with respect to screen real estate.
+        declare termheight
         termheight=$(x-current-root --height)
         if ((termheight >1024)); then termheight=40; else termheight=20; fi
 
         declare -a colors
-        colors=('-fg' "$(xterm-cli --pid ${PPID} foreground)" '-bg' "$(xterm-cli --pid ${PPID} background)")
+        colors=('-fg' "$(xterm-cli --pid "${teeppid}" --pwd "${teedir}" foreground)" '-bg' "$(xterm-cli --pid "${teeppid}" --pwd "${teedir}" background)")
 
-        $fulltermcmd -g 132x${termheight}+${xtermx}+${xtermy} \
+        $fulltermcmd -g 132x${termheight} \
                 -title "$title" \
                 "${colors[@]}" \
                 -e tail -f "$logspec" \
@@ -514,7 +523,7 @@ if [[ "${editcmd[0]}" =~ emacs\  ]]; then
         height=$logheight
     fi
     declare xtermxy xtermx xtermy
-    xtermxy=$(xterm-cli --pid ${PPID} location get)
+    xtermxy=$(xterm-cli --pid "${teeppid}" --pwd "${teedir}" location get)
     xtermx=$((${xtermxy%%:*}+20))
     xtermy=$((${xtermxy##*:}+20))
     editcmd+=('-g' "${width}x${height}+${xtermx}+${xtermy}")
@@ -537,6 +546,8 @@ logit [ --at time ] \\
       [ --tee | \\
         [ --gui[-only]|-gh:height|-gw:width ] | \\
         [ --browser[-only] ] ] \\
+      [ --teeppid pid ] \\
+      [ --teedir dir ] \\
       [ --log log_basename ] \\
       [ --aa ]
       [ --notimestamp ] \\
@@ -579,6 +590,22 @@ OPTIONS:
       --tee    - Spin up a terminal and show the log output in it as it is
                  generated.
 
+      --teeppid
+               - We try to find the window from which logit was invoked in
+                 order to locate the terminal used for teeing near that
+                 window. If logit is invoked from a command line, then that
+                 window's pid is PPID inside logit. But if logit is invoked
+                 inside another script, that doesn't work. Rather than try to
+                 walk the process tree, just feed the window's pid into logit.
+                 generated.
+
+      --teedir - We try to find the window from which logit was invoked in
+                 order to locate the terminal used for teeing near that
+                 window. Part of that is locating the window by title, which
+                 include the current working directory. If ths current working
+                 directory changes in a script before we invoke the tee, use
+                 this argument to specify the pwd of the script before cd'ing.
+
       --gui
                - Spin up a gui text dialog and show the log output in it as it
                  is generated. If a gui is not available, we fall back to
@@ -610,10 +637,9 @@ OPTIONS:
 
       --log    - Provide a root name for the log if the command is generic.
 
-      --dir    - Put the logs in specifed directory. If not
-                 specfied, logs will be placed in the './logit' subdir,
-                 if it exists. Otherwise, logs will be placed in the current
-                 directory.
+      --dir    - Put the logs in specifed directory. If not specfied, logs will
+                 be placed in the './.logit' subdir, if it exists. Otherwise,
+                 logs will be placed in the current directory.
 
       --aa     - Short for 'add args'. Concatinates all the arguments to the
                  command into one string, using '-' as a separator and appends

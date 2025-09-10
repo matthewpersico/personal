@@ -1,0 +1,169 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+## post-wsl-install
+declare ceid='post-wsl-install'
+
+## Instructions to build an environment after a new WSL install.
+## Run as 'matthew'; 'sudo' will be used where necessary.
+
+## Set up sudo
+cmd-echo --id $ceid 'Set up sudo'
+
+declare sudoers_file=sudoers.$USER
+cat <<EOSUDOERS >"$sudoers_file"
+$USER ALL=(ALL) NOPASSWD:ALL
+EOSUDOERS
+
+sudo chown root:root "$sudoers_file"
+sudo chmod 664 "$sudoers_file"
+sudo mv "$sudoers_file" "/etc/sudoers.d/$USER"
+sudo ls -lart "/etc/sudoers.d/$USER"
+
+## Add dpkg repos
+cmd-echo --id $ceid 'Add dpkg repos'
+sudo apt-add-repository ppa:git-core/ppa
+
+## Update the system
+cmd-echo --id $ceid 'Update the system'
+sudo apt update
+sudo apt upgrade
+
+## Add X support
+cmd-echo --id $ceid 'Add X support'
+sudo apt install x11-apps -y
+
+## Add email support, primarily for cron
+cmd-echo --id $ceid 'Add email support, primarily for cron'
+
+sudo apt install ssmtp -y
+
+cat <<EOSSMTPCONF > ssmtp.conf
+root=matthew.persico@gmail.com
+mailhub=smtp.gmail.com:587
+hostname=MONOLITH.localdomain
+FromLineOverride=YES
+AuthUser=matthew.persico@gmail.com
+AuthPass=$(cat /mnt/c/Users/matth/Documents/ssh/Gmail*.txt)
+UseSTARTTLS=YES
+EOSSMTPCONF
+
+sudo chown root:root ssmtp.conf
+sudo chmod 640 ssmtp.conf
+sudo mv ssmtp.conf /etc/ssmtp/ssmtp.conf
+sudo ls -lart /etc/ssmtp/ssmtp.conf
+
+cat <<EOREVALIASES > revaliases
+root:root@MONOLITH:smtp.gmail.com:587
+matthew:matthew@MONOLITH:smtp.gmail.com:587
+EOREVALIASES
+
+sudo chown root:root revaliases
+sudo chmod 640 revaliases
+sudo mv revaliases /etc/ssmtp/revaliases
+sudo ls -la /etc/ssmtp/revaliases
+
+cmd-echo --id $ceid 'Testing email setup'
+ssmtp matthew.persico@gmail.com <<EOD
+Subject: This is a test
+Line 1
+Line 2
+Line 3
+EOD
+
+## Install packages
+cmd-echo --id $ceid 'Install packages'
+declare -a packages=(
+    x11-xserver-utils
+    x11-utils
+    xfonts-utils
+    shellcheck
+    emacs
+    make
+    gcc
+    libfile-slurp-perl
+    libpath-tiny
+    liblingua-en-inflect-perl
+    libdevel-ptkdb-perl
+    cpanminus
+    xdg-utils
+    firefox
+    yad
+    semver
+)
+
+declare package
+for package in "${packages[@]}"; do
+    echo
+    cmd-echo --id $ceid "$package..."
+    sudo apt install "$package"
+done
+
+## Package related stuff
+git config --global web.brower firefox
+
+## Build code
+cd /opt/mop/build || exit
+
+## Build what we have, no updates yet
+declare prog
+for prog in /opt/mop/build/*; do
+    (
+        cd "$prog" || exit
+        declare ver
+        # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
+        ver=$(ls -c1 | sort -V | tail -1)
+        build-oss --clean "$prog" "$ver"
+    )
+done
+
+declare sys_perl
+sys_perl=$(which perl)
+echo "export SYS_PERL=$sys_perl" >> ~/personal/bin/perl.mopenv
+
+## Boostrap plenv
+(
+    cd /home/matthew || exit
+
+    ## get plenv
+    git clone https://github.com/tokuhirom/plenv.git .plenv
+
+    ## Add to PATH
+    # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
+    . personal/bin/perl.mopenv
+
+    ## This plugin builds perl itself in plenv
+    git clone https://github.com/tokuhirom/Perl-Build.git .plenv/plugins/perl-build
+
+    ## Build perls
+    declare latest
+    # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+    latest=$($sys_perl -ane '
+        next if $_ =~ /Available/;
+        @parts = split(/\./,$_);
+        next if $parts[1]%2==1;
+        chomp $_; print $_; exit;' < <(plenv install --list)
+    )
+    declare version
+    for version in 5.16.3 "$latest"; do
+        plenv install "$version"
+        plenv rehash
+    done
+
+    ## Other goodies
+    git clone https://github.com/miyagawa/plenv-contrib.git .plenv/plugins/plenv-contrib
+
+    plenv exec-all cpanm \
+          File::Slurp \
+          Path::Tiny \
+          Lingua::EN::Inflect \
+          JSON::PP \
+          JSON::XS \
+          CPAN::Meta \
+          Test::Fatal \
+          Test::FailWarnings \
+          Test::MockRandom \
+          Unicode::UTF8 \
+          Tk \
+          Devel::ptkdb
+)

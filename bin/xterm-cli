@@ -3,6 +3,7 @@
 # shellcheck disable=SC2329 #https://github.com/koalaman/shellcheck/wiki/SC2329
 # shellcheck disable=SC2218 #https://github.com/koalaman/shellcheck/wiki/SC2218
 # shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
+# shellcheck disable=SC2155 #https://github.com/koalaman/shellcheck/wiki/SC2155
 
 # xterm-cli
 
@@ -11,12 +12,15 @@
 declare ticker_tmp
 ticker_tmp="/tmp/ticker.$(hostname).$PPID"
 declare action_pid=''
+declare action_dir=''
 
 xterm-cli-id ()
 {
-    local idd
+local idd
     local ppid=${action_pid:-${PPID}}
-    idd=$(xwininfo -name "$USER@$(hostname):${ppid}:$(pwd | sed "s|$HOME|~|")" \
+    # shellcheck disable=SC2001 #https://github.com/koalaman/shellcheck/wiki/SC2001
+    local workdir=$(echo "${action_dir:-$(pwd)}" | sed "s|$HOME|~|")
+    idd=$(xwininfo -name "$USER@$(hostname):${ppid}:${workdir}" \
     | grep 'Window id' \
     | sed -e 's/.* Window id: //' -e 's/ .*//')
     if [[ -n $1 ]]; then
@@ -27,6 +31,7 @@ xterm-cli-id ()
     else
         echo "$idd"
     fi
+set +x
 }
 
 xterm-cli-info ()
@@ -76,7 +81,7 @@ _xterm-cli-xground ()
 
         if [[ -n "$NEWXCOLOR" ]]; then
             echo "$NEWXCOLOR"
-            true; return
+true; return
         else
             cmd-echo --id "xterm-cli(${FUNCNAME[0]})" --wc "NEWXCOLOR not defined"
         fi
@@ -292,18 +297,47 @@ main ()
     local action
     local action_pid
 
-    if [[ "$1" =~ ^-+h ]]; then
-        bash-usage "$0"
-        true; return
-    fi
-    if [[ "$1" = '-x' ]]; then
-        set -x # OK if you are grepping
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    declare OPTSARGS
+    declare shortopts='hx'
+    declare longopts
+
+    ajoin longopts -s , \
+          help \
+          pid: pwd:
+
+    # Process the command line, first time around.
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    while true; do
+        declare option=$1
         shift
-    fi
-    if [[ "$1" = '--pid' ]]; then
-        action_pid=$2
-        shift;shift
-    fi
+        [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
+        case "$option" in
+            h|help)
+                bash-usage "$0"; true; return ;;
+            x )
+                set -x # OK if you are grepping
+                ;;
+            pid )
+                action_pid=$1
+                shift;;
+            pwd )
+                action_dir=$1
+                shift;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                cmd-echo --id logit -ec -- "$option is an invalid option. See $0 --help"
+                false; return ;;
+        esac
+    done
 
     action=$1
     shift
