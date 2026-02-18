@@ -29,7 +29,7 @@ exit #sudo
 We put stuff that we build in /opt/mop.
 ```
 sudo mkdir -p /opt/mop/build
-sudo chown -r ${USER} /opt/mop
+sudo chown -R ${USER} /opt/mop
 ```
 
 ## Grab the repos
