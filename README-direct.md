@@ -132,13 +132,21 @@ the repo to do all the merging work without disturbing the live repo.
 
 ## Setting up the non-live repo
 
-* Clone the GH repo to a non-temp location.
+* Clone the GH repo
+
+```
+github-clone matthewpersico/personal
+```
 
 * Setup `$machine_branch`
 
-```
-git checkout --track origin/$machine_branch
-```
+Execute `git branch --list --all`. Ignoring the `remotes/origin/HEAD' branch, 
+for each `remotes/origin/FOO` branch that does not have a corresponding local
+`FOO` branch, execute `git checkout --track origin/FOO`. Any time you add a new
+source branch to the github repo, come back to the non-live repo and run
+`git checkout --track origin/newBranchName` so that future syncs take the
+new remote branch into account. You will have to do this on every machine
+from which you sync the `personal` repo.
 
 ## Sending branch changes to all other branches
 
@@ -157,25 +165,37 @@ git push
 
 ### Sync
 
-* Move to the non-live GHE repo to sync things up.
+* Move to the non-live repo
 * Execute
 
 ```
-git branch --sync machine-branch
+git branch --sync <source-branch>
 ```
 
 The command will refresh local and remote branches and then propagate the
-changes on the specified branch to all the others.
+changes on the specified branch to all the others. If you do not specify
+a branch, then all the refreshed branches will be checked for their latest
+commit time. The one with the latest change will be offered up for confirmation
+to have its changes merged into all the others.
+
+In an ideal situation, all but one of the branches should be on the same commit.
+That differing commit should be latest one and it will be chosed for propigation.
+If some branches are on the latest commit and all the others are on the same earlier
+commit, then that's ok. Just propagate the lastest commit from one source and it
+will get to just the branches with the earlier commit.
+
+The worst situation is that there are three or more distinct commits in the list.
+In this case, you will need to examine all the commits and manually what order int
+which to do the merges across branches in order to not lose any commits or create
+conflicts. In order NOT to get into this situation, try to do all development
+on one machine and propigate out. Make sure you sync frequently. Check before you
+start making changes and do a commit and sync on other machines before you develop
+on the current machine.
 
 ## Getting main changes to all other branches
 
 There is nothing special about propagating changes on `main` back out to the
 machine branches; all you are doing is swapping the source and the target.
-
-### Sync
-
-* Move to the non-live GHE repo to sync things up.
-* Execute
 
 ```
 git branch --sync main
