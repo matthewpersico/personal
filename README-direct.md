@@ -102,6 +102,16 @@ export REALGIT=$(which git)
 bin/github.mopenv.init
 git-kv --cat
 ```
+## X11
+
+Use the computer's package manager and install whatever package you need
+to be able to run 'xterm'. If you do not, then you may have a problem such
+that trying to login directly to a machine using a graphical interface will
+try and run with /bin/sh. Your .bash_profile will not be sourced. By
+installing xterm with the package manager, the xterminit setup will be run
+at the proper time, all shells should be login shells and everything "Just Works".
+Or, at least that's what happened when I was adapting this repo to a Raspian
+setup in Feb 2026. Nothing worked until I installed 'xterm'.
 
 ## Test
 
