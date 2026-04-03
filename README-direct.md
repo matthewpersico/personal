@@ -130,6 +130,10 @@ We also assume that you are working on your live `$machine branch`, so commits
 and pushes happen on the repo in that directory.  You'll need another clone of
 the repo to do all the merging work without disturbing the live repo.
 
+> Note: Although we are demonstrating sync'ing the `personal` repo here,
+> nothing would keep you from sync'ing any other repo. The most common other
+> one to sync is the `emacs.taps` repo.
+
 ## Setting up the non-live repo
 
 * Clone the GH repo
@@ -140,7 +144,7 @@ github-clone matthewpersico/personal
 
 * Setup `$machine_branch`
 
-Execute `git branch --list --all`. Ignoring the `remotes/origin/HEAD' branch, 
+Execute `git branch --list --all`. Ignoring the `remotes/origin/HEAD` branch,
 for each `remotes/origin/FOO` branch that does not have a corresponding local
 `FOO` branch, execute `git checkout --track origin/FOO`. Any time you add a new
 source branch to the github repo, come back to the non-live repo and run
