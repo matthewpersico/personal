@@ -1,5 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
+# shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
 
 ## post-rpi-install
 declare ceid='post-rpi-install'
@@ -69,6 +70,7 @@ fi
 ## Install debian packages
 cmd-echo --id $ceid 'Install debian packages'
 declare -a debian_packages=(
+    build-essential
     curl
     x11-xserver-utils
     x11-utils
@@ -118,16 +120,22 @@ chmod +x ./homebrew_install.sh
 echo "*** $(date)" >> homebrew_install.log
 ./homebrew_install.sh | tee -a homebrew_install.log
 
-declare -a homebrew_packages=(
-    uv
-)
+if [[ ! -f $HOME/personal/bin/homebrew.mopenv ]]; then
+    cmd-echo --id $ceid -ec "Environment file $HOME/personal/bin/homebrew.mopenv not found. No homebrew installations will take place."
+else
+    . "$HOME"/personal/bin/homebrew.mopenv
+    declare -a homebrew_packages=(
+        gcc
+        uv
+    )
 
-declare homebrew_package
-for homebrew_package in "${homebrew_packages[@]}"; do
-    echo
-    cmd-echo --id $ceid "$homebrew_package..."
-    brew install "$homebrew_package"
-done
+    declare homebrew_package
+    for homebrew_package in "${homebrew_packages[@]}"; do
+        echo
+        cmd-echo --id $ceid "$homebrew_package..."
+        brew install "$homebrew_package"
+    done
+fi
 
 ## Install python programs
 
@@ -155,7 +163,6 @@ echo "export SYS_PERL=$sys_perl" >> ~/personal/bin/perl.mopenv
     git clone https://github.com/tokuhirom/plenv.git .plenv
 
     ## Add to PATH
-    # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
     . personal/bin/perl.mopenv
 
     ## This plugin builds perl itself in plenv
