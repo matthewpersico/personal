@@ -1,5 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
+# shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
 
 ## post-wsl-install
 declare ceid='post-wsl-install'
@@ -20,20 +21,32 @@ sudo chmod 664 "$sudoers_file"
 sudo mv "$sudoers_file" "/etc/sudoers.d/$USER"
 sudo ls -lart "/etc/sudoers.d/$USER"
 
+##
+## Create a workspace
+##
+sudo mkdir -p /opt/mop
+sudo chown matthew /opt/mop
+declare install_workdir
+install_workdir=/opt/mop/$(basename "$0")
+mkdir -p "$install_workdir"
+cd "$install_workdir" || exit
+
+##
 ## Add dpkg repos
+##
 cmd-echo --id $ceid 'Add dpkg repos'
 sudo apt-add-repository ppa:git-core/ppa
 
+##
 ## Update the system
+##
 cmd-echo --id $ceid 'Update the system'
 sudo apt update
 sudo apt upgrade
 
-## Add X support
-cmd-echo --id $ceid 'Add X support'
-sudo apt install x11-apps -y
-
+##
 ## Add email support, primarily for cron
+##
 cmd-echo --id $ceid 'Add email support, primarily for cron'
 
 sudo apt install ssmtp -y
@@ -52,6 +65,7 @@ sudo chown root:root ssmtp.conf
 sudo chmod 640 ssmtp.conf
 sudo mv ssmtp.conf /etc/ssmtp/ssmtp.conf
 sudo ls -lart /etc/ssmtp/ssmtp.conf
+sudo cat /etc/ssmtp/ssmtp.conf
 
 cat <<EOREVALIASES > revaliases
 root:root@MONOLITH:smtp.gmail.com:587
@@ -62,6 +76,7 @@ sudo chown root:root revaliases
 sudo chmod 640 revaliases
 sudo mv revaliases /etc/ssmtp/revaliases
 sudo ls -la /etc/ssmtp/revaliases
+sudo cat /etc/ssmtp/revaliases
 
 cmd-echo --id $ceid 'Testing email setup'
 ssmtp matthew.persico@gmail.com <<EOD
@@ -71,41 +86,139 @@ Line 2
 Line 3
 EOD
 
-## Install packages
-cmd-echo --id $ceid 'Install packages'
-declare -a packages=(
+if ! grep -q 'Matthew Persico' /etc/passwd; then
+    cmd-echo --id $ceid 'Name "Matthew Persico" not found in /etc/passwd. Add it...'
+    sleep 2
+    sudo vi /etc/passwd
+fi
+
+##
+## Install debian packages
+##
+cmd-echo --id $ceid 'Install debian packages from distribution'
+
+## "code" in the array is vscode. Way to go Microsoft with the naming...
+declare -a debian_packages=(
+    build-essential
+    curl
     x11-xserver-utils
     x11-utils
+    x11-apps
+    xfonts-base
+    xfonts-75dpi
+    xfonts-100dpi
     xfonts-utils
+    libxaw7-dev
+    libxaw7
+    libxaw-doc
+    libmotif-dev
     shellcheck
     emacs
     make
     gcc
+    perl-doc
+    perltidy
     libfile-slurp-perl
-    libpath-tiny
+    libpath-tiny-perl
     liblingua-en-inflect-perl
     libdevel-ptkdb-perl
+    libjson-xs-perl
+    libperl-tidy-perl
     cpanminus
     xdg-utils
     firefox
     yad
     semver
+    rename
+    wish
+    smartmontools
+    jq
+    speech-dispatcher
+    code
 )
 
-declare package
-for package in "${packages[@]}"; do
+declare debian_package
+for debian_package in "${debian_packages[@]}"; do
     echo
-    cmd-echo --id $ceid "$package..."
-    sudo apt install "$package"
+    cmd-echo --id $ceid "$debian_package..."
+    sudo apt install -y "$debian_package"
 done
 
-## Package related stuff
+## Debian_Package related stuff
 git config --global web.brower firefox
 
-## Build code
-cd /opt/mop/build || exit
+cmd-echo --id $ceid 'Install local debian packages'
+declare -a ldebian_packages=(
+)
 
-## Build what we have, no updates yet
+declare ldebian_package
+declare -a fdebian_packages # f => fully wildcard expanded
+declare fdebian_package
+for ldebian_package in "${ldebian_packages[@]}"; do
+    echo
+    # shellcheck disable=SC2207 #https://github.com/koalaman/shellcheck/wiki/SC2207
+    # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
+    fdebian_packages=($(printf "%s\n" ${ldebian_package}*.deb | sed -e "s/^${ldebian_package}//" | sort -V | sed -e "s/^/${ldebian_package}/"))
+    if [[ "${ldebian_package}*.deb" == "${fdebian_packages[0]}" ]]; then
+        fdebian_packages=()
+    fi
+    if [[ ${#fdebian_packages[@]} == '0' ]]; then
+        cmd-echo --id $ceid -wc "$ldebian_package: No such package found."
+        continue
+    fi
+    if (( ${#fdebian_packages[@]} > 1 )); then
+        cmd-echo --id $ceid -wc "$ldebian_package: More than one such package found."
+        select fdebian_package in "${fdebian_packages[@]}" Quit
+        do
+            if [[ -n $fdebian_package ]]; then break; fi
+        done
+        echo "selection: $fdebian_package ($REPLY)"
+    else
+        fdebian_package=${fdebian_packages[0]}
+    fi
+    if [[ $fdebian_package == 'Quit' ]] ; then break; fi
+    cmd-echo --id $ceid "$fdebian_package..."
+    sudo apt install -y "$fdebian_package"
+done
+
+##
+## Install homebrew packages
+##
+cmd-echo --id $ceid 'Install homebrew and its packages'
+curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh > ./homebrew_install.sh || { false; exit; }
+chmod +x ./homebrew_install.sh
+echo "*** $(date)" >> homebrew_install.log
+./homebrew_install.sh | tee -a homebrew_install.log
+
+if [[ ! -f $HOME/personal/bin/homebrew.mopenv ]]; then
+    cmd-echo --id $ceid -ec "Environment file $HOME/personal/bin/homebrew.mopenv not found. No homebrew installations will take place."
+else
+    . "$HOME"/personal/bin/homebrew.mopenv
+    declare -a homebrew_packages=(
+        gcc
+        uv
+        bashdb
+    )
+
+    declare homebrew_package
+    for homebrew_package in "${homebrew_packages[@]}"; do
+        echo
+        cmd-echo --id $ceid "$homebrew_package..."
+        brew install "$homebrew_package"
+    done
+fi
+
+##
+## Install python programs
+##
+## TBD
+
+##
+## Build what we have
+##
+mkdir -p /opt/mop/build
+cd /opt/mop/build || exit 1
+git clone github:matthewpersico/www-oss-build oss
 declare prog
 for prog in /opt/mop/build/*; do
     (
@@ -129,7 +242,6 @@ echo "export SYS_PERL=$sys_perl" >> ~/personal/bin/perl.mopenv
     git clone https://github.com/tokuhirom/plenv.git .plenv
 
     ## Add to PATH
-    # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
     . personal/bin/perl.mopenv
 
     ## This plugin builds perl itself in plenv
@@ -167,3 +279,5 @@ echo "export SYS_PERL=$sys_perl" >> ~/personal/bin/perl.mopenv
           Tk \
           Devel::ptkdb
 )
+
+#  LocalWords:  debian homebrew
