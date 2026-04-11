@@ -16,7 +16,7 @@ declare OPTSARGS
 declare shortopts=''
 declare longopts=''
 ajoin longopts -s , \
-      clean log-purge root: init pause-per-step
+      clean log-purge root: init pause-per-step help
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -25,7 +25,7 @@ declare -a this_opts
 declare -a logger_opts
 declare opt_clean=0
 declare opt_root_set=0
-declare opt_root=${BUILD_OSS_ROOT:-"$OPTROOT/build"}
+declare opt_root=${BUILD_OSS_ROOT:-"$OPTROOT/build/oss"}
 declare opt_init=0
 declare opt_pause_per_step=0
 
@@ -36,6 +36,10 @@ while true; do
     shift
     [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
     case "$option" in
+        h | help )
+            bash-usage "$0"
+            true; exit
+            ;;
         init)
             opt_init=1
             ;;
@@ -65,9 +69,14 @@ while true; do
 done
 
 if ((opt_root_set)) && ((!opt_init)); then
-    cmd-echo --id "$ceid" -l $LINENO --ec "Cannot set --root without --init"
+    cmd-echo --id "$ceid" -l $LINENO --ec "Cannot set --root without --init option."
     false; exit
 fi
+
+if [[ -z "$BUILD_OSS_ROOT" ]]; then
+    BUILD_OSS_ROOT=$opt_root
+fi
+export BUILD_OSS_ROOT
 
 cd "$opt_root" || exit
 
@@ -104,17 +113,22 @@ if [[ -z $BUILD_OSS_DIR ]]; then
 
     if ((opt_init)); then
         if [[ -z $BUILD_OSS_SOFTWARE ]]; then
-            cmd-echo --id "$ceid" -l $LINENO --ec "Missing software name argument"
+            cmd-echo --id "$ceid" -l $LINENO --ec "Missing software name argument."
             false; exit
         fi
 
         if [[ -z $BUILD_OSS_VERSION ]]; then
-            cmd-echo --id "$ceid" -l $LINENO --ec "Missing software version argument"
+            cmd-echo --id "$ceid" -l $LINENO --ec "Missing software version argument."
             false; exit
         fi
 
         mkdir -p "$BUILD_OSS_DIR/.logit"
-        cat <<EOF >"$BUILD_OSS_DIR/build-oss.conf"
+        declare conf="$BUILD_OSS_DIR/build-oss.conf"
+        if [[ -f $conf ]]; then
+            cmd-echo --id "$ceid" -l $LINENO --ec "'$conf' already exists. Will not overwrite it."
+            false; exit
+        fi
+        cat <<EOF >"$conf"
 # -*- sh -*-
 # shellcheck shell=bash
 
@@ -131,14 +145,20 @@ export BUILD_OSS_ROOT
 # Enhance or remove these functions as needed.
 
 build-oss-get () {
-    # Commands to get the tarball and write it to \$BUILD_OSS_SOURCE_TARBALL
-    # or to get a git repo
-    # $PWD will be \$BUILD_OSS_DIR
+    # Commands to get the tarball and write it to \$BUILD_OSS_DIR
+    # or to get a git repo.
+    # PWD will be \$BUILD_OSS_DIR
+    # BUILD_OSS_ROOT=$BUILD_OSS_ROOT
+    # BUILD_OSS_SOFTWARE=$BUILD_OSS_SOFTWARE
+    # BUILD_OSS_VERSION=$BUILD_OSS_VERSION
+    # BUILD_OSS_DIR=$BUILD_OSS_DIR
+    # BUILD_OSS_SOURCE_DIR=$BUILD_OSS_SOURCE_DIR
+    # BUILD_OSS_SOURCE_TARBALL_ROOT=$BUILD_OSS_SOURCE_TARBALL_ROOT
     : # dummy statement to placate shellcheck until real statements are added
 }
 
 build-oss-unpack () {
-    if ! tar zxf "$BUILD_OSS_SOURCE_TARBALL"; then
+    if ! tar zxf "\$BUILD_OSS_SOURCE_TARBALL"; then
         false; exit;
     fi
 }
@@ -165,8 +185,8 @@ build-oss-coda () {
 }
 
 EOF
-        cmd-echo --id "$ceid" -l $LINENO "$BUILD_OSS_DIR/build-oss.conf created. Edit if needed and re-run."\
-                 "Do not forget to download the tarball ($BUILD_OSS_SOURCE_TARBALL_ROOT) to $BUILD_OSS_DIR"
+        cmd-echo --id "$ceid" -l $LINENO "$conf created. Edit if needed and re-run."\
+                 "Do not forget to download the tarball ($BUILD_OSS_SOURCE_TARBALL_ROOT) to '$BUILD_OSS_DIR'."
         true; exit;
     fi
 
@@ -203,7 +223,7 @@ else
             cmd-echo --id "$ceid" -l $LINENO --info "Running $full_funcname..."
             $full_funcname || exit
             if ((opt_pause_per_step)); then
-                cmd-pause --id "$ceid" -l $LINENO "$full_funcname complete"
+                cmd-pause --id "$ceid" -l $LINENO "$full_funcname complete."
             fi
         else
             cmd-echo --id "$ceid" -l $LINENO -wc "No $full_funcname defined. No tarball found."
@@ -217,7 +237,7 @@ else
             cmd-echo --id "$ceid" -l $LINENO --info "Running $full_funcname..."
             $full_funcname || exit
             if ((opt_pause_per_step)); then
-                cmd-pause --id "$ceid" -l $LINENO "$full_funcname complete"
+                cmd-pause --id "$ceid" -l $LINENO "$full_funcname complete."
             fi
         else
             cmd-echo --id "$ceid" -l $LINENO -wc "No $full_funcname defined. No expansion performed."
@@ -232,7 +252,7 @@ else
     fi
 
     declare funcname
-    for funcname in config build test install coda; do
+    for funcname in configure build test install coda; do
         declare full_funcname="build-oss-${funcname}"
         if is-a-function $full_funcname; then
             cmd-echo --id "$ceid" -l $LINENO --info "Running $full_funcname..."
@@ -241,7 +261,7 @@ else
             cmd-echo --id "$ceid" -l $LINENO --wc "No $full_funcname defined. Skipping this step."
         fi
         if ((opt_pause_per_step)); then
-            cmd-pause --id "$ceid" -l $LINENO "$full_funcname complete"
+            cmd-pause --id "$ceid" -l $LINENO "$full_funcname complete."
         fi
     done
 fi
