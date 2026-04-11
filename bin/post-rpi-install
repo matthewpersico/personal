@@ -8,7 +8,9 @@ declare ceid='post-rpi-install'
 ## Instructions to build an environment after a new RPI install.
 ## Run as 'matthew'; 'sudo' will be used where necessary.
 
+##
 ## Create a workspace
+##
 sudo mkdir -p /opt/mop
 sudo chown matthew /opt/mop
 declare install_workdir
@@ -16,12 +18,16 @@ install_workdir=/opt/mop/$(basename "$0")
 mkdir -p "$install_workdir"
 cd "$install_workdir" || exit
 
+##
 ## Update the system
+##
 cmd-echo --id $ceid 'Update the system'
 sudo apt update
 sudo apt upgrade
 
+##
 ## Add email support, primarily for cron
+##
 cmd-echo --id $ceid 'Add email support, primarily for cron'
 
 sudo apt install ssmtp -y
@@ -67,8 +73,12 @@ if ! grep -q 'Matthew Persico' /etc/passwd; then
     sudo vi /etc/passwd
 fi
 
+##
 ## Install debian packages
-cmd-echo --id $ceid 'Install debian packages'
+##
+cmd-echo --id $ceid 'Install debian packages from distribution'
+
+## "code" in the array is vscode. Way to go Microsoft with the naming...
 declare -a debian_packages=(
     build-essential
     curl
@@ -79,6 +89,10 @@ declare -a debian_packages=(
     xfonts-75dpi
     xfonts-100dpi
     xfonts-utils
+    libxaw7-dev
+    libxaw7
+    libxaw-doc
+    libmotif-dev
     shellcheck
     emacs
     make
@@ -101,6 +115,7 @@ declare -a debian_packages=(
     smartmontools
     jq
     speech-dispatcher
+    code
 )
 
 declare debian_package
@@ -113,7 +128,43 @@ done
 ## Debian_Package related stuff
 git config --global web.brower firefox
 
+cmd-echo --id $ceid 'Install local debian packages'
+declare -a ldebian_packages=(
+)
+
+declare ldebian_package
+declare -a fdebian_packages # f => fully wildcard expanded
+declare fdebian_package
+for ldebian_package in "${ldebian_packages[@]}"; do
+    echo
+    # shellcheck disable=SC2207 #https://github.com/koalaman/shellcheck/wiki/SC2207
+    # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
+    fdebian_packages=($(printf "%s\n" ${ldebian_package}*.deb | sed -e "s/^${ldebian_package}//" | sort -V | sed -e "s/^/${ldebian_package}/"))
+    if [[ "${ldebian_package}*.deb" == "${fdebian_packages[0]}" ]]; then
+        fdebian_packages=()
+    fi
+    if [[ ${#fdebian_packages[@]} == '0' ]]; then
+        cmd-echo --id $ceid -wc "$ldebian_package: No such package found."
+        continue
+    fi
+    if (( ${#fdebian_packages[@]} > 1 )); then
+        cmd-echo --id $ceid -wc "$ldebian_package: More than one such package found."
+        select fdebian_package in "${fdebian_packages[@]}" Quit
+        do
+            if [[ -n $fdebian_package ]]; then break; fi
+        done
+        echo "selection: $fdebian_package ($REPLY)"
+    else
+        fdebian_package=${fdebian_packages[0]}
+    fi
+    if [[ $fdebian_package == 'Quit' ]] ; then break; fi
+    cmd-echo --id $ceid "$fdebian_package..."
+    sudo apt install -y "$fdebian_package"
+done
+
+##
 ## Install homebrew packages
+##
 cmd-echo --id $ceid 'Install homebrew and its packages'
 curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh > ./homebrew_install.sh || { false; exit; }
 chmod +x ./homebrew_install.sh
@@ -127,6 +178,7 @@ else
     declare -a homebrew_packages=(
         gcc
         uv
+        bashdb
     )
 
     declare homebrew_package
@@ -137,9 +189,17 @@ else
     done
 fi
 
+##
 ## Install python programs
+##
+## TBD
 
+##
 ## Build what we have
+##
+mkdir -p /opt/mop/build
+cd /opt/mop/build || exit 1
+git clone github:matthewpersico/www-oss-build oss
 declare prog
 for prog in /opt/mop/build/*; do
     (
