@@ -6,11 +6,11 @@ use warnings;
 use lib "$ENV{HOME}/perl/5.16/lib/perl5";
 
 use IO::Dir;
-use Term::Menu;
+use Term::Menus;
 use Email::Sender;
 
 use lib $ENV{PERSONALLIB};
-use Misc qw(UNIX_TRUE UNIX_FALSE);
+use MOP::Misc qw(UNIX_TRUE UNIX_FALSE);
 
 sub mbox_status {
     my $mbox = $_[0];
@@ -46,19 +46,8 @@ sub main {
         $answer = $mboxes[0]->{mbox};
     } else {
         @mboxes = sort { $a->{mbox} cmp $b->{mbox} } @mboxes;
-        my $prompt = Term::Menu->new(
-            'beforetext' => 'Choose a mailbox"',
-            'aftertext'  => '',
-        );
-        my $idx = 1;
-        $answer = $prompt->menu(
-            (
-                map { $_->{mbox} => [ "$_->{mbox} ($_->{status})", $idx++ ] }
-                  @mboxes
-            ),
-            quit => [ 'quit', 'q' ]
-        );
-        ( $answer eq 'quit' ) && exit UNIX_TRUE;
+        $answer = pick( \@mboxes, 'Choose a mailbox' );
+        ( $answer =~ /quit/ ) && exit UNIX_TRUE;
     }
     exec 'mailx', '-u', $answer;
 }

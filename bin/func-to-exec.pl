@@ -6,7 +6,7 @@ use warnings;
 use File::Basename;
 
 use lib $ENV{PERSONALLIB};
-use Misc qw(UNIX_TRUE UNIX_FALSE);
+use MOP::Misc qw(UNIX_TRUE UNIX_FALSE);
 
 our $force;
 
