@@ -1,4 +1,4 @@
-package PerlBulkUtils;
+package MOP::PerlBulkUtils;
 
 use 5.16.3;
 use warnings;

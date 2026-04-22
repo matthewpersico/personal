@@ -1,4 +1,4 @@
-package Misc;
+package MOP::Misc;
 use 5.16.3;
 use warnings;
 
