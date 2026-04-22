@@ -1,6 +1,6 @@
 # -*- sh -*-
 # shellcheck shell=bash
-# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
+# shellcheck disable=SC2329 #https://github.com/koalaman/shellcheck/wiki/SC2329
 
 # git-branch
 
@@ -637,7 +637,47 @@ git-branch-sync-catch-up ()
     cmd-echo --id git-branch --color REVBLUE -- "Refresh repo..."
     git fetch --all --prune --tags || return
 
+    # Get the remotes
+    declare rb
+    declare -A remotes
+    cmd-echo --id git-branch --color REVBLUE -- "Getting remote branches..."
+    for rb in $(git branch --list --all | grep remotes/origin | grep -v HEAD | sed 's|remotes/origin/||'); do
+        remotes[$rb]="$rb"
+    done
+
+    # Get the trackers
+    declare tb
+    declare -A trackers
+    cmd-echo --id git-branch --color REVBLUE -- "Getting local branches..."
+    for tb in $(git branch --list --strip); do
+        trackers[$tb]="$tb"
+    done
+
     declare br
+
+    cmd-echo --id git-branch --color REVBLUE -- "Deleting local tracking branches that no longer have a remote..."
+    for br in "${trackers[@]}"; do
+        if [[ -z ${remotes[$br]} ]]; then
+            git branch -d "$br"
+            unset 'trackers["$br"]'
+            cmd-echo --id git-branch --color REVBLUE -c -- "$br"
+        fi
+    done
+
+    cmd-echo --id git-branch --color REVBLUE -- "Removing from the remote list any remote that has a local tracking branch..."
+    for br in "${trackers[@]}"; do
+        unset 'remotes["$br"]'
+        cmd-echo --id git-branch --color REVBLUE -c -- "$br"
+    done
+
+    if ((${#remotes[@]} > 0)); then
+        cmd-echo --id git-branch --color REVBLUE -- "Creating tracking branches for the remaining remotes.."
+        for rb in "${!remotes[@]}"; do
+            git checkout -b "$rb" --track "origin/$rb"
+        done
+    fi
+
+    # Update all the local tracking branches.
     for br in $(git branch --list --strip); do
         cmd-echo --id git-branch --color REVBLUE -- "Refreshing branch ${br}..."
         git switch "$br" || return
@@ -694,6 +734,7 @@ main ()
 main "$@"
 exit
 
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
