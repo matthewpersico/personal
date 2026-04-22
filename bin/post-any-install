@@ -1,0 +1,481 @@
+# -*- sh -*-
+# shellcheck shell=bash
+# shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
+
+## post-any-install
+## Instructions to build an environment after a new install.
+## Run as 'matthew'; 'sudo' will be used where necessary.
+
+declare opt_user=$USER
+declare opt_short_user=mop
+declare opt_os=''
+declare -a perl_modules=(
+    App::cpanminus
+    Log::Log4perl
+    Text::Levenshtein
+    Config
+    Cwd
+    Data::Dumper
+    Tk
+    Devel::ptkdb
+    Email::Sender
+    Email::Simple
+    Fcntl
+    File::Basename
+    File::Copy
+    File::Slurp
+    File::Spec
+    File::Temp
+    File::stat
+    FindBin
+    Getopt::Long
+    IO::Dir
+    IO::File
+    IPC::Cmd
+    JSON::PP
+    JSON::XS
+    Lingua::EN::Inflect
+    List::MoreUtils
+    List::MoreUtils::XS
+    Module::Starter
+    Module::Starter::PBP
+    MIME::Base64
+    POSIX
+    Path::Tiny
+    Perl::Tidy
+    Pod::Usage
+    Rand::Urandom
+    Scalar::Util
+    Sys::Hostname
+    Term::Menu
+    Term::ReadLine
+    Term::UI
+    Test::More
+    Text::Wrap
+)
+
+pai-ce () {
+    cmd-echo --id post-any-install "$@"
+}
+
+##
+## Set up sudo
+##
+pai-sudo () {
+    pai-ce 'Set up sudo'
+
+    declare sudoers_file=sudoers.$USER
+    cat <<EOSUDOERS >"$sudoers_file"
+$USER ALL=(ALL) NOPASSWD:ALL
+EOSUDOERS
+
+    sudo chown root:root "$sudoers_file"
+    sudo chmod 664 "$sudoers_file"
+    sudo mv "$sudoers_file" "/etc/sudoers.d/$USER"
+    sudo ls -lart "/etc/sudoers.d/$USER"
+}
+
+##
+## Create a workspace
+##
+pai-create-workspace () {
+    sudo mkdir -p "/opt/${opt_short_user}"
+    sudo chown "${opt_user}" "/opt/${opt_short_user}"
+    declare install_workdir
+    install_workdir=/opt/${opt_short_user}/$(basename "$0")
+    mkdir -p "$install_workdir"
+    cd "$install_workdir" || exit
+}
+
+##
+## Add dpkg repos
+##
+pai-add-dpkg-repos () {
+    pai-ce 'Add dpkg repos'
+    sudo apt-add-repository ppa:git-core/ppa
+
+    ##
+    ## Update the system
+    ##
+    pai-ce 'Update the system'
+    sudo apt update
+    sudo apt upgrade
+}
+
+##
+## Add email support, primarily for cron
+##
+pai-add-email-support () {
+    pai-ce 'Add email support, primarily for cron'
+
+    sudo apt install ssmtp -y
+
+    cat <<EOSSMTPCONF > ssmtp.conf
+root=matthew.persico@gmail.com
+mailhub=smtp.gmail.com:587
+hostname=MONOLITH.localdomain
+FromLineOverride=YES
+AuthUser=matthew.persico@gmail.com
+AuthPass=$(cat /mnt/c/Users/matth/Documents/ssh/Gmail*.txt)
+UseSTARTTLS=YES
+EOSSMTPCONF
+
+    sudo chown root:root ssmtp.conf
+    sudo chmod 640 ssmtp.conf
+    sudo mv ssmtp.conf /etc/ssmtp/ssmtp.conf
+    sudo ls -lart /etc/ssmtp/ssmtp.conf
+    sudo cat /etc/ssmtp/ssmtp.conf
+
+    cat <<EOREVALIASES > revaliases
+root:root@MONOLITH:smtp.gmail.com:587
+${opt_user}:${opt_user}@MONOLITH:smtp.gmail.com:587
+EOREVALIASES
+
+    sudo chown root:root revaliases
+    sudo chmod 640 revaliases
+    sudo mv revaliases /etc/ssmtp/revaliases
+    sudo ls -la /etc/ssmtp/revaliases
+    sudo cat /etc/ssmtp/revaliases
+
+    pai-ce 'Testing email setup'
+    ssmtp matthew.persico@gmail.com <<EOD
+Subject: This is a test
+Line 1
+Line 2
+Line 3
+EOD
+}
+
+pai-check-passwd() {
+    if ! grep -q 'Matthew Persico' /etc/passwd; then
+        pai-ce 'Name "Matthew Persico" not found in /etc/passwd. Add it...'
+        sleep 2
+        sudo vi /etc/passwd
+    fi
+}
+
+pai-distro-debian-packages () {
+    ##
+    ## Install debian packages
+    ##
+    pai-ce 'Install debian packages from distribution'
+
+    declare -a debian_packages=(
+        build-essential
+        curl
+        x11-xserver-utils
+        x11-utils
+        x11-apps
+        xfonts-base
+        xfonts-75dpi
+        xfonts-100dpi
+        xfonts-utils
+        libxaw7-dev
+        libxaw7
+        libxaw-doc
+        libmotif-dev
+        shellcheck
+        emacs
+        make
+        gcc
+        perl-doc
+        xdg-utils
+        firefox
+        yad
+        semver
+        rename
+        wish
+        smartmontools
+        jq
+        speech-dispatcher
+        code ## This is vscode. Way to go Microsoft with the naming...
+    )
+
+    declare debian_package
+    for debian_package in "${debian_packages[@]}"; do
+        echo
+        pai-ce "$debian_package..."
+        sudo apt install -y "$debian_package"
+    done
+
+    ## Debian_Package related stuff
+    git config --global web.brower firefox
+}
+
+pai-local-debian-packages () {
+    pai-ce 'Install local debian packages'
+    declare -a ldebian_packages=(
+    )
+
+    declare ldebian_package
+    declare -a fdebian_packages # f => fully wildcard expanded
+    declare fdebian_package
+    for ldebian_package in "${ldebian_packages[@]}"; do
+        echo
+        # shellcheck disable=SC2207 #https://github.com/koalaman/shellcheck/wiki/SC2207
+        # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
+        fdebian_packages=($(printf "%s\n" ${ldebian_package}*.deb | sed -e "s/^${ldebian_package}//" | sort -V | sed -e "s/^/${ldebian_package}/"))
+        if [[ "${ldebian_package}*.deb" == "${fdebian_packages[0]}" ]]; then
+            fdebian_packages=()
+        fi
+        if [[ ${#fdebian_packages[@]} == '0' ]]; then
+            pai-ce -wc "$ldebian_package: No such package found."
+            continue
+        fi
+        if (( ${#fdebian_packages[@]} > 1 )); then
+            pai-ce -wc "$ldebian_package: More than one such package found."
+            select fdebian_package in "${fdebian_packages[@]}" Quit
+            do
+                if [[ -n $fdebian_package ]]; then break; fi
+            done
+            echo "selection: $fdebian_package ($REPLY)"
+        else
+            fdebian_package=${fdebian_packages[0]}
+        fi
+        if [[ $fdebian_package == 'Quit' ]] ; then break; fi
+        pai-ce "$fdebian_package..."
+        sudo apt install -y "$fdebian_package"
+    done
+}
+
+##
+## Install homebrew packages
+##
+pai-homebrew-packages () {
+    pai-ce 'Install homebrew and its packages'
+    curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh > ./homebrew_install.sh || { false; exit; }
+    chmod +x ./homebrew_install.sh
+    echo "*** $(date)" >> homebrew_install.log
+    ./homebrew_install.sh | tee -a homebrew_install.log
+
+    if [[ ! -f $HOME/personal/bin/homebrew.mopenv ]]; then
+        pai-ce -ec "Environment file $HOME/personal/bin/homebrew.mopenv not found. No homebrew installations will take place."
+    else
+        . "$HOME"/personal/bin/homebrew.mopenv
+        declare -a homebrew_packages=(
+            gcc
+            uv
+            bashdb
+        )
+
+        declare homebrew_package
+        for homebrew_package in "${homebrew_packages[@]}"; do
+            echo
+            pai-ce "$homebrew_package..."
+            brew install "$homebrew_package"
+        done
+    fi
+}
+
+pai-perl-modules () {
+    ##
+    ## Install perl modules to get later versions of OS packaged Perl modules
+    ## we used to bootstrap and other needed packages.
+    ##
+    pai-ce 'Install Perl modules from cpan'
+
+    # Bootstrap cpan
+    pai-ce "cpan boostraps"
+    sudo cpan install CPAN
+    pai-ce "Update cpan itself..."
+    sudo cpan install Log::Log4perl Text::Levenshtein App::cpanminus
+    pai-ce "Log::Log4perl Text::Levenshtein App::cpanminus"
+
+    pai-ce "Now using cpanm..."
+    declare perl_module
+    for perl_module in "${perl_modules[@]}"; do
+        echo
+        pai-ce "$perl_module..."
+        sudo cpanm install "$perl_module"
+    done
+}
+
+##
+## Install python programs
+##
+## TBD
+
+##
+## Build OSS stuff
+##
+pai-build-oss () {
+    # Set up the install dir
+    declare build_root="/opt/${opt_short_user}/build"
+    if [[ ! -d $build_root ]]; then
+        sudo mkdir -p "${build_root}"
+        sudo chown -R "${USER}:${USER}" "${build_root}"
+    fi
+    cd "${build_root}" || exit 1
+    github-clone matthewpersico/oss
+    cd oss || exit 1
+
+    # Make or grab the current machine branch
+    if github branch --list --all | grep "origin/$(hostname)"; then
+        git checkout -b "$(hostname)" --track "origin/$(hostname)"
+    else
+        git checkout -b "$(hostname)" --track "origin/$(hostname)"
+        git push -u origin "$(hostname)"
+    fi
+
+    # Build and install everything
+    declare prog
+    for prog in "${build_root}"/*; do
+        (
+            cd "$prog" || exit
+            declare ver
+            # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
+            ver=$(ls -c1 | sort -V | tail -1)
+            build-oss --clean "$prog" "$ver"
+        )
+    done
+
+    # Set up the branch sync for the repo
+    github-clone --tree matthewpersico/oss
+    declare -a branches
+    mapfile branches < <(git branch --list --remote | grep -v -- '->' | grep origin/ | sed 's/origin\///')
+    for branch in "${branches[@]}"; do
+        if ! git branch --list | grep -E "\* $branch$"; then
+            git checkout -b "$branch" --track "origin/$branch"
+        fi
+    done
+}
+
+##
+## plenv
+##
+pai-plenv () {
+    declare sys_perl
+    sys_perl=$(which perl)
+    grep -v 'export SYS_PERL' ~/personal/bin/perl.mopenv > /tmp/pai.$$
+    echo "export SYS_PERL=$sys_perl" >> /tmp/pai.$$
+    mv /tmp/pai.$$ ~/personal/bin/perl.mopenv
+
+    ## Boostrap plenv
+    (
+        cd "$HOME" || exit
+
+        ## get plenv
+        git clone https://github.com/tokuhirom/plenv.git .plenv
+
+        ## Add to PATH
+        . personal/bin/perl.mopenv
+
+        ## This plugin builds perl itself in plenv
+        git clone https://github.com/tokuhirom/Perl-Build.git .plenv/plugins/perl-build
+
+        ## Build perls
+        declare latest
+        # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+        latest=$($sys_perl -ane '
+        next if $_ =~ /Available/;
+        @parts = split(/\./,$_);
+        next if $parts[1]%2==1;
+        chomp $_; print $_; exit;' < <(plenv install --list)
+              )
+        declare version
+        for version in 5.16.3 "$latest"; do
+            plenv install "$version"
+            plenv rehash
+        done
+
+        ## Other goodies
+        git clone https://github.com/miyagawa/plenv-contrib.git .plenv/plugins/plenv-contrib
+
+        ## Load up modules
+        plenv exec-all cpanm "${perl_modules[@]}"
+    )
+}
+
+main () {
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    declare OPTSARGS
+    declare shortopts=''
+    declare longopts='user:,short_user:,os:'
+
+    # Process the command line.
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "${longopts}" -n "${FUNCNAME[0]}" -- "$@") || return
+
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    declare option
+    while (( $# )); do
+        option=$1
+        shift
+
+        # If the option does not exactly equal the end-of-options marker, strip
+        # the lead dash(es) from the option.
+        [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
+
+        case $option in
+            user )
+                pai-ce "Overiding user ($opt_user) with $option"
+                opt_user="$option"; shift
+                ;;
+            short_user )
+                pai-ce "Overiding short user ($opt_short_user) with $option"
+                opt_short_user="$option"; shift
+                ;;
+            os )
+                case $option in
+                    '' )
+                        pai-ce --ec "--os not specified"
+                        ;;
+
+                    wsl | rpi )
+                        opt_os="$option"; shift
+                        ;;
+
+                    * )
+                        pai-ce --ec "'$option' is an invalid value for --os"
+                        ;;
+                esac
+                if [[ -z "$opt_os" ]]; then
+                    pai-ce --ec "Valid values for --os are 'wsl' and 'rpi'"
+                    false; exit
+                fi
+                ;;
+            * )
+                pai-ce --ec "'$option' is an invalid option"
+                false; exit
+                ;;
+        esac
+    done
+
+    if [[ $opt_os == 'rpi' ]]; then
+        pai-create-workspace
+        pai-add-dpkg-repos
+        pai-add-email-support
+        pai-check-passwd
+        pai-distro-debian-packages
+        pai-local-debian-packages
+        pai-homebrew-packages
+        pai-perl-modules
+        pai-build-oss
+        pai-plenv
+    elif [[ $opt_os == 'wss' ]]; then
+        pai-sudo
+        pai-create-workspace
+        pai-add-dpkg-repos
+        pai-add-email-support
+        pai-check-passwd
+        pai-distro-debian-packages
+        pai-local-debian-packages
+        pai-homebrew-packages
+        pai-perl-modules
+        pai-build-oss
+        pai-plenv
+    fi
+}
+
+if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
+    main "$@"
+else
+    # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
+    pai-ce "Script was sourced. No execution. The following functions are avaliable." $(declare -F | grep pai- | sed 's/declare -f //')
+fi
+
+#  LocalWords:  debian homebrew
