@@ -110,7 +110,7 @@ if [[ -n "$backup_dir" ]]; then
 fi
 if ((copy)); then
     (( verbosity > 1 )) && cmd-echo --id makesymlink -- "Copying '$fullsrc' to '$fulltgt'."
-    \cp -v "$fullsrc" "$fulltgt"
+    \install -D -v "$fullsrc" "$fulltgt"
     if [[ -n $transform ]]; then
         (( verbosity > 1 )) && cmd-echo --id makesymlink -- "Transforming '$fulltgt'."
         sedinplace "$transform" "$fulltgt"
@@ -122,14 +122,17 @@ elif ((relative)); then
     IFS=':' read -ra paths < <(relativize_two_paths "$fullsrc" "$fulltgt")
     (( verbosity > 1 )) && cmd-echo --id makesymlink -- "Creating symlink '${paths[2]}' to '${paths[1]}' in '${paths[0]}'."
     (builtin cd "${paths[0]}" || exit
+     mkdir -p "$(dirname "${paths[2]}")"
      ln -s "${paths[1]}" "${paths[2]}")
 else
     (( verbosity > 1 )) && cmd-echo --id makesymlink -- "Creating symlink '$fulltgt' to '$fullsrc'."
+    mkdir -p "$(dirname "$fulltgt")"
     ln -s "$fullsrc" "$fulltgt"
 fi
 
 exit
 
+# shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
 =head1 NAME
 
@@ -143,7 +146,7 @@ makesymlink - make a symlink, with relativization and backup
 
 =head1 DESCRIPTION
 
-Make a symlink, but with some smarts
+Make a symlink, but with some smarts.
 
 =head1 ARGUMENTS
 
@@ -151,7 +154,9 @@ Make a symlink, but with some smarts
 
 =item source, link
 
-The original file and the link to it.
+The original file and the link to it. If the link contains a path, then we
+execute 'mkdir -p $(dirname link)'; you can safely put paths in the link and
+they will be created if they do not exist.
 
 =back
 

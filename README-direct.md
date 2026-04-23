@@ -12,7 +12,7 @@ If you do not have ssh key file, see [Generating a new SSH key and adding it to 
 
 ## git
 
-Execute the following to install the latest version of git.
+### Execute the following to install the latest version of git.
 ```
 sudo -i
 ```
@@ -23,6 +23,9 @@ apt list --upgradable
 apt upgrade
 exit #sudo
 ```
+
+### Install the github api token
+Make a `${HOME}/.config` directory. Copy the `.github-pat` file into the directory.
 
 ## Local Software
 
@@ -134,23 +137,19 @@ the repo to do all the merging work without disturbing the live repo.
 > nothing would keep you from sync'ing any other repo. The most common other
 > one to sync is the `emacs.taps` repo.
 
-## Setting up the non-live repo
+## Setting up the non-live, branch sync repo
 
 * Clone the GH repo
 
 ```
-github-clone matthewpersico/personal
+github-clone --tree matthewpersico/personal
 ```
 
-* Setup `$machine_branch`
+* Grab all the remote branches and create local tracking branches
 
-Execute `git branch --list --all`. Ignoring the `remotes/origin/HEAD` branch,
-for each `remotes/origin/FOO` branch that does not have a corresponding local
-`FOO` branch, execute `git checkout --track origin/FOO`. Any time you add a new
-source branch to the github repo, come back to the non-live repo and run
-`git checkout --track origin/newBranchName` so that future syncs take the
-new remote branch into account. You will have to do this on every machine
-from which you sync the `personal` repo.
+```bash
+git branch --sync
+```
 
 ## Sending branch changes to all other branches
 
@@ -170,6 +169,7 @@ git push
 ### Sync
 
 * Move to the non-live repo
+
 * Execute
 
 ```
@@ -182,19 +182,20 @@ a branch, then all the refreshed branches will be checked for their latest
 commit time. The one with the latest change will be offered up for confirmation
 to have its changes merged into all the others.
 
-In an ideal situation, all but one of the branches should be on the same commit.
-That differing commit should be latest one and it will be chosed for propigation.
-If some branches are on the latest commit and all the others are on the same earlier
-commit, then that's ok. Just propagate the lastest commit from one source and it
-will get to just the branches with the earlier commit.
+In an ideal situation, there are only two distinct commits in the list,
+typically one at the latest and all the others at the same earlier one.  The
+latest commit should be the one chosen for propigation.  If some branches are
+on the latest commit and all the others are on the same earlier commit, then
+that's ok. Just propagate the lastest commit from one source and it will get to
+just the branches with the earlier commit.
 
-The worst situation is that there are three or more distinct commits in the list.
-In this case, you will need to examine all the commits and manually what order int
-which to do the merges across branches in order to not lose any commits or create
-conflicts. In order NOT to get into this situation, try to do all development
-on one machine and propigate out. Make sure you sync frequently. Check before you
-start making changes and do a commit and sync on other machines before you develop
-on the current machine.
+That leaves us with a non-ideal situation: there are three or more distinct
+commits in the list.  In this case, you will need to examine all the commits
+and manually determine in what order to do the merges across branches so as not
+to lose any commits or create conflicts. In order NOT to get into this
+situation, try to do all development on one machine and propigate out. Make
+sure you sync frequently. Check before you start making changes and do a commit
+and sync on other machines before you develop on the current machine.
 
 ## Getting main changes to all other branches
 

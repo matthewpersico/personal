@@ -6,11 +6,12 @@
 ## Instructions to build an environment after a new install.
 ## Run as 'matthew'; 'sudo' will be used where necessary.
 
-declare opt_user=$USER
-declare opt_short_user=mop
-declare opt_os=''
-declare -a perl_modules=(
+declare pai_opt_user=$USER
+declare pai_opt_short_user=mop
+declare pai_opt_os=''
+declare -a pai_perl_modules=(
     App::cpanminus
+    Term::ReadKey
     Log::Log4perl
     Text::Levenshtein
     Config
@@ -47,7 +48,7 @@ declare -a perl_modules=(
     Rand::Urandom
     Scalar::Util
     Sys::Hostname
-    Term::Menu
+    Term::Menus
     Term::ReadLine
     Term::UI
     Test::More
@@ -79,10 +80,10 @@ EOSUDOERS
 ## Create a workspace
 ##
 pai-create-workspace () {
-    sudo mkdir -p "/opt/${opt_short_user}"
-    sudo chown "${opt_user}" "/opt/${opt_short_user}"
+    sudo mkdir -p "/opt/${pai_opt_short_user}"
+    sudo chown "${pai_opt_user}" "/opt/${pai_opt_short_user}"
     declare install_workdir
-    install_workdir=/opt/${opt_short_user}/$(basename "$0")
+    install_workdir=/opt/${pai_opt_short_user}/$(basename "$0")
     mkdir -p "$install_workdir"
     cd "$install_workdir" || exit
 }
@@ -128,7 +129,7 @@ EOSSMTPCONF
 
     cat <<EOREVALIASES > revaliases
 root:root@MONOLITH:smtp.gmail.com:587
-${opt_user}:${opt_user}@MONOLITH:smtp.gmail.com:587
+${pai_opt_user}:${pai_opt_user}@MONOLITH:smtp.gmail.com:587
 EOREVALIASES
 
     sudo chown root:root revaliases
@@ -283,7 +284,7 @@ pai-perl-modules () {
 
     pai-ce "Now using cpanm..."
     declare perl_module
-    for perl_module in "${perl_modules[@]}"; do
+    for perl_module in "${pai_perl_modules[@]}"; do
         echo
         pai-ce "$perl_module..."
         sudo cpanm install "$perl_module"
@@ -300,7 +301,7 @@ pai-perl-modules () {
 ##
 pai-build-oss () {
     # Set up the install dir
-    declare build_root="/opt/${opt_short_user}/build"
+    declare build_root="/opt/${pai_opt_short_user}/build"
     if [[ ! -d $build_root ]]; then
         sudo mkdir -p "${build_root}"
         sudo chown -R "${USER}:${USER}" "${build_root}"
@@ -382,7 +383,7 @@ pai-plenv () {
         git clone https://github.com/miyagawa/plenv-contrib.git .plenv/plugins/plenv-contrib
 
         ## Load up modules
-        plenv exec-all cpanm "${perl_modules[@]}"
+        plenv exec-all cpanm "${pai_perl_modules[@]}"
     )
 }
 
@@ -412,12 +413,12 @@ main () {
 
         case $option in
             user )
-                pai-ce "Overiding user ($opt_user) with $option"
-                opt_user="$option"; shift
+                pai-ce "Overiding user ($pai_opt_user) with $option"
+                pai_opt_user="$option"; shift
                 ;;
             short_user )
-                pai-ce "Overiding short user ($opt_short_user) with $option"
-                opt_short_user="$option"; shift
+                pai-ce "Overiding short user ($pai_opt_short_user) with $option"
+                pai_opt_short_user="$option"; shift
                 ;;
             os )
                 case $option in
@@ -426,14 +427,14 @@ main () {
                         ;;
 
                     wsl | rpi )
-                        opt_os="$option"; shift
+                        pai_opt_os="$option"; shift
                         ;;
 
                     * )
                         pai-ce --ec "'$option' is an invalid value for --os"
                         ;;
                 esac
-                if [[ -z "$opt_os" ]]; then
+                if [[ -z "$pai_opt_os" ]]; then
                     pai-ce --ec "Valid values for --os are 'wsl' and 'rpi'"
                     false; exit
                 fi
@@ -445,7 +446,7 @@ main () {
         esac
     done
 
-    if [[ $opt_os == 'rpi' ]]; then
+    if [[ $pai_opt_os == 'rpi' ]]; then
         pai-create-workspace
         pai-add-dpkg-repos
         pai-add-email-support
@@ -456,7 +457,7 @@ main () {
         pai-perl-modules
         pai-build-oss
         pai-plenv
-    elif [[ $opt_os == 'wss' ]]; then
+    elif [[ $pai_opt_os == 'wss' ]]; then
         pai-sudo
         pai-create-workspace
         pai-add-dpkg-repos
@@ -475,7 +476,11 @@ if [[ "${BASH_SOURCE[0]}" == "$0" ]]; then
     main "$@"
 else
     # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
-    pai-ce "Script was sourced. No execution. The following functions are avaliable." $(declare -F | grep pai- | sed 's/declare -f //')
+    pai-ce "Script was sourced. No execution."\
+           "The following functions are available:" \
+           $(declare -F | grep pai- | sed 's/declare -f //') \
+           "The following variables are available:" \
+           $(set | grep -E ^pai_)
 fi
 
 #  LocalWords:  debian homebrew
