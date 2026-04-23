@@ -103,6 +103,7 @@ pwd
 bin/makesymlinks -i dotfiles 2>&1 | tee bin/makesymlinks.log
 export REALGIT=$(which git)
 bin/github.mopenv.init
+bin/gitlab.mopenv.init
 git-kv --cat
 ```
 ## X11
