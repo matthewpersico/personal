@@ -387,7 +387,7 @@ _git-branch-vv-sort ()
 {
     # Sort so that the commits are in commit time descending, branch name
     # ascending order.
-    perl -e '#line 395
+    perl -e '#line 390
     use strict;use warnings;
 
     # Here, we get the time for each commit and do the column justification without colors.
@@ -469,37 +469,12 @@ git-branch-sync ()
             shift
         done
     else
-        # Find the unique uuid, if any. If so, set that to the source branch.
-        source=$(git branch -vv | perl -nae '
-if ($F[0] eq q(*)) {
-  shift @F;
-};
-$br2id{$F[0]}=$F[1];
-$idc{$F[1]}++;
-delete $br2id{$F[0]} if $idc{$F[1]}>1;
-
-END {
-    for my $i (keys %idc) {
-        if ( $idc{$i} eq 1 ) {
-            for my $b (keys %br2id) {
-                if ( $br2id{$b} eq $i ) {
-                    push @u, $b;
-                }
-            }
-        }
-    }
-    if(@u==1) {
-        print qq($u[0]);
-    }
-}')
-        if [[ -z $source ]]; then
-            ## There was no unique branch. Find the newest.
-            source=$(_git-branch-vv-sort --nocolor | head -1 | perl -nae '
+        # Find the newest branch.
+        source=$(_git-branch-vv-sort --nocolor | head -1 | perl -nae '
 if ($F[0] eq q(*)) {
   shift @F;
 };
 print $F[0]')
-        fi
     fi
 
     (
@@ -637,45 +612,65 @@ git-branch-sync-catch-up ()
     cmd-echo --id git-branch --color REVBLUE -- "Refresh repo..."
     git fetch --all --prune --tags || return
 
-    # Get the remotes
-    declare rb
-    declare -A remotes
     cmd-echo --id git-branch --color REVBLUE -- "Getting remote branches..."
-    for rb in $(git branch --list --all | grep remotes/origin | grep -v HEAD | sed 's|remotes/origin/||'); do
-        remotes[$rb]="$rb"
-    done
+    declare -a remotes
+    mapfile -t remotes < <(git branch --list --remote --strip | grep -v HEAD)
 
-    # Get the trackers
-    declare tb
-    declare -A trackers
     cmd-echo --id git-branch --color REVBLUE -- "Getting local branches..."
-    for tb in $(git branch --list --strip); do
-        trackers[$tb]="$tb"
-    done
+    declare -a trackers
+    mapfile -t trackers < <(git branch --list --strip)
 
-    declare br
+    # Easier to deal with '/' in strings in Perl than in bash. Kept getting bad division errors.
+    perl -e '#line 624
+    use strict;
+    use warnings;
 
-    cmd-echo --id git-branch --color REVBLUE -- "Deleting local tracking branches that no longer have a remote..."
-    for br in "${trackers[@]}"; do
-        if [[ -z ${remotes[$br]} ]]; then
-            git branch -d "$br"
-            unset 'trackers["$br"]'
-            cmd-echo --id git-branch --color REVBLUE -c -- "$br"
-        fi
-    done
+    my %remotes;
+    my %trackers;
+    my $ref;
+    my @parts;
 
-    cmd-echo --id git-branch --color REVBLUE -- "Removing from the remote list any remote that has a local tracking branch..."
-    for br in "${trackers[@]}"; do
-        unset 'remotes["$br"]'
-        cmd-echo --id git-branch --color REVBLUE -c -- "$br"
-    done
+    for (@ARGV) {
+        if ($_ eq q(remotes) ) {
+            $ref = q(remotes);
+        } elsif ($_ eq q(trackers) ) {
+            $ref = q(trackers);
+        } elsif ( $ref eq q(remotes) ) {
+            @parts = split(/\//, $_);
+            $remotes{$_}={ tracking_branch => qq(tracking-$_) };
+        } elsif ( $ref eq q(trackers) ) {
+            @parts = split(/\//, $_);
+            my $key = $_;
+            $key =~ s/tracking-//;
+            $trackers{$key}={ local_branch => $_ };
+        } else {
+            die "Something wrong with remotes and trackers: @ARGV";
+        }
+    }
+    print qx(bash cmd-echo --id git-branch --color REVBLUE -- "Deleting local tracking branches that no longer have a remote...");
+    for (keys %trackers ) {
+        if ( not defined $remotes{$_}
+             # older sync repo without remote label on local tracking branch
+             or $trackers{$_}->{local_branch} !~ /\//
+             # older sync repo without tracking- prefix on local tracking branch
+             or $trackers{$_}->{local_branch} !~ /^tracking-/ ) {
+            print qx($ENV{REALGIT} branch -d "$trackers{$_}->{local_branch}");
+            delete $trackers{$_};
+        }
+    }
 
-    if ((${#remotes[@]} > 0)); then
-        cmd-echo --id git-branch --color REVBLUE -- "Creating tracking branches for the remaining remotes.."
-        for rb in "${!remotes[@]}"; do
-            git checkout -b "$rb" --track "origin/$rb"
-        done
-    fi
+    print qx(bash cmd-echo --id git-branch --color REVBLUE -- "Removing from the remote list any remote that has a local tracking branch...");
+    for (keys %trackers) {
+        delete $remotes{$_};
+    }
+
+    if (keys %remotes) {
+        print qx(bash cmd-echo --id git-branch --color REVBLUE -- "Creating tracking branches for the remaining remotes..");
+        for (keys %remotes) {
+            print qx($ENV{REALGIT} checkout -b "$remotes{$_}->{tracking_branch}" --track "$_");
+        }
+    }
+  ' remotes "${remotes[@]}" trackers "${trackers[@]}"
 
     # Update all the local tracking branches.
     for br in $(git branch --list --strip); do
