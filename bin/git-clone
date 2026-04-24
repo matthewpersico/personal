@@ -213,17 +213,32 @@ main ()
     fi
 
     [[ -z "${pass_on_args[0]}" ]] && git-usage "$0" "Missing arguments" && { false; return; }
+
+    ## Either the last arg will have a /, being the org/repo or the next to
+    ## last arg will be and the last arg will be the target dir.
+    declare remote_url_arg
+    declare tgtdir_arg
+    if [[ "${pass_on_args[-1]}" =~ / ]]; then
+        remote_url_arg="${pass_on_args[-1]}"
+        unset 'pass_on_args[-1]'
+    elif [[ "${pass_on_args[-2]}" =~ / ]]; then
+        remote_url_arg="${pass_on_args[-2]}"
+        unset 'pass_on_args[-2]'
+        tgtdir_arg="${pass_on_args[-1]}"
+        unset 'pass_on_args[-1]'
+    fi
+
     if [[ -z "${githost}" ]]; then
         local -a tmpa
-        asplit "${pass_on_args[0]}" -s : -a tmpa
-        if [[ "${tmpa[0]}" = "${pass_on_args[0]}" ]]; then
-            _git-clone-cmd-echo --ec -- "githost not specified and no 'githost:' found in '${pass_on_args[0]}'"
+        asplit "${remote_url_arg}" -s : -a tmpa
+        if [[ "${tmpa[0]}" = "${remote_url_arg}" ]]; then
+            _git-clone-cmd-echo --ec -- "githost not specified and no 'githost:' found in '${remote_url_arg}'"
             false; return
         fi
         githost="${tmpa[0]}"
         namespace="${tmpa[1]}"
     else
-        namespace=${pass_on_args[0]}
+        namespace=${remote_url_arg}
     fi
     ashift pass_on_args
 
@@ -254,9 +269,9 @@ main ()
     tgtdir="$repo"
     local tgt_override=0
 
-    if [[ -n ${pass_on_args[0]} ]]; then
+    if [[ -n ${tgtdir_arg} ]]; then
         # This is the target dir we want to clone into
-        ashift pass_on_args tgtdir
+        tgtdir=tgtdir_arg
         tgt_override=1
     fi
     local cwpath
