@@ -21,7 +21,10 @@ gitremote-clone ()
     local stripped
     local -A optscheck
     local orgrepo
-    local -a tgtdir
+    local -a tgtdir # We only expect one target directory but since it is
+                    # optional, quoting an empty array will not throw the error
+                    # that quoting an empty variable will when using as an
+                    # argument to another command.
 
     while [[ "${args[0]}" =~ ^- ]]; do
         opts+=("${args[0]}");
@@ -35,12 +38,12 @@ gitremote-clone ()
     elif (( ${#args[@]} == 2 )) && [[ "${args[-2]}" =~ / ]]
     then
         orgrepo="${args[-2]}"
-        tgtdir+="${args[-1]}"
+        tgtdir+=("${args[-1]}")
     else
         cmd-echo --id gitremote-clone --ec -- "$orgrepo not in org/repo format. See '${FUNCNAME[2]} -h'."
         false; return
     fi
-    if [[ -z ${optscheck[tree]} ]] && [[ -z $tgtdir ]]; then
+    if [[ -z ${optscheck[tree]} ]] && [[ -z "${tgtdir[0]}" ]]; then
         cmd-echo --id gitremote-clone --ec -- "No --tree option and no target dir. Either use --tree or provide a clone target directory, even iff it is '.' ."
         false; return
     fi
