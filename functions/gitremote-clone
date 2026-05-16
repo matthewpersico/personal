@@ -18,11 +18,15 @@ gitremote-clone ()
 
     local -a args=("$@")
     local -a opts
+    local stripped
+    local -A optscheck
     local orgrepo
-    local tgtdir
+    local -a tgtdir
 
     while [[ "${args[0]}" =~ ^- ]]; do
         opts+=("${args[0]}");
+        stripped=$(dashstripper "${args[0]}")
+        optscheck[$stripped]=1
         ashift args
     done
     if [[ "${args[-1]}" =~ / ]]
@@ -31,12 +35,16 @@ gitremote-clone ()
     elif (( ${#args[@]} == 2 )) && [[ "${args[-2]}" =~ / ]]
     then
         orgrepo="${args[-2]}"
-        tgtdir="${args[-1]}"
+        tgtdir+="${args[-1]}"
     else
         cmd-echo --id gitremote-clone --ec -- "$orgrepo not in org/repo format. See '${FUNCNAME[2]} -h'."
         false; return
     fi
-    echo git clone "${opts[@]}" "$remote:$orgrepo" "$tgtdir"
-    git clone "${opts[@]}" "$remote:$orgrepo" "$tgtdir"
+    if [[ -z ${optscheck[tree]} ]] && [[ -z $tgtdir ]]; then
+        cmd-echo --id gitremote-clone --ec -- "No --tree option and no target dir. Either use --tree or provide a clone target directory, even iff it is '.' ."
+        false; return
+    fi
+    echo git clone "${opts[@]}" "$remote:$orgrepo" "${tgtdir[@]}"
+    git clone "${opts[@]}" "$remote:$orgrepo" "${tgtdir[@]}"
 }
 autotrack gitremote-clone "$0"
