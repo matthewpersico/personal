@@ -1,6 +1,7 @@
 # -*- sh -*-
 # shellcheck shell=bash
 # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
+# shellcheck disable=SC2120 #https://github.com/koalaman/shellcheck/wiki/SC2120
 
 ## post-any-install
 ## Instructions to build an environment after a new install.
@@ -9,24 +10,55 @@
 declare pai_opt_user=$USER
 declare pai_opt_short_user=mop
 declare pai_opt_os=''
+declare pai_workspace=''
+
+declare -a pai_perl_installations=(
+    perl-5.40.4
+    perl-5.42.2
+)
+
+declare -a pai_system_perl_modules=(
+    App::pmuninstall
+    Email::Sender
+    Email::Simple
+    File::Slurp
+    Lingua::EN::Inflect
+    List::MoreUtils
+    Path::Tiny
+    Rand::Urandom
+    Term::Menus
+)
+
+# Anything in non alphabetical order is a prereq of something else.
 declare -a pai_perl_modules=(
-    App::cpanminus
-    Term::ReadKey
-    Log::Log4perl
-    Text::Levenshtein
+
+
+    #App::cpanminus
+    #App::FatPacker
+    App::ModuleBuildTiny
+    App::Perlbrew
+    App::pmuninstall
+    Class::Tiny
+    CPAN::Meta
+    CPAN::Perl::Releases
+    CPAN::Uploader
     Cwd
     Data::Dumper
-    Tk
+    DateTime
+    Devel::PatchPerl
+    Devel::PL_origargv
     Devel::ptkdb
     Email::Sender
     Email::Simple
     Fcntl
     File::Basename
     File::Copy
+    File::Path
+    File::pushd
     File::Slurp
     File::Spec
-    File::Temp
     File::stat
+    File::Temp
     FindBin
     Getopt::Long
     IO::Dir
@@ -37,26 +69,86 @@ declare -a pai_perl_modules=(
     Lingua::EN::Inflect
     List::MoreUtils
     List::MoreUtils::XS
+    Log::Log4perl
+    MIME::Base64
+    Module::ScanDeps
     Module::Starter
     Module::Starter::PBP
-    MIME::Base64
-    POSIX
+    Object::Pad
     Path::Tiny
     Perl::Tidy
     Pod::Usage
+    POSIX
     Rand::Urandom
     Scalar::Util
     Sys::Hostname
     Term::Menus
+    Term::ReadKey
     Term::ReadLine
     Term::UI
     Test::More
+    Test::Perl::Critic
+    Test::Pod
+    Test::Pod::Coverage
+    Test::Tk
+    Text::Levenshtein
     Text::Wrap
+    Tk
+    Tk::Balloon
+    Tk::Dialog
+    Tk::HList
+    Tk::JFileDialog
+    Tk::NoteBook
+    Tk::Pod
+    Tk::ROText
+    Tk::Table
+    Tk::TextUndo
+)
+
+declare -a pai_debian_packages=(
+    build-essential
+    curl
+    x11-xserver-utils
+    x11-utils
+    x11-apps
+    xfonts-base
+    xfonts-75dpi
+    xfonts-100dpi
+    xfonts-utils
+    libxaw7-dev
+    libxaw7
+    libxaw-doc
+    libmotif-dev
+    shellcheck
+    make
+    gcc
+    xdg-utils
+    yad
+    semver
+    rename
+    wish
+    smartmontools
+    jq
+    speech-dispatcher
+    code ## This is vscode. Way to go with the naming, Microsoft ...
+    dos2unix
+    brave-browser
+    calibre
+    irssi
+    hexchat
+    gtkman
+    zsh
+    csh
+    libssl-dev
+    libssl-doc
 )
 
 pai-ce () {
     cmd-echo --id post-any-install "$@"
 }
+
+# pai-init is aliased in util.mopenv to prevent chicken-egg condition
+# pai-edit is aliased in util.mopenv to prevent chicken-egg condition
 
 ##
 ## Set up sudo
@@ -78,13 +170,14 @@ EOSUDOERS
 ##
 ## Create a workspace
 ##
-pai-create-workspace () {
-    sudo mkdir -p "/opt/${pai_opt_short_user}"
-    sudo chown "${pai_opt_user}" "/opt/${pai_opt_short_user}"
-    declare install_workdir
-    install_workdir=/opt/${pai_opt_short_user}/$(basename "$0")
-    mkdir -p "$install_workdir"
-    cd "$install_workdir" || exit
+pai-get-workspace () {
+    pai_workspace=/opt/${pai_opt_short_user}/post-any-install
+    if [[ ! -d $pai_workspace ]]; then
+        sudo mkdir -p "/opt/${pai_opt_short_user}"
+        sudo chown "${pai_opt_user}" "/opt/${pai_opt_short_user}"
+        mkdir -p "$pai_workspace"
+    fi
+    cd "$pai_workspace" || exit
 }
 
 ##
@@ -166,40 +259,8 @@ pai-distro-debian-packages () {
     ##
     pai-ce 'Install debian packages from distribution'
 
-    declare -a debian_packages=(
-        build-essential
-        curl
-        x11-xserver-utils
-        x11-utils
-        x11-apps
-        xfonts-base
-        xfonts-75dpi
-        xfonts-100dpi
-        xfonts-utils
-        libxaw7-dev
-        libxaw7
-        libxaw-doc
-        libmotif-dev
-        shellcheck
-        emacs
-        make
-        gcc
-        perl-doc
-        xdg-utils
-        yad
-        semver
-        rename
-        wish
-        smartmontools
-        jq
-        speech-dispatcher
-        code ## This is vscode. Way to go Microsoft with the naming...
-        dos2unix
-        brave-browser
-    )
-
     declare debian_package
-    for debian_package in "${debian_packages[@]}"; do
+    for debian_package in "${pai_debian_packages[@]}"; do
         echo
         pai-ce "$debian_package..."
         sudo apt install -y "$debian_package"
@@ -235,7 +296,7 @@ pai-local-debian-packages () {
             do
                 if [[ -n $fdebian_package ]]; then break; fi
             done
-            echo "selection: $fdebian_package ($REPLY)"
+            pai-ce "selection: $fdebian_package ($REPLY)"
         else
             fdebian_package=${fdebian_packages[0]}
         fi
@@ -248,15 +309,20 @@ pai-local-debian-packages () {
 ##
 ## Install homebrew packages
 ##
-pai-homebrew-packages () {
+pai-homebrew () {
     pai-ce 'Install homebrew and its packages'
+    declare return_to
+    return_to=$(pwd);
+    pai-get-workspace
     curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh > ./homebrew_install.sh || { false; exit; }
     chmod +x ./homebrew_install.sh
-    echo "*** $(date)" >> homebrew_install.log
-    ./homebrew_install.sh | tee -a homebrew_install.log
+    declare logfile
+    logfile="homebrew_install.$(date +%Y-%m-%dT%H-%M-%S).log"
+    echo "*** $(date)" > "$logfile"
+    ./homebrew_install.sh | tee -a "$logfile"
 
     if [[ ! -f $HOME/personal/bin/homebrew.mopenv ]]; then
-        pai-ce -ec "Environment file $HOME/personal/bin/homebrew.mopenv not found. No homebrew installations will take place."
+        pai-ce -ec "Environment file $HOME/personal/bin/homebrew.mopenv not found. No homebrew package installations will take place."
     else
         . "$HOME"/personal/bin/homebrew.mopenv
         declare -a homebrew_packages=(
@@ -272,29 +338,155 @@ pai-homebrew-packages () {
             brew install "$homebrew_package"
         done
     fi
+    cd "$return_to" || exit
 }
 
-pai-perl-modules () {
+##
+## Install perlbrew
+##
+_pai-perlbrew-make-alias-name () {
+    declare perl_installation=$1
+    declare perl_installation_alias
+    perl_installation_alias=${perl_installation#perl-}
+    perl_installation_alias=${perl_installation_alias%.*}
+    echo "$perl_installation_alias"
+}
+
+pai-perlbrew () {
+    pai-ce 'Install perlbrew and perl insallations'
+    declare return_to
+    return_to=$(pwd);
+
+    pai-get-workspace
+
+    export PERLBREW_ROOT=/opt/mop
+    curl -L https://install.perlbrew.pl > ./perlbrew_install.sh || { false; exit; }
+    chmod +x ./perlbrew_install.sh
+
+    declare logfile
+    logfile="$(pwd)/perlbrew_install.$(date +%Y-%m-%dT%H-%M-%S).log"
+    pai-ce "Logfile is $logfile"
+    (
+        echo "*** $(date)"
+        ./perlbrew_install.sh
+
+        if ! grep /opt/mop/etc/bashrc "$HOME/personal/bin/perl.mopenv" ; then
+            pai-ce "Adding '/opt/mop/etc/bashrc' to '$HOME/personal/bin/perl.mopenv'..."
+            cat << EOF >> "$HOME/personal/bin/perl.mopenv"
+
+if [[ -f /opt/mop/etc/bashrc ]]; then
+    . /opt/mop/etc/bashrc
+fi
+
+EOF
+        else
+            pai-ce "'/opt/mop/etc/bashrc' already in '$HOME/personal/bin/perl.mopenv'..."
+        fi
+
+        source /opt/mop/etc/bashrc
+        perlbrew install-patchperl
+
+        # List of perl versions we care about
+        declare perl_installations
+        if [[ -n $1 ]]; then
+            ajoin perl_installations -s , "$@"
+        else
+            ajoin perl_installations -s , "${pai_perl_installations[@]}"
+        fi
+        pai-ce "Installing $perl_installations"
+
+        declare perl_installation
+        for perl_installation in "${perl_installations[@]}"; do
+            if perlbrew install "$perl_installation"; then
+                declare perl_installation_alias
+                perl_installation_alias=$(_pai_perlbrew-make-alias-name "$perl_installation")
+                if perlbrew alias create "$perl_installation" "$perl_installation_alias" 2>&1 | grep -q 'already exists'; then
+                    declare existing_alias_value
+                    existing_alias_value=$(perlbrew exec --with "$perl_installation_alias" perl -e '$v=$^V;$v=~s/v/perl-/;print $v')
+                    pai-ce "Moving existing alias $perl_installation_alias from $existing_alias_value to $perl_installation"
+                    perlbrew alias delete "$perl_installation_alias"
+                    perlbrew alias create "$perl_installation" "$perl_installation_alias"
+                else
+                    pai-ce "Created $perl_installation_alias as an alias for $perl_installation"
+                fi
+            fi
+        done
+    ) 2>&1 | tee "$logfile"
+    pai-ce "Logfile is $logfile"
+    cd "$return_to" || { false; exit; }
+}
+
+pai-perlbrew-modules () {
+    pai-ce "Install CPAN modules to perlbrew"
+
+    # shellcheck disable=SC2031 #https://github.com/koalaman/shellcheck/wiki/SC2031
+    if [[ -z $PERLBREW_ROOT ]]; then
+        pai-ce 'perlbrew not initialized in this shell. Will source "/opt/mop/etc/bashrc".'
+        source /opt/mop/etc/bashrc
+    fi
+
+    declare return_to
+    return_to=$(pwd);
+
+    pai-get-workspace
+
+    declare logfile
+    logfile="$(pwd)/perlbrew_install.$(date +%Y-%m-%dT%H-%M-%S).log"
+    pai-ce "Logfile is $logfile"
+    (
+        # Bootstrap. This installation is good across all perlbrew perls.
+        perlbrew install-cpanm
+
+        # List of perl versions we care about
+        declare perl_installations
+        if [[ -n $1 ]]; then
+            ajoin perl_installations -s , "$@"
+        else
+            ajoin perl_installations -s , "${pai_perl_installations[@]}"
+        fi
+        pai-ce "Installing modules in $perl_installations"
+
+        # Install
+        declare perl_module
+        for perl_module in "${pai_perl_modules[@]}"; do
+            echo
+            pai-ce "*********** $perl_module..."
+            perlbrew exec --with "$perl_installations" cpanm "$perl_module"
+        done
+    ) 2>&1 | tee "$logfile"
+    pai-ce "Logfile is $logfile"
+    cd "$return_to" || { false; exit; }
+}
+
+pai-system-perl-modules () {
     ##
     ## Install perl modules to get later versions of OS packaged Perl modules
     ## we used to bootstrap and other needed packages.
     ##
-    pai-ce 'Install Perl modules from cpan'
+    pai-ce 'Install Perl modules from cpan for the system Perl'
+
+    declare perlbrew_return="$PERLBREW_PERL"
+    if [[ -n "$perlbrew_return" ]]; then
+        perlbrew off
+    fi
 
     # Bootstrap cpan
     pai-ce "cpan boostraps"
     sudo cpan install CPAN
     pai-ce "Update cpan itself..."
     sudo cpan install Log::Log4perl Text::Levenshtein App::cpanminus
-    pai-ce "Log::Log4perl Text::Levenshtein App::cpanminus"
 
     pai-ce "Now using cpanm..."
     declare perl_module
-    for perl_module in "${pai_perl_modules[@]}"; do
+    for perl_module in "${pai_system_perl_modules[@]}"; do
         echo
         pai-ce "$perl_module..."
         sudo cpanm install "$perl_module"
     done
+
+    if [[ -n "$perlbrew_return" ]]; then
+        perlbrew switch "$perlbrew_return"
+    fi
 }
 
 ##
@@ -312,9 +504,9 @@ pai-build-oss () {
         sudo mkdir -p "${build_root}"
         sudo chown -R "${USER}:${USER}" "${build_root}"
     fi
-    cd "${build_root}" || exit 1
+    cd "${build_root}" || { false; exit; }
     github-clone matthewpersico/oss
-    cd oss || exit 1
+    cd oss || { false; exit; }
 
     # Make or grab the current machine branch
     if github branch --list --all | grep "origin/$(hostname)"; then
@@ -453,26 +645,28 @@ main () {
     done
 
     if [[ $pai_opt_os == 'rpi' ]]; then
-        pai-create-workspace
+        pai-get-workspace
         pai-add-dpkg-repos
         pai-add-email-support
         pai-check-passwd
         pai-distro-debian-packages
         pai-local-debian-packages
-        pai-homebrew-packages
-        pai-perl-modules
+        pai-homebrew
+        pai-perlbrew
+        pai-perlbrew-modules
         pai-build-oss
         pai-plenv
     elif [[ $pai_opt_os == 'wss' ]]; then
         pai-sudo
-        pai-create-workspace
+        pai-get-workspace
         pai-add-dpkg-repos
         pai-add-email-support
         pai-check-passwd
         pai-distro-debian-packages
         pai-local-debian-packages
-        pai-homebrew-packages
-        pai-perl-modules
+        pai-homebrew
+        pai-perlbrew
+        pai-perlbrew-modules
         pai-build-oss
         pai-plenv
     fi
@@ -484,9 +678,7 @@ else
     # shellcheck disable=SC2046 #https://github.com/koalaman/shellcheck/wiki/SC2046
     pai-ce "Script was sourced. No execution."\
            "The following functions are available:" \
-           $(declare -F | grep pai- | sed 's/declare -f //') \
-           "The following variables are available:" \
-           $(set | grep -E ^pai_)
+           $(declare -F | grep pai- | sed 's/declare -f //' | grep -v -E '^\s*_')
 fi
 
 #  LocalWords:  debian homebrew

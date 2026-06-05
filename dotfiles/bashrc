@@ -48,6 +48,27 @@ done
 ##############################################################################
 ## Prompts
 ##
+declare -a prompt_leader_tags=(
+    where
+    since
+    as-of
+    WSL
+    perl
+    tmux
+    pyvenv
+    branch
+    stashes
+    remote
+    perlbrew
+    sysperl
+    pwd
+)
+declare prompt_leader_tag
+declare -A prompt_leaders
+
+for prompt_leader_tag in "${prompt_leader_tags[@]}"; do
+    prompt_leaders[$prompt_leader_tag]="$(printf %-9s: "$prompt_leader_tag")"
+done
 
 PROMPT_COMMAND=$(declare -F | grep bash-history-sync| sed 's/.* //' )
 _PS1_lcstatus='\n[\$? = $?]\n' ## Status of the last command prior to this prompt
@@ -55,25 +76,27 @@ _PS1_xterm_title_cmds=''
 if [[ -z $INSIDE_EMACS ]]; then
     _PS1_xterm_title_cmds='\[\e]0;\u@\h:$$:\w\a\]'
 fi
-_PS1_where='where   : \u@\h'
+_PS1_where="${prompt_leaders[where]}"
+_PS1_where+=' \u@\h'
 if [[ -r "${HOME}/.config/openstack_instname" ]]; then
      OPENSTACK_INSTANCE_NAME=$(cat  "${HOME}/.config/openstack_instname")
      export OPENSTACK_INSTANCE_NAME
      _PS1_where="$_PS1_where($OPENSTACK_INSTANCE_NAME)"
 fi
 
-_PS1_since="since   : $(date +'%a %b %d %H:%M:%S')"
-_PS1_as_of='as-of   : \d \t'
+_PS1_since="${prompt_leaders[since]} $(date +'%a %b %d %H:%M:%S')"
+_PS1_as_of="${prompt_leaders[as-of]}"
+_PS1_as_of+=' \d \t'
 
 _PS1_wsl_distro ()
 {
-    [[ -n $WSL_DISTRO_NAME ]] && echo '' && echo -n "WSL     : $WSL_DISTRO_NAME"
+    [[ -n $WSL_DISTRO_NAME ]] && echo '' && echo -n "${prompt_leaders[WSL]} $WSL_DISTRO_NAME"
 }
 typeset -fx _PS1_wsl_distro
 
 _PS1_local_perl ()
 {
-    [[ -n $PERL5LIB_ROOT ]] && echo && echo -n "perl    : $PERL5LIB_ROOT"
+    [[ -n $PERL5LIB_ROOT ]] && echo && echo -n "${prompt_leaders[perl]} $PERL5LIB_ROOT"
 }
 typeset -fx _PS1_local_perl
 
@@ -81,13 +104,13 @@ _PS1_tmux ()
 {
     local tmux_count=0
     type -P tmux 1>/dev/null 2>&1 && tmux_count=$(wc -l < <(tmux list-sessions 2>/dev/null))
-    ((tmux_count)) && echo && echo -n "tmux    : $tmux_count"
+    ((tmux_count)) && echo && echo -n "${prompt_leaders[tmux]} $tmux_count"
 }
 typeset -fx _PS1_tmux
 
 _PS1_pyvenv ()
 {
-    [[ -n $VIRTUAL_ENV ]] && echo && echo -n "pyvenv  : $VIRTUAL_ENV"
+    [[ -n $VIRTUAL_ENV ]] && echo && echo -n "${prompt_leaders[pyvenv]} $VIRTUAL_ENV"
 }
 typeset -fx _PS1_pyvenv
 
@@ -107,7 +130,7 @@ typeset -fx _PS1_from_branch
 
 # shellcheck disable=SC2089 #https://github.com/koalaman/shellcheck/wiki/SC2089
 # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
-_PS1_git='$(git repo ina && __git_ps1 "\nbranch  : %s")$(_PS1_from_branch)$(_PS1_in_linear)$(git-stash-get-count -no0 "\nstashes : ")$(git-get-default-remote --no-warn "\nremote  : ")'
+_PS1_git='$(git repo ina && __git_ps1 "\n${prompt_leaders[branch]} %s")$(_PS1_from_branch)$(_PS1_in_linear)$(git-stash-get-count -no0 "\n${prompt_leaders[stashes]} ")$(git-get-default-remote --no-warn "\n${prompt_leaders[remote]} ")'
 
 _PS1_git_lite ()
 {
@@ -136,7 +159,20 @@ _PS1_xrdb_loaded ()
 }
 typeset -fx _PS1_xrdb_loaded
 
-_PS1_pwd='pwd     : \w'
+_PS1_perlbrew ()
+{
+    if [[ -n $PERLBREW_PERL ]]; then
+        echo
+        echo -n "${prompt_leaders[perlbrew]} $PERLBREW_PERL"| sed 's/perl-//'
+    else
+        echo
+        echo -n "${prompt_leaders[sysperl]} $(which perl)"
+    fi
+}
+typeset -fx _PS1_perlbrew
+
+_PS1_pwd="${prompt_leaders[pwd]}"
+_PS1_pwd+=' \w'
 _PS1_pid='[$$]'
 
 # Multiple items are on the same line because they are optional and so provide
@@ -144,7 +180,7 @@ _PS1_pid='[$$]'
 PS1_FULL="${_PS1_lcstatus}
 ${_PS1_xterm_title_cmds}${_PS1_where}
 ${_PS1_since}
-${_PS1_as_of}\$(_PS1_wsl_distro)\$(_PS1_local_perl)\$(_PS1_tmux)\$(_PS1_pyvenv)${_PS1_git}
+${_PS1_as_of}\$(_PS1_wsl_distro)\$(_PS1_local_perl)\$(_PS1_perlbrew)\$(_PS1_tmux)\$(_PS1_pyvenv)${_PS1_git}
 ${_PS1_pwd}
 ${_PS1_pid} \$(_PS1_eops1) "
 # shellcheck disable=SC2090 #https://github.com/koalaman/shellcheck/wiki/SC2090

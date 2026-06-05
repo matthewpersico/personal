@@ -4,10 +4,10 @@ use 5.16.3;
 use warnings;
 
 use MOP::PerlBulkUtils qw(
-  get_files
-  is_git_repo
-  message
-  process_exclusions
+    get_files
+    is_git_repo
+    message
+    process_exclusions
 );
 use MOP::Misc qw(UNIX_TRUE UNIX_FALSE);
 
@@ -56,15 +56,14 @@ my %mua = (
 );
 
 my $chattiness = VLEVEL0;
-my $perltidycmdbase;
+my @perltidycmdbase;
 my @summary;
 
 sub check_options {
     ## Option processing
     GetOptions(
         \%opt,
-        (
-            'use_tdy|use-tdy:s',
+        (   'use_tdy|use-tdy:s',
             'names_only|names-only',
             'use_fail|use-fail|testing',
             'stop_on_first|stop-on-first|stop_on_first_error|stop-on-first-error',
@@ -80,7 +79,7 @@ sub check_options {
             'silent',
             'show_command|show-command',
 
-            'profile=s',
+            'profile|pro=s',
             'ptopts|ptopt=s@',
             'findrc',
 
@@ -94,39 +93,40 @@ sub check_options {
     ##
 
     ## Two early exits
-    exit system(qw(perltidy -dpro)) if ( $opt{findrc} );
-    exec 'perldoc', $0 if ( $opt{help} );
+    exit system(q(perltidy), q(-dpro), qq(-pro=$opt{profile})) if ($opt{findrc});
+    exec 'perldoc', $0 if ($opt{help});
 
-    $opt{profile} = "-pro=$opt{profile}" if ( $opt{profile} );
+    $opt{profile} = "-pro=$opt{profile}" if ($opt{profile});
     die "Cannot set --verbose and --silent\n"
-      if ( $opt{verbose} && $opt{silent} );
-    $chattiness += ( $opt{verbose} - $opt{silent} );
+        if ($opt{verbose} && $opt{silent});
+    $chattiness += ($opt{verbose} - $opt{silent});
     $chattiness = SILENT if $ENV{HARNESS_ACTIVE};
-    if ( defined( $opt{use_tdy} ) ) {
+    if (defined($opt{use_tdy})) {
         die "Cannot set --update and --use-tidy"
-          if $opt{update};
-        if ( $opt{use_tdy} eq '' ) {
+            if $opt{update};
+        if ($opt{use_tdy} eq '') {
             $opt{use_tdy} = '.tdy';
-        } else {
+        }
+        else {
             $opt{use_tdy} =~ s/\^.//;
             $opt{use_tdy} = ".${opt{use_tdy}}";
         }
     }
 
     die "Cannot set --update and --names-only"
-      if $opt{update} and $opt{names_only};
+        if $opt{update} and $opt{names_only};
     die "Cannot set --update and --use-fail|--testing"
-      if $opt{update} and $opt{use_fail};
+        if $opt{update} and $opt{use_fail};
     die "Cannot set --names-only and --use-fail|--testing"
-      if $opt{names_only} and $opt{use_fail};
+        if $opt{names_only} and $opt{use_fail};
 
     die "Cannot set --all and --mod"
-      if $opt{all} and $opt{mod};
+        if $opt{all} and $opt{mod};
     die "Cannot set --all and --untracked"
-      if $opt{all} and $opt{untracked};
+        if $opt{all} and $opt{untracked};
 
-    @mua{qw(mod all untracked)} =
-      ( $opt{mod} // $mua{mod}, $opt{all} // $mua{all}, $opt{untracked} // $mua{untracked}, );
+    @mua{qw(mod all untracked)}
+        = ($opt{mod} // $mua{mod}, $opt{all} // $mua{all}, $opt{untracked} // $mua{untracked},);
 
     my $ummy = 6;
 }
@@ -135,42 +135,47 @@ sub process_diffs {
     my $diffs;
     for my $file (@_) {
         my $tdyname;
-        if ( !$opt{use_tdy} ) {
+        if (!$opt{use_tdy}) {
             my $tmp = File::Temp->new();
             $tdyname = $tmp->filename;
-        } else {
+        }
+        else {
             $tdyname = "${file}${opt{use_tdy}}";
         }
-        my $cmd = qq($perltidycmdbase -o=$tdyname $file);
-        print("$cmd\n") if ( $opt{show_command} );
+        my $cmd = "@perltidycmdbase -nst -o=$tdyname $file";
+        print("$cmd\n") if ($opt{show_command});
         qx($cmd);
+        if ($? != 0) {
+            die "perltidy-bulk command failed: $cmd";
+        }
         my @diff = qx(diff -U3 $file $tdyname );
         $diffs += @diff;
         if (@diff) {
-            if ( $opt{names_only} ) {
+            if ($opt{names_only}) {
                 print "$file\n";
-            } elsif ( $opt{use_fail} ) {
+            }
+            elsif ($opt{use_fail}) {
                 fail("perltidy $file");
-            } else {
+            }
+            else {
                 print @diff;
             }
         }
         unlink $tdyname;
-        last if ( @diff and $opt{stop_on_first} );
+        last if (@diff and $opt{stop_on_first});
     }
     return $diffs;
 }
 
 sub process_updates {
     ## Some invariants
-    my $warnfmt =
-      '%-' . ( sort { $b <=> $a } map { length($_) } @_ )[0] . 's - %s';
-    my $bakext = 'tdybak';
+    my $warnfmt = '%-' . (sort { $b <=> $a } map { length($_) } @_)[0] . 's - %s';
+    my $bakext  = 'tdybak';
 
     for my $file (@_) {
         my $source = 'fs';
-        my ( $filedir, $filename ) = ( dirname($file), basename($file) );
-        if ( is_git_repo($filedir) ) {
+        my ($filedir, $filename) = (dirname($file), basename($file));
+        if (is_git_repo($filedir)) {
             use Cwd;
             my $pwd = getcwd;
             chdir $filedir;
@@ -187,18 +192,18 @@ sub process_updates {
             chdir $pwd;
         }
         my $bakfile     = "${file}.${bakext}";
-        my $perltidycmd = "$perltidycmdbase -b -bext='$bakext' $file";
+        my $perltidycmd = "@perltidycmdbase -nst -b -bext='$bakext' $file";
 
         my @warn;
         my $diff_status;
         my $tidied = 0;
-        if ( $source eq 'git' ) {
+        if ($source eq 'git') {
             ##
             ## Show its git status before we tidy.
             ##
             my @git_status;
             my $different = '       same as';
-            for ( '', '--cached' ) {
+            for ('', '--cached') {
                 @git_status = qx(git diff $_ $file);
                 if (@git_status) {
                     $different = 'different than';
@@ -206,7 +211,7 @@ sub process_updates {
                 }
             }
             push @warn, "$different git version"
-              if ( $chattiness >= VLEVEL0 );
+                if ($chattiness >= VLEVEL0);
         }
 
         ##
@@ -222,7 +227,7 @@ sub process_updates {
         my $more_runs = 4;
         my @diffout;
         do {
-            if ( $opt{show_command} ) {
+            if ($opt{show_command}) {
                 print "Executing: $perltidycmd\n:";
             }
             qx($perltidycmd);
@@ -230,34 +235,36 @@ sub process_updates {
             @diffout = qx(diff $bakfile $file);
             $diff_status += $?;
             print "**********\ndiff $bakfile $file\n", @diffout
-              if @diffout and $chattiness >= VLEVEL1;
-            unlink $bakfile if ( not $opt{keep} );
+                if @diffout and $chattiness >= VLEVEL1;
+            unlink $bakfile if (not $opt{keep});
             $more_runs--;
         } while (@diffout) and $more_runs;
 
-        if ( !$more_runs ) {
+        if (!$more_runs) {
             warn "$file required four iterations - check it carefully\n"
-              if $chattiness > SILENT;
-        } elsif ( $chattiness >= 1 ) {
+                if $chattiness > SILENT;
+        }
+        elsif ($chattiness >= 1) {
             my $tmp = 4 - $more_runs;
-            push @warn, $tmp . ' run' . ( $tmp == 1 ? '' : 's' )
-              if ( $tmp > 2 and $chattiness > SILENT );
+            push @warn, $tmp . ' run' . ($tmp == 1 ? '' : 's')
+                if ($tmp > 2 and $chattiness > SILENT);
         }
 
         my $modified = '  modified';
         if ($diff_status) {
             $tidied = 1;
-        } else {
+        }
+        else {
             $modified = 'unmodified';
         }
         push @warn, "$modified by perltidy"
-          if ( $chattiness >= VLEVEL0 );
+            if ($chattiness >= VLEVEL0);
 
-        if ( $source eq 'git' ) {
+        if ($source eq 'git') {
             ## and its git status after...
             my @git_status;
             my $different = '       same as';
-            for ( '', '--cached' ) {
+            for ('', '--cached') {
                 @git_status = qx(git diff $_ $file);
                 if (@git_status) {
                     $different = 'different than';
@@ -265,14 +272,14 @@ sub process_updates {
                 }
             }
             push @warn, "$different git version"
-              if ( $chattiness >= VLEVEL0 );
+                if ($chattiness >= VLEVEL0);
         }
 
         if (@warn) {
-            my $line = sprintf( $warnfmt, $file, join( ', ', @warn ) ) . "\n";
+            my $line = sprintf($warnfmt, $file, join(', ', @warn)) . "\n";
             warn $line;
             push @summary, $line
-              if $tidied;
+                if $tidied;
         }
     }
 }
@@ -284,42 +291,54 @@ sub main {
     my $source;
     my @files = get_files(%mua);
 
+    #push @perltidycmdbase $^X, q(-d:ptkdb), q(-S); ## no-ptkdb-issue
+    push @perltidycmdbase, q(perltidy), @{ $opt{ptopts} }, $opt{profile};
+
     ## Some preliminary info outputs
-    system(qw(perltidy @{$opt{ptopts}} -ddf))  if ( $chattiness >= VLEVEL2 );
-    system(qw(perltidy @{$opt{ptopts}} -dpro)) if ( $chattiness >= VLEVEL1 );
-    system(qw(perltidy @{$opt{ptopts}} $opt{profile} -dop))
-      if ( $chattiness >= VLEVEL2 );
+    if ($chattiness >= VLEVEL2) {
+        system(@perltidycmdbase, q(-ddf));
+        system(@perltidycmdbase, q(-dop));
+    }
+    elsif ($chattiness >= VLEVEL1) {
+        system(@perltidycmdbase, q(-dpro));
+    }
+    else {
+        my @msg = map { my $x = $_; $x =~ s/Dump of file/Using rc file/; $x }
+            grep {m/Dump of file:/} qx(@perltidycmdbase -dpro);
+        print "$msg[0]";
+    }
 
-    #$perltidycmdbase = "$^X -d:ptkdb -S perltidy $opt{profile}"; ## no-ptkdb-issue
-    $perltidycmdbase = "perltidy @{$opt{ptopts}} $opt{profile}";
-
-    @files = process_exclusions( '.perltiduy.exclusions', @files );
-    if ( !@files ) {
+    @files = process_exclusions('.perltiduy.exclusions', @files);
+    if (!@files) {
         die "No files left to process after exclusions were applied.\n";
     }
 
     my $rc = 0;
     my @inemacs;
     for (@files) {
-        my ( $d, $f ) = ( dirname($_), basename($_) );
+        my ($d, $f) = (dirname($_), basename($_));
         my $emacsfile = "$d/.#$f";
-        push @inemacs, $_ if ( -l $emacsfile );
+        push @inemacs, $_ if (-l $emacsfile);
     }
     if (@inemacs) {
-        die join( "\n",
+        die join(
+            "\n",
             "These files are open in emacs. Close them and re-run:",
-            ( sort @inemacs ), '' );
+            (sort @inemacs), ''
+        );
     }
-    if ( $opt{update} ) {
+    @files = grep { !m/.tdy$/ } @files;
+    if ($opt{update}) {
         $rc = process_updates(@files);
-    } else {
+    }
+    else {
         ## just do a diff and indicate an error if the tidied version does not
         ## match the repo version.
         $rc = process_diffs(@files);
     }
     print "\n*** Modification summary ***\n", @summary
-      if @summary;
-    return ( $rc ? UNIX_FALSE : UNIX_TRUE );
+        if @summary;
+    return ($rc ? UNIX_FALSE : UNIX_TRUE);
 }
 
 exit main();

@@ -501,6 +501,7 @@ for (@ARGV){
         ## Perl ##
         ## #### ##
         if ((${#G_perlfiles[@]})); then
+            declare -a excls_perldb_files=("$(pwd)/.hookcfg/skip-check.perl.DB"  "${HOME}/.config/git-pre-commit-hook/skip-check.perl.DB");
             if [[ -n ${skips[perl]} ]]; then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl checks, ${G_skip_messages[${skips[perl]}]}."
             else
@@ -510,28 +511,31 @@ for (@ARGV){
                 # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
                 # We want to pass the $ into the grep.
                 grep -H -n -E '\$DB::s(ingle|tep)' "${G_perlfiles[@]}" 1>"${G_tfile}" 2>&1
-                declare excls_perldb_file="${HOME}/.config/git-pre-commit-hook/skip-check.perl.DB";
-                if [[ -e $excls_perldb_file ]]; then
-                    declare -a excls_perldb
-                    readarray -t excls_perldb <  <(grep -v '#' "$excls_perldb_file")
-                    if [[ ${#excls_perldb[@]} != '0' ]]; then
-                        declare excls_perldb_re
-                        excls_perldb_re=$(IFS='|'; echo "${excls_perldb[*]}")
+                declare excls_perldb_file
+                for excls_perldb_file in "${excls_perldb_files[@]}"; do
+                    if [[ -e $excls_perldb_file ]]; then
+                        declare -a excls_perldb
+                        readarray -t excls_perldb <  <(grep -v '#' "$excls_perldb_file")
+                        if [[ ${#excls_perldb[@]} != '0' ]]; then
+                            declare excls_perldb_re
+                            excls_perldb_re=$(IFS='|'; echo "${excls_perldb[*]}")
 
-                        ## Warn on exclusions.
-                        grep -H -n -E "$excls_perldb_re" "${G_tfile}" > "${G_tfile}.excluded"
-                        if [[ -s "${G_tfile}.excluded" ]]; then
-                            pre_commit_warning_echo "One or more of these files contain Perl-debugger-related statements, but are allowed to as exceptions in $excls_perldb_file"
+                            ## Warn on exclusions.
+                            grep -H -n -E "$excls_perldb_re" "${G_tfile}" > "${G_tfile}.excluded"
+                            if [[ -s "${G_tfile}.excluded" ]]; then
+                                pre_commit_warning_echo "One or more of these files contain Perl-debugger-related statements, but are allowed to as exceptions in $excls_perldb_file"
+                            fi
+                            ## Check for violations.
+                            grep -H -n -E -v "$excls_perldb_re" "${G_tfile}" > "${G_tfile}.001"
+                            mv "${G_tfile}.001" "${G_tfile}"
                         fi
-                        ## Check for violations.
-                        grep -H -n -E -v "$excls_perldb_re" "${G_tfile}" > "${G_tfile}.001"
-                        mv "${G_tfile}.001" "${G_tfile}"
+                        break;
                     fi
-                fi
+                done
                 check "$G_tfile" \
                       "One or more Perl files contain Perl-debugger-related statements. Please remove instrumentation." \
                       "" \
-                      "To override Perl-debugger-related statements violations, add file(s) to '$excls_perldb_file'."
+                      "To override Perl-debugger-related statements violations, add file(s) to one of ${excls_perldb_files[*]}."
 
                 ##
                 ## check: compile tests
@@ -585,29 +589,27 @@ for (@ARGV){
                     ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy check, ${G_skip_messages[${skips[perltidy]}]}."
                 else
                     declare remediation
-                    declare tidycmd
+                    declare -a tidycmd
                     declare runcheck=0
                     declare tidyrc=0
-                    declare helperfound=0
-                    for tidycmd in \
-                        "$G_gitroot/t/bin/apply-perltidy-everywhere" \
-                            "${HOME}/personal/bin/perltidy-bulk"; do
-                        if [[ -e "$tidycmd" ]]; then
-                            helperfound=1
-                            "$tidycmd" "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
-                            tidyrc=$?
-                            ((runcheck == 0)) && runcheck=$tidyrc
-                            remediation="To correct, run: (cd $(pwd); $tidycmd --update ${G_perlfiles[*]})"
+                    tidycmd+=("${HOME}/personal/bin/perltidy-bulk")
+                    declare perltidyrc
+                    for perltidyrc in 't/.perltidyrc' 't/perltidyrc' 't/.perltidyrc' 't/perltidyrc'; do
+                        if [[ -f $perltidyrc ]]; then
+                            tidycmd+=(-pro="$perltidyrc")
+                            pre_commit_info_echo "Found $perltidyrc for tidy configuration"
                             break
                         fi
                     done
+                    "${tidycmd[@]}" "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
+                    tidyrc=$?
+                    ((runcheck == 0)) && runcheck=$tidyrc
+                    remediation="To correct, run: (cd $(pwd); ${tidycmd[*]} --update ${G_perlfiles[*]})"
                     if ((runcheck!=0)); then
                         check "$G_tfile" \
                               "One or more files Perl contain formatting errors. Please review." \
                               "$runcheck" \
                               "$remediation"
-                    elif ((helperfound==0)); then
-                        ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl perltidy, no perl perltidy helpers found."
                     fi
                 fi
             fi
@@ -875,9 +877,11 @@ None
 but no; we have to run 'git diff-index --porcelain HEAD' and parse the output
 determine what files are about to be committed. </soapbox>
 
-If you want to test the hook, you can pass file paths relative to the repo
-root. Their status will be assumed 'M' unless you pass in another one; the only
-one that matters is 'D' for delete:
+If you want to test the hook, you can pass file paths relative to the repo root
+because no matter what subdirectory of the repo you are in when you try a real
+commit, this script's current working directory will be the repo root. . Their
+status will be assumed 'M' unless you pass in another one; the only one that
+matters is 'D' for delete:
 
  pre-commit bin/foo bin/buzz:M bin/bar:D
 
