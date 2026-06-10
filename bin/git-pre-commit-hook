@@ -546,21 +546,7 @@ for (@ARGV){
                     declare remediation
                     declare checkcmd
                     declare runcheck=0
-                    if [[ -e "$G_gitroot/t/bin/apply-compile-check-everywhere" ]]; then
-                        cartonexec=''
-                        if [[ -e "$G_gitroot/runtests.local" ]]; then
-                            pre_commit_ok_echo "Sourcing $G_gitroot/runtests.local for perl compile tests."
-                            # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
-                            . "/$G_gitroot/runtests.local"
-                            if [[ "$RUNTESTS_USE_CARTON" = '1' ]]; then
-                                cartonexec='carton exec'
-                            fi
-                        fi
-                        checkcmd="$cartonexec $G_gitroot/t/bin/apply-compile-check-everywhere"
-                        $checkcmd "${G_perlfiles[@]}" 1>"$G_tfile" 2>&1
-                        runcheck=1
-                        remediation="To review, run: (cd $(pwd); $checkcmd ${G_perlfiles[*]})"
-                    elif [[ -e "${HOME}/personal/bin/perlcheck-bulk" ]]; then
+                    if [[ -e "${HOME}/personal/bin/perlcheck-bulk" ]]; then
                         declare -a libs
                         readarray                -t libs < <(find "$G_gitroot" -type d -name lib  -printf '-I\n%p\n')
                         readarray -O ${#libs[@]} -t libs < <(find "$G_gitroot" -type d -name perl -printf '-I\n%p\n')
@@ -577,7 +563,7 @@ for (@ARGV){
                         ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl compile check, no perl compile check helpers found."
                     fi
                     ((runcheck==1)) && check "$G_tfile" \
-                                             "One or more Perl files contain syntax errors. Please review." \
+                                             "One or more Perl files contain syntax errors according to 'perl -c'. Please review." \
                                              "" \
                                              "$remediation"
                 fi
@@ -844,7 +830,7 @@ For situations where the <GCS> marker appears but you want to commit it anyway
 section where we process the marker. Extensive comments there should explain
 how to get around the issue.
 
-=item o t/bin/apply-[compile-check|perltidy]-everywhere
+=item o ~/personal/bin/perl[check|tidy]-bulk
 
 If these files are found, we run them in case they were not run during
 testing. If they fail, the commit is aborted. Skippable with --skip perl (for

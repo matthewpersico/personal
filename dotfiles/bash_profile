@@ -8,6 +8,17 @@
 # and linters. profiles are not executed. They are sourced into the shell that
 # calls them, to which any line with a # is a comment.
 
+# How to safely switch shells: we don't change your shell in /etc/passwd. We
+# re-exec the desired shell if it exists. Otherwise, we carry on with the
+# default.
+
+if [ -x /home/linuxbrew/.linuxbrew/bin/bash ] && [ -z "$HOMEBREW_BASH_REEXEC" ]; then
+  export HOMEBREW_BASH_REEXEC=1
+  export SHELL=/home/linuxbrew/.linuxbrew/bin/bash
+  exec /home/linuxbrew/.linuxbrew/bin/bash -l
+fi
+echo "**** shell is $SHELL ****"
+
 # How to tell if we are running during profile setup or not
 RUNNING_IN_BASH_PROFILE=1
 export RUNNING_IN_BASH_PROFILE
@@ -82,13 +93,13 @@ if [[ -z "$(declare -F autoload )" ]]; then
 fi
 
 if [[ -z "$(declare -F autoloaded-personal)" ]]; then
-    declare -a _profile_autoload_args
-    _profile_autoload_args=(-x -o)
+    declare -a _profile_autoload_opts
+    _profile_autoload_opts=(-x -o)
     declare -a _profile_autoload_summary
 
     ## First, load autoload tracking, unshimmed, since every other function
     ## will use it.
-    autoload "${_profile_autoload_args[@]}" \
+    autoload "${_profile_autoload_opts[@]}" \
              "${_profile_autoload_summary[@]}" \
              -l \
              autotrack
@@ -105,7 +116,7 @@ if [[ -z "$(declare -F autoloaded-personal)" ]]; then
     declare _profile_unshim_list="${HOME}/.config/autoload-unshim.config"
     if [[ -f "$_profile_unshim_list" ]]; then
         while read -r _profile_unshim_func; do
-            autoload "${_profile_autoload_args[@]}" \
+            autoload "${_profile_autoload_opts[@]}" \
                      -l \
                      "$_profile_unshim_func"
             ((_profile_unshim_count+=1))
@@ -118,7 +129,7 @@ if [[ -z "$(declare -F autoloaded-personal)" ]]; then
     ## called, in which case its shim, or its full function code, will be
     ## ready.
     ! $CRON && _profile_autoload_summary+=(-y)
-    autoload "${_profile_autoload_args[@]}" \
+    autoload "${_profile_autoload_opts[@]}" \
              "${_profile_autoload_summary[@]}" \
              -a "$PERSONALROOT/functions"
 

@@ -13,30 +13,34 @@ declare pai_opt_os=''
 declare pai_workspace=''
 
 declare -a pai_perl_installations=(
-    perl-5.40.4
     perl-5.42.2
 )
 
-declare -a pai_system_perl_modules=(
-    App::pmuninstall
-    Email::Sender
-    Email::Simple
-    File::Slurp
-    Lingua::EN::Inflect
-    List::MoreUtils
-    Path::Tiny
-    Rand::Urandom
-    Term::Menus
+declare -A pai_system_perl_modules=(
+    ['libemail-sender-perl']='debian'
+    ['libemail-simple-perl']='debian'
+    ['libfile-slurp-perl']='debian'
+    ['liblingua-en-inflect-perl']='debian'
+    ['libjson-xs-perl']='debian'
+    ['liblocale-gettext-perl']='debian'
+    ['perl-doc']='debian'
+    ['perltidy']='debian'
+    ['liblist-moreutils-perl']='debian'
+    ['liblist-moreutils-xs-perl']='debian'
+    ['libfile-path-tiny-perl']='debian'
+    ['perl-tk']='debian'
+    ['libdevel-ptkdb-perl']='debian'
+    ['libcpan-perl-releases-perl']='debian'
+
+    ['Rand__Urandom']='cpan'
+    ['Term__Menus']='cpan'
 )
 
 # Anything in non alphabetical order is a prereq of something else.
 declare -a pai_perl_modules=(
-
-
-    #App::cpanminus
-    #App::FatPacker
+    App::cpanminus
+    App::FatPacker
     App::ModuleBuildTiny
-    App::Perlbrew
     App::pmuninstall
     Class::Tiny
     CPAN::Meta
@@ -47,7 +51,6 @@ declare -a pai_perl_modules=(
     DateTime
     Devel::PatchPerl
     Devel::PL_origargv
-    Devel::ptkdb
     Email::Sender
     Email::Simple
     Fcntl
@@ -90,10 +93,10 @@ declare -a pai_perl_modules=(
     Test::Perl::Critic
     Test::Pod
     Test::Pod::Coverage
-    Test::Tk
     Text::Levenshtein
     Text::Wrap
-    Tk
+    # skipping Tk - 800.036 fails to build. Build the patched version in ~/gits/github/matthewpersico/perl-tk/wt/fix-rt-154121
+    Test::Tk
     Tk::Balloon
     Tk::Dialog
     Tk::HList
@@ -103,6 +106,7 @@ declare -a pai_perl_modules=(
     Tk::ROText
     Tk::Table
     Tk::TextUndo
+    Devel::ptkdb
 )
 
 declare -a pai_debian_packages=(
@@ -141,6 +145,16 @@ declare -a pai_debian_packages=(
     csh
     libssl-dev
     libssl-doc
+    nedit
+    clangd
+    cmake
+)
+
+declare -a pai_homebrew_packages=(
+    gcc
+    uv
+    bashdb
+    claude-code
 )
 
 pai-ce () {
@@ -185,9 +199,6 @@ pai-get-workspace () {
 ##
 pai-add-dpkg-repos () {
     pai-ce 'Add dpkg repos'
-
-    ## Git
-    sudo apt-add-repository ppa:git-core/ppa
 
     ## Brave browser
     sudo curl -fsSLo /usr/share/keyrings/brave-browser-archive-keyring.gpg https://brave-browser-apt-release.s3.brave.com/brave-browser-archive-keyring.gpg
@@ -313,32 +324,53 @@ pai-homebrew () {
     pai-ce 'Install homebrew and its packages'
     declare return_to
     return_to=$(pwd);
+
     pai-get-workspace
+
     curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh > ./homebrew_install.sh || { false; exit; }
     chmod +x ./homebrew_install.sh
     declare logfile
     logfile="homebrew_install.$(date +%Y-%m-%dT%H-%M-%S).log"
-    echo "*** $(date)" > "$logfile"
-    ./homebrew_install.sh | tee -a "$logfile"
+    pai-ce "Logfile is $logfile"
+    (
+        echo "*** $(date)"
+        ./homebrew_install.sh
+    ) 2>&1 | tee "$logfile"
+    pai-ce "Logfile is $logfile"
+    cd "$return_to" || { false; exit; }
+}
 
+pai-homebrew-packages () {
+    api-cd - "Install homebrew packages"
     if [[ ! -f $HOME/personal/bin/homebrew.mopenv ]]; then
         pai-ce -ec "Environment file $HOME/personal/bin/homebrew.mopenv not found. No homebrew package installations will take place."
     else
         . "$HOME"/personal/bin/homebrew.mopenv
-        declare -a homebrew_packages=(
-            gcc
-            uv
-            bashdb
-        )
 
-        declare homebrew_package
-        for homebrew_package in "${homebrew_packages[@]}"; do
-            echo
-            pai-ce "$homebrew_package..."
-            brew install "$homebrew_package"
-        done
+        declare return_to
+        return_to=$(pwd)
+
+        pai-get-workspace
+
+        declare logfile
+        logfile="$(pwd)/perlbrew_install.$(date +%Y-%m-%dT%H-%M-%S).log"
+        pai-ce "Logfile is $logfile"
+        (
+            # Install
+            declare homebrew_package
+            declare homebrew_package_count="${#pai_homebrew_packages[@]}"
+            declare homebrew_package_idx=0
+            for homebrew_package in "${pai_homebrew_packages[@]}"; do
+                echo
+                ((homebrew_package_idx+=1))
+                pai-ce "*********** $homebrew_package... ($homebrew_package_idx/$homebrew_package_count)  $(date)"
+                brew install "$homebrew_package"
+            done
+        ) 2>&1 | tee "$logfile"
     fi
-    cd "$return_to" || exit
+
+    pai-ce "Logfile is $logfile"
+    cd "$return_to" || { false; exit; }
 }
 
 ##
@@ -353,13 +385,13 @@ _pai-perlbrew-make-alias-name () {
 }
 
 pai-perlbrew () {
-    pai-ce 'Install perlbrew and perl insallations'
+    pai-ce 'Install perlbrew and perl installations'
     declare return_to
     return_to=$(pwd);
 
     pai-get-workspace
 
-    export PERLBREW_ROOT=/opt/mop
+    export PERLBREW_ROOT=/opt/mop/perlbrew
     curl -L https://install.perlbrew.pl > ./perlbrew_install.sh || { false; exit; }
     chmod +x ./perlbrew_install.sh
 
@@ -370,36 +402,43 @@ pai-perlbrew () {
         echo "*** $(date)"
         ./perlbrew_install.sh
 
-        if ! grep /opt/mop/etc/bashrc "$HOME/personal/bin/perl.mopenv" ; then
-            pai-ce "Adding '/opt/mop/etc/bashrc' to '$HOME/personal/bin/perl.mopenv'..."
+        declare perlbrew_rc=$PERLBREW_ROOT/etc/bashrc
+        if ! grep $perlbrew_rc "$HOME/personal/bin/perl.mopenv" ; then
+            pai-ce "Adding '$perlbrew_rc' to '$HOME/personal/bin/perl.mopenv'..."
             cat << EOF >> "$HOME/personal/bin/perl.mopenv"
 
-if [[ -f /opt/mop/etc/bashrc ]]; then
-    . /opt/mop/etc/bashrc
+if [[ -f $perlbrew_rc ]]; then
+    . $perlbrew_rc
 fi
 
 EOF
         else
-            pai-ce "'/opt/mop/etc/bashrc' already in '$HOME/personal/bin/perl.mopenv'..."
+            pai-ce "'$perlbrew_rc' already in '$HOME/personal/bin/perl.mopenv'..."
         fi
 
-        source /opt/mop/etc/bashrc
+        # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
+        source "$perlbrew_rc"
         perlbrew install-patchperl
 
         # List of perl versions we care about
-        declare perl_installations
+        declare -a perl_installations_to_install
         if [[ -n $1 ]]; then
-            ajoin perl_installations -s , "$@"
+            perl_installations_to_install=("$@")
         else
-            ajoin perl_installations -s , "${pai_perl_installations[@]}"
+            perl_installations_to_install=("${pai_perl_installations[@]}")
         fi
-        pai-ce "Installing $perl_installations"
+
+        declare perl_installations_list
+        ajoin perl_installations_list -s , "{perl_installations_to_install[@]}"
+        pai-ce "Installing $perl_installations_list"
 
         declare perl_installation
-        for perl_installation in "${perl_installations[@]}"; do
+        for perl_installation in "${perl_installations_to_install[@]}"; do
             if perlbrew install "$perl_installation"; then
+
+                # Alias
                 declare perl_installation_alias
-                perl_installation_alias=$(_pai_perlbrew-make-alias-name "$perl_installation")
+                perl_installation_alias=$(_pai-perlbrew-make-alias-name "$perl_installation")
                 if perlbrew alias create "$perl_installation" "$perl_installation_alias" 2>&1 | grep -q 'already exists'; then
                     declare existing_alias_value
                     existing_alias_value=$(perlbrew exec --with "$perl_installation_alias" perl -e '$v=$^V;$v=~s/v/perl-/;print $v')
@@ -409,6 +448,10 @@ EOF
                 else
                     pai-ce "Created $perl_installation_alias as an alias for $perl_installation"
                 fi
+
+                # Locally built modules
+                # - TK
+                echo "cd ~/gits/github/matthewpersico/perl-tk/wt/fix-rt-154121; perl Makefile.PL; make install"
             fi
         done
     ) 2>&1 | tee "$logfile"
@@ -421,8 +464,8 @@ pai-perlbrew-modules () {
 
     # shellcheck disable=SC2031 #https://github.com/koalaman/shellcheck/wiki/SC2031
     if [[ -z $PERLBREW_ROOT ]]; then
-        pai-ce 'perlbrew not initialized in this shell. Will source "/opt/mop/etc/bashrc".'
-        source /opt/mop/etc/bashrc
+        pai-ce "perlbrew not initialized in this shell. Will source \"$PERLBREW_ROOT/etc/bashrc\"."
+        source $PERLBREW_ROOT/etc/bashrc
     fi
 
     declare return_to
@@ -448,9 +491,12 @@ pai-perlbrew-modules () {
 
         # Install
         declare perl_module
+        declare perl_module_count="${#pai_perl_modules[@]}"
+        declare perl_module_idx=0
         for perl_module in "${pai_perl_modules[@]}"; do
             echo
-            pai-ce "*********** $perl_module..."
+            ((perl_module_idx+=1))
+            pai-ce "*********** $perl_module... ($perl_module_idx/$perl_module_count)  $(date)"
             perlbrew exec --with "$perl_installations" cpanm "$perl_module"
         done
     ) 2>&1 | tee "$logfile"
@@ -460,10 +506,9 @@ pai-perlbrew-modules () {
 
 pai-system-perl-modules () {
     ##
-    ## Install perl modules to get later versions of OS packaged Perl modules
-    ## we used to bootstrap and other needed packages.
+    ## Install perl modules from the debian packages first, CPAN if there is no debian package.
     ##
-    pai-ce 'Install Perl modules from cpan for the system Perl'
+    pai-ce 'Install Perl modules as debian packages, CPAN only if necessary.'
 
     declare perlbrew_return="$PERLBREW_PERL"
     if [[ -n "$perlbrew_return" ]]; then
@@ -471,19 +516,30 @@ pai-system-perl-modules () {
     fi
 
     # Bootstrap cpan
-    pai-ce "cpan boostraps"
+    pai-ce "cpan bootstraps"
     sudo cpan install CPAN
+
     pai-ce "Update cpan itself..."
     sudo cpan install Log::Log4perl Text::Levenshtein App::cpanminus
 
-    pai-ce "Now using cpanm..."
+    pai-ce "Now using the list..."
     declare perl_module
-    for perl_module in "${pai_system_perl_modules[@]}"; do
+    for perl_module in "${!pai_system_perl_modules[@]}"; do
         echo
-        pai-ce "$perl_module..."
-        sudo cpanm install "$perl_module"
+        declare sys=${pai_system_perl_modules[$perl_module]}
+        case $sys in
+            debian)
+                pai-ce "$perl_module..."
+                sudo apt install "$perl_module"
+                ;;
+            cpan)
+                declare pm="$perl_module"
+                pm="${pm//__/::}"
+                pai-ce "$pm..."
+                sudo cpanm "$pm"
+                ;;
+        esac
     done
-
     if [[ -n "$perlbrew_return" ]]; then
         perlbrew switch "$perlbrew_return"
     fi
@@ -652,6 +708,7 @@ main () {
         pai-distro-debian-packages
         pai-local-debian-packages
         pai-homebrew
+        pai-homebrew-packages
         pai-perlbrew
         pai-perlbrew-modules
         pai-build-oss
@@ -665,6 +722,7 @@ main () {
         pai-distro-debian-packages
         pai-local-debian-packages
         pai-homebrew
+        pai-homebrew-packages
         pai-perlbrew
         pai-perlbrew-modules
         pai-build-oss
