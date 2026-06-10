@@ -33,30 +33,36 @@ GITENV_REPO_ROOT=$(git config --get --expand ext.git-repo-root.root)
 export GITENV_REPO_ROOT
 [[ ! -e "$GITENV_REPO_ROOT" ]] &&  mkdir -vp "$GITENV_REPO_ROOT"
 
+declare _git_mopenv_do_echo=false
+if [[ ( $CRON && $AUTOLOAD_TRACK =~ :cron:) \
+          ||  $AUTOLOAD_TRACK =~ :profile: ]]; then
+    _git_mopenv_do_echo=true
+fi
+
 if ! declare -F | grep -q __git_ps1; then
-    ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "__git_ps1 not loaded."
+    $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "__git_ps1 not loaded."
     declare shl
     shl="$(hash -r; "${REALGIT}" --exec-path)/git-sh-prompt"
     if [[ -e "$shl" ]]; then
         . "$shl"
         safe_func_export __git_ps1
-        ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "$shl loaded."
+        $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "$shl loaded."
     else
-        ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --warn "$shl not found."
+        $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --warn "$shl not found."
     fi
 fi
 
 if ! declare -F | grep -q __git_complete; then
-    ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "__git_complete not loaded."
+    $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "__git_complete not loaded."
     declare gitinstallroot
     gitinstallroot=$(dirname "$(dirname "$REALGIT")")
     declare shl="$gitinstallroot/share/bash-completion/completions/git"
     if [[ -e "$shl" ]]; then
         . "$shl"
         safe_func_export __git_complete __git_sequencer_status __git_eread
-        ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "$shl loaded."
+        $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "$shl loaded."
     else
-        ! $CRON && "$PERSONALBIN/cmd-echo" --id git.mopenv --warn "$shl not found."
+        $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --warn "$shl not found."
     fi
 fi
 

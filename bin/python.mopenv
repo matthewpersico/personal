@@ -11,9 +11,15 @@ export VIRTUAL_ENV_DISABLE_PROMPT=1
 
 declare -a ceid=('--id' 'python.mopenv')
 
+declare _python_mopenv_do_echo=false
+if [[ ( $CRON && $AUTOLOAD_TRACK =~ :cron:) \
+          ||  $AUTOLOAD_TRACK =~ :profile: ]]; then
+    _python_mopenv_do_echo=true
+fi
+
 ## Quick skip check
-if [[ -e "${HOME}/.config/skip_python" ]]; then
-    cmd-echo "${ceid[@]}" --info -- "Skipping local python by request (${HOME}/.config/skip_python exists)"
+if [[ -e "${HOME}/.config/skip-python" ]]; then
+    $_python_mopenv_do_echo && cmd-echo "${ceid[@]}" --info -- "Skipping local python by request (${HOME}/.config/skip_python exists)"
     return ## This file gets dotted in
 fi
 
@@ -107,14 +113,14 @@ else
         fi
     fi
 fi
-cmd-echo "${ceid[@]}" "${status[@]}" -- "${msg[@]}"
+$_python_mopenv_do_echo && cmd-echo "${ceid[@]}" "${status[@]}" -- "${msg[@]}"
 
 # Now let's check what "python" points to.
 which_python=$(which python)
 resolved_python=$(realpath "$which_python")
 export PYTHON_EXE=$which_python
 
-cmd-echo "${ceid[@]}" "${status[@]}" -- \
+$_python_mopenv_do_echo && cmd-echo "${ceid[@]}" "${status[@]}" -- \
          "'python' on PATH is" \
          "    $(ls -l "$which_python")" \
          "which resolves to " \

@@ -17,7 +17,6 @@ if [ -x /home/linuxbrew/.linuxbrew/bin/bash ] && [ -z "$HOMEBREW_BASH_REEXEC" ];
   export SHELL=/home/linuxbrew/.linuxbrew/bin/bash
   exec /home/linuxbrew/.linuxbrew/bin/bash -l
 fi
-echo "**** shell is $SHELL ****"
 
 # How to tell if we are running during profile setup or not
 RUNNING_IN_BASH_PROFILE=1
@@ -121,14 +120,20 @@ if [[ -z "$(declare -F autoloaded-personal)" ]]; then
                      "$_profile_unshim_func"
             ((_profile_unshim_count+=1))
         done < "$_profile_unshim_list"
-        ! $CRON && "$PERSONALBIN/cmd-echo" --id ".profile.$USER" --info "auto-unshimmed: $_profile_unshim_count"
+        if [[ ( $CRON && $AUTOLOAD_TRACK =~ :cron:) \
+                  ||  $AUTOLOAD_TRACK =~ :profile: ]]; then
+            "$PERSONALBIN/cmd-echo" --id ".profile.$USER" --info "auto-unshimmed: $_profile_unshim_count"
+        fi
     fi
 
     ## Finally, autoload everything else. Order does not matter here since it's all
     ## shims, so nothing needs to know about anything else until it's actually
     ## called, in which case its shim, or its full function code, will be
     ## ready.
-    ! $CRON && _profile_autoload_summary+=(-y)
+    if [[ ( $CRON && $AUTOLOAD_TRACK =~ :cron:) \
+              ||  $AUTOLOAD_TRACK =~ :profile: ]]; then
+         _profile_autoload_summary+=(-y)
+    fi
     autoload "${_profile_autoload_opts[@]}" \
              "${_profile_autoload_summary[@]}" \
              -a "$PERSONALROOT/functions"

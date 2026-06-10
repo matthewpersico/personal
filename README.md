@@ -54,10 +54,15 @@ sourced in a profile. Set `AUTOLOAD_TRACK` to one of the following values:
 * all - Track every function load.
 * :cron: - Only track in cron jobs.
 * :noncron: - Only track in non-cron jobs.
+* :profile: - Only track after .profile is run.
 * :noprofile: - Only track after .profile is run.
 * none - Do not track in anything.
 
-The default, if `$HOME/.config/autoload-config.dat` is not found, is `all`, so
+The reason that there are colons around the cron and profile options is that
+they can be combined. For example, if you want tracking in crons, but not in
+login profiles, set `AUTOLOAD_TRACK` to `:cron:noprofile:`.
+
+The default, if `$HOME/.config/autotrack.config` is not found, is `all`, so
 that in a new environment, you can see what's happening.
 
 ### Perl modules
