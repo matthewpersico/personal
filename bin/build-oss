@@ -16,7 +16,7 @@ declare OPTSARGS
 declare shortopts=''
 declare longopts=''
 ajoin longopts -s , \
-      clean log-purge root: init pause-per-step help
+      clean log-purge root: init pause-per-step help url:
 OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
 # Reset the command line ($@).
 eval set -- "$OPTSARGS"
@@ -28,6 +28,7 @@ declare opt_root_set=0
 declare opt_root=${BUILD_OSS_ROOT:-"$OPTROOT/build/oss"}
 declare opt_init=0
 declare opt_pause_per_step=0
+declare opt_start
 
 # Reprocess the command line, extracting options and their arguments into
 # variables.
@@ -42,6 +43,10 @@ while true; do
             ;;
         init)
             opt_init=1
+            ;;
+        url)
+            BUILD_OSS_URL=$1;
+            shift
             ;;
         clean)
             opt_clean=1
@@ -60,6 +65,10 @@ while true; do
         pause-per-step )
             opt_pause_per_step=1
             ;;
+        start-at | start )
+           opt_start=$1
+           shift
+           ;;
         --) break ;; ## VITAL!!! Exits the while loop, no more options,
         ## remaining $*, if any, are args
         *)
@@ -111,6 +120,12 @@ if [[ -z $BUILD_OSS_DIR ]]; then
     BUILD_OSS_SOURCE_TARBALL_ROOT="${BUILD_OSS_SOFTWARE}-${BUILD_OSS_VERSION}"
     export BUILD_OSS_SOURCE_TARBALL_ROOT
 
+    if [[ -n $BUILD_OSS_URL ]]; then
+        BUILD_OSS_SOURCE_TARBALL=$(basename "$BUILD_OSS_URL")
+    else
+        BUILD_OSS_SOURCE_TARBALL=${BUILD_OSS_SOURCE_TARBALL_ROOT}.tar.gz
+    fi
+
     if ((opt_init)); then
         if [[ -z $BUILD_OSS_SOFTWARE ]]; then
             cmd-echo --id "$ceid" -l $LINENO --ec "Missing software name argument."
@@ -154,7 +169,8 @@ build-oss-get () {
     # BUILD_OSS_DIR=$BUILD_OSS_DIR
     # BUILD_OSS_SOURCE_DIR=$BUILD_OSS_SOURCE_DIR
     # BUILD_OSS_SOURCE_TARBALL_ROOT=$BUILD_OSS_SOURCE_TARBALL_ROOT
-    : # dummy statement to placate shellcheck until real statements are added
+    # BUILD_OSS_SOURCE_TARBALL=$BUILD_OSS_SOURCE_TARBALL
+    curl -L $BUILD_OSS_URL -o $BUILD_OSS_SOURCE_TARBALL
 }
 
 build-oss-unpack () {
@@ -189,8 +205,7 @@ build-oss-coda () {
 }
 
 EOF
-        cmd-echo --id "$ceid" -l $LINENO "$conf created. Edit if needed and re-run."\
-                 "Do not forget to download the tarball ($BUILD_OSS_SOURCE_TARBALL_ROOT) to '$BUILD_OSS_DIR'."
+        cmd-echo --id "$ceid" -l $LINENO "$conf created. Edit if needed and re-run."
         true; exit;
     fi
 
@@ -257,6 +272,13 @@ else
 
     declare funcname
     for funcname in configure build test install coda; do
+        if [[ -n $opt_start ]]; then
+            if [[ $opt_start == "$funcname" ]]; then
+                opt_start=''
+            else
+                continue
+            fi
+        fi
         declare full_funcname="build-oss-${funcname}"
         if is-a-function $full_funcname; then
             cmd-echo --id "$ceid" -l $LINENO --info "Running $full_funcname..."
@@ -279,13 +301,11 @@ build-oss - build any oss from a tarball that follows typical OSS build protocol
 
 Init with:
 
- build-oss --init [--root rootdir] project version
- <edit $BUILD_ROOT_DIR/project/version/build-oss.conf>
- <copy project version.tar.gz to $BUILD_ROOT_DIR/project/version>
+ build-oss --init --url api://path/to/tarball.tat.gz [--root rootdir] project version
 
 Build with:
 
- build-oss [--clear] [--log-purge] [--pause-per-step]  project version
+ build-oss [--clean] [--log-purge] [--pause-per-step] [--start PHASE ] project version
 
 =head1 DESCRIPTION
 
@@ -318,15 +338,36 @@ The version number of the software from the version part of the tarball.
 
 =item --init
 
-TBD
+Creates the build_oss.conf file in the 'project/version' directory.
 
-=item --clear
+=item --url
 
-TBD
+Where to grab the tarball.
+
+=item --rootdir
+
+Change BUILD_OSS_ROOT, the location where 'project/version' is created.
+
+=item --clean
+
+Delete existing source directory to start all over.
 
 =item --log-purge
 
-TBD
+Deelte old versions of the logs that are generated.
+
+=item --pause-per-step
+
+After each of the phases, stop and wait for acknowledgement before continuing.
+
+=item --start PHASE
+
+Skip preceding phases and start at the requested on. The legal values are
+
+  configure
+  build
+  test
+  install
 
 =back
 

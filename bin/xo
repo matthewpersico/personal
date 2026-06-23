@@ -31,6 +31,8 @@ declare xo_verbose=0
 declare files_only=0
 declare stdin_file=''
 declare opt_iso=0
+declare serverup=0
+
 declare -a emacs_opts
 while ((more_opts)) && [[ "$1" =~ ^- ]]; do
     original="$1"
@@ -139,31 +141,6 @@ rm_on_exit "$procs"
 ##
 
 OS=$(uname -s)
-case $OS in
-    Linux | \
-    GNU/Linux )
-        pscmd="ps -o pid,ppid,command -U ${USER}"
-        grepargs='emacs'
-        ;;
-    Darwin )
-        pscmd="ps -o pid,ppid,command -U ${USER}"
-        grepargs='Applications/Emacs.app'
-        ;;
-    Cygwin )
-        pscmd="ps -l -u ${USER}"
-        grepargs='-- emacs-w32'
-        ;;
-    * )
-        cmd-echo --id xo "ps command for $OS not defined"
-        false; exit
-        ;;
-esac
-cutstart=$($pscmd | head -1 | sed 's/ PID.*/ PID/')
-cutstart=${#cutstart}
-((cutstart+=1))
-cutend=$($pscmd | head -1 | sed 's/PPID.*/PPID/')
-cutend=${#cutend}
-cutrange="${cutstart}-${cutend}"
 
 ## Assume X or some other windowing system is available and do the needful if
 ## not.
@@ -181,23 +158,9 @@ elif [[ ! "$OS" = 'Cygwin' ]]; then
 fi
 
 if (( opt_iso == 0 )) ; then
-    ## Get potential emacs server processes. The last grep is because
-    ## emacsclient is called usually directly (no path, no processing by this
-    ## script) when the $EDITOR command is used.
-    $pscmd | grep "$grepargs" | grep -v ' grep '| \
-        grep -vi "$emacs_exe -Q" | \
-        grep -vi "$emacsclient_exe -c" | \
-        grep -vi " emacsclient -c " | \
-        grep -i '/emacs ' >"$procs" 2>&1
-    if ((debug)); then
-        cat "$procs"
-    fi
-
-    ## Count how many
-    if((hasX)); then
-        serverup=$(cut -c "$cutrange" "$procs" | wc -l)
-    else
-        serverup=$(grep -c "$emacs_exe -nw" "$procs")
+    ## See if there is a server running
+    if [[ -e $XDG_RUNTIME_DIR/emacs/server ]]; then
+        serverup=1
     fi
     if ((debug)); then
         echo "serverup = $serverup"
@@ -309,12 +272,7 @@ elif ((serverup==1)); then
         fi
     else
         cmd-echo --id xo "Server already up. Specify a file to edit."
-        $pscmd | head -1
-        cat "$procs"
     fi
-else
-    cmd-echo --id xo "More than one potential emacs server process found:"
-    cat "$procs"
 fi
 
 true; exit

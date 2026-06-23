@@ -266,10 +266,12 @@ main ()
     ##
     ## args and opts
     ##
+    declare OPTSARGS
+    declare shortopts='s:qvhxC:'
+    declare longopts='show-skips,skip-show,skip:,quiet,verbose,nocommit,git-root:'
     declare opt_verbose=1
     declare opt_nocommit=0
     declare helpnotallowed=0
-    declare moreopts=1
 
     [[ -n $1 ]] && pre_commit_ok_echo "Args to hook: $*"
 
@@ -279,13 +281,23 @@ main ()
         helpnotallowed=1
     fi
 
-    while [[ "$1" =~ ^- ]] && ((moreopts)); do
-        ## Strip all leading dashes here so that -foo and --foo can both
-        ## be processed as 'foo'.
-        declare original="$1"
-        declare option
-        option=$(dashstripper "$original")
-        shift ## That way you avoid endless loops on invalid options.
+    # Process the command line.
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "${longopts}" -n "${FUNCNAME[0]}" -- "$@") || return
+
+
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    local option
+    while (( $# )); do
+        local option=$1
+        shift
+
+        # If the option does not exactly equal the end-of-options marker, strip
+        # the lead dash(es) from the option.
+        [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
 
         case $option in
             show-skips | skip-show)
@@ -311,6 +323,9 @@ EOF
                     pre_commit_error_echo "'$1' is not a valid skip hook tag. Valid skip hook tags are $GIT_HOOK_SKIP_TAGS"
                 fi
                 shift ;;
+            C | git-root )
+                cd "$1" || return $?
+                shift ;;
             q|quiet)
                 opt_verbose=0 ;;
             v|verbose)
@@ -329,7 +344,7 @@ EOF
                     true; exit
                 fi
                 ;;
-            --) shift; break ;; ## end of opts, remaining $*, if any, are args.
+            --) break ;; ## end of opts, remaining $*, if any, are args.
             *) echo "Internal error!"; pod2text "$0" | ${PAGER:cat}; false; exit ;;
         esac
     done
@@ -502,11 +517,12 @@ for (@ARGV){
         ## #### ##
         if ((${#G_perlfiles[@]})); then
             declare -a excls_perldb_files=("$(pwd)/.hookcfg/skip-check.perl.DB"  "${HOME}/.config/git-pre-commit-hook/skip-check.perl.DB");
+            declare -a excls_perldbg_files=("$(pwd)/.hookcfg/skip-check.perl.DBG"  "${HOME}/.config/git-pre-commit-hook/skip-check.perl.DBG");
             if [[ -n ${skips[perl]} ]]; then
                 ((opt_verbose)) && pre_commit_ok_echo "Skipping Perl checks, ${G_skip_messages[${skips[perl]}]}."
             else
                 ##
-                ## check: Perl debug statements
+                ## check: Perl debugger statements
                 ##
                 # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
                 # We want to pass the $ into the grep.
@@ -533,9 +549,41 @@ for (@ARGV){
                     fi
                 done
                 check "$G_tfile" \
-                      "One or more Perl files contain Perl-debugger-related statements. Please remove instrumentation." \
+                      "One or more Perl files contain Perl-debugger-related statements ($DB::). Please remove instrumentation." \
                       "" \
                       "To override Perl-debugger-related statements violations, add file(s) to one of ${excls_perldb_files[*]}."
+
+                ##
+                ## check: Perl debugging statements
+                ##
+                # shellcheck disable=SC2016 #https://github.com/koalaman/shellcheck/wiki/SC2016
+                # We want to pass the $ into the grep.
+                grep -H -n -E 'DBG:' "${G_perlfiles[@]}" 1>"${G_tfile}" 2>&1
+                declare excls_perldbg_file
+                for excls_perldbg_file in "${excls_perldbg_files[@]}"; do
+                    if [[ -e $excls_perldbg_file ]]; then
+                        declare -a excls_perldbg
+                        readarray -t excls_perldbg <  <(grep -v '#' "$excls_perldbg_file")
+                        if [[ ${#excls_perldbg[@]} != '0' ]]; then
+                            declare excls_perldbg_re
+                            excls_perldbg_re=$(IFS='|'; echo "${excls_perldbg[*]}")
+
+                            ## Warn on exclusions.
+                            grep -H -n -E "$excls_perldbg_re" "${G_tfile}" > "${G_tfile}.excluded"
+                            if [[ -s "${G_tfile}.excluded" ]]; then
+                                pre_commit_warning_echo "One or more of these files contain Perl-debugger-related statements, but are allowed to as exceptions in $excls_perldbg_file"
+                            fi
+                            ## Check for violations.
+                            grep -H -n -E -v "$excls_perldbg_re" "${G_tfile}" > "${G_tfile}.001"
+                            mv "${G_tfile}.001" "${G_tfile}"
+                        fi
+                        break;
+                    fi
+                done
+                check "$G_tfile" \
+                      "One or more Perl files contain Perl-debugging-related statements (DBG:). Please remove instrumentation." \
+                      "" \
+                      "To override Perl-debugging-related statements violations, add file(s) to one of ${excls_perldbg_files[*]}."
 
                 ##
                 ## check: compile tests
@@ -763,15 +811,17 @@ git-pre-commit-hook - a script for the pre-commit hook in git
 
 =head1 SYNOPSIS
 
-   git-pre-commit-hook [--nocommit] [--quiet] [--skip ... [ --skip ... ] ]
+   git-pre-commit-hook [ [-C | --git-root] /the/repo/dir ] [--nocommit] [--quiet] [--skip ... [ --skip ... ] ]
    git-pre-commit-hook --help
    git-pre-commit-hook --show-skips
 
 =head1 DESCRIPTION
 
-This script is not executed directly, but rather by git during a commit. It can be installed in either of three ways:
+This script is not (normally) executed directly, but rather by git during a
+commit. It can be installed in either of three ways:
 
-1) Place a copy of it in the '.git/hooks' directory of your local repo, renamed to 'pre-commit'.
+1) Place a copy of it in the '.git/hooks' directory of your local repo, renamed
+to 'pre-commit'.
 
 2) Create a file .git/hooks/pre-commit in your local repo with the command
 
@@ -779,10 +829,11 @@ This script is not executed directly, but rather by git during a commit. It can 
 
 in it, assuming that this script is in PATH.
 
-3) Create that same file in your 'git-template' directory, so that it is copied into every repo you clone.
+3) Create that same file in your 'git-template' directory, so that it is copied
+into every repo you clone.
 
-You can test it by running '.git/hooks/pre-commit' in your current repo; the commit will not
-run in this mode, obviously.
+You can test it by running '.git/hooks/pre-commit' in your current repo (or
+another repo; see -C|--git-root below); the commit will not run in this mode.
 
 You can also run it with --help to get this man page.
 
@@ -902,7 +953,7 @@ Do not print the progress messages from the hook.
 
 =item --x
 
-Does a C<set -x>
+Does a C<set -x>.
 
 =item --skip
 
@@ -930,11 +981,15 @@ Skip one or more validations:
 
 =item --help
 
-Show this help
+Show this help.
 
 =item --show-skips
 
 Print the list of possible arguments to '--skip'.
+
+=item -C | --git-root /some/other/repo
+
+Use /some/other/repo instead of the current directory as the git repo to process.
 
 =back
 
