@@ -51,8 +51,10 @@ declare -a pai_perl_modules=(
     DateTime
     Devel::PatchPerl
     Devel::PL_origargv
+    Devel::ptkdb
     Email::Sender
     Email::Simple
+    ExtUtils::MakeMaker
     Fcntl
     File::Basename
     File::Copy
@@ -83,6 +85,7 @@ declare -a pai_perl_modules=(
     Pod::Usage
     POSIX
     Rand::Urandom
+    Ref::Util
     Scalar::Util
     Sys::Hostname
     Term::Menus
@@ -97,16 +100,17 @@ declare -a pai_perl_modules=(
     Text::Wrap
     # skipping Tk - 800.036 fails to build. Build the patched version in ~/gits/github/matthewpersico/perl-tk/wt/fix-rt-154121
     Test::Tk
+    Tk::Adjuster
     Tk::Balloon
+    Tk::Derived
     Tk::Dialog
     Tk::HList
-    Tk::JFileDialog
     Tk::NoteBook
     Tk::Pod
     Tk::ROText
     Tk::Table
     Tk::TextUndo
-    Devel::ptkdb
+    version
 )
 
 declare -a pai_debian_packages=(
@@ -395,8 +399,11 @@ pai-perlbrew () {
     curl -L https://install.perlbrew.pl > ./perlbrew_install.sh || { false; exit; }
     chmod +x ./perlbrew_install.sh
 
+    declare logfile_root
+    logfile_root="$(pwd)/perlbrew_install.$(date +%Y-%m-%dT%H-%M-%S)"
+
     declare logfile
-    logfile="$(pwd)/perlbrew_install.$(date +%Y-%m-%dT%H-%M-%S).log"
+    logfile="${logfile_root}.brew.log"
     pai-ce "Logfile is $logfile"
     (
         echo "*** $(date)"
@@ -419,21 +426,24 @@ EOF
         # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
         source "$perlbrew_rc"
         perlbrew install-patchperl
+    ) 2>&1 | tee "$logfile"
+    pai-ce "Logfile is $logfile"
 
-        # List of perl versions we care about
-        declare -a perl_installations_to_install
-        if [[ -n $1 ]]; then
-            perl_installations_to_install=("$@")
-        else
-            perl_installations_to_install=("${pai_perl_installations[@]}")
-        fi
+    # List of perl versions we care about
+    declare -a perl_installations_to_install
+    if [[ -n $1 ]]; then
+        perl_installations_to_install=("$@")
+    else
+        perl_installations_to_install=("${pai_perl_installations[@]}")
+    fi
 
-        declare perl_installations_list
-        ajoin perl_installations_list -s , "{perl_installations_to_install[@]}"
-        pai-ce "Installing $perl_installations_list"
+    pai-ce "Installing perl versions ${perl_installations_to_install[*]}"
 
-        declare perl_installation
-        for perl_installation in "${perl_installations_to_install[@]}"; do
+    declare perl_installation
+    for perl_installation in "${perl_installations_to_install[@]}"; do
+        logfile="${logfile_root}.${perl_installation}.log"
+        pai-ce "Logfile is $logfile"
+        (
             if perlbrew install "$perl_installation"; then
 
                 # Alias
@@ -453,7 +463,56 @@ EOF
                 # - TK
                 echo "cd ~/gits/github/matthewpersico/perl-tk/wt/fix-rt-154121; perl Makefile.PL; make install"
             fi
+        ) 2>&1 | tee "$logfile"
+        pai-ce "Logfile is $logfile"
+    done
+    cd "$return_to" || { false; exit; }
+}
+
+pai-perlbrew-tk () {
+    pai-ce "Install CPAN modules to perlbrew"
+
+    # shellcheck disable=SC2031 #https://github.com/koalaman/shellcheck/wiki/SC2031
+    if [[ -z $PERLBREW_ROOT ]]; then
+        pai-ce "perlbrew not initialized in this shell. Will source \"$PERLBREW_ROOT/etc/bashrc\"."
+        source "$PERLBREW_ROOT/etc/bashrc"
+    fi
+
+    declare return_to
+    return_to=$(pwd);
+
+    pai-get-workspace
+
+    declare logfile
+    logfile="$(pwd)/perlbrew_tk_install.$(date +%Y-%m-%dT%H-%M-%S).log"
+    pai-ce "Logfile is $logfile"
+    (
+        # Bootstrap. This installation is good across all perlbrew perls.
+        perlbrew install-cpanm
+
+        # List of perl versions we care about
+        declare -a perl_installations_to_use
+        if [[ -n $1 ]]; then
+            perl_installations_to_use=("$@")
+        else
+            perl_installations_to_use=("${pai_perl_installations[@]}")
+        fi
+
+        pai-ce "Building TK for ${perl_installations_to_use[*]}"
+
+        # Install Tk
+        cd ~/gits/github/matthewpersico/perl-tk/wt/fix-rt-154121 || exit
+        for perl_exe in "${perl_installations_to_use[@]}"; do
+            perlbrew use "$perl_exe"
+            git drc
+            perl Makefile.PL
+            make #|| exit
+            pause
+            make test #|| exit
+            pause
+            make install #|| exit
         done
+        set +x
     ) 2>&1 | tee "$logfile"
     pai-ce "Logfile is $logfile"
     cd "$return_to" || { false; exit; }
