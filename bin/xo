@@ -30,6 +30,7 @@ declare use_rc=1
 declare xo_verbose=0
 declare files_only=0
 declare stdin_file=''
+declare opt_iso=0
 declare -a emacs_opts
 while ((more_opts)) && [[ "$1" =~ ^- ]]; do
     original="$1"
@@ -116,6 +117,9 @@ while ((more_opts)) && [[ "$1" =~ ^- ]]; do
             stdin_file=$1
             shift
             ;;
+        iso | isolated )
+            opt_iso=1
+            ;;
         help )
             bash-usage "$0"; { true; exit; } ;;
         -- )
@@ -176,38 +180,40 @@ elif [[ ! "$OS" = 'Cygwin' ]]; then
     fi
 fi
 
-## Get potential emacs server processes. The last grep is because emacsclient
-## is called usually directly (no path, no processing by this script) when the
-## $EDITOR command is used.
-$pscmd | grep "$grepargs" | grep -v ' grep '| \
-    grep -vi "$emacs_exe -Q" | \
-    grep -vi "$emacsclient_exe -c" | \
-    grep -vi " emacsclient -c " | \
-    grep -i '/emacs ' >"$procs" 2>&1
-if ((debug)); then
-    cat "$procs"
-fi
+if (( opt_iso == 0 )) ; then
+    ## Get potential emacs server processes. The last grep is because
+    ## emacsclient is called usually directly (no path, no processing by this
+    ## script) when the $EDITOR command is used.
+    $pscmd | grep "$grepargs" | grep -v ' grep '| \
+        grep -vi "$emacs_exe -Q" | \
+        grep -vi "$emacsclient_exe -c" | \
+        grep -vi " emacsclient -c " | \
+        grep -i '/emacs ' >"$procs" 2>&1
+    if ((debug)); then
+        cat "$procs"
+    fi
 
-## Count how many
-if((hasX)); then
-    serverup=$(cut -c "$cutrange" "$procs" | wc -l)
-else
-    serverup=$(grep -c "$emacs_exe -nw" "$procs")
-fi
-if ((debug)); then
-    echo "serverup = $serverup"
-fi
+    ## Count how many
+    if((hasX)); then
+        serverup=$(cut -c "$cutrange" "$procs" | wc -l)
+    else
+        serverup=$(grep -c "$emacs_exe -nw" "$procs")
+    fi
+    if ((debug)); then
+        echo "serverup = $serverup"
+    fi
 
-## If we are being used as the git editor or EDITOR, we don't want to start up
-## such that the underlying process thinks we're done editing before we are.
-if [[ "$1" = '--visual' ]]; then
-    as_visual=1
-    shift
-elif [[ "$1" = '--nf' ]] || [[ "$1" = '-nf' ]]; then
-    new_frame=1
-    shift
+    ## If we are being used as the git editor or EDITOR, we don't want to start
+    ## up such that the underlying process thinks we're done editing before we
+    ## are.
+    if [[ "$1" = '--visual' ]]; then
+        as_visual=1
+        shift
+    elif [[ "$1" = '--nf' ]] || [[ "$1" = '-nf' ]]; then
+        new_frame=1
+        shift
+    fi
 fi
-
 declare -a allfiles
 if [[ -p /dev/stdin ]]; then
     if [[ -z $stdin_file ]]; then
@@ -440,6 +446,10 @@ paths or relative the direcdtory in which the xo.rc file is found.
 =item --nf
 
 New frame. Open this file in a new frame.
+
+=item --iso
+
+Open in its own process with emacs, not emacsclient.
 
 =item --xov
 
