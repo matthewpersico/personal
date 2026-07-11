@@ -1,0 +1,135 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# post-any-install
+
+# Tab completion function for post-any-install
+
+_post-any-install_completion()
+{
+    local cur prev word script
+    local i
+    local expecting_option_argument=0
+    local end_of_options=0
+    local positional_count=0
+
+    local -a options_with_arguments=(
+        --os
+    )
+
+    local -a options_without_arguments=(
+        --molog
+        --no-log
+    )
+
+    local -a os_values=(
+        wsl
+        rpi
+    )
+
+    local -a valid_actions_list=()
+
+    cur=${COMP_WORDS[COMP_CWORD]}
+    prev=${COMP_WORDS[COMP_CWORD - 1]}
+
+    # Complete an argument following --os.
+    if [[ $prev == --os ]]; then
+        mapfile -t COMPREPLY < <(
+            compgen -W "${os_values[*]}" -- "$cur"
+        )
+        return
+    fi
+
+    # Complete --os=value.
+    if [[ $cur == --os=* ]]; then
+        local value=${cur#--os=}
+        local -a values
+
+        mapfile -t values < <(
+            compgen -W "${os_values[*]}" -- "$value"
+        )
+
+        COMPREPLY=()
+        for value in "${values[@]}"; do
+            COMPREPLY+=("--os=$value")
+        done
+
+        return
+    fi
+
+    # Examine completed arguments preceding the current word.
+    for ((i = 1; i < COMP_CWORD; i++)); do
+        word=${COMP_WORDS[i]}
+
+        if ((expecting_option_argument)); then
+            expecting_option_argument=0
+            continue
+        fi
+
+        if ((end_of_options)); then
+            ((positional_count++))
+            continue
+        fi
+
+        case $word in
+            --)
+                end_of_options=1
+                ;;
+
+            --os=*)
+                # Option argument is attached.
+                ;;
+
+            --os)
+                expecting_option_argument=1
+                ;;
+
+            --nolog|--no-log)
+                # Options with no arguments.
+                ;;
+
+            -*)
+                # Unknown option. Treat it as argumentless for completion.
+                ;;
+
+            *)
+                ((positional_count++))
+                ;;
+        esac
+    done
+
+    # Complete option names.
+    if (( ! end_of_options )) && [[ $cur == -* ]]; then
+        mapfile -t COMPREPLY < <(
+            compgen -W \
+                "${options_with_arguments[*]} ${options_without_arguments[*]}" \
+                -- "$cur"
+        )
+        return
+    fi
+
+    script=$(command -v post-any-install) || {
+        COMPREPLY=()
+        return
+    }
+
+    # Extract names from definitions resembling:
+    #
+    # pai-something() { #action
+    #
+    mapfile -t valid_actions_list < <(
+        sed -nE '
+            /^[[:space:]]*pai-[[:alnum:]_-]+[[:space:]]*\(\)[[:space:]]*\{[[:space:]]*#action/ {
+                s/^[[:space:]]*pai-//
+                s/[[:space:]]*\(\).*//
+                p
+            }
+        ' "$script"
+    )
+
+    mapfile -t COMPREPLY < <(
+        compgen -W "all ${valid_actions_list[*]}" -- "$cur"
+    )
+}
+
+complete -F _post-any-install_completion post-any-install
