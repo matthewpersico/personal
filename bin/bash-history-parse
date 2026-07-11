@@ -14,18 +14,18 @@ my %opt = (
 our %index;
 GetOptions(
     \%opt, qw(i
-      l
-      include-dir
-      include-file
-      match-dir=s
-      hostname=s
-      epoch-ago=i
-      A=i
-      B=i
-      C=i
+        l
+        include-dir
+        include-file
+        match-dir=s
+        hostname=s
+        epoch-ago=i
+        A=i
+        B=i
+        C=i
     )
 );
-if ( $opt{C} ) {
+if ($opt{C}) {
     $opt{A} = $opt{B} = $opt{C};
 }
 $opt{A} *= 2;
@@ -40,7 +40,7 @@ my @entries;
 my $entry;
 my @files;
 
-if ( $opt{'epoch-ago'} ) {
+if ($opt{'epoch-ago'}) {
     my $index_file = "$ENV{HISTDIR}/.histindex";
     ## In theory, we should flock the index before reading it. In practice
     ## we've never seen where the file changed out from under us as we
@@ -49,83 +49,82 @@ if ( $opt{'epoch-ago'} ) {
     ## call here with a flock call in shell.
     do $index_file;
     @files = grep { $index{$_}->{start} >= $opt{'epoch-ago'} }
-      map {
+        map {
         if (   $index{$_}->{start} =~ m/^\d+$/
-            && $index{$_}->{start} =~ m/^\d+$/ )
-        {
+            && $index{$_}->{start} =~ m/^\d+$/) {
             $_;
-        } else {
+        }
+        else {
             print STDERR "$_ has bad start and/or end indexing in $index_file\n";
             ();
         }
-      }
-      grep { -r }
-      keys %index;
-} else {
-    @files = ( $ENV{HISTFILE} );
+        }
+        grep {-r}
+        keys %index;
+}
+else {
+    @files = ($ENV{HISTFILE});
 }
 FILE: for my $file (@files) {
     next FILE
-      if ( $opt{hostname} and $file !~ m/$opt{hostname}/ );
+        if ($opt{hostname} and $file !~ m/$opt{hostname}/);
     ## In theory, we should flock the hist file before reading it. In practice
     ## we've never seen where the file changed out from under us as we
     ## processed it, and if it did, then only a bash history inquiry would fail
     ## and we could just re-run it. It's not worth trying to coordinate a flock
     ## call here with a flock call in shell.
     my $ih = IO::File->new("< $file")
-      or die "Cannot open $file:$!";
+        or die "Cannot open $file:$!";
 
     my @lines = map { chomp; $_ } <$ih>;
     my $lines = scalar(@lines);
     my $index = -1;
-  LINE: for (@lines) {
+    LINE: for (@lines) {
         $index++;
-        if ( $_ =~ m/^##/ ) {
+        if ($_ =~ m/^##/) {
             $entry = {};
             next;
         }
 
-        if ( $_ =~ m/^#(\d+)/ ) {
+        if ($_ =~ m/^#(\d+)/) {
             ## Parsing line 1
             $entry = { time => $1 };
-            if ( $_ =~ m/## pwd => (.*)/ ) {
+            if ($_ =~ m/## pwd => (.*)/) {
                 my $dir = $1;
                 if (   $opt{'include-dir'}
-                    || $opt{'match-dir'} )
-                {
+                    || $opt{'match-dir'}) {
                     $entry->{dir} = $dir;
                 }
                 next;
             }
-        } else {
+        }
+        else {
             ## Parsing line 2
             $entry->{cmd} = $_;
             if (   $opt{'include-file'}
-                or $opt{l} )
-            {
+                or $opt{l}) {
                 $entry->{file} = $file;
             }
 
             ## Now that it is parsed, do we want it?
-            if (   ( $opt{'match-dir'} and $entry->{dir} and $entry->{dir} =~ m/$opt{'match-dir'}/ )
-                or ( $_ =~ m/$pattern/ ) )
-            {
+            if (   ($opt{'match-dir'} and $entry->{dir} and $entry->{dir} =~ m/$opt{'match-dir'}/)
+                or (!$opt{'match-dir'} and $_ =~ m/$pattern/)) {
                 push @entries, $entry;
                 $entry->{mark_entry} = 0;
-                if ( $opt{B} && $index > 0 ) {
+                if ($opt{B} && $index > 0) {
                     my $before_start = $index - $opt{B};
                     my $before_end   = $before_start + $opt{B} - 1;
-                    if ( $before_start < 0 ) {
+                    if ($before_start < 0) {
                         $before_start = 0;
                     }
-                    if ( $before_end < 0 ) {
+                    if ($before_end < 0) {
                         $before_end = 0;
                     }
                     my @B;
                     my $i = $before_start;
-                    while ( $i <= $before_end ) {
+                    while ($i <= $before_end) {
                         push @B, $lines[$i]
-                          if $lines[$i] !~ m/#\d+ ## pwd =>/;
+                            if $lines[$i] !~ m/#\d+ ## pwd =>/;
                         $i++;
                     }
                     $entry->{B} = \@B;
@@ -133,20 +132,20 @@ FILE: for my $file (@files) {
                         $entry->{mark_entry}++;
                     }
                 }
-                if ( $opt{A} && $index < $lines - 1 ) {
+                if ($opt{A} && $index < $lines - 1) {
                     my $after_start = $index + 1;
                     my $after_end   = $after_start + $opt{B} - 1;
-                    if ( $after_start > $lines - 1 ) {
+                    if ($after_start > $lines - 1) {
                         $after_start = $lines - 1;
                     }
-                    if ( $after_end > $lines - 1 ) {
+                    if ($after_end > $lines - 1) {
                         $after_end = $lines - 1;
                     }
                     my @A;
                     my $i = $after_start;
-                    while ( $i <= $after_end ) {
+                    while ($i <= $after_end) {
                         push @A, $lines[$i]
-                          if $lines[$i] !~ m/#\d+ ## pwd =>/;
+                            if $lines[$i] !~ m/#\d+ ## pwd =>/;
                         $i++;
                     }
                     $entry->{A} = \@A;
@@ -161,9 +160,9 @@ FILE: for my $file (@files) {
 
 if (@entries) {
     @entries = sort { $a->{time} <=> $b->{time} } @entries;
-    if ( !$ENV{HISTTIMEFORMAT} ) {
+    if (!$ENV{HISTTIMEFORMAT}) {
         $ENV{HISTTIMEFORMAT} = '%m/%d - %H:%M:%S';
-        if ( $entries[-1]->{time} - $entries[0]->{time} >= 60 * 60 * 24 * 365 ) {
+        if ($entries[-1]->{time} - $entries[0]->{time} >= 60 * 60 * 24 * 365) {
             $ENV{HISTTIMEFORMAT} = '%Y/%m/%d - %H:%M:%S';
         }
     }
@@ -171,38 +170,40 @@ if (@entries) {
     my @output;
     my %unique;
     for my $entry (@entries) {
-        if ( $opt{l} ) {
+        if ($opt{l}) {
             $unique{ $entry->{file} }++;
-        } else {
-            $datelen = length( strftime( $ENV{HISTTIMEFORMAT}, localtime(1) ) )
-              if not $datelen;
-            my $dateout = strftime( $ENV{HISTTIMEFORMAT}, localtime( $entry->{time} ) );
-            if ( $entry->{mark_entry} ) {
+        }
+        else {
+            $datelen = length(strftime($ENV{HISTTIMEFORMAT}, localtime(1)))
+                if not $datelen;
+            my $dateout = strftime($ENV{HISTTIMEFORMAT}, localtime($entry->{time}));
+            if ($entry->{mark_entry}) {
                 $entry->{cmd} = '=> ' . $entry->{cmd};
             }
             my @cmdout = (
-                ( $entry->{B} ? @{ $entry->{B} } : () ),
-                $entry->{cmd}, ( $entry->{A} ? @{ $entry->{A} } : () )
+                ($entry->{B} ? @{ $entry->{B} } : ()),
+                $entry->{cmd}, ($entry->{A} ? @{ $entry->{A} } : ())
             );
             $cmdout[0] = "$dateout $cmdout[0]";
-            if ( @cmdout > 1 ) {
-                for my $ci ( 1 .. scalar(@cmdout) - 1 ) {
-                    if ( $cmdout[$ci] =~ m/^=> / ) {
-                        $cmdout[$ci] = ' ' x ( $datelen - 2 ) . $cmdout[$ci];
-                    } else {
-                        $cmdout[$ci] = ' ' x ( $datelen + 1 ) . $cmdout[$ci];
+            if (@cmdout > 1) {
+                for my $ci (1 .. scalar(@cmdout) - 1) {
+                    if ($cmdout[$ci] =~ m/^=> /) {
+                        $cmdout[$ci] = ' ' x ($datelen - 2) . $cmdout[$ci];
+                    }
+                    else {
+                        $cmdout[$ci] = ' ' x ($datelen + 1) . $cmdout[$ci];
                     }
                 }
             }
             push @output,
-              @cmdout,
-              ( $entry->{dir}  ? ' ' x ( $datelen + 5 ) . "($entry->{dir})"         : () ),
-              ( $entry->{file} ? "\n" . ' ' x ( $datelen + 5 ) . "($entry->{file})" : () );
+                @cmdout,
+                ($entry->{dir}  ? ' ' x ($datelen + 5) . "($entry->{dir})"         : ()),
+                ($entry->{file} ? "\n" . ' ' x ($datelen + 5) . "($entry->{file})" : ());
         }
     }
-    if ( $opt{l} ) {
+    if ($opt{l}) {
         @output = sort keys %unique if $opt{l};
     }
-    say( map { "$_\n" } @output )
-      if (@output);
+    say(map {"$_\n"} @output)
+        if (@output);
 }

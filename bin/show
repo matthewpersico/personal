@@ -6,14 +6,16 @@
 declare o_width=1056
 declare o_height=500
 declare do_join=0
+declare do_center=1
+declare do_unique=1
 declare renderer='yad'
 declare -a renderer_args
 
 # Define the options. ':' suffix for a mandatory value to an option, '::' for
 # an optional one. Note that the long and short don't have to match up.
 declare OPTSARGS
-declare shortopts='w:h:njt'
-declare longopts='width:,height:,help,join,tail'
+declare shortopts='w:h:njtc'
+declare longopts='width:,height:,help,join,tail,center,no-center,no-c,unique,no-unique,no-u'
 
 # Parse args.
 if ! OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@"); then
@@ -58,6 +60,18 @@ while true && [[ $1 =~ ^- ]]; do
         t | tail)
             renderer_args+=(--tail)
             ;;
+        c | center )
+            do_center=1
+            ;;
+        no-c | no-center )
+            do_center=0
+            ;;
+        u| unique )
+            do_unique=1
+            ;;
+        no-u | no-unique )
+            do_unique=0
+            ;;
         --)
             break ;; ## VITAL!!! Exits the while loop, no more options,
                      ## remaining $*, if any, are args
@@ -69,7 +83,16 @@ while true && [[ $1 =~ ^- ]]; do
     esac
 done
 
-renderer_args+=(--text-info --title="$*")
+declare title="$*"
+if (( do_unique )); then
+    declare winid
+    winid=$(xwininfo -name "$title" 2>/dev/null | awk '/xwininfo:/ {print $4}' )
+    if [[ -n $winid ]]; then
+        cmd-echo --id show --ec "There is already a show window with this title..."
+        false; exit
+    fi
+fi
+renderer_args+=(--text-info --title="$title" --buttons-layout=center)
 
 declare do_filt=cat
 declare -a cmd
@@ -96,7 +119,13 @@ else
     cmd=('cat' '-')
 fi
 
-renderer_args+=(--width="$o_width" --height="$o_height")
+if ((do_center)); then
+    declare geo
+    geo=$(x-current-root --geo "$o_width" "$o_height")
+    renderer_args+=(--geometry="$geo")
+else
+    renderer_args+=(--width="$o_width" --height="$o_height")
+fi
 
 if ((do_join)); then
     "${cmd[@]}" 2>&1 | $do_filt | $renderer "${renderer_args[@]}" &
@@ -111,17 +140,17 @@ show - put command line output to a gui coompnent
 
 =head1 SYNOPSIS
 
- show [-w|-width] pixels] [-h|--height] pixels] \
+ show [-w|-width] pixels] [-h|--height] pixels] [-c|-[no-]center]\
      [-j|--join] [-t|--tail] [--] command [args...]
 
  command [args...] [ | command [args...] ]\
-     | show [-w|-width] pixels] [-h|--height] pixels] \
+     | show [-w|-width] pixels] [-h|--height] pixels] [-c|--[no-]center]  \
           [-j|--join] [-t|--tail] [--]
  show --help
 
 =head1 DESCRIPTION
 
-Takes the output of the command or the last output of a pipelineand feeds it to
+Takes the output of the command or the last output of a pipeline and feeds it to
 gui text box.  This is good for long outputs that you would either have to page
 or scroll in a terminal.
 
@@ -141,7 +170,12 @@ or scroll in a terminal.
 
 =item --width/--height
 
-Specify a starting size for the text box.
+Specify a starting size for the text box. Default is 1056x500.
+
+=item --[no-]center
+
+Center (or not) the dialog on the root screen (typically the whole
+window). --center is the default.
 
 =item --join
 

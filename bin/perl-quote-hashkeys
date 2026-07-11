@@ -1,0 +1,91 @@
+#!/usr/bin/env perl
+
+use 5.16.0;
+use strict;
+use warnings;
+
+use PPI;
+use Getopt::Long qw(GetOptions);
+use File::Temp qw(tempfile);
+use File::Copy qw(move);
+
+my $overwrite = 0;
+my $check     = 0;
+
+GetOptions(
+    'overwrite|o' => \$overwrite,
+    'check|c'     => \$check,
+) or die "Usage: $0 [-o] [-c] file...\n";
+
+@ARGV or die "Usage: $0 [-o] [-c] file...\n";
+
+my $changed_any = 0;
+
+for my $file (@ARGV) {
+    my $doc = PPI::Document->new($file)
+        or die "Could not parse $file\n";
+
+    my $changed = 0;
+
+    my $subs = $doc->find('PPI::Structure::Subscript') || [];
+
+    for my $sub (@$subs) {
+        my @children = $sub->schildren;
+
+        next unless @children == 1;
+
+        my $key = $children[0];
+
+        # $h{foo} -> $h{'foo'}
+        if ($key->isa('PPI::Token::Word')) {
+            my $word = $key->content;
+
+            # Avoid special-looking words just in case
+            next unless $word =~ /\A[A-Za-z_][A-Za-z0-9_]*\z/;
+
+            $key->set_content("'" . $word . "'");
+            $changed = 1;
+            next;
+        }
+
+        # $h{"foo"} -> $h{'foo'}
+        if ($key->isa('PPI::Token::Quote::Double')) {
+            my $content = $key->content;
+
+            next unless $content =~ /\A"(.*)"\z/s;
+
+            my $inner = $1;
+
+            # Be conservative: skip anything with interpolation or escapes
+            next if $inner =~ /[$@\\]/;
+
+            $key->set_content("'" . $inner . "'");
+            $changed = 1;
+            next;
+        }
+    }
+
+    next unless $changed;
+
+    $changed_any = 1;
+
+    if ($check) {
+        say "$file would change";
+        next;
+    }
+
+    my $new = $doc->serialize;
+
+    if ($overwrite) {
+        my ($fh, $tmp) = tempfile(".hashkeys.XXXXXX", DIR => ".", UNLINK => 0);
+        print {$fh} $new;
+        close $fh or die "Could not close temp file $tmp: $!";
+
+        move($tmp, $file) or die "Could not replace $file: $!";
+    }
+    else {
+        print $new;
+    }
+}
+
+exit($check && $changed_any ? 1 : 0);

@@ -39,30 +39,41 @@ if [[ ( $CRON && $AUTOLOAD_TRACK =~ :cron:) \
     _git_mopenv_do_echo=true
 fi
 
+## Make sure that the PS1 functions are loaded...
 if ! declare -F | grep -q __git_ps1; then
     $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "__git_ps1 not loaded."
     declare shl
     shl="$(hash -r; "${REALGIT}" --exec-path)/git-sh-prompt"
     if [[ -e "$shl" ]]; then
         . "$shl"
-        safe_func_export __git_ps1
         $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "$shl loaded."
     else
         $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --warn "$shl not found."
     fi
 fi
 
-if ! declare -F | grep -q __git_complete; then
-    $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "__git_complete not loaded."
-    declare gitinstallroot
-    gitinstallroot=$(dirname "$(dirname "$REALGIT")")
-    declare shl="$gitinstallroot/share/bash-completion/completions/git"
-    if [[ -e "$shl" ]]; then
-        . "$shl"
-        safe_func_export __git_complete __git_sequencer_status __git_eread
-        $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "$shl loaded."
-    else
-        $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --warn "$shl not found."
+## ... and that they get exported to subshells
+declare -a git_ps1_funcs
+mapfile -t git_ps1_funcs < <( compgen -A function | grep __git_ps1 )
+declare git_ps1_func
+for git_ps1_func in "${git_ps1_funcs[@]}"; do
+    safe_func_export "$git_ps1_func"
+done
+
+if ((0)); then
+    ## git completion screws up file completion on it command lines
+    if ! declare -F | grep -q __git_complete; then
+        $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "__git_complete not loaded."
+        declare gitinstallroot
+        gitinstallroot=$(dirname "$(dirname "$REALGIT")")
+        declare shl="$gitinstallroot/share/bash-completion/completions/git"
+        if [[ -e "$shl" ]]; then
+            . "$shl"
+            safe_func_export __git_complete __git_sequencer_status __git_eread
+            $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --info "$shl loaded."
+        else
+            $_git_mopenv_do_echo && "$PERSONALBIN/cmd-echo" --id git.mopenv --warn "$shl not found."
+        fi
     fi
 fi
 

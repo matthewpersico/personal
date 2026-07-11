@@ -3,18 +3,145 @@
 
 # x-current-root
 
-if [[ "$1" = '--help' ]]; then
-    echo "usage: $0 [-width|-height|-h] [--help]"
-    echo "       Print width or height of the root window."
-    echo "       With no options, runs xwininfo --root."
-    true; exit
-fi
-if x-is-available; then
-    [[ -z $1 ]] && xwininfo -root && exit
+# <Function Class: gui>
+# <Function Justification: pass by ref>
+
+x-current-root ()
+{
+    if [[ "$1" = '--help' ]]; then
+        echo "usage: $0 [-w[idth]|-h]eight]]"
+        echo "       Print width or height of the root window."
+        echo ""
+        echo "usage: $0 [-w[idth]|-h]eight]] [var]"
+        echo "       Set variable 'var' to the width or height of the root window."
+        echo ""
+        echo "       $0 [-center] x y [dialogw dialogh]"
+        echo "       Set variables 'x' and 'y' (they can be any variables)"
+        echo "           to the root window center point."
+        echo "       If your provide a dialog's width and height,"
+        echo "           then x and y are the location of where"
+        echo "           to center the dialog on the screen."
+        echo ""
+        echo "       $0 [-geo] dialogw dialogh"
+        echo "       print a WxH+X+Y string that centers the dialog in"
+        echo "           to the root window center."
+        echo ""
+        echo "       $0 [-h]"
+        echo "       Print this help."
+        echo ""
+        echo "       With no options, runs xwininfo --root."
+        true; return
+    fi
+
+    if ! x-is-available; then
+        cmd-echo --id x-current-root "X is not available"
+        false; return
+    fi
+
+    [[ -z $1 ]] && xwininfo -root && return
+
+    declare field
     [[ "$1" =~ -w ]] && field=width
     [[ "$1" =~ -h ]] && field=height
-    xwininfo -root | sed -e 's/^\s\+//' | grep -iE "^${field}:" | sed 's/.* //'
-else
-    echo X is not available
-    false; exit
-fi
+    if [[ -n $field ]]; then
+        declare val
+        val=$(xwininfo -root | sed -e 's/^\s\+//' | grep -iE "^${field}:" | sed 's/.* //')
+        if [[ -n "$2" ]]; then
+            local -n _var="$2"
+            _var=$val
+        else
+            echo "$val"
+        fi
+        true; return
+    fi
+
+    declare rootw
+    rootw=$(xwininfo -root | sed -e 's/^\s\+//' | grep -iE "^width:" | sed 's/.* //')
+    declare rooth
+    rooth=$(xwininfo -root | sed -e 's/^\s\+//' | grep -iE "^height:" | sed 's/.* //')
+    declare xfactor
+    xfactor=$(local-screen-center-factor x)
+
+    if [[ "$1" =~ -center ]]; then
+        shift;
+        local -n _x="$1"; shift
+        local -n _y="$1"; shift
+        declare dw=0
+        declare dh=0
+        if (( $# == 2 )); then
+            dw="$1"
+            dh="$2"
+        fi
+        _x=$((rootw/xfactor - dw/2))
+        _y=$((rooth/2 - dh/2))
+        true; return
+    elif [[ "$1" =~ -geo ]]; then
+        shift;
+        if (( $# == 2 )); then
+            declare dw=$1
+            declare dh=$2
+            echo -n "${dw}x${dh}"
+        fi
+        declare x=$((rootw/xfactor - dw/2))
+        declare y=$((rooth/2 - dh/2))
+        echo "+${x}+${y}"
+        true; return
+    fi
+}
+autotrack x-current-root "$0"
+:<<'__PODUSAGE__'
+=head1 NAME
+
+x-current-root - various queries on the X setup
+
+=head1 SYNOPSIS
+
+  x-current-root [-w[idth]|-h[eight]]
+
+  x-current-root [-w[idth]|-h[eight]] var
+
+  x-current-root --center x y [dialogw dialogh]
+
+  x-current-root --geo dialogw dialogh
+
+  x-current-root -h
+
+  x-current-root
+
+=head1 DESCRIPTION
+
+Various queries on the root window.
+
+=head1 OPTIONS AND ARGUMENTS
+
+With no options or arguments, simply runs 'xwininfo -root'.
+
+=over 4
+
+=item -w[idth]|-h[eight]
+
+Print the width or height of the root X window (the screen). If you add the
+'var' argument, then 'var' will be set to value instead of printing the
+value. The function has a 'local -n' statement that does referencing-by-name.
+
+=item --center
+
+'x' and 'y' are arguments that will be set to the centerpoint of the root X
+window (the screen). The function has a 'local -n' statement that does
+referencing-by-name. If you provide the size of a dialog to print, then x and y
+will be the location at which to place that dialog to center it on the screen.
+
+=item --geo
+
+Print a WxH+X+Y geometry string that will center your dialog. The size of the
+dialog is required.
+
+=item -h
+
+Prints this help.
+
+=back
+
+=cut
+
+__PODUSAGE__

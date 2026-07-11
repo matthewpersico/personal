@@ -9,11 +9,32 @@ declare do_print
 do_print=1
 declare choices
 choices="y/n"
+declare gui=0
+declare title=yesno
 
 while [[ "$1" =~ ^- ]]; do
-    [[ "$1" =~ -nop ]] && do_print=0 && shift
-    [[ "$1" == -q ]] && choices="y/n/q" && shift
-    [[ "$1" == '--' ]] && shift
+    if [[ "$1" =~ -nop ]]; then
+        do_print=0
+        shift
+    elif [[ "$1" == -q ]]; then
+        choices="y/n/q"
+        shift
+    elif [[ "$1" =~ '--gui' ]]; then
+        gui=1
+        shift
+        IFS="=" read -ra parts <<< "$1"
+        if [[ -n ${parts[1]} ]]; then
+            title="${parts[1]}"
+        else
+            title="$1"
+            shift
+        fi
+    elif [[ "$1" == '--' ]]; then
+        shift
+    else
+        echo "[yesno] >>> '$1' is an invalid option."
+        false; exit
+    fi
 done
 
 declare prompt_text
@@ -21,16 +42,51 @@ prompt_text=$1;shift
 declare default
 default=$1;shift
 
-declare respyn
-respyn=$(pick "$prompt_text" "$choices" "$default")
+if (( gui == 0 )); then
+    declare respyn
+    respyn=$(pick "$prompt_text" "$choices" "$default")
 
-## Print response if asked, then exit as requested.
-((do_print)) && echo "$respyn"
-if [[ "$respyn" = 'y' ]]; then true
-elif [[ "$respyn" = 'n' ]]; then false
-else exit 2 ## 'q'
+    ## Print response if asked, then exit as requested.
+    ((do_print)) && echo "$respyn"
+    if [[ "$respyn" = 'y' ]]; then true
+    elif [[ "$respyn" = 'n' ]]; then false
+    else exit 2 ## 'q'
+    fi
+    exit
+else
+    declare -a yad_cmd=(
+        yad
+        --title "$title"
+        --text "$prompt_text?"
+        --on-top
+        --skip-taskbar
+        --button=Yes:0
+        --button=No:1
+        --buttons-layout=center
+        --geometry "$(x-current-root --geo)"
+    )
+    if [[ "$choices" == 'y/n/q' ]]; then
+        yad_cmd+=(--button=Quit:2)
+    fi
+
+    if [[ -n "$default" ]]; then
+        case ${default,,} in
+            q* )  yad_cmd+=(--default-button=Quit) ;;
+            y* )  yad_cmd+=(--default-button=Yes) ;;
+            n* )  yad_cmd+=(--default-button=No) ;;
+        esac
+    fi
+    "${yad_cmd[@]}"
+    declare status=$?
+    if ((do_print)); then
+        case $status in
+            0 ) echo 'y';;
+            1 ) echo 'n';;
+            2 ) echo 'q';;
+        esac
+    fi
+    exit $status
 fi
-exit
 
 # shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'

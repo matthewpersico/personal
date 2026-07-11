@@ -11,6 +11,7 @@ if [[ $1 =~ -id ]]; then
     shift
 fi
 
+declare -A related_args
 declare arg
 declare -a yesno_args
 declare -a other_args
@@ -18,10 +19,15 @@ while (($#)); do
     arg=$1; shift
     if [[ $arg =~ -(q|n|nop)$ ]]; then
         yesno_args+=("$arg")
+    elif [[ $arg =~ -gui ]]; then
+        related_args[gui]=1
     elif [[ $arg =~ ^-$ ]]; then
         cmd_echo_args+=("$arg")
-    elif [[ $arg =~ -(id|color)$ ]]; then
+    elif [[ $arg =~ -color$ ]]; then
         cmd_echo_args+=("$arg" "$1")
+        shift
+    elif [[ $arg =~ -id$ ]]; then
+        related_args[id]="$1"
         shift
     else
         other_args+=("$arg")
@@ -33,5 +39,13 @@ done
 ## ${cmd_echo_args[@]}.
 cmd_echo_args+=("${other_args[0]}")
 other_args=("${other_args[@]:1}")
+
+if [[ -n ${related_args[id]} ]]; then
+    if [[ -n ${related_args[gui]} ]]; then
+        yesno_args+=(--gui "${related_args[id]}")
+    else
+        cmd_echo_args+=(--id "${related_args[id]}")
+    fi
+fi
 prompt_text="$(cmd-echo "${cmd_echo_args[@]}")"
 yesno "${yesno_args[@]}" "$prompt_text" "${other_args[@]}"

@@ -52,23 +52,33 @@ git ()
     # Apparently, you can't create a git alias for an extended or expanded git
     # script or function. So we alias them here and handle any arguments in the
     # alias expansion.
+    local alias='=' # Set to an impossible value instead of blank to avoid
+                    # false match in verbose check below.
     local -A git_aliases
     git_aliases=([wt]=worktree [st]=status [stx]='status -ext' [ls]=ls-files
                  [oops]='commit --oops' [fush]='push --force' [porce]='push --force'
                  [oof]='commit --oops --push --force')
-    local alias="$1"; shift
-    if [[ $alias == '--show-local-aliases' ]]; then
+    if [[ $1 == 'aliases' ]]; then
+        echo
+        cmd-echo --id 'GIT WRAPPER' "Aliases defined in git config files:"
+        ${REALGIT} aliases
+        echo
+        cmd-echo --id 'GIT WRAPPER' "Aliases defined in git wrapper function:"
         local key
         local k
         for key in $(for k in "${!git_aliases[@]}";do echo "$k";done|sort); do
-             echo "alias.$key ${git_aliases[$key]}";
-         done
-         true; return
+            echo "alias.$key ${git_aliases[$key]}";
+        done
+        true; return
     fi
-    local -a commands=("$alias")
-    if [[ -n ${git_aliases[$alias]} ]]; then
-        asplit "${git_aliases[$alias]}" -a commands
+    local -a commands
+    if [[ -n ${git_aliases[$1]} ]]; then
+        alias=$1
+        asplit "${git_aliases[$1]}" -a commands
+    else
+        commands=("$1")
     fi
+    shift
 
     # We made 'git' a function so that it would operate in the current process
     # space. This, in turn, means that any 'cd's that are executed by this
@@ -128,7 +138,6 @@ git ()
         fi
         commands[0]="${ex_ten_pan_d_command}"
         export GIT_DISPATCHER=inprogress
-
         "${commands[@]}" "${args[@]}"
         cmd_status=$?
     else

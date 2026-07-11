@@ -1,0 +1,106 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# script - A wrapper around the real 'script' that auto-sets the log, assuming
+# that the -c command, if set, is last on the command line.
+
+declare logfile
+declare help=0
+declare -a d_at
+declare real_script
+real_script=$(which -a script | grep -v "$(realpath "$0")" | head -1)
+
+while (($#)); do
+    case $1 in
+        -h | --help)
+            bash-usage "$0" man "$real_script"
+            exit
+            ;;
+        -l )
+            # Log file root name, replace with full logname.
+            logfile="$2.script.$(date +%Y_%m_%dT%H_%M_%S).pid_$$"
+            shift;shift;
+            d_at+=('-O' "$logfile" "$@")
+            break
+            ;;
+        -O )
+            # Grab log name for our own use, pass it on as is.
+            logfile="$2"
+            d_at+=("$@")
+            break
+            ;;
+        -c )
+            # Take if from the command, add to arg list.
+            logfile="$(basename "$2").script.$(date +%Y_%m_%dT%H_%M_%S).pid_$$"
+            d_at+=('-O' "$logfile" "$@")
+            break
+            ;;
+        * )
+            # Just pass it on.
+            d_at+=("$1")
+            shift
+            ;;
+    esac
+done
+
+if ((help==0)); then
+    if [[ -z $logfile ]]; then
+        # Interactive session. Name the log as such.
+        logfile="interactive.script.$(date +%Y_%m_%dT%H_%M_%S).pid_$$"
+        d_at=(-O "$logfile" "${d_at[@]}")
+    fi
+    cmd-echo --id script "Script file is: $logfile"
+    export "SCRIPT_LOG=$logfile"
+fi
+
+exec "$real_script" "${d_at[@]}"
+
+:<<'__MDUSAGE__'
+# NAME
+
+script - A wrapper around the 'script' command for better log handling
+
+# SYNOPSIS
+
+```
+script [-l logroot| [-O logname [-a] ] [other script args] -c command and args
+script -h|-help
+```
+
+# DESCRIPTION
+
+Wrap 'script' so that every session does not default to the log file
+'typescript', clobbering prior (or other current) sessions' output.
+
+# OPTIONS
+
+These options for log file name are processed in this order, first seen, first
+used.
+
+* -l logroot
+
+Set the log for the run to "\${logroot}.script.\$(date+%Y_%m_%dT%H_%M_%S).pid_\$$"
+
+* -O log
+
+This is the normal output specifier for 'script'; if we find it, we just pass
+it through.
+
+* -a
+
+Append the output to an existing log file. Only makes sense with -O.
+
+* -c
+
+If -l and -O have not been specified, then we take the first argument to the -c
+option, which should be the command to run, and use that as the logroot.
+
+* Neither of -l, -O or -c
+
+We set logroot to the string "interactive".
+
+* -h
+
+Print this help, followed by the man page for the real 'script' program..
+
+__MDUSAGE__
