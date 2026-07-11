@@ -30,10 +30,29 @@ Make a `${HOME}/.config` directory. Copy the `.github-pat` file into the directo
 ## Local Software
 
 We put stuff that we build in /opt/mop.
+
 ```
-sudo mkdir -p /opt/mop/build
+sudo mkdir -p /opt/mop
 sudo chown -R ${USER} /opt/mop
 ```
+
+If we are on a machine where we do not own /, then
+
+```
+sudo mkdir -p $HOME/opt/mop
+sudo chown -R ${USER} /opt/mop
+```
+
+In `.bash_profile`, the envvars
+
+```bash
+OPTROOT
+OPTSHARE
+OPTFONTS
+OPTBIN
+```
+
+will be set accordingly.
 
 ## Grab the repos
 
@@ -47,12 +66,14 @@ pwd
 GH_REMOTE_REF=git@github.com:matthewpersico
 git clone ${GH_REMOTE_REF}/.git-template.git .git-template
 ```
+
 ```
 vi ~/.gitconfig
     i[init]
     <TAB>templatedir = <EXPAND THE VALUE OF $HOME HERE>/.git-template
     :wq
 ```
+
 ```
 git clone ${GH_REMOTE_REF}/personal.git personal
 ```
