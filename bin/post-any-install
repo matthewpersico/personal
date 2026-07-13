@@ -2,7 +2,6 @@
 # shellcheck shell=bash
 # shellcheck disable=SC1090 #https://github.com/koalaman/shellcheck/wiki/SC1090
 # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
-# shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
 
 ## post-any-install
 ## Instructions to build an environment after a new install.
@@ -10,9 +9,9 @@
 
 use on_exit
 
-declare pai_opt=$OPTROOT
 declare pai_opt_user=$USER
 declare pai_opt_os=''
+declare pai_restart_file=${HOME}/.config/pai.restart
 declare pai_log
 
 ## The array variables for this script are stored in 'post-any-install.data'
@@ -31,35 +30,108 @@ pai-ce-patch-progress () {
 }
 
 pai-patch () {
-    declare package=$1
-    declare package_idx=$2
-    declare package_count=$3
+    local package_name=$1
+    local package_patch_dir=$2
+    local package_idx=$2
+    local package_count=$3
 
-    package=${package/PATCHED:/}
-    declare parts
-    IFS='@' read -ra parts <<< "$package"
-    pai-ce-patch-progress "${parts[0]}" "$package_idx" "$package_count"
-    (
-        cd "${parts[1]}" || { false; return; }
-        pai-ce "Building in $PWD"
-        ./pai-patch || { false; return; }
-    )
-    true
+    local package_name
+    local package_location
+
+    pai-ce-patch-progress "${package_name}" "$package_idx" "$package_count"
+    pai-patch-dispatch "$package_name" "$package_patch_dir" || { false; exit; }
+    return $?
 }
 
 pai-get-workspace () {
-    if [[ ! -d $pai_opt ]]; then
-        pai-ce --ec "$pai_opt does not exist."
+    if [[ ! -d $OPTROOT ]]; then
+        pai-ce --ec "$OPTROOT does not exist."
         false; return
     fi
 
-    declare pai_workspace=${pai_opt}/post-any-install
+    local pai_workspace=${OPTROOT}/post-any-install
     if [[ ! -d $pai_workspace ]]; then
         sudo mkdir -p "$pai_workspace"
         sudo chown "${pai_opt_user}" "${pai_workspace}"
     fi
 
     cd "$pai_workspace" || { false; return; }
+}
+
+pai-restart-write () {
+    cat <<EOF >"${pai_restart_file}"
+${FUNCNAME[1]} $1
+EOF
+
+    pai-ce "Wrote restart file ${pai_restart_file}, Saving state '${FUNCNAME[1]}', '$1'."
+}
+
+pai-restart-read () {
+    local -n func=$1;shift
+    local -n object=$1;shift
+
+    if [[ -r "${pai_restart_file}" ]]; then
+        read -r func object < "${pai_restart_file}"
+        pai-ce "Read restart file ${pai_restart_file}. Restarting $func with $object."
+    fi
+}
+
+pai-restart-clean () {
+    if [[ -r "${pai_restart_file}" ]]; then
+        \rm -f "${pai_restart_file}"
+        if [[ ! -r "${pai_restart_file}" ]]; then
+            pai-ce "Removed restart file '${pai_restart_file}'"
+        else
+            pai-ce --ec "Did not remove restart file '${pai_restart_file}':$!"
+        fi
+    fi
+}
+
+pai-package-attribs-ok () {
+#set -x
+    local input=$1
+    local query=$2
+    if [[ -n $3 ]]; then
+        local -n value=$3
+    else
+        local value
+    fi
+    if [[ -n $4 ]]; then
+        local -n package=$4
+    else
+        local package
+    fi
+
+    local -a attribs
+    IFS='@' read -ra attribs <<< "$input"
+    package=${attribs[0]}
+    attribs=("${attribs[@]:1}")
+    local ok=0 # success
+    local id
+    local val
+    for attrib in "${attribs[@]}"; do
+        IFS='=' read -r id val <<< "$attrib"
+        if [[ $id == "$query" ]]; then
+            # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+            value="$val"
+        fi
+
+        case $id in
+            os )
+                if [[ $val != "${pai_opt_os}" ]]; then
+                    pai-ce "Package $package limited to os $val. Skipping on $pai_opt_os..."
+                    ok=1 # failure
+                fi
+                ;;
+            patched )
+                # shellcheck disable=SC2034 #https://github.com/koalaman/shellcheck/wiki/SC2034
+                local noop # nothing to check
+                ;;
+        esac
+    done
+#set +x
+#pause
+    return $ok
 }
 
 # The '#action' tag is used to build the completion function and provide the
@@ -69,7 +141,7 @@ pai-get-workspace () {
 pai-sudo() { #action:wsl
     pai-ce 'Set up sudo'
 
-    declare sudoers_file=sudoers.$USER
+    local sudoers_file=sudoers.$USER
     cat <<EOSUDOERS >"$sudoers_file"
 $USER ALL=(ALL) NOPASSWD:ALL
 EOSUDOERS
@@ -92,15 +164,15 @@ pai-add-dpkg-repos () { #action
 
     ## Update the system
     pai-ce 'Update the system'
-    sudo apt update
-    sudo apt upgrade
+    sudo apt-get update
+    sudo apt-get upgrade
 }
 
 ## Add email support, primarily for cron
 pai-add-email-support () { #action
     pai-ce 'Add email support, primarily for cron'
 
-    sudo apt install -y --install-suggests ssmtp -y
+    sudo apt-get install -y --install-suggests ssmtp -y
 
     cat <<EOSSMTPCONF > ssmtp.conf
 root=matthew.persico@gmail.com
@@ -151,18 +223,35 @@ pai-check-passwd () { #action
 pai-debian-distro-packages () { #action
     pai-ce 'Install debian packages from distribution'
 
-    declare debian_package
-    # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
-    declare debian_package_count="${#pai_debian_distro_packages[@]}"
-    declare debian_package_idx=0
-    for debian_package in "${pai_debian_distro_packages[@]}"; do
-        echo
+    local restart_package=$1
+    if [[ -n $restart_package ]]; then
+        pai-ce "Restarting at $restart_package..."
+    fi
+
+    local debian_package_spec
+    local debian_package_count="${#pai_debian_distro_packages[@]}"
+    local debian_package_idx=0
+    local debian_package
+    for debian_package_spec in "${pai_debian_distro_packages[@]}"; do
         ((debian_package_idx+=1))
-        if [[ ! $debian_package =~ ^PATCHED: ]]; then
+
+        local debian_patch_dir # reset every loop
+        if [[ -n $restart_package && $restart_package != "$debian_package_spec" ]] \
+               || ! pai-package-attribs-ok "$debian_package_spec" 'patched' debian_patch_dir debian_package ; then
+            continue
+        fi
+        restart_package='' # Have to clear the restart if we hit it and got past it
+        echo
+
+        if [[ -z $debian_patch_dir ]]; then
             pai-ce-progress "$debian_package" "$debian_package_idx" "$debian_package_count"
-            sudo apt install -y --install-suggests "$debian_package"
+            if ! sudo apt-get install -y  "$debian_package"; then
+                pai-restart-write "$debian_package_spec"
+                false; return
+            fi
         else
-            if ! pai-patch "$debian_package" "$debian_package_idx" "$debian_package_count"; then
+            if ! pai-patch "$debian_package" "$debian_patch_dir" "$debian_package_idx" "$debian_package_count"; then
+                pai-restart-write "$debian_package_spec"
                 false; return
             fi
         fi
@@ -175,15 +264,32 @@ pai-debian-distro-packages () { #action
 pai-debian-local-packages () { #action
     pai-ce 'Install local debian packages'
 
-    declare debian_local_package
-    # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
-    declare debian_local_package_count="${#pai_debian_local_packages[@]}"
-    declare debian_local_package_idx=0
-    declare -a fdebian_local_packages # f => fully wildcard expanded
-    declare fdebian_local_package
-    for debian_local_package in "${pai_debian_local_packages[@]}"; do
-        echo
+    local debian_local_package_spec
+    local debian_local_package
+    local debian_local_package_count="${#pai_debian_local_packages[@]}"
+    if ((debian_local_package_count==0)); then
+        pai-ce -wc "No local debian packages to build."
+        true; return
+    fi
+
+    local restart_package=$1
+    if [[ -n $restart_package ]]; then
+        pai-ce "Restarting at $restart_package..."
+    fi
+
+    local debian_local_package_idx=0
+    local -a fdebian_local_packages # f => fully wildcard expanded
+    local fdebian_local_package
+    for debian_local_package_spec in "${pai_debian_local_packages[@]}"; do
         ((debian_local_package_idx+=1))
+
+        if [[ -n $restart_package && $restart_package != "$debian_local_package_spec" ]] \
+               || ! pai-package-attribs-ok "$debian_package_spec" '' '' debian_local_package ; then
+            continue
+        fi
+        restart_package='' # Have to clear the restart if we hit it and got past it
+        echo
+
         # shellcheck disable=SC2207 #https://github.com/koalaman/shellcheck/wiki/SC2207
         # shellcheck disable=SC2086 #https://github.com/koalaman/shellcheck/wiki/SC2086
         fdebian_local_packages=($(printf "%s\n" ${debian_local_package}*.deb | sed -e "s/^${debian_local_package}//" | sort -V | sed -e "s/^/${debian_local_package}/"))
@@ -192,7 +298,8 @@ pai-debian-local-packages () { #action
         fi
         if [[ ${#fdebian_local_packages[@]} == '0' ]]; then
             pai-ce -wc "$debian_local_package: No such package found."
-            continue
+            pai-restart-write "$debian_package"
+            false; return
         fi
         if (( ${#fdebian_local_packages[@]} > 1 )); then
             pai-ce -wc "$debian_local_package: More than one such package found."
@@ -206,55 +313,94 @@ pai-debian-local-packages () { #action
         fi
         if [[ $fdebian_local_package == 'Quit' ]] ; then break; fi
         pai-ce-progress "$fdebian_local_package" "$debian_local_package_idx" "$debian_local_package_count"
-        sudo apt install -y --install-suggests "$fdebian_local_package"
+        if ! sudo apt-get install -y "$fdebian_local_package"; then
+            pai-restart-write "$debian_local_package_spec"
+            false; return
+        fi
     done
 }
 
 pai-homebrew () { #action
     pai-ce 'Install homebrew packages'
 
-    curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh > ./homebrew_install.sh || { false; return; }
-    chmod +x ./homebrew_install.sh
-    ./homebrew_install.sh
+    (
+        curl -fsSL https://raw.githubusercontent.com/Homebrew/install/HEAD/install.sh > ./homebrew_install_new.sh || { false; exit; }
+        if [[ ! -r ./homebrew_install.sh ]] || \
+               [[ $(sha256sum ./homebrew_install.sh | sed 's/ .*//') != $(sha256sum ./homebrew_install_new.sh | sed 's/ .*//') ]]; then
+            mv ./homebrew_install_new.sh ./homebrew_install.sh || { false; exit; }
+            chmod +x ./homebrew_install.sh || { false; exit; }
+            ./homebrew_install.sh  || { false; exit; }
+        else
+            pai-ce "$(brew --version) is already the latest available version."
+        fi
+    )
+    local rc=$?
+    if ((rc != 0)); then
+        pai-restart-write "No-package-for-homebrew-install"
+        false; return
+    fi
 }
 
 pai-homebrew-packages () { #action
     pai-ce "Install homebrew packages"
 
+    local restart_package=$1
+    if [[ -n $restart_package ]]; then
+        pai-ce "Restarting at $restart_package..."
+    fi
+
     # Install
-    declare homebrew_package
-    # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
-    declare homebrew_package_count="${#pai_homebrew_packages[@]}"
-    declare homebrew_package_idx=0
-    for homebrew_package in "${pai_homebrew_packages[@]}"; do
-        echo
+    local homebrew_package_spec
+    local homebrew_package_count="${#pai_homebrew_packages[@]}"
+    local homebrew_package_idx=0
+    local homebrew_package
+    for homebrew_package_spec in "${pai_homebrew_packages[@]}"; do
         ((homebrew_package_idx+=1))
+
+        if [[ -n $restart_package && $restart_package != "$homebrew_package_spec" ]] \
+               || ! pai-package-attribs-ok "$homebrew_package_spec" '' '' homebrew_package; then
+            continue
+        fi
+        restart_package='' # Have to clear the restart if we hit it and got past it
+        echo
+
         pai-ce-progress "$homebrew_package" "$homebrew_package_idx" "$homebrew_package_count)"
-        brew install "$homebrew_package"
+        if ! brew install "$homebrew_package"; then
+            pai-restart-write "$homebrew_package_spec"
+            false; return
+        fi
     done
 }
 
 pai-snap-packages () { #action
     pai-ce "Install snap packages"
 
-    if [[ ! -f $HOME/personal/bin/homebrew.mopenv ]]; then
-        pai-ce -ec "Environment file $HOME/personal/bin/homebrew.mopenv not found. No homebrew package installations will take place."
-    else
-        # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
-        . "$HOME"/personal/bin/homebrew.mopenv
-
-        # Install
-        declare snap_package
-        # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
-        declare snap_package_count="${#pai_snap_packages[@]}"
-        declare snap_package_idx=0
-        for snap_package in "${pai_snap_packages[@]}"; do
-            echo
-            ((snap_package_idx+=1))
-            pai-ce-progress "$snap_package" "$snap_package_idx" "$snap_package_count)"
-            brew install "$snap_package"
-        done
+    local restart_package=$1
+    if [[ -n $restart_package ]]; then
+        pai-ce "Restarting at $restart_package..."
     fi
+
+    # Install
+    local snap_package_spec
+    local snap_package_count="${#pai_snap_packages[@]}"
+    local snap_package_idx=0
+    local snap_package
+    for snap_package_spec in "${pai_snap_packages[@]}"; do
+        ((snap_package_idx+=1))
+
+        if ! pai-package-attribs-ok "$snap_package_spec" '' '' snap_package \
+             || [[ -n $restart_package && $restart_package != "$snap_package_spec" ]]; then
+            continue
+        fi
+        restart_package='' # Have to clear the restart if we hit it and got past it
+        echo
+
+        pai-ce-progress "$snap_package" "$snap_package_idx" "$snap_package_count)"
+        if ! sudo snap install "$snap_package"; then
+            pai-restart-write "$snap_package_spec"
+            false; return
+        fi
+    done
 }
 
 pai-system-perl-modules () { #action
@@ -266,41 +412,71 @@ pai-system-perl-modules () { #action
     fi
     pai-ce "Using $SYS_PERL as system perl."
 
-    # Bootstrap cpan
-    pai-ce "cpan bootstraps"
-    sudo "$SYS_PERL" -S cpan install CPAN
+    local restart_package=$1
+    if [[ -n $restart_package ]]; then
+        pai-ce "Restarting at $restart_package..."
+    fi
 
-    pai-ce "Update cpan itself..."
-    sudo "$SYS_PERL" -S cpan install Log::Log4perl Text::Levenshtein App::cpanminus
+    if [[ -z $restart_package || "$restart_package" == "CPAN" ]]; then
+        # Bootstrap cpan
+        pai-ce "cpan bootstraps"
+        if ! sudo "$SYS_PERL" -S cpan install CPAN; then
+            pai-restart-write "CPAN"
+            false; return
+        fi
+    fi
+
+    if [[ -z $restart_package || "$restart_package" == "CPAN-bootstrap" ]]; then
+        pai-ce "Update cpan itself..."
+        if ! sudo "$SYS_PERL" -S cpan install Log::Log4perl Text::Levenshtein App::cpanminus; then
+            pai-restart-write "CPAN-bootstrap"
+            false; return
+        fi
+    fi
 
     # Now get modules
     pai-ce "Now using the list..."
-    declare perl_module
-    # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
-    declare perl_module_count="${#pai_system_perl_modules[@]}"
-    declare perl_module_idx=0
-    for perl_module in "${!pai_system_perl_modules[@]}"; do
-        echo
+
+    local perl_module_spec
+    local perl_module_count="${#pai_system_perl_modules[@]}"
+    local perl_module_idx=0
+    local perl_module
+    local sys
+    for perl_module_spec in "${pai_system_perl_modules[@]}"; do
         ((perl_module_idx+=1))
-        declare sys=${pai_system_perl_modules[$perl_module]}
+
+        if ! pai-package-attribs-ok "$perl_module_spec" 'src' sys perl_module \
+             || [[ -n $restart_package && "$restart_package" != "$perl_module" ]]; then
+            continue
+        fi
+        restart_package='' # Have to clear the restart if we hit it and got past it
+        echo
+
+        local rc
         case $sys in
             debian)
                 pai-ce-progress "dpkg: $perl_module" "$perl_module_idx" "$perl_module_count"
-                sudo apt install -y --install-suggests "$perl_module"
+                sudo apt-get install -y "$perl_module"
+                rc=$?
                 ;;
             cpan)
-                declare pm="$perl_module"
+                local pm="$perl_module"
                 pm="${pm//__/::}"
-                pai-ce-progress  "cpan:$pm" " $perl_module_idx" "$perl_module_count"
+                pai-ce-progress  "cpan: $pm" " $perl_module_idx" "$perl_module_count"
                 sudo "$SYS_PERL" -S cpanm "$pm"
+                rc=$?
                 ;;
         esac
+        if ((rc!=0)); then
+            pai-restart-write "$perl_module"
+            false; return
+        fi
     done
 }
 
 pai-perlbrew-make-alias-name () {
-    declare perl_installation=$1
-    declare perl_installation_alias
+    local perl_installation=$1
+    local perl_installation_alias
     perl_installation_alias=${perl_installation#perl-}
     perl_installation_alias=${perl_installation_alias%.*}
     echo "$perl_installation_alias"
@@ -309,13 +485,20 @@ pai-perlbrew-make-alias-name () {
 pai-perlbrew () { #action
     pai-ce 'Install perlbrew and perl installations'
 
-    export PERLBREW_ROOT=/opt/mop/perlbrew
-    curl -L https://install.perlbrew.pl > ./perlbrew_install.sh || { false; return; }
-    chmod +x ./perlbrew_install.sh
-    ./perlbrew_install.sh
+    export PERLBREW_ROOT=$OPTROOT/perlbrew
+    curl -L https://install.perlbrew.pl > ./perlbrew_install_new.sh || { false; return; }
+    if [[ ! -r ./perlbrew_install.sh ]] || \
+           [[ $(sha256sum ./perlbrew_install.sh | sed 's/ .*//') != $(sha256sum ./perlbrew_install_new.sh | sed 's/ .*//') ]]; then
+        mv ./perlbrew_install_new.sh ./perlbrew_install.sh || { false; return; }
+        chmod +x ./perlbrew_install.sh || { false; return; }
+        ./perlbrew_install.sh  || { false; return; }
+    else
+        pai-ce "$(perlbrew --version) is already the latest available version."
+        true; return
+    fi
 
-    declare perlbrew_rc=$PERLBREW_ROOT/etc/bashrc
-    if ! grep $perlbrew_rc "$HOME/personal/bin/perl.mopenv" ; then
+    local perlbrew_rc=$PERLBREW_ROOT/etc/bashrc
+    if ! grep "$perlbrew_rc" "$HOME/personal/bin/perl.mopenv" ; then
         pai-ce "Adding '$perlbrew_rc' to '$HOME/personal/bin/perl.mopenv'..."
         cat << EOF >> "$HOME/personal/bin/perl.mopenv"
 
@@ -332,7 +515,7 @@ EOF
     perlbrew install-patchperl
 
     # List of perl versions we care about
-    declare -a perl_installations_to_install
+    local -a perl_installations_to_install
     if [[ -n $1 ]]; then
         perl_installations_to_install=("$@")
     else
@@ -341,15 +524,15 @@ EOF
 
     pai-ce "Installing perl versions ${perl_installations_to_install[*]}"
 
-    declare perl_installation
+    local perl_installation
     for perl_installation in "${perl_installations_to_install[@]}"; do
         if perlbrew install "$perl_installation"; then
 
             # Alias
-            declare perl_installation_alias
+            local perl_installation_alias
             perl_installation_alias=$(pai-perlbrew-make-alias-name "$perl_installation")
             if perlbrew alias create "$perl_installation" "$perl_installation_alias" 2>&1 | grep -q 'already exists'; then
-                declare existing_alias_value
+                local existing_alias_value
                 existing_alias_value=$(perlbrew exec --with "$perl_installation_alias" perl -e '$v=$^V;$v=~s/v/perl-/;print $v')
                 pai-ce "Moving existing alias $perl_installation_alias from $existing_alias_value to $perl_installation"
                 perlbrew alias delete "$perl_installation_alias"
@@ -364,7 +547,6 @@ EOF
 pai-perlbrew-modules () { #action
     pai-ce "Install CPAN modules to perlbrew"
 
-    # shellcheck disable=SC2031 #https://github.com/koalaman/shellcheck/wiki/SC2031
     if [[ -z $PERLBREW_ROOT ]]; then
         pai-ce "perlbrew not initialized in this shell. Will source \"$PERLBREW_ROOT/etc/bashrc\"."
         source "$PERLBREW_ROOT/etc/bashrc"
@@ -372,13 +554,13 @@ pai-perlbrew-modules () { #action
 
     # Bootstrap. This installation is good across all perlbrew perls. But date
     # check it.
-    declare pai_pbm_date_file="$HOME/.config/pai-perlbrew-modules-date"
+    local pai_pbm_date_file="$HOME/.config/pai-perlbrew-modules-date"
     if [[ ! -f $pai_pbm_date_file ]]; then
         date +%s > "$pai_pbm_date_file"
     fi
-    declare pai_pbm_date_last
+    local pai_pbm_date_last
     pai_pbm_date_last=$(cat "$pai_pbm_date_file")
-    declare now
+    local now
     now=$(date +%s)
     if ((now - pai_pbm_date_last> 60 * 60 * 24)); then
         perlbrew install-cpanm --force
@@ -388,7 +570,7 @@ pai-perlbrew-modules () { #action
     fi
 
     # List of perl versions we care about
-    declare perl_installations
+    local perl_installations
     if [[ -n $1 ]]; then
         ajoin perl_installations -s , "$@"
     else
@@ -396,23 +578,38 @@ pai-perlbrew-modules () { #action
     fi
     pai-ce "Installing modules in $perl_installations"
 
+    local restart_package=$1
+    if [[ -n $restart_package ]]; then
+        pai-ce "Restarting at $restart_package..."
+    fi
+
     # Install
-    declare perl_module
-    # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
-    declare perl_module_count="${#pai_perl_modules[@]}"
-    declare perl_module_idx=0
-    for perl_module in "${pai_perl_modules[@]}"; do
-        echo
+    local perl_module_spec
+    local perl_module_count="${#pai_perl_modules[@]}"
+    local perl_module_idx=0
+    local perl_module
+    local perl_patch_dir
+    for perl_module_spec in "${pai_perl_modules[@]}"; do
         ((perl_module_idx+=1))
-        if [[ ! $perl_module =~ ^PATCHED: ]]; then
+
+        perl_patch_dir='' # reset every loop
+        if ! pai-package-attribs-ok "$perl_module_spec" 'patched' perl_patch_dir perl_module \
+             || [[ -n $restart_package && $restart_package != "$perl_module_spec" ]] ; then
+            continue
+        fi
+        restart_package='' # Have to clear the restart if we hit it and got past it
+        echo
+
+        if [[ -z $perl_patch_dir ]]; then
             pai-ce-progress "$perl_module" "$perl_module_idx" "$perl_module_count"
             if ! perlbrew exec --with "$perl_installations" cpanm "$perl_module"; then
-                pai-ce --ec "$perl_module... ($perl_module_idx/$perl_module_count)  $(date)"
                 cat "$HOME/.cpanm/build.log"
-                break
+                pai-restart-write "$perl_module_spec"
+                false; return
             fi
         else
-            if ! pai-patch "$perl_module" "$perl_module_idx" "$perl_module_count"; then
+            if ! pai-patch "$perl_module" "$perl_patch_dir" "$perl_module_idx" "$perl_module_count"; then
+                pai-restart-write "$perl_module_spec"
                 false; return
             fi
         fi
@@ -427,11 +624,14 @@ pai-perlbrew-modules () { #action
 pai-build-oss () { #action
 
     # Set up the install dir
-    declare build_root="${pai_opt}/build"
+    local build_root="${OPTROOT}/build"
     if [[ ! -d $build_root ]]; then
         sudo mkdir -p "${build_root}"
         sudo chown -R "${USER}:${USER}" "${build_root}"
     fi
+
+    declare return_to
+    return_to=$(pwd)
     cd "${build_root}" || { false; return; }
     github-clone matthewpersico/oss
     cd oss || { false; return; }
@@ -445,43 +645,51 @@ pai-build-oss () { #action
             git push -u origin "$(hostname)"
         fi
     )
-    declare git_dq=$?
-    if ((git_dq != 0)); then
+    local rc=$?
+    if ((rc)); then
+        cd "$return_to" || exit
         false; return
     fi
 
     # Build and install everything
-    declare prog
+    local prog
     for prog in "${build_root}"/*; do
         (
-            cd "$prog" || { false; return; }
-            declare ver
-            # shellcheck disable=SC2012 #https://github.com/koalaman/shellcheck/wiki/SC2012
-            ver=$(ls -c1 | sort -V | tail -1)
-            build-oss --clean "$prog" "$ver"
+            cd "$prog" || { false; exit; }
+            local ver
+            ver=$(basename "$(find . -maxdepth 1 | sort -V | tail -1 )")
+            build-oss "$prog" "$ver"
         )
-    done
-
-    # Set up the branch sync for the repo
-    github-clone --tree matthewpersico/oss
-    declare -a branches
-    mapfile branches < <(git branch --list --remote | grep -v -- '->' | grep origin/ | sed 's/origin\///')
-    for branch in "${branches[@]}"; do
-        if ! git branch --list | grep -E "\* $branch$"; then
-            git checkout -b "$branch" --track "origin/$branch"
+        local rc=$?
+        if ((rc)); then
+            false; return
         fi
     done
+
+    # Set up the repo for branch syncing.
+    declare repo_dir
+    repo_dir=$(git-go --listfull oss)
+    if [[ -z "$repo_dir" ]]; then
+        github-clone --tree matthewpersico/oss
+        local -a branches
+        mapfile branches < <(git branch --list --remote | grep -v -- '->' | grep origin/ | sed 's/origin\///')
+        for branch in "${branches[@]}"; do
+            if ! git branch --list | grep -E "\* $branch$"; then
+                git checkout -b "$branch" --track "origin/$branch"
+            fi
+        done
+    fi
 }
 
 main () {
-    source "post-any-install.data"
+    source "$(dirname "$0")/post-any-install.data"
 
     # Read the options and args from command line. Note that the long and short
     # don't have to match up.
-    declare OPTSARGS
-    declare shortopts=''
-    declare longopts='os:,nolog,no-log'
-    declare opt_log=1
+    local OPTSARGS
+    local shortopts=''
+    local longopts='os:,nolog,no-log'
+    local opt_log=1
 
     # Process the command line.
     OPTSARGS=$(getopt -a -o "$shortopts" -l "${longopts}" -n "${FUNCNAME[0]}" -- "$@") || return
@@ -491,7 +699,7 @@ main () {
 
     # Reprocess the command line, extracting options and their arguments into
     # variables.
-    declare option
+    local option
     while [[ $1 =~ ^- ]]; do
         option=$1
         shift
@@ -543,17 +751,17 @@ main () {
     fi
 
     # This is the default order to run in if specifying 'all'.
-    declare -a actions_data
+    local -a actions_data
     mapfile -t actions_data < <(grep '()\s*{\s*#action' "$0" )
 
-    declare -a valid_actions_list
-    declare -A valid_actions_os_map
+    local -a valid_actions_list
+    local -A valid_actions_os_map
     for data in "${actions_data[@]}"; do
-        declare action
+        local action
         action=$(sed -e 's/^pai-//' -e 's/\s*().*//' <<< "$data")
         valid_actions_list+=("$action")
 
-        declare os
+        local os
         os=$(sed -E -e 's/.*#action(:){0,1}\s*//' <<< "$data")
         [[ -z $os ]] && os=$pai_opt_os
         valid_actions_os_map[$action]=$os
@@ -569,12 +777,27 @@ main () {
         true; exit
     fi
 
-    declare action
-    declare -a execute
+    local action
+    local -a execute
     while (($#)); do
         action=$1
         shift;
-        if [[ $action == 'all' ]]; then
+        if [[ $action != 'restart' ]] && \
+           [[ -r "${pai_restart_file}" ]]; then
+            pai-ce "Restart file '${pai_restart_file}' found. Either rerun with action 'restart' or remove the file before rerunning."
+            false; exit
+        fi
+        if [[ $action == 'restart' ]]; then
+            if [[ ! -r "${pai_restart_file}" ]]; then
+                pai-ce "Restart file '${pai_restart_file} found not found. Rerun with a different action."
+                false; exit
+            else
+                local restart_action
+                local restart_object
+                pai-restart-read restart_action restart_object
+                execute+=("$restart_action~~~$restart_object")
+            fi
+        elif [[ $action == 'all' ]]; then
             execute=("${valid_actions_list[@]}")
             break
         elif [[ -n ${valid_actions_os_map[$action]} ]]; then
@@ -588,13 +811,26 @@ main () {
     source "$(realpath "$0").data"
 
     for action in "${execute[@]}"; do
+        local func_name
+        local -a func_args
+
+        if [[ $action =~ ~~~ ]]; then
+            func_name=${action%%~~~*}
+            func_args+=("${action##*~~~}")
+        else
+            func_name="pai-$action"
+        fi
+
         if [[ "$pai_opt_os" =~ ${valid_actions_os_map[$action]} ]] ;then
-            declare func_name="pai-$action"
-            "$func_name" || exit
+            pai-ce --debug "$func_name" "${func_args[@]}"
+            "$func_name" "${func_args[@]}" || exit
         else
             pai-ce --ec "$action only available on ${valid_actions_os_map[$action]}, not $pai_opt_os. Skipping..."
         fi
+
     done
+
+    pai-restart-clean
 }
 
 main "$@"

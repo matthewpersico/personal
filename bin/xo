@@ -8,208 +8,246 @@
 ## Filters in where parent ppid is 1 (in case emacs is running a perl debugger
 ## or some other subprocess)
 
+xo-ce () {
+    cmd-echo --id xo "$@"
+}
+
+declare emacs_exe
+emacs_exe=$(type -P emacs)
+if [[ -z $emacs_exe ]] ; then
+    xo-ce --ec "No emacs executable found. Bye!"
+    false; exit
+fi
+
 use mktemp
 use on_exit
 
-debug=0
-forceX=0
-emacs_exe=$(type -P emacs)
-if [[ -z $emacs_exe ]] ; then
-    echo "No emacs executable found. Bye!"
-    false; exit
-fi
-emacsclient_exe="${emacs_exe}client"
-declare -a git_is_mod ## These are modified files in a git repo
-declare -a which      ## We used to use the 'which' utility to find these
-declare -a org        ## The org file
-declare as_visual=0
-declare new_frame=0
-declare more_opts=1
-declare nobg=0
-declare use_rc=1
-declare xo_verbose=0
-declare files_only=0
-declare stdin_file=''
-declare opt_iso=0
-declare serverup=0
+main () {
+    debug=0
+    forceX=0
+    emacsclient_exe="${emacs_exe}client"
+    local -a git_is_mod ## These are modified files in a git repo
+    local -a which      ## We used to use the 'which' utility to find these
+    local -a org        ## The org file
+    local as_visual=0
+    local new_frame=0
+    local nobg=0
+    local use_rc=1
+    local xo_verbose=0
+    local files_only=0
+    local stdin_file=''
+    local opt_iso=0
+    local serverup=0
+    local force_x=0
+    local -a emacs_opts
 
-declare -a emacs_opts
-while ((more_opts)) && [[ "$1" =~ ^- ]]; do
-    original="$1"
-    option=$(dashstripper "$1")
-    shift ## That way you avoid endless loops on invalid options.
+    # Set up args and options.
+    local OPTSARGS
+    local orig_args="$*"
+    local shortopts='xS:h'
+    local longopts1='geo-only,nobg,debug-init,debug,forceX,which:,root:,exe:'
+    local longopts2='gim,nf,todo,org,norc,xov,fo,files-only,std:stdin-file:'
+    local longopts3='iso,isolated,force-x,help,visual'
+    local longopts="${longopts1},${longopts2},${longopts3}"
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@") || exit
 
-    case $option in
-        geo-only )
-            declare rootx=$(( $(x-current-root -w)/2 ))
-            declare rooty=$(( $(x-current-root -h)/6 ))
-            if ((nobg)); then
-                $emacs_exe -g +${rootx}+${rooty} "$@"
-            else
-                $emacs_exe -g +${rootx}+${rooty} "$@" &
-            fi
-            true; exit
-            ;;
-        nobg )
-            nobg=1
-            ;;
-        debug-init )
-            emacs_opts+=('--debug-init') ;;
-        debug | x ) set -x; debug=1 ;; # OK if you are grepping
-        forceX ) forceX=1 ;;
-        which )
-            declare tmp
-            tmp=$(type -P "$1")
-            shift
-            if [[ -z "$tmp" ]]; then
-                cmd-echo --id xo -wc -- "$1 not found; skipping"
-            else
-                which+=("$tmp")
-            fi
-            ;;
-        root )
-            emacs_exe="$1/emacs"
-            emacsclient_exe="$1/emacsclient"
-            declare i
-            for i in $emacs_exe $emacsclient_exe; do
-                [[ -x "$i" ]] || (cmd-echo --id xo "Cannot find '$i'. --root cannot be used." && { false; exit; });
-            done
-            shift
-            ;;
-        exe )
-            emacs_exe="$1"
-            emacsclient_exe="${1}client"
-            declare i
-            for i in $emacs_exe $emacsclient_exe; do
-                [[ -x "$i" ]] || (cmd-echo --id xo "Cannot find '$i'. --root cannot be used." && { false; exit; });
-            done
-            shift
-            ;;
-        gim )
-            if git repo isa; then
-                mapfile -t git_is_mod < <(git what is mod 2>/dev/null)
-                if [[ -z "${git_is_mod[0]}" ]]; then
-                    if ! git root 2>/dev/null 1>&2; then
-                        cmd-echo --id xo -- "--gim not allowed; not in a git repo"
-                    else
-                        cmd-echo --id xo -- "No modified git files found."
-                    fi
-                    false; exit
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    # Reprocess the command line, extracting options. Options stop at '-- or
+    # the first string that does not start with a -. If there are strings that
+    # are values for the options, they probably will not start with
+    # dashes. However, they are processed and shifted off before we get back to
+    # this comparison.
+    while [[ $1 =~ ^- ]] ; do
+        original="$1"
+        local option=$1
+        shift
+        [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
+        ###############################################################
+        ## HEADS UP! There is now a completion function _xo_completion
+        ## that needs to be kept in sync with all the options here.
+        case $option in
+            geo-only )
+                local rootx=$(( $(x-current-root -w)/2 ))
+                local rooty=$(( $(x-current-root -h)/6 ))
+                if ((nobg)); then
+                    $emacs_exe -g +${rootx}+${rooty} "$@"
+                else
+                    $emacs_exe -g +${rootx}+${rooty} "$@" &
                 fi
-            else
-                cmd-echo --id xo "${PWD} is not a git repo. --gim ignored"
-            fi
-            ;;
-        nf )
-            new_frame=1
-            ;;
-        todo | org )
-            org=("$HOME/todo.org")
-            ;;
-        norc )
-            use_rc=0
-            ;;
-        xov )
-            xo_verbose=1
-            ;;
-        fo | files-only )
-            files_only=1
-            ;;
-        std| stdin-file )
-            stdin_file=$1
-            shift
-            ;;
-        iso | isolated )
-            opt_iso=1
-            ;;
-        help )
-            bash-usage "$0"; { true; exit; } ;;
-        -- )
-            more_opts=0
-            ;;
-        * )
-            cmd-echo --id xo -- "$original is an invalid option. See $0 --help"; { false; exit; } ;;
-    esac
-done
+                true; exit
+                ;;
+            nobg )
+                nobg=1
+                ;;
+            debug-init )
+                emacs_opts+=('--debug-init') ;;
+            debug | x ) set -x; debug=1 ;; # OK if you are grepping
+            forceX ) forceX=1 ;;
+            which | S)
+                local tmp
+                tmp=$(type -P "$1")
+                shift
+                if [[ -z "$tmp" ]]; then
+                    xo-ce -wc -- "$1 not found; skipping"
+                else
+                    which+=("$tmp")
+                fi
+                ;;
+            root | exe )
+                case $option in
+                    root )
+                        emacs_exe="$1/emacsdsdsds"
+                        emacsclient_exe="$1/emacsdsdssclient"
+                        ;;
+                    exe)
+                        emacs_exe="$1"
+                        emacsclient_exe="${1}client"
+                        ;;
+                esac
+                local i
+                local -a missing
+                for i in $emacs_exe $emacsclient_exe; do
+                    [[ ! -x "$i" ]] && missing+=("$i")
+                done
+                if [[ -n ${missing[0]} ]]; then
+                    xo-ce "Cannot find ${missing[*]}, $1 cannot be used for --$option." && { false; exit; };
+                fi
+                shift
+                ;;
+            gim )
+                if git repo isa; then
+                    mapfile -t git_is_mod < <(git what is mod 2>/dev/null)
+                    if [[ -z "${git_is_mod[0]}" ]]; then
+                        if ! git root 2>/dev/null 1>&2; then
+                            xo-ce -- "--gim not allowed; not in a git repo"
+                        else
+                            xo-ce -- "No modified git files found."
+                        fi
+                        false; exit
+                    fi
+                else
+                    xo-ce "${PWD} is not a git repo. --gim ignored"
+                fi
+                ;;
+            nf )
+                new_frame=1
+                ;;
+            todo | org )
+                org=("$HOME/todo.org")
+                ;;
+            norc )
+                use_rc=0
+                ;;
+            xov )
+                xo_verbose=1
+                ;;
+            fo | files-only )
+                files_only=1
+                ;;
+            std| stdin-file )
+                stdin_file=$1
+                shift
+                ;;
+            iso | isolated )
+                opt_iso=1
+                ;;
+            force-x )
+                force_x=1
+                ;;
+            help | h )
+                bash-usage "$0"; { true; exit; } ;;
+            -- ) break ;; ## VITAL!!! Exits the while loop, no more options,
+            ## remaining $*, if any, are args
+            * )
+                echo "<buffer-name>: '$original' is an invalid option."
+                echo "<buffer-name>: args: '$orig_args'"
+                local i
+                for (( i=${#BASH_SOURCE[@]}-1; i>=0; i-- )); do
+                    printf "  %s at %s:%s\n" "${FUNCNAME[i]}" "${BASH_SOURCE[i]}" "${BASH_LINENO[i]}"
+                done
+                false; exit
+                ;;
+        esac
+    done
 
-## Temp file for processing and diagnostic messages.
-procs=$(mktempfile xo.$$)
-rm_on_exit "$procs"
+    ## Temp file for processing and diagnostic messages.
+    procs=$(mktempfile xo.$$)
+    rm_on_exit "$procs"
 
-##
-## Main
-##
+    OS=$(uname -s)
 
-OS=$(uname -s)
-
-## Assume X or some other windowing system is available and do the needful if
-## not.
-hasX=1
-if [[ "$forceX" = '1' ]]; then
+    ## Assume X or some other windowing system is available and do the needful if
+    ## not.
     hasX=1
-elif [[ ! "$OS" = 'Cygwin' ]]; then
-    if ! type -P xmodmap >/dev/null; then
-        hasX=0
-    else
-        if xmodmap 2>&1 | grep -q 'unable to open display'; then
+    if [[ "$forceX" = '1' ]]; then
+        hasX=1
+    elif [[ ! "$OS" = 'Cygwin' ]]; then
+        if ! type -P xmodmap >/dev/null; then
             hasX=0
-        fi
-    fi
-fi
-
-if (( opt_iso == 0 )) ; then
-    ## See if there is a server running
-    if [[ -e $XDG_RUNTIME_DIR/emacs/server ]]; then
-        serverup=1
-    fi
-    if ((debug)); then
-        echo "serverup = $serverup"
-    fi
-
-    ## If we are being used as the git editor or EDITOR, we don't want to start
-    ## up such that the underlying process thinks we're done editing before we
-    ## are.
-    if [[ "$1" = '--visual' ]]; then
-        as_visual=1
-        shift
-    elif [[ "$1" = '--nf' ]] || [[ "$1" = '-nf' ]]; then
-        new_frame=1
-        shift
-    fi
-fi
-declare -a allfiles
-if [[ -p /dev/stdin ]]; then
-    if [[ -z $stdin_file ]]; then
-        stdin_file=$(mktempfile)
-        rm_on_exit "$stdin_file"
-    fi
-    declare tmpline
-    while read -r tmpline; do echo "$tmpline"; done > "$stdin_file"
-    allfiles=("$stdin_file")
-else
-    allfiles=("$@" "${org[@]}" "${git_is_mod[@]}" "${which[@]}")
-    if ((use_rc)) && [[ -r ./xo.rc ]] && [[ ${#allfiles[@]} == '0' ]]; then
-        declare xorcline
-        while read -r xorcline; do
-            declare -a xorcline_a
-            read -a xorcline_a -r <<< "$xorcline"
-            allfiles+=("${xorcline_a[@]}")
-        done < ./xo.rc
-        if (( ${#allfiles[@]} )); then
-            cmd-echo --id xo -- "Loading these files from ./xo.rc:" "${allfiles[@]}"
+        else
+            if xmodmap 2>&1 | grep -q 'unable to open display'; then
+                hasX=0
+            fi
         fi
     fi
 
-    if ((files_only)); then
-        declare tmpf
-        for tmpf in "${allfiles[@]}"; do
-            [[ -f $tmpf ]] && tmpa+=("$tmpf");
-        done
-        allfiles=("${tmpa[@]}")
-    fi
+    if (( opt_iso == 0 )) ; then
+        xo-ce "remaining args: $*"
+        ## See if there is a server running
+        if [[ -e $XDG_RUNTIME_DIR/emacs/server ]]; then
+            serverup=1
+        fi
+        if ((debug)); then
+            echo "serverup = $serverup"
+        fi
 
-    declare -a allfilesparsed
-    read -r -a allfilesparsed < <(perl -e '
+        ## If we are being used as the git editor or EDITOR, we don't want to start
+        ## up such that the underlying process thinks we're done editing before we
+        ## are.
+        ## TODO: Why in the world are we processing $1 and options here???
+        if [[ "$1" = '--visual' ]]; then
+            as_visual=1
+            shift
+        elif [[ "$1" = '--nf' ]] || [[ "$1" = '-nf' ]]; then
+            new_frame=1
+            shift
+        fi
+    fi
+    local -a allfiles
+    if [[ -p /dev/stdin ]]; then
+        if [[ -z $stdin_file ]]; then
+            stdin_file=$(mktempfile)
+            rm_on_exit "$stdin_file"
+        fi
+        local tmpline
+        while read -r tmpline; do echo "$tmpline"; done > "$stdin_file"
+        allfiles=("$stdin_file")
+    else
+        allfiles=("$@" "${org[@]}" "${git_is_mod[@]}" "${which[@]}")
+        if ((use_rc)) && [[ -r ./xo.rc ]] && [[ ${#allfiles[@]} == '0' ]]; then
+            local xorcline
+            while read -r xorcline; do
+                local -a xorcline_a
+                read -a xorcline_a -r <<< "$xorcline"
+                allfiles+=("${xorcline_a[@]}")
+            done < ./xo.rc
+            if (( ${#allfiles[@]} )); then
+                xo-ce -- "Loading these files from ./xo.rc:" "${allfiles[@]}"
+            fi
+        fi
+
+        if ((files_only)); then
+            local tmpf
+            for tmpf in "${allfiles[@]}"; do
+                [[ -f $tmpf ]] && tmpa+=("$tmpf");
+            done
+            allfiles=("${tmpa[@]}")
+        fi
+
+        local -a allfilesparsed
+        read -r -a allfilesparsed < <(perl -e '
 for (@ARGV) {
   @s = split(/:/, $_);
   if($s[-1] =~ m/^[0-9]+$/) {
@@ -221,61 +259,70 @@ for (@ARGV) {
     print qq($_ );
   }
 } ' "${allfiles[@]}")
-    allfiles=("${allfilesparsed[@]}")
-fi
+        allfiles=("${allfilesparsed[@]}")
+    fi
 
-if ((serverup==0)); then
-    if ((as_visual==0)) && ((new_frame==0)); then
-        if (( hasX )); then
-            declare rootx=$XTERMGEO_X
-            declare rooty=$XTERMGEO_Y
-            if ((nobg)); then
-                ((xo_verbose)) && set -x # OK if you are grepping
-                $emacs_exe -g "+${rootx}+${rooty}" \
-                           "${emacs_opts[@]}" "${allfiles[@]}"
-                ((xo_verbose)) && set +x # OK if you are grepping
+    if ((serverup==0)); then
+        if ((as_visual==0)) && ((new_frame==0)); then
+            if (( hasX )); then
+                local rootx=$XTERMGEO_X
+                local rooty=$XTERMGEO_Y
+                if ((nobg)); then
+                    ((xo_verbose)) && set -x # OK if you are grepping
+                    $emacs_exe -g "+${rootx}+${rooty}" \
+                               "${emacs_opts[@]}" "${allfiles[@]}"
+                    ((xo_verbose)) && set +x # OK if you are grepping
+                else
+                    ((xo_verbose)) && set -x # OK if you are grepping
+                    $emacs_exe -g "+${rootx}+${rooty}" \
+                               "${emacs_opts[@]}" "${allfiles[@]}" &
+                    ((xo_verbose)) && set +x # OK if you are grepping
+                fi
             else
                 ((xo_verbose)) && set -x # OK if you are grepping
-                $emacs_exe -g "+${rootx}+${rooty}" \
-                           "${emacs_opts[@]}" "${allfiles[@]}" &
+                $emacs_exe -nw \
+                           "${emacs_opts[@]}" "${allfiles[@]}" < /dev/tty
                 ((xo_verbose)) && set +x # OK if you are grepping
             fi
         else
-            ((xo_verbose)) && set -x # OK if you are grepping
-            $emacs_exe -nw \
-                       "${emacs_opts[@]}" "${allfiles[@]}" < /dev/tty
-            ((xo_verbose)) && set +x # OK if you are grepping
+            xo-ce "No emacs server found. Start one and try again or use -m."
         fi
-    else
-        cmd-echo --id xo "No emacs server found. Start one and try again or use -m."
-    fi
-elif ((serverup==1)); then
-    if ((${#allfiles[@]})); then
-        if ((new_frame)); then
-            if ((nobg)); then
+    elif ((serverup==1)); then
+        local -a command
+        if ((force_x)); then
+            command=(env -u WAYLAND_DISPLAY -u WAYLAND_SOCKET
+                     -u XDG_SESSION_TYPE GDK_BACKEND=x11 DISPLAY="$DISPLAY")
+        fi
+        command+=("$emacsclient_exe")
+        if ((${#allfiles[@]})); then
+            if ((new_frame)); then
+                if ((nobg)); then
+                    ((xo_verbose)) && set -x # OK if you are grepping
+                    "${command[@]}" -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs'
+                    ((xo_verbose)) && set +x # OK if you are grepping
+                else
+                    ((xo_verbose)) && set -x # OK if you are grepping
+                    "${command[@]}" -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs' &
+                    ((xo_verbose)) && set +x # OK if you are grepping
+                fi
+            elif ((as_visual==1)); then
                 ((xo_verbose)) && set -x # OK if you are grepping
-                $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs'
+                "${command[@]}" -c "${emacs_opts[@]}" "${allfiles[@]}"
                 ((xo_verbose)) && set +x # OK if you are grepping
             else
                 ((xo_verbose)) && set -x # OK if you are grepping
-                $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}" | grep -v 'Waiting for Emacs' &
+                "${command[@]}"  -n -a "$emacs_exe" "${emacs_opts[@]}" "${allfiles[@]}"
                 ((xo_verbose)) && set +x # OK if you are grepping
             fi
-        elif ((as_visual==1)); then
-            ((xo_verbose)) && set -x # OK if you are grepping
-            $emacsclient_exe -c "${emacs_opts[@]}" "${allfiles[@]}"
-            ((xo_verbose)) && set +x # OK if you are grepping
         else
-            ((xo_verbose)) && set -x # OK if you are grepping
-            $emacsclient_exe -n -a "$emacs_exe" "${emacs_opts[@]}" "${allfiles[@]}"
-            ((xo_verbose)) && set +x # OK if you are grepping
+            xo-ce "Server already up. Specify a file to edit."
         fi
-    else
-        cmd-echo --id xo "Server already up. Specify a file to edit."
     fi
-fi
 
-true; exit
+    true;
+}
+
+main "$@";
 
 # shellcheck disable=SC2317 #https://github.com/koalaman/shellcheck/wiki/SC2317
 :<<'__PODUSAGE__'
@@ -289,6 +336,7 @@ xo - Start up emacs, using X and client mode where possible.
      [--exe /path/to/emacs ] \\
      [--org|--todo] [--gim] [--which file[,file...]] \\
      [--norc] [--nf] [--xov] [--fo|files-only] \\
+     [--force-x] \\
      [-- any-emacs-opts] [file [file...]]
 
   xo [--nobg] --geo-only <emacs opts and args>
@@ -416,6 +464,11 @@ Print the emacs command that is run.
 =item --fo|--files-only
 
 Files only. If you do 'xo *', skip the directories.
+
+=item force-x
+
+Don't use Wayland, use X11. Only for running emacs back on a machine from which
+you have 'ssh -Y'-ed into. Wayland does not do -Y.
 
 =item -- any-emacs-opts
 

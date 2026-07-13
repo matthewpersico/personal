@@ -1,49 +1,76 @@
 #!/usr/bin/env perl
 
 use 5.16.3;
-no strict 'refs';
+no strict 'refs';    ## no critic (TestingAndDebugging::ProhibitNoStrict)
 use warnings;
-use Lingua::EN::Inflect;
+
+use File::Basename;
+use Getopt::Long qw(GetOptionsFromArray);
+use Lingua::EN::Inflexion qw(noun verb adj inflect wordlist);
 use Pod::Usage;
 
 use MOP::Misc qw(UNIX_TRUE UNIX_FALSE);
 
 my $nl = '';
-if ( @ARGV == 0 ) {
-    pod2usage( -verbose => 2 );
+if (@ARGV == 0) {
+    pod2usage(-verbose => 2);
     exit UNIX_FALSE;
-} elsif ( $ARGV[0] eq '-h' ) {
-    pod2usage( -verbose => 2 );
+}
+elsif ($ARGV[0] eq '-h'
+    or $ARGV[0] eq '--help') {
+    pod2usage(-verbose => 2);
     exit UNIX_TRUE;
-} elsif ( $ARGV[0] eq '--pd' ) {
-    exec qw(perldoc Lingua::EN::Inflect);
-} elsif ( $ARGV[0] eq '--nl' ) {
+}
+elsif ($ARGV[0] eq '--pd') {
+    exec qw(perldoc Lingua::EN::Inflexion);
+}
+elsif ($ARGV[0] eq '--nl') {
     $nl = qq(\n);
     shift;
 }
 
-my $func = "Lingua::EN::Inflect::$ARGV[0]";
-if ( defined &{$func} ) {
-    if ( @ARGV == 1 ) {
+if (basename($0) eq 'wordlist') {
+    unshift @ARGV, 'wordlist';
+}
+my $func = "Lingua::EN::Inflexion::$ARGV[0]";
+if (defined &{$func}) {
+    if (@ARGV == 1) {
         die "Missing arguments for '$ARGV[0]'\n";
         exit UNIX_FALSE;
-    } else {
+    }
+    else {
         shift;
-        my $out = ( $func->(@ARGV) || '' );
+        my %opts;
+        if ($func =~ m/wordlist$/) {
+            GetOptions(
+                \%opts,
+                qw(
+                    conj=s
+                    sep=s
+                    oxford!
+                )
+            ) or pod2usage(-verbose => 2);
+        }
+        if (defined $opts{oxford} and not $opts{oxford}) {
+            $opts{final_sep} = '';
+        }
+        my $out = ($func->(@ARGV, (%opts ? \%opts : ())) || '');
         $out && print("${out}${nl}");
     }
-} elsif ( @ARGV == 1 ) {
-    my $out = ( Lingua::EN::Inflect::inflect(@ARGV) || '' );
+}
+elsif (@ARGV == 1) {
+    my $out = (Lingua::EN::Inflexion::inflect($ARGV[0]) || '');
     $out && print("${out}${nl}");
-} else {
-    die "Cannot make heads or tails of the arguments:[ '" . join( q(' '), @ARGV ) . "'\n";
+}
+else {
+    die "Cannot make heads or tails of the arguments:[ '" . join(q(' '), @ARGV) . "'\n";
 }
 
 __END__
 
 =head1 NAME
 
-inflect - a wrapper around Lingua::EN::Inflect
+inflect - a wrapper around Lingua::EN::Inflexion
 
 =head1 SYNOPSIS
 
@@ -55,14 +82,25 @@ inflect - a wrapper around Lingua::EN::Inflect
 
 =head1 DESCRIPTION
 
-Print the output of the requested Lingua::EN::Inflect function without a
+Print the output of the requested Lingua::EN::Inflexion function without a
 newline. Easily incorporated into shell scripts:
 
    $ declare catcount=3
-   $ echo I have $catcount $(inflect PL cat $catcount) in my house.
+   $ echo I have $(inflect '<#n:$catcount> <N: cat>') in my house.
    I have 3 cats in my house.
 
-For the list of functions and the arguments they take, see
+   $ echo I have $(inflect '<#w:$catcount> <N: cat>') in my house.
+   I have three cats in my house.
+
+   $ catcount=1
+   $ echo I have $(inflect '<#n:$catcount> <N: cat>') in my house.
+   I have 1 cat in my house.
+
+   $ catcount=0
+   $ echo I have $(inflect '<#w:$catcount> <N: cat>') in my house.
+   I have no cats in my house.
+
+For the extremely extensive list of functions and the arguments they take, see
 
    $ inflect -pd
 
@@ -70,28 +108,41 @@ For the list of functions and the arguments they take, see
 
 =over 4
 
-=item FUNCTION
+=item FUNCTION arg [arg...]
 
-One of the Lingua::EN::Inflect functions.
+One of the Lingua::EN::Inflexion functions and arguments to it. For the
+function 'wordlist':
 
-=item "string..."
+  inflect wordlist [--conj [and|or]] \
+                   [--sep <separator character>] \
+                   [--[no]oxford \
+                   word [word word...]
+
+=over 4
+
+=item --conj - The default is 'and'. The other vcalid value is 'or'.
+
+=item --sep - The default separator is ',' or ';', depending on locale.
+
+=item --oxford - The default is to print the separator appearing before the conjugation.
+
+=back
+
+=item "string containg..."
 
 If there is only one argument, it is assumed to be a string that contains text
-and one or more of the Lingua::EN::Inflect functions. The string is passed to
-Lingua::EN::Inflect function 'inflect' which interpolates Lingua::EN::Inflect
-functions in strings.
+and one or more of the Lingua::EN::Inflexion functions. The string is passed to
+Lingua::EN::Inflexion function 'inflect' which interpolates
+Lingua::EN::Inflexion functions in strings.
 
     $ declare catcount=3
+    $ echo I have $(inflect '<#n:$catcount> <N: cat>') in my house.
     $ inflect "I have $catcount PL_N(cat,$catcount) in my house."
     I have 3 cats in my house.
 
 When forming the function calls inside an interpolated string, do not leave any
 space between the arguments, the parens and the commas. The L::E::I:inflect()'s
-parser fails with extra whitespace in some circumstances.
-
-=item args
-
-The arguments for the function.
+parser MAY fail with extra whitespace in some circumstances.
 
 =back
 
@@ -110,7 +161,7 @@ Print this help text.
 
 =item --pd
 
-Run 'perldoc Lingua::EN::Inflect'.
+Run 'perldoc Lingua::EN::Inflexion'.
 
 =back
 

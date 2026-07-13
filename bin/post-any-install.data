@@ -13,29 +13,29 @@ declare -a pai_perlbrew_installations=(
 _pai_system_perl_modules () {
     :
 }
-declare -A pai_system_perl_modules=(
-    ['libcpan-perl-releases-perl']='debian'
-    ['libdevel-ptkdb-perl']='debian'
-    ['libemail-sender-perl']='debian'
-    ['libemail-simple-perl']='debian'
-    ['libfile-path-tiny-perl']='debian'
-    ['libfile-slurp-perl']='debian'
-    ['libjson-xs-perl']='debian'
-    ['liblingua-en-inflect-perl']='debian'
-    ['liblist-moreutils-perl']='debian'
-    ['liblist-moreutils-xs-perl']='debian'
-    ['liblocale-gettext-perl']='debian'
-    ['libppi-perl']='debian'
-    ['libppi-xs-perl']='debian'
-    ['libterm-readline-gnu-perl']='debian'
-    ['libterm-readline-perl-perl']='debian'
-    ['perl-doc']='debian'
-    ['perl-tk']='debian'
-    ['perltidy']='debian'
+declare -a pai_system_perl_modules=(
+    'libcpan-perl-releases-perl@src=debian'
+    'libdevel-ptkdb-perl@src=debian'
+    'libemail-sender-perl@src=debian'
+    'libemail-simple-perl@src=debian'
+    'libfile-path-tiny-perl@src=debian'
+    'libfile-slurp-perl@src=debian'
+    'libjson-xs-perl@src=debian'
+    'liblingua-en-inflect-perl@src=debian'
+    'liblist-moreutils-perl@src=debian'
+    'liblist-moreutils-xs-perl@src=debian'
+    'liblocale-gettext-perl@src=debian'
+    'libppi-perl@src=debian'
+    'libppi-xs-perl@src=debian'
+    'libterm-readline-gnu-perl@src=debian'
+    'libterm-readline-perl-perl@src=debian'
+    'perl-doc@src=debian'
+    'perl-tk@src=debian'
+    'perltidy@src=debian'
 
-
-    ['Rand__Urandom']='cpan'
-    ['Term__Menus']='cpan'
+    'Lingua::EN::Inflexion@src=cpan'
+    'Rand::Urandom@src=cpan'
+    'Term::Menus@src=cpan'
 )
 
 # Anything in non alphabetical order is a prereq of something else.
@@ -44,8 +44,7 @@ _pai_perl_modules () {
 }
 declare -a pai_perl_modules=(
     # 800.036 fails to build unpatched.
-    "PATCHED:Tk@$HOME/gits/github/matthewpersico/perl-tk/wt/fix-rt-154121"
-
+    "Tk@patched=$HOME/gits/github/matthewpersico/perl-tk/wt/fix-rt-154121"
     App::cpanminus
     App::FatPacker
     App::ModuleBuildTiny
@@ -80,6 +79,7 @@ declare -a pai_perl_modules=(
     JSON::PP
     JSON::XS
     Lingua::EN::Inflect
+    Lingua::EN::Inflexion
     List::MoreUtils
     List::MoreUtils::XS
     Log::Log4perl
@@ -102,7 +102,6 @@ declare -a pai_perl_modules=(
     Term::ReadKey
     Term::ReadLine
     Term::ReadLine::Gnu
-    Term::ReadLine::Perl
     Term::UI
     Test::More
     Test::Perl::Critic
@@ -129,14 +128,16 @@ _pai_debian_distro_packages () {
 }
 
 declare -a pai_debian_distro_packages=(
+    autopoint
     brave-browser
+    bubblewrap
     build-essential
     calibre
     clangd
     cmake
     csh
+    'code@os=rpi' ## This is vscode. Way to go with the naming, Microsoft ...
     curl
-    devscripts
     dos2unix
     gcc
     groff
@@ -157,12 +158,13 @@ declare -a pai_debian_distro_packages=(
     mandoc
     make
     nedit
+    node-semver
     nvme-cli
     pandoc
     rename
-    semver
     shellcheck
     smartmontools
+    snapd
     snap
     speech-dispatcher
     wish
@@ -176,8 +178,8 @@ declare -a pai_debian_distro_packages=(
     xfonts-75dpi
     xfonts-base
     xfonts-utils
-    # skipping yad - we have a patch for specifying default button choice. Build and install the patched version in
-    "PATCHED:yad@$HOME/gits/github/matthewpersico/yad/wt/set-default-button-focus"
+    # skipping yad - we have a patch for specifying default button choice.
+    "yad@patched=$HOME/gits/github/matthewpersico/yad/wt/set-default-button-focus"
     zsh
 )
 
@@ -194,11 +196,53 @@ declare -a pai_homebrew_packages=(
     gcc
     uv
     bashdb
+    tailscale
 )
 
 _pai_snap_packages () {
     :
 }
 declare -a pai_snap_packages=(
-    code ## This is vscode. Way to go with the naming, Microsoft ...
+    'code@os=wsl' ## This is vscode. Way to go with the naming, Microsoft ...
 )
+
+pai-patch-dispatch () {
+    local package_name=$1
+    local package_location=$2
+
+    (
+        cd "${package_location}" || { false; exit; }
+        pai-ce "Building in $PWD"
+
+        if [[ ! -r  pai-patch.timestamp ]] \
+               || find . -type f -newer pai-patch.timestamp -print -quit | grep -q . ; then
+            case $package_name in
+                yad )
+                    pai-ce-progress "autoreconf -fi" 1 4
+                    autoreconf -fi || exit
+                    pai-ce-progress "./configure --prefix=/opt/mop" 2 4
+                    ./configure --prefix=/opt/mop  || exit
+                    pai-ce-progress "make -j4" 3 4
+                    make -j4  || exit
+                    pai-ce-progress "sudo make install" 4 4
+                    sudo make install || exit
+                    ;;
+                Tk )
+                    pai-ce-progress "git drc" 1 3
+                    git drc || exit
+                    pai-ce-progress "perl Makefile.PL" 1 3
+                    perl Makefile.PL || exit
+                    pai-ce-progress "make install" 1 3
+                    make install || exit
+                    ;;
+            esac
+        else
+            pai-ce "${package_name} is up to date."
+        fi
+    )
+    local rc=$?
+    if ((rc==0)); then
+        date +%s >  "${package_location}"/pai-patch.timestamp
+    fi
+    return $rc
+}

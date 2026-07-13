@@ -1,0 +1,75 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# webperldoc - perldoc to a browser
+
+# Useful function packages
+# use on_exit # Sets up traps
+# use mktemp  # Sets up and clears temp files
+
+# Stricter behaviors.
+# set -e # Exit if a command fails (-e).
+# set -u # Exit if an unset variable is referenced (-u).
+# set -o pipefail # Exit pipeline at the failed command with the failed exit code
+
+main ()
+{
+    # GNU getopt cannot passthrough unrecognized options. So, we don't use it here.
+    if [[ $1 == '-h' || $1 == '-help' ]]; then
+        bash-usage "$0"
+    fi
+    tmp=$(mktemp --suffix=.html)
+    trap 'rm -f "$tmp"' EXIT
+
+    perldoc -o html "$@" >"$tmp" || exit
+    xdg-open "$tmp"
+
+    # Keep the file around until the browser has opened it.
+    sleep 10
+}
+
+# Other functions here
+
+# Execution starts here
+main "$@"
+
+# Exit here with status code returned from main.
+:<<'__PODUSAGE__'
+=head1 NAME
+
+webperldoc - run perldoc into a browser
+
+=head1 SYNOPSIS
+
+ webperldoc [-h|--help]
+ webperldoc <perldoc options and args>
+
+=head1 DESCRIPTION
+
+Run perldoc -o html into a temp file and then xdg-open that file. Give 30
+seconds before the temp file is delete.
+
+=head1 ARGUMENTS
+
+All arguments are passed down to perldoc.
+
+=head1 OPTIONS
+
+=over 4
+
+=item --help | -h
+
+Presents this help, not sent to a browser. For perldoc help, use 'webperldoc
+perldoc'.
+
+=item everything else
+
+All other options are passed down to perldoc. Don't be a smart-aleck and pass
+an overriding -o formatting option; results are indeterminate and it probably
+won't work.
+
+=back
+
+=cut
+
+__PODUSAGE__

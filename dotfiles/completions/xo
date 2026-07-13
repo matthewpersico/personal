@@ -1,0 +1,258 @@
+# -*- sh -*-
+# shellcheck shell=bash
+
+# xo - Tab completion function for xo.
+# Developed with the assistance of ChatGPT running the GPT-5.5 model.
+
+########################################################################
+# Global variables, meant to live between function invocations.
+
+# Persistent in-memory cache for _xo_completion().
+declare -ga _xo_path_cache=()
+declare -g  _xo_path_cache_path=
+declare -g  _xo_path_cache_prefix=
+declare -gi _xo_path_cache_built_at=0
+declare -gi _xo_path_cache_max_age=300 # PATH Cache lifetime in seconds (5 minutes).
+
+_xo_completion()
+{
+    local cur prev opt val
+    local candidate basename encoding result
+    local cache_now cache_age
+    local i
+
+    local attached=0
+    local completing_option=0
+    local rebuild_path_cache=0
+
+    local -a path_dirs=()
+    local -a matches=()
+    local -A cached_paths_seen=()
+
+    cur=${COMP_WORDS[COMP_CWORD]}
+    prev=${COMP_WORDS[COMP_CWORD - 1]}
+    printf -v cache_now '%(%s)T' -1
+
+    ########################################################################
+    # Completion for the switches themselves, for example:
+    #
+    #     xo -<Tab>
+    #     xo --w<Tab>
+    #
+    # Do not enter this branch for an attached option argument such as
+    # --which=perl.
+    ########################################################################
+
+    case $cur in
+        -S=*|--which=*)
+            # These are attached option arguments for which we can provide
+            # completion. They are handled below. Not all option args have
+            # completion support.
+            ;;
+
+        -*)
+            local options_list=(-x -h
+                                --geo-only --nobg --debug-init --debug --forceX --root --exe
+                                --gim --nf --todo --org --norc --xov --fo --files-only --std --stdin-file
+                                --iso --isolated --force-x --help
+                               )
+            mapfile -t COMPREPLY < <(
+                compgen -W "${options_list[*]}" -- "$cur"
+            )
+            return
+            ;;
+    esac
+
+    ########################################################################
+    # Determine whether an attached or separate option argument is being
+    # completed.
+    #
+    # Supported forms:
+    #
+    #     -S command
+    #     --which command
+    #     -S=command
+    #     --which=command
+    ########################################################################
+
+    case $cur in
+        -S=*|--which=*)
+            opt=${cur%%=*}
+            val=${cur#*=}
+            attached=1
+            completing_option=1
+            ;;
+    esac
+
+    if (( ! completing_option )); then
+        case $prev in
+            -S|--which)
+                opt=$prev
+                val=$cur
+                completing_option=1
+                ;;
+        esac
+    fi
+
+    ########################################################################
+    # Fall back to ordinary filename completion when this is not the
+    # argument to -S or --which.
+    ########################################################################
+
+    if (( ! completing_option )); then
+        mapfile -t COMPREPLY < <(
+            compgen -f -- "$cur"
+        )
+
+        compopt -o filenames
+        return
+    fi
+
+    ########################################################################
+    # Complete explicit pathname arguments directly.
+    #
+    # Once the option value contains a slash, it is no longer a command-name
+    # search through PATH. Retain only executable text files.
+    ########################################################################
+
+    if [[ $val == */* ]]; then
+        mapfile -t matches < <(
+            compgen -f -- "$val"
+        )
+
+        COMPREPLY=()
+
+        for candidate in "${matches[@]}"; do
+            [[ -f $candidate && -x $candidate ]] ||
+                continue
+
+            encoding=$(
+                file -Lb --mime-encoding -- "$candidate" 2>/dev/null
+            ) || continue
+
+            [[ $encoding != binary ]] ||
+                continue
+
+            if (( attached )); then
+                COMPREPLY+=("$opt=$candidate")
+            else
+                COMPREPLY+=("$candidate")
+            fi
+        done
+
+        return
+    fi
+
+    ########################################################################
+    # Decide whether the in-memory PATH cache must be rebuilt.
+    #
+    # Rebuild when:
+    #
+    #   1. The cache has never been built.
+    #   2. PATH has changed.
+    #   3. The cache has aged out.
+    #   4. The current value does not begin with the cached prefix.
+    #
+    # Examples:
+    #
+    #   Cached prefix "par", current value "part":
+    #       Reuse the cache and filter it for "part".
+    #
+    #   Cached prefix "par", current value "pag":
+    #       Rebuild the cache for "pag".
+    #
+    #   Cached prefix "par", current value "pa":
+    #       Rebuild because the broader search may have additional matches.
+    ########################################################################
+
+    if ((_xo_path_cache_built_at == 0)); then
+        rebuild_path_cache=1
+    elif [[ $_xo_path_cache_path != "$PATH" ]]; then
+        rebuild_path_cache=1
+    else
+        cache_age=$((cache_now - _xo_path_cache_built_at))
+
+        if ((cache_age >= _xo_path_cache_max_age)); then
+            rebuild_path_cache=1
+        elif [[ $val != "$_xo_path_cache_prefix"* ]]; then
+            rebuild_path_cache=1
+        fi
+    fi
+
+    ########################################################################
+    # Rebuild the in-memory PATH cache.
+    #
+    # The cache contains full paths to executable text files whose basenames
+    # begin with the current option value.
+    ########################################################################
+
+    if (( rebuild_path_cache )); then
+        IFS=: read -ra path_dirs <<< "$PATH"
+
+        # An empty PATH component represents the current directory.
+        for i in "${!path_dirs[@]}"; do
+            [[ -n ${path_dirs[i]} ]] ||
+                path_dirs[i]=.
+        done
+
+        _xo_path_cache=()
+        cached_paths_seen=()
+
+        while IFS= read -r -d '' candidate; do
+            # Avoid duplicates caused by repeated PATH directories.
+            [[ -v 'cached_paths_seen[$candidate]' ]] &&
+                continue
+
+            encoding=$(
+                file -Lb --mime-encoding -- "$candidate" 2>/dev/null
+            ) || continue
+
+            # file(1) reports "binary" for binary executables and other
+            # non-text data. Retain ASCII, UTF-8, and other text encodings.
+            [[ $encoding != binary ]] ||
+                continue
+
+            cached_paths_seen["$candidate"]=1
+            _xo_path_cache+=("$candidate")
+        done < <(
+            find "${path_dirs[@]}" \
+                -maxdepth 1 \
+                -xtype f \
+                -executable \
+                -name "${val}*" \
+                -print0 \
+                2>/dev/null
+        )
+
+        _xo_path_cache_path=$PATH
+        _xo_path_cache_prefix=$val
+        _xo_path_cache_built_at=$cache_now
+    fi
+
+    ########################################################################
+    # Filter the cached results against the current value and construct
+    # COMPREPLY.
+    #
+    # Filtering is necessary when the current value is more specific than
+    # the prefix used to build the cache.
+    ########################################################################
+
+    COMPREPLY=()
+
+    for candidate in "${_xo_path_cache[@]}"; do
+        basename=${candidate##*/}
+
+        [[ $basename == "$val"* ]] ||
+            continue
+
+        if (( attached )); then
+            result="$opt=$candidate"
+        else
+            result=$candidate
+        fi
+
+        COMPREPLY+=("$result")
+    done
+}
+
+complete -F _xo_completion xo

@@ -3,144 +3,133 @@
 
 # build-oss
 declare BUILD_OSS_CONF_CODE_API_VERSION=2
-export BUILD_OSS_CONF_CODE_API_VERSION
 
-declare ceid
-ceid=$(basename "$(realpath "$0")")
-declare this
-this=$(realpath "$0")
-
-# Read the options and args from command line. Note that the long and short
-# don't have to match up.
-declare OPTSARGS
-declare shortopts=''
-declare longopts=''
-ajoin longopts -s , \
-      clean log-purge root: init pause-per-step help url:
-OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
-# Reset the command line ($@).
-eval set -- "$OPTSARGS"
-
-declare -a this_opts
-declare -a logger_opts
-declare opt_clean=0
-declare opt_root_set=0
-declare opt_root=${BUILD_OSS_ROOT:-"$OPTROOT/build/oss"}
-declare opt_init=0
-declare opt_pause_per_step=0
-declare opt_start
-
-# Reprocess the command line, extracting options and their arguments into
-# variables.
-while true; do
-    declare option=$1
-    shift
-    [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
-    case "$option" in
-        h | help )
-            bash-usage "$0"
-            true; exit
-            ;;
-        init)
-            opt_init=1
-            ;;
-        url)
-            BUILD_OSS_URL=$1;
-            shift
-            ;;
-        clean)
-            opt_clean=1
-            this_opts+=(--clean)
-            ;;
-        log-purge)
-            logger_opts+=(--purge)
-            ;;
-        root )
-            opt_root_set=1
-            opt_root=$1
-            BUILD_OSS_ROOT=$1
-            export BUILD_OSS_ROOT
-            shift
-            ;;
-        pause-per-step )
-            opt_pause_per_step=1
-            ;;
-        start-at | start )
-           opt_start=$1
-           shift
-           ;;
-        --) break ;; ## VITAL!!! Exits the while loop, no more options,
-        ## remaining $*, if any, are args
-        *)
-            cmd-echo --id logit -ec -- "$option is an invalid option."
-            false; exit ;;
-    esac
-done
-
-if ((opt_root_set)) && ((!opt_init)); then
-    cmd-echo --id "$ceid" -l $LINENO --ec "Cannot set --root without --init option."
-    false; exit
-fi
-
-if [[ -z "$BUILD_OSS_ROOT" ]]; then
-    BUILD_OSS_ROOT=$opt_root
-fi
-export BUILD_OSS_ROOT
-
-cd "$opt_root" || exit
-
-if [[ -n $1 ]]; then
-    BUILD_OSS_SOFTWARE=$1; shift
-    export BUILD_OSS_SOFTWARE
-    if [[ ! -d "$BUILD_OSS_SOFTWARE" ]]; then
-        mkdir -p "$BUILD_OSS_SOFTWARE" || exit
+build-oss-ce () {
+    local ceid='build-oss'
+    if [[ -n ${FUNCNAME[1]} ]]; then
+        ceid="$ceid (${FUNCNAME[1]})"
     fi
-    cd "$BUILD_OSS_SOFTWARE" || exit
-fi
+    cmd-echo --id="$ceid" -l "${BASH_SOURCE[1]},${BASH_LINENO[1]}" "$@"
+}
 
-if [[ -n $1 ]]; then
-    # shellcheck disable=SC2001 #https://github.com/koalaman/shellcheck/wiki/SC2001
-    BUILD_OSS_VERSION=$(echo "$1" | sed 's|/$||'); shift
-    export BUILD_OSS_VERSION
-    if [[ ! -d "$BUILD_OSS_VERSION" ]]; then
-        mkdir -p "$BUILD_OSS_VERSION" || exit
+build-oss-pause () {
+    local ceid='build-oss'
+    if [[ $1 == -f ]]; then
+        shift
+        ceid="$ceid ((${FUNCTION[1]})"
     fi
-    cd "$BUILD_OSS_VERSION" || exit
-fi
+    cmd-pause --id="$ceid"  "$@"
+}
 
-if [[ -z $BUILD_OSS_DIR ]]; then
+main () {
+    # Read the options and args from command line. Note that the long and short
+    # don't have to match up.
+    local OPTSARGS
+    local shortopts=''
+    local longopts='clean,log-purge,root:,init,pause-per-step,help,url:'
+    OPTSARGS=$(getopt -a -o "$shortopts" -l "$longopts" -n "$(basename "$0")" -- "$@")
+
+    # Reset the command line ($@).
+    eval set -- "$OPTSARGS"
+
+    local opt_clean=0
+    local opt_root_set=0
+    local opt_root=${BUILD_OSS_ROOT:-"$OPTROOT/build/oss"}
+    BUILD_OSS_ROOT="$opt_root"
+    local opt_init=0
+    local opt_pause_per_step=0
+    local opt_start
+
+    # Reprocess the command line, extracting options and their arguments into
+    # variables.
+    while true; do
+        local option=$1
+        shift
+        [[ "$option" != '--' ]] && option=${option##-} && option=${option##-}
+        case "$option" in
+            h | help )
+                bash-usage "$0"
+                true; exit
+                ;;
+            init)
+                opt_init=1
+                ;;
+            url)
+                BUILD_OSS_URL=$1;
+                shift
+                ;;
+            clean)
+                opt_clean=1
+                ;;
+            root )
+                opt_root_set=1
+                opt_root=$1
+                BUILD_OSS_ROOT=$1
+                shift
+                ;;
+            pause-per-step )
+                opt_pause_per_step=1
+                ;;
+            start-at | start )
+                opt_start=$1
+                shift
+                ;;
+            --) break ;; ## VITAL!!! Exits the while loop, no more options,
+                         ## remaining $*, if any, are args
+            *)
+                build-oss-ce --ec -- "$option is an invalid option."
+                false; exit ;;
+        esac
+    done
+
+    if ((opt_root_set)) && ((!opt_init)); then
+        build-oss-ce --ec "Cannot set --root without --init option."
+        false; exit
+    fi
+
+    cd "$BUILD_OSS_ROOT" || exit
+
+    if [[ -n $1 ]]; then
+        BUILD_OSS_SOFTWARE=$1; shift
+        if [[ ! -d "$BUILD_OSS_SOFTWARE" ]]; then
+            mkdir -p "$BUILD_OSS_SOFTWARE" || exit
+        fi
+        cd "$BUILD_OSS_SOFTWARE" || exit
+    fi
+
+    if [[ -n $1 ]]; then
+        # shellcheck disable=SC2001 #https://github.com/koalaman/shellcheck/wiki/SC2001
+        BUILD_OSS_VERSION=$(echo "$1" | sed 's|/$||'); shift
+        if [[ ! -d "$BUILD_OSS_VERSION" ]]; then
+            mkdir -p "$BUILD_OSS_VERSION" || exit
+        fi
+        cd "$BUILD_OSS_VERSION" || exit
+    fi
+
     BUILD_OSS_DIR=$(pwd)
-    export BUILD_OSS_DIR
 
-    # This is the ${software}-{$version} dir. Create by expanding the tarball.
+    # We assume we are doing the tarball source expansion method. If it's curl
+    # | sh, edit the .conf file accordingly.  This is the
+    # ${software}-{$version} dir. Typically created by expanding the tarball.
     BUILD_OSS_SOURCE_DIR="${BUILD_OSS_SOFTWARE}-${BUILD_OSS_VERSION}"
-    export BUILD_OSS_SOURCE_DIR
 
     # We leave the tar.gz off the tarball and let it be set in the config
-    BUILD_OSS_SOURCE_TARBALL_ROOT="${BUILD_OSS_SOFTWARE}-${BUILD_OSS_VERSION}"
-    export BUILD_OSS_SOURCE_TARBALL_ROOT
-
-    if [[ -n $BUILD_OSS_URL ]]; then
-        BUILD_OSS_SOURCE_TARBALL=$(basename "$BUILD_OSS_URL")
-    else
-        BUILD_OSS_SOURCE_TARBALL=${BUILD_OSS_SOURCE_TARBALL_ROOT}.tar.gz
-    fi
+    BUILD_OSS_TARBALL_ROOT="${BUILD_OSS_SOFTWARE}-${BUILD_OSS_VERSION}"
 
     if ((opt_init)); then
         if [[ -z $BUILD_OSS_SOFTWARE ]]; then
-            cmd-echo --id "$ceid" -l $LINENO --ec "Missing software name argument."
+            build-oss-ce --ec "Missing software name argument."
             false; exit
         fi
 
         if [[ -z $BUILD_OSS_VERSION ]]; then
-            cmd-echo --id "$ceid" -l $LINENO --ec "Missing software version argument."
+            build-oss-ce --ec "Missing software version argument."
             false; exit
         fi
 
-        mkdir -p "$BUILD_OSS_DIR/.logit"
-        declare conf="$BUILD_OSS_DIR/build-oss.conf"
+        local conf="$BUILD_OSS_DIR/build-oss.conf"
         if [[ -f $conf ]]; then
-            cmd-echo --id "$ceid" -l $LINENO --ec "'$conf' already exists. Will not overwrite it."
+            build-oss-ce --ec "'$conf' already exists. Will not overwrite it."
             false; exit
         fi
         cat <<EOF >"$conf"
@@ -148,149 +137,156 @@ if [[ -z $BUILD_OSS_DIR ]]; then
 # shellcheck shell=bash
 
 declare BUILD_OSS_CONF_FILE_API_VERSION=${BUILD_OSS_CONF_CODE_API_VERSION}
-export BUILD_OSS_CONF_FILE_API_VERSION
+
+# Documentation purposes:
+# BUILD_OSS_ROOT=$BUILD_OSS_ROOT
+# PWD will be \$BUILD_OSS_DIR
+BUILD_OSS_DIR=$BUILD_OSS_DIR
+BUILD_OSS_SOFTWARE=$BUILD_OSS_SOFTWARE
+BUILD_OSS_VERSION=$BUILD_OSS_VERSION
+BUILD_OSS_SOURCE_DIR=$BUILD_OSS_SOURCE_DIR
+BUILD_OSS_TARBALL_ROOT=$BUILD_OSS_TARBALL_ROOT
 
 declare tarball_ext='tar.gz' # modify as needed
-BUILD_OSS_SOURCE_TARBALL=\${BUILD_OSS_SOURCE_TARBALL_ROOT}.\$tarball_ext
-export BUILD_OSS_SOURCE_TARBALL
+BUILD_OSS_TARBALL=\${BUILD_OSS_TARBALL_ROOT}.\$tarball_ext
 
-BUILD_OSS_ROOT="${opt_root}"
-export BUILD_OSS_ROOT
+BUILD_OSS_URL="$BUILD_OSS_URL"
+
+BUILD_OSS_TIMESTAMP="\${BUILD_OSS_DIR}/build-oss.timestamp"
 
 # Enhance or remove these functions as needed.
 
 build-oss-get () {
     # Commands to get the tarball and write it to \$BUILD_OSS_DIR
     # or to get a git repo.
-    # PWD will be \$BUILD_OSS_DIR
-    # BUILD_OSS_ROOT=$BUILD_OSS_ROOT
-    # BUILD_OSS_SOFTWARE=$BUILD_OSS_SOFTWARE
-    # BUILD_OSS_VERSION=$BUILD_OSS_VERSION
-    # BUILD_OSS_DIR=$BUILD_OSS_DIR
-    # BUILD_OSS_SOURCE_DIR=$BUILD_OSS_SOURCE_DIR
-    # BUILD_OSS_SOURCE_TARBALL_ROOT=$BUILD_OSS_SOURCE_TARBALL_ROOT
-    # BUILD_OSS_SOURCE_TARBALL=$BUILD_OSS_SOURCE_TARBALL
-    curl -L $BUILD_OSS_URL -o $BUILD_OSS_SOURCE_TARBALL
+    if [[ ! -f \$BUILD_OSS_TARBALL ]]; then
+        # Pick one
+        curl -L "\$BUILD_OSS_URL" -o "\$BUILD_OSS_TARBALL"
+        # wget -O "\$BUILD_OSS_TARBALL" "\$BUILD_OSS_URL"
+    else
+        build-oss-ce "Tarball \$BUILD_OSS_TARBALL exists."
+    fi
 }
 
 build-oss-unpack () {
-    if [[ -n \$tarball_ext ]]; then
-        if ! tar zxf "\$BUILD_OSS_SOURCE_TARBALL"; then
-            false; exit;
-        fi
-    else
-        cmd-echo --id "$ceid" "No tarball. Downloaded binary."
+    if [[ -d \$BUILD_OSS_SOURCE_DIR ]]; then
+         build-oss-ce "Tarball \$BUILD_OSS_TARBALL already expanded."
+    elif ! tar -xf "\$BUILD_OSS_TARBALL"; then
+        false; exit;
     fi
 }
 
 build-oss-configure () {
-    ./configure
+    if [[ ! -r "\${BUILD_OSS_TIMESTAMP}" ]] \\
+           || find . -type f -newer "\${BUILD_OSS_TIMESTAMP}" -print -quit | grep -q . ; then
+        ./configure
+    else
+        build-oss-ce "./configure has already run"
+    fi
 }
 
 build-oss-build () {
-    make
+    if [[ ! -r "\${BUILD_OSS_TIMESTAMP}" ]] \\
+           || find . -type f -newer "\${BUILD_OSS_TIMESTAMP}" -print -quit | grep -q . ; then
+        make
+    else
+        build-oss-ce "make has already run"
+    fi
 }
 
 build-oss-test () {
-    make test
+    if [[ ! -r "\${BUILD_OSS_TIMESTAMP}" ]] \\
+           || find . -type f -newer "\${BUILD_OSS_TIMESTAMP}" -print -quit | grep -q . ; then
+	    make test
+    else
+        build-oss-ce "make test has already run"
+    fi
 }
 
 build-oss-install () {
-    make install
+    if [[ ! -r "\${BUILD_OSS_TIMESTAMP}" ]] \\
+           || find . -type f -newer "\${BUILD_OSS_TIMESTAMP}" -print -quit | grep -q . ; then
+        make install
+    else
+        build-oss-ce "make install has already run"
+    fi
 }
 
 build-oss-coda () {
-    # shellcheck disable=SC2154 #https://github.com/koalaman/shellcheck/wiki/SC2154
-    cmd-echo --id "\$ceid" "build-oss of \$BUILD_OSS_SOFTWARE version \$BUILD_OSS_VERSION is complete."
+    build-oss-ce --infoc \\
+                 "build/install of \$BUILD_OSS_SOFTWARE version \$BUILD_OSS_VERSION is complete."
+    date +%s > "\${BUILD_OSS_TIMESTAMP}"
 }
 
 EOF
-        cmd-echo --id "$ceid" -l $LINENO "$conf created. Edit if needed and re-run."
+
+        build-oss-ce "$conf created. Edit if needed and re-run."
         true; exit;
-    fi
+    else
+        cd "$BUILD_OSS_DIR" || exit
 
-    #logger_opts+=(--tee --teedir "$BUILD_OSS_DIR" --teeppid $PPID)
-    logger_opts+=(--gui)
-    logit "${logger_opts[@]}" -- "$this" "${this_opts[@]}"
-else
-    cd "$BUILD_OSS_DIR" || exit
-
-    if [[ ! -r ./build-oss.conf ]]; then
-        cmd-echo --id="$ceid" --ec "'$(pwd)/build-oss.conf' not found."
-        false; exit
-    fi
-
-    # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
-    . ./build-oss.conf
-
-    if [[ $BUILD_OSS_CONF_FILE_API_VERSION != "$BUILD_OSS_CONF_CODE_API_VERSION" ]]; then
-        cmd-echo --id="$ceid" --ec "build-oss.conf file api version ($BUILD_OSS_CONF_FILE_API_VERSION) does not match current version (BUILD_OSS_CONF_CODE_API_VERSION)." \
-                 "Correct and re-run."
-        false; exit
-    fi
-
-    if [[ -d $BUILD_OSS_SOURCE_DIR ]]; then
-        if ((opt_clean)); then
-            cmd-echo --id "$ceid" -l $LINENO "Cleaning $BUILD_OSS_SOURCE_DIR..."
-            rm -rf "$BUILD_OSS_SOURCE_DIR"
-        fi
-    fi
-
-    if [[ ! -e $BUILD_OSS_SOURCE_TARBALL ]]; then
-        declare full_funcname='build-oss-get'
-        if is-a-function $full_funcname; then
-            cmd-echo --id "$ceid" -l $LINENO --info "Running $full_funcname..."
-            $full_funcname || exit
-            if ((opt_pause_per_step)); then
-                cmd-pause --id "$ceid" -l $LINENO "$full_funcname complete."
-            fi
-        else
-            cmd-echo --id "$ceid" -l $LINENO -wc "No $full_funcname defined. No tarball found."
+        if [[ ! -r ./build-oss.conf ]]; then
+            build-oss-ce --ec "'$(pwd)/build-oss.conf' not found."
             false; exit
         fi
-    fi
 
-    if [[ ! -d $BUILD_OSS_SOURCE_DIR ]]; then
-        declare full_funcname='build-oss-unpack'
-        if is-a-function $full_funcname; then
-            cmd-echo --id "$ceid" -l $LINENO --info "Running $full_funcname..."
-            $full_funcname || exit
-            if ((opt_pause_per_step)); then
-                cmd-pause --id "$ceid" -l $LINENO "$full_funcname complete."
-            fi
-        else
-            cmd-echo --id "$ceid" -l $LINENO -wc "No $full_funcname defined. No expansion performed."
+        # shellcheck disable=SC1091 #https://github.com/koalaman/shellcheck/wiki/SC1091
+        . ./build-oss.conf
+
+        if [[ $BUILD_OSS_CONF_FILE_API_VERSION != "$BUILD_OSS_CONF_CODE_API_VERSION" ]]; then
+            build-oss-ce --ec "build-oss.conf file api version ($BUILD_OSS_CONF_FILE_API_VERSION) does not match current version (BUILD_OSS_CONF_CODE_API_VERSION)." \
+                         "Correct and re-run."
+            false; exit
         fi
-    else
-        cmd-echo --id "$ceid" -l $LINENO "$BUILD_OSS_SOURCE_TARBALL already expanded."
-    fi
 
-    # Now in the source dir (expansion of the tarball, if it was expanded).
-    if [[ -d "$BUILD_OSS_SOURCE_DIR" ]]; then
-        cd "$BUILD_OSS_SOURCE_DIR" || exit
-    fi
+        if [[ -d $BUILD_OSS_SOURCE_DIR ]]; then
+            if ((opt_clean)); then
+                build-oss-ce "Cleaning $BUILD_OSS_SOURCE_DIR..."
+                rm -rf "$BUILD_OSS_SOURCE_DIR"
+            fi
+        fi
 
-    declare funcname
-    for funcname in configure build test install coda; do
-        if [[ -n $opt_start ]]; then
-            if [[ $opt_start == "$funcname" ]]; then
-                opt_start=''
+        local funcname
+        local full_funcname
+        for funcname in get unpack configure build test install coda; do
+            if [[ -n $opt_start ]]; then
+                if [[ $opt_start == "$funcname" ]]; then
+                    opt_start=''
+                else
+                    build-oss-ce --wc "$funcname is not the requested start function $opt_start. Skipping."
+                    continue
+                fi
+            fi
+
+            full_funcname="build-oss-${funcname}"
+            if is-a-function $full_funcname; then
+                build-oss-ce --info "Running $full_funcname..."
+                $full_funcname || exit
+                if ((opt_pause_per_step)); then
+                    cmd-pause --id "$ceid" -l $LINENO "$full_funcname complete."
+                    echo
+                fi
             else
-                continue
+                build-oss-ce --wc "No $full_funcname defined. Skipping this step."
             fi
-        fi
-        declare full_funcname="build-oss-${funcname}"
-        if is-a-function $full_funcname; then
-            cmd-echo --id "$ceid" -l $LINENO --info "Running $full_funcname..."
-            $full_funcname || exit
-        else
-            cmd-echo --id "$ceid" -l $LINENO --wc "No $full_funcname defined. Skipping this step."
-        fi
-        if ((opt_pause_per_step)); then
-            cmd-pause --id "$ceid" -l $LINENO "$full_funcname complete."
-        fi
-    done
-fi
+
+            if [[ $funcname == 'unpack' ]]; then
+                # Now move to the source dir (expansion of the tarball, if it was
+                # expanded).
+                if [[ -d "$BUILD_OSS_SOURCE_DIR" ]]; then
+                    cd "$BUILD_OSS_SOURCE_DIR" || exit
+                else
+                    build-oss-ce --wc "BUILD_OSS_SOURCE_DIR $BUILD_OSS_SOURCE_DIR not found." \
+                                 "Post-unpack, whether we actually unpack or skip, there has to be a directory" \
+                                 "to work in in order to continue. With no directory, we must exit."
+                    false; exit
+                fi
+            fi
+        done
+    fi
+}
+
+main "$@"
 
 :<<'__PODUSAGE__'
 =head1 NAME
@@ -317,6 +313,8 @@ o A tarball named 'project-version.tar.gz' that unpacks into a subdirectory
 o A build command sequence of config, make, make test, make install
 
 then you can use this script to build it.
+
+If not, you can finagle the functions in the conf file to build it anyway.
 
 =head1 ARGUMENTS
 

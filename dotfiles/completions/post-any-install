@@ -7,18 +7,21 @@
 
 _post-any-install_completion()
 {
-    local cur prev word script
+    local cur prev word script value action
     local i
     local expecting_option_argument=0
     local end_of_options=0
-    local positional_count=0
+
+    local -A used_actions=()
+    local -a valid_actions_list=()
+    local -a available_actions=()
 
     local -a options_with_arguments=(
         --os
     )
 
     local -a options_without_arguments=(
-        --molog
+        --nolog
         --no-log
     )
 
@@ -32,7 +35,11 @@ _post-any-install_completion()
     cur=${COMP_WORDS[COMP_CWORD]}
     prev=${COMP_WORDS[COMP_CWORD - 1]}
 
-    # Complete an argument following --os.
+    ##
+    ## --os
+    ##
+
+    # Handle --os value
     if [[ $prev == --os ]]; then
         mapfile -t COMPREPLY < <(
             compgen -W "${os_values[*]}" -- "$cur"
@@ -40,7 +47,7 @@ _post-any-install_completion()
         return
     fi
 
-    # Complete --os=value.
+    # Handle --os=value
     if [[ $cur == --os=* ]]; then
         local value=${cur#--os=}
         local -a values
@@ -57,7 +64,9 @@ _post-any-install_completion()
         return
     fi
 
-    # Examine completed arguments preceding the current word.
+    ##
+    ## Examine completed arguments preceding the current word.
+    ##
     for ((i = 1; i < COMP_CWORD; i++)); do
         word=${COMP_WORDS[i]}
 
@@ -93,12 +102,14 @@ _post-any-install_completion()
                 ;;
 
             *)
-                ((positional_count++))
+                used_actions["$word"]=1
                 ;;
         esac
     done
 
-    # Complete option names.
+    ##
+    ## Complete option names.
+    ##
     if (( ! end_of_options )) && [[ $cur == -* ]]; then
         mapfile -t COMPREPLY < <(
             compgen -W \
@@ -108,6 +119,12 @@ _post-any-install_completion()
         return
     fi
 
+    ##
+    ## Handle action arguments.
+    ##
+
+    # Get current command's file. We are going to pull the argument values from
+    # the file.
     script=$(command -v post-any-install) || {
         COMPREPLY=()
         return
@@ -116,7 +133,6 @@ _post-any-install_completion()
     # Extract names from definitions resembling:
     #
     # pai-something() { #action
-    #
     mapfile -t valid_actions_list < <(
         sed -nE '
             /^pai-[[:alnum:]_-]+[[:space:]]*\(\)[[:space:]]*\{[[:space:]]*#action/ {
@@ -127,8 +143,17 @@ _post-any-install_completion()
         ' "$script"
     )
 
+    # Eliminate actions that have been typed already
+    for action in "${valid_actions_list[@]}"; do
+        [[ -v 'used_actions[$action]' ]] ||
+            available_actions+=("$action")
+    done
+
+    compopt -o nosort # Preserve the incomming order as an indicator of what
+                      # order to specify actions if specifying more than one.
+
     mapfile -t COMPREPLY < <(
-        compgen -W "all ${valid_actions_list[*]}" -- "$cur"
+        compgen -W "all restart ${available_actions[*]}" -- "$cur"
     )
 }
 
